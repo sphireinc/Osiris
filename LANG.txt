@@ -112,6 +112,58 @@ MACRO
 Macros expand before evaluation.
 Use them for syntax shaping, not for hiding business logic.
 
+FUNC
+
+  func name(arg, other) => expression
+
+  func name(arg, other) {
+    let tmp = arg + other
+    return tmp * 2
+  }
+
+Functions are lexical and can recurse.
+Use them when a transform deserves a name.
+
+RETURN
+
+  return expression
+  return
+
+Return exits the current function or loop body immediately.
+
+IF, AND, OR
+
+  emit if(test, left, right)
+  emit and(left, right)
+  emit or(left, right)
+
+These are special forms.
+Use them for short conditional logic.
+
+WHILE
+
+  while keep_going {
+    let next = step
+  }
+
+Use while for open-ended repetition.
+
+FOR
+
+  for item in items {
+    emit item
+  }
+
+Use for when you want to walk a list or other sequence.
+
+BREAK / CONTINUE
+
+  break
+  continue
+
+Break exits the nearest loop.
+Continue skips to the next iteration.
+
 EMIT
 
   emit expression
@@ -127,6 +179,7 @@ BLOCKS
   }
 
 Blocks create local scope and return the last expression.
+Blocks may also contain local function declarations and loops.
 
 ---------------------------------------------------------------------------
 EXPRESSIONS
@@ -144,12 +197,25 @@ You can use:
   * member access: text.slug(...)
   * lists: [1, 2, 3]
   * blocks: { let x = 1; x + 2 }
-  * match expressions:
+ * match expressions:
 
       emit match [1, 2] {
         [a, b] => a + b;
         _ => 0
       }
+
+  * switch expressions:
+
+      emit switch [1, 2] {
+        [a, b] => a + b;
+        _ => 0
+      }
+
+  * control flow:
+
+      func fact(n) => if(n == 0, 1, n * fact(n - 1))
+      while ready { break }
+      for x in xs { continue }
 
 Numbers may be plain, hex, binary, or sized fixed-width values such as:
 
@@ -174,7 +240,10 @@ Good habits:
   * use imports instead of copying helpers into every file
   * name intermediate values
   * keep macros small and obvious
+  * use functions for repeated logic and recursion
+  * use loops when the shape is iterative
   * use match for shape-driven branching
+  * use switch when you want the same matcher with a more table-like feel
   * keep emit at the end when possible
   * prefer deterministic transforms
   * keep the module surface narrow
@@ -297,4 +366,3 @@ Keep the modules tight.
 Keep the outputs deterministic.
 
 That is the Osiris way.
-

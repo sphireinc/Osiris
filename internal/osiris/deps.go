@@ -54,6 +54,19 @@ func (rt *Runtime) BuildDependencyReport(sourceName, src string) (DependencyRepo
 			report.Order = append(report.Order, ref)
 		}()
 
+		if strings.HasPrefix(ref, "std/") {
+			version := stdlibVersion(ref)
+			node := DependencyNode{
+				Ref:     ref,
+				Kind:    "stdlib",
+				Label:   "package " + ref + " " + version,
+				Package: ref,
+				Version: version,
+			}
+			report.Nodes[ref] = node
+			return nil
+		}
+
 		prog, err := Parse(ref, src)
 		if err != nil {
 			return err

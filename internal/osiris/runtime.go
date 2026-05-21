@@ -75,6 +75,7 @@ type evaluator struct {
 	pending map[string]*promise
 	fpMu    sync.Mutex
 	fpMemo  map[fpKey]string
+	fpBusy  map[fpKey]struct{}
 
 	traceMu     sync.Mutex
 	callStack   []string
@@ -138,7 +139,20 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 		ev.fpMu.Unlock()
 		return v, nil
 	}
+	if ev.fpBusy == nil {
+		ev.fpBusy = make(map[fpKey]struct{})
+	}
+	if _, busy := ev.fpBusy[key]; busy {
+		ev.fpMu.Unlock()
+		return hashParts("cycle", fmt.Sprintf("%T", expr)), nil
+	}
+	ev.fpBusy[key] = struct{}{}
 	ev.fpMu.Unlock()
+	defer func() {
+		ev.fpMu.Lock()
+		delete(ev.fpBusy, key)
+		ev.fpMu.Unlock()
+	}()
 
 	var (
 		out string
@@ -179,6 +193,19 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 		}
 		out = hashParts("binary", n.op.String(), left, right)
 	case *callExpr:
+		if name, ok := specialFormName(n.callee); ok {
+			parts := make([]string, 0, len(n.args)+2)
+			parts = append(parts, "special", name)
+			for _, arg := range n.args {
+				fp, ferr := ev.fingerprint(arg, env)
+				if ferr != nil {
+					return "", ferr
+				}
+				parts = append(parts, fp)
+			}
+			out = hashParts(parts...)
+			break
+		}
 		callee, ferr := ev.fingerprint(n.callee, env)
 		if ferr != nil {
 			return "", ferr
@@ -229,6 +256,52 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 						st.Alias: {expr: &literalExpr{value: mod}, env: cur},
 					},
 				}
+			case funcStmt:
+				bodyFp, err := ev.fingerprint(st.Body, cur)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, hashParts("func", st.Name, strings.Join(st.Params, ","), bodyFp))
+				cur = &scope{
+					parent: cur,
+					items: map[string]binding{
+						st.Name: {expr: &literalExpr{value: functionValueOf(st.Name, nil)}, env: cur},
+					},
+				}
+			case whileStmt:
+				cond, err := ev.fingerprint(st.Cond, cur)
+				if err != nil {
+					return "", err
+				}
+				body, err := ev.fingerprint(st.Body, cur)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, hashParts("while", cond, body))
+			case forStmt:
+				iter, err := ev.fingerprint(st.Iter, cur)
+				if err != nil {
+					return "", err
+				}
+				body, err := ev.fingerprint(st.Body, cur)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, hashParts("for", st.Name, iter, body))
+			case returnStmt:
+				if st.Expr != nil {
+					fp, err := ev.fingerprint(st.Expr, cur)
+					if err != nil {
+						return "", err
+					}
+					parts = append(parts, hashParts("return", fp))
+				} else {
+					parts = append(parts, "return")
+				}
+			case breakStmt:
+				parts = append(parts, "break")
+			case continueStmt:
+				parts = append(parts, "continue")
 			case macroStmt:
 				return "", fmt.Errorf("macro statements must be expanded before evaluation")
 			}
@@ -289,7 +362,8 @@ func computeExpr(ev *evaluator, expr Expr, scope *scope, key string) (Value, err
 		}
 		return listValue(items), nil
 	case *blockExpr:
-		return evalBlock(ev, n, scope)
+		v, _, err := ev.session.evalBlockExpr(n, scope, ev.session.sourceName, nil)
+		return v, err
 	default:
 		return nullValue(), fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -351,6 +425,45 @@ func fingerprintStmt(ev *evaluator, stmt Stmt, scope *scope) string {
 		return hashParts("import", st.Path, st.Alias)
 	case macroStmt:
 		return hashParts("macro", st.Name, strings.Join(st.Params, ","), "<body>")
+	case funcStmt:
+		fp, err := ev.fingerprint(st.Body, scope)
+		if err != nil {
+			return hashParts("func", st.Name, "<err>")
+		}
+		return hashParts("func", st.Name, strings.Join(st.Params, ","), fp)
+	case returnStmt:
+		if st.Expr == nil {
+			return hashParts("return")
+		}
+		fp, err := ev.fingerprint(st.Expr, scope)
+		if err != nil {
+			return hashParts("return", "<err>")
+		}
+		return hashParts("return", fp)
+	case whileStmt:
+		cond, err := ev.fingerprint(st.Cond, scope)
+		if err != nil {
+			return hashParts("while", "<cond>")
+		}
+		body, err := ev.fingerprint(st.Body, scope)
+		if err != nil {
+			return hashParts("while", cond, "<body>")
+		}
+		return hashParts("while", cond, body)
+	case forStmt:
+		iter, err := ev.fingerprint(st.Iter, scope)
+		if err != nil {
+			return hashParts("for", st.Name, "<iter>")
+		}
+		body, err := ev.fingerprint(st.Body, scope)
+		if err != nil {
+			return hashParts("for", st.Name, iter, "<body>")
+		}
+		return hashParts("for", st.Name, iter, body)
+	case breakStmt:
+		return hashParts("break")
+	case continueStmt:
+		return hashParts("continue")
 	default:
 		return hashParts("stmt", fmt.Sprintf("%T", stmt))
 	}
@@ -492,23 +605,50 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 	return nullValue(), fmt.Errorf("unsupported operator %s", n.op)
 }
 
-func evalCall(ev *evaluator, n *callExpr, scope *scope) (Value, error) {
+func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if name, ok := specialFormName(n.callee); ok {
-		return evalSpecialForm(ev, name, n.args, scope)
+		return evalSpecialForm(ev, name, n.args, curScope)
 	}
 
-	callee, err := ev.eval(n.callee, scope)
+	callee, err := ev.eval(n.callee, curScope)
 	if err != nil {
 		return nullValue(), err
 	}
 	if callee.kind == kindFunction && callee.fn != nil {
-		args, err := evalMany(ev, n.args, scope)
+		args, err := evalMany(ev, n.args, curScope)
 		if err != nil {
 			return nullValue(), err
 		}
 		ev.pushCall(callee.fn.name)
 		defer ev.popCall()
-		return callee.fn.fn(args)
+		if callee.fn.builtin != nil {
+			return callee.fn.builtin(args)
+		}
+		if callee.fn.body == nil || callee.fn.session == nil {
+			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
+		}
+		if len(args) != len(callee.fn.params) {
+			return nullValue(), fmt.Errorf("function %s expects %d arguments", callee.fn.name, len(callee.fn.params))
+		}
+		base := callee.fn.closure
+		if base == nil {
+			base = curScope
+		}
+		callScope := &scope{
+			parent: base,
+			items:  make(map[string]binding, len(callee.fn.params)),
+		}
+		for i, name := range callee.fn.params {
+			callScope.items[name] = binding{expr: &literalExpr{value: args[i]}, env: callScope}
+		}
+		v, err := callee.fn.session.eval(callee.fn.body, callScope)
+		if sig, ok := asFlow(err); ok {
+			if sig.kind == flowReturn {
+				return sig.value, nil
+			}
+			return nullValue(), flowError(sig.kind, "function")
+		}
+		return v, err
 	}
 	if callee.kind == kindModule {
 		return nullValue(), fmt.Errorf("cannot call module %s", callee.String())

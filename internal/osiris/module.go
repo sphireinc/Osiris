@@ -260,7 +260,7 @@ func makeModule(name, version string, exports map[string]Value) Value {
 			return v, nil
 		}
 		return nullValue(), fmt.Errorf("module %s has no member %q", name, member)
-	})
+	}, exports)
 }
 
 func splitModuleRef(ref string) (string, string) {

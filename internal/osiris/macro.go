@@ -105,6 +105,19 @@ func cloneStmt(stmt Stmt) Stmt {
 	case macroStmt:
 		params := append([]string(nil), s.Params...)
 		return macroStmt{Name: s.Name, Params: params, Body: cloneExpr(s.Body)}
+	case funcStmt:
+		params := append([]string(nil), s.Params...)
+		return funcStmt{Name: s.Name, Params: params, Body: cloneExpr(s.Body)}
+	case returnStmt:
+		return returnStmt{Expr: cloneExpr(s.Expr)}
+	case whileStmt:
+		return whileStmt{Cond: cloneExpr(s.Cond), Body: cloneExpr(s.Body)}
+	case forStmt:
+		return forStmt{Name: s.Name, Iter: cloneExpr(s.Iter), Body: cloneExpr(s.Body)}
+	case breakStmt:
+		return breakStmt{}
+	case continueStmt:
+		return continueStmt{}
 	default:
 		return stmt
 	}
@@ -232,6 +245,52 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 				return nil, nil, nil, err
 			}
 			out = append(out, emitStmt{Expr: expr})
+		case funcStmt:
+			body, err := e.expandExpr(st.Body, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			out = append(out, funcStmt{Name: st.Name, Params: append([]string(nil), st.Params...), Body: body})
+			curScope = &scope{
+				parent: curScope,
+				items: map[string]binding{
+					st.Name: {expr: &literalExpr{value: functionValueOf(st.Name, nil)}, env: curScope},
+				},
+			}
+		case returnStmt:
+			expr := st.Expr
+			if expr != nil {
+				var err error
+				expr, err = e.expandExpr(expr, curScope, curDefs, depth+1)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+			}
+			out = append(out, returnStmt{Expr: expr})
+		case whileStmt:
+			cond, err := e.expandExpr(st.Cond, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			body, err := e.expandExpr(st.Body, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			out = append(out, whileStmt{Cond: cond, Body: body})
+		case forStmt:
+			iter, err := e.expandExpr(st.Iter, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			body, err := e.expandExpr(st.Body, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body})
+		case breakStmt:
+			out = append(out, st)
+		case continueStmt:
+			out = append(out, st)
 		default:
 			return nil, nil, nil, fmt.Errorf("internal error: unknown statement type %T", stmt)
 		}
@@ -515,8 +574,58 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 					st.Alias: {expr: &literalExpr{value: mod}, env: curScope},
 				},
 			}
+		case funcStmt:
+			fresh := e.freshName(st.Name)
+			nextRenames := cloneStringMap(curRenames)
+			nextRenames[st.Name] = fresh
+			body, err := e.expandTemplateExpr(st.Body, curScope, curDefs, params, args, nextRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, funcStmt{Name: fresh, Params: append([]string(nil), st.Params...), Body: body})
+			curRenames = nextRenames
+			curScope = &scope{
+				parent: curScope,
+				items: map[string]binding{
+					fresh: {expr: &literalExpr{value: functionValueOf(fresh, nil)}, env: curScope},
+				},
+			}
+		case returnStmt:
+			expr := st.Expr
+			if expr != nil {
+				var err error
+				expr, err = e.expandTemplateExpr(expr, curScope, curDefs, params, args, curRenames, depth+1)
+				if err != nil {
+					return nil, err
+				}
+			}
+			out = append(out, returnStmt{Expr: expr})
+		case whileStmt:
+			cond, err := e.expandTemplateExpr(st.Cond, curScope, curDefs, params, args, curRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			body, err := e.expandTemplateExpr(st.Body, curScope, curDefs, params, args, curRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, whileStmt{Cond: cond, Body: body})
+		case forStmt:
+			iter, err := e.expandTemplateExpr(st.Iter, curScope, curDefs, params, args, curRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			body, err := e.expandTemplateExpr(st.Body, curScope, curDefs, params, args, curRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body})
+		case breakStmt:
+			out = append(out, st)
+		case continueStmt:
+			out = append(out, st)
 		default:
-			return nil, fmt.Errorf("block expressions only support let, import, and macro statements")
+			return nil, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, and continue statements")
 		}
 	}
 	var tail Expr

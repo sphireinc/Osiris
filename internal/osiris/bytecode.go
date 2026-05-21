@@ -448,7 +448,39 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			for i, reg := range instr.args {
 				args[i] = regs[reg]
 			}
-			out, err := callee.fn.fn(args)
+			if callee.fn.builtin != nil {
+				out, err := callee.fn.builtin(args)
+				if err != nil {
+					return nullValue(), err
+				}
+				regs[instr.dst] = out
+				continue
+			}
+			if callee.fn.session == nil || callee.fn.body == nil {
+				return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
+			}
+			if len(args) != len(callee.fn.params) {
+				return nullValue(), fmt.Errorf("function %s expects %d arguments", callee.fn.name, len(callee.fn.params))
+			}
+			base := callee.fn.closure
+			if base == nil {
+				base = &scope{}
+			}
+			callScope := &scope{
+				parent: base,
+				items:  make(map[string]binding, len(callee.fn.params)),
+			}
+			for i, name := range callee.fn.params {
+				callScope.items[name] = binding{expr: &literalExpr{value: args[i]}, env: callScope}
+			}
+			out, err := callee.fn.session.eval(callee.fn.body, callScope)
+			if sig, ok := asFlow(err); ok {
+				if sig.kind == flowReturn {
+					regs[instr.dst] = sig.value
+					continue
+				}
+				return nullValue(), flowError(sig.kind, "function")
+			}
 			if err != nil {
 				return nullValue(), err
 			}
@@ -665,6 +697,9 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	if err != nil {
 		return nil, err
 	}
+	if containsControlFlow(expanded) {
+		return sess.ExecProgram(expanded, false, nil)
+	}
 	compiler := newVMCompiler(prog.SourceName)
 	chunk, err := compiler.compileProgram(expanded)
 	if err != nil {
@@ -681,4 +716,80 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 		return nil, err
 	}
 	return runner.outputs, nil
+}
+
+func containsControlFlow(prog *Program) bool {
+	if prog == nil {
+		return false
+	}
+	for _, stmt := range prog.Statements {
+		if stmtContainsControl(stmt) {
+			return true
+		}
+	}
+	return false
+}
+
+func stmtContainsControl(stmt Stmt) bool {
+	switch st := stmt.(type) {
+	case funcStmt, whileStmt, forStmt, returnStmt, breakStmt, continueStmt:
+		return true
+	case letStmt:
+		return exprContainsControl(st.Expr)
+	case emitStmt:
+		return exprContainsControl(st.Expr)
+	case macroStmt:
+		return exprContainsControl(st.Body)
+	case importStmt, packageStmt, exportStmt:
+		return false
+	default:
+		return false
+	}
+}
+
+func exprContainsControl(expr Expr) bool {
+	switch n := expr.(type) {
+	case *blockExpr:
+		for _, stmt := range n.stmts {
+			if stmtContainsControl(stmt) {
+				return true
+			}
+		}
+		return n.tail != nil && exprContainsControl(n.tail)
+	case *callExpr:
+		if exprContainsControl(n.callee) {
+			return true
+		}
+		for _, arg := range n.args {
+			if exprContainsControl(arg) {
+				return true
+			}
+		}
+		return false
+	case *memberExpr:
+		return exprContainsControl(n.object)
+	case *unaryExpr:
+		return exprContainsControl(n.expr)
+	case *binaryExpr:
+		return exprContainsControl(n.left) || exprContainsControl(n.right)
+	case *listExpr:
+		for _, item := range n.items {
+			if exprContainsControl(item) {
+				return true
+			}
+		}
+		return false
+	case *matchExpr:
+		if exprContainsControl(n.subject) {
+			return true
+		}
+		for _, arm := range n.arms {
+			if exprContainsControl(arm.body) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }

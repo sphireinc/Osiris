@@ -43,6 +43,24 @@ func formatStmt(stmt Stmt) string {
 		return "emit " + formatExpr(s.Expr, 0)
 	case macroStmt:
 		return "macro " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
+	case funcStmt:
+		if _, ok := s.Body.(*blockExpr); ok {
+			return "func " + s.Name + "(" + strings.Join(s.Params, ", ") + ") " + formatExpr(s.Body, 0)
+		}
+		return "func " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
+	case returnStmt:
+		if s.Expr == nil {
+			return "return"
+		}
+		return "return " + formatExpr(s.Expr, 0)
+	case whileStmt:
+		return "while " + formatExpr(s.Cond, 0) + " " + formatExpr(s.Body, 0)
+	case forStmt:
+		return "for " + s.Name + " in " + formatExpr(s.Iter, 0) + " " + formatExpr(s.Body, 0)
+	case breakStmt:
+		return "break"
+	case continueStmt:
+		return "continue"
 	case importStmt:
 		return fmt.Sprintf("import %s as %s", quoteString(s.Path), s.Alias)
 	default:
@@ -114,7 +132,11 @@ func formatExpr(expr Expr, parentPrec int) string {
 		return b.String()
 	case *matchExpr:
 		var b strings.Builder
-		b.WriteString("match ")
+		if n.keyword == tokenSwitch {
+			b.WriteString("switch ")
+		} else {
+			b.WriteString("match ")
+		}
 		b.WriteString(formatExpr(n.subject, precLowest))
 		b.WriteString(" {")
 		for i, arm := range n.arms {

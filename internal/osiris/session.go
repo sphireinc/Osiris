@@ -33,6 +33,7 @@ func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 		cache:   make(map[string]Value),
 		pending: make(map[string]*promise),
 		fpMemo:  make(map[fpKey]string),
+		fpBusy:  make(map[fpKey]struct{}),
 		builtin: rt.Builtins,
 	}
 	sess.ev = ev
@@ -52,6 +53,9 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	for _, stmt := range prog.Statements {
 		v, ok, err := s.execStmt(stmt, prog.SourceName, moduleMode, stack)
 		if err != nil {
+			if sig, ok := asFlow(err); ok {
+				return nil, flowError(sig.kind, "top-level")
+			}
 			return nil, err
 		}
 		if ok {
@@ -92,6 +96,15 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			return nil, false, err
 		}
 		return nil, false, nil
+	case funcStmt:
+		scope, err := s.declareFunction(s.scope, st.Name, st.Params, st.Body)
+		if err != nil {
+			return nil, false, err
+		}
+		s.scope = scope
+		return nil, false, nil
+	case returnStmt, whileStmt, forStmt, breakStmt, continueStmt:
+		return nil, false, s.execControlStmt(stmt, s.scope, baseSource, stack)
 	case letStmt:
 		expr, err := s.expandExpr(st.Expr, s.scope)
 		if err != nil {
@@ -130,6 +143,189 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 	}
 }
 
+func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string, stack []string) error {
+	switch st := stmt.(type) {
+	case returnStmt:
+		if st.Expr == nil {
+			return newFlow(flowReturn, nullValue())
+		}
+		v, err := s.eval(st.Expr, curScope)
+		if err != nil {
+			return err
+		}
+		return newFlow(flowReturn, v)
+	case whileStmt:
+		return s.execWhile(st, curScope, baseSource, stack)
+	case forStmt:
+		return s.execFor(st, curScope, baseSource, stack)
+	case breakStmt:
+		return newFlow(flowBreak, nullValue())
+	case continueStmt:
+		return newFlow(flowContinue, nullValue())
+	default:
+		return fmt.Errorf("internal error: unsupported control statement %T", stmt)
+	}
+}
+
+func (s *Session) declareFunction(cur *scope, name string, params []string, body Expr) (*scope, error) {
+	expanded, err := s.expandExpr(body, cur)
+	if err != nil {
+		return nil, err
+	}
+	fn := userFunctionValue(name, params, expanded, cur, s)
+	selfScope := &scope{
+		parent: cur,
+		items: map[string]binding{
+			name: {expr: &literalExpr{value: fn}, env: cur},
+		},
+	}
+	if fn.fn != nil {
+		fn.fn.closure = selfScope
+	}
+	return &scope{
+		parent: cur,
+		items: map[string]binding{
+			name: {expr: &literalExpr{value: fn}, env: cur},
+		},
+	}, nil
+}
+
+func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, stack []string) error {
+	cur := curScope
+	for {
+		cond, err := s.eval(st.Cond, cur)
+		if err != nil {
+			if sig, ok := asFlow(err); ok {
+				return flowError(sig.kind, "while")
+			}
+			return err
+		}
+		if !cond.Truthy() {
+			return nil
+		}
+		next, err := s.execLoopBodyWithScope(st.Body, cur, baseSource, stack)
+		if err != nil {
+			if sig, ok := asFlow(err); ok {
+				switch sig.kind {
+				case flowBreak:
+					return nil
+				case flowContinue:
+					cur = next
+					continue
+				case flowReturn:
+					return err
+				}
+			}
+			return err
+		}
+		cur = next
+	}
+}
+
+func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack []string) error {
+	cur := curScope
+	iter, err := s.eval(st.Iter, cur)
+	if err != nil {
+		if sig, ok := asFlow(err); ok {
+			return flowError(sig.kind, "for")
+		}
+		return err
+	}
+	items, err := iter.AsList()
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		iterScope := &scope{
+			parent: cur,
+			items: map[string]binding{
+				st.Name: {expr: &literalExpr{value: item}, env: cur},
+			},
+		}
+		next, err := s.execLoopBodyWithScope(st.Body, iterScope, baseSource, stack)
+		if err != nil {
+			if sig, ok := asFlow(err); ok {
+				switch sig.kind {
+				case flowBreak:
+					return nil
+				case flowContinue:
+					cur = next
+					continue
+				case flowReturn:
+					return err
+				}
+			}
+			return err
+		}
+		cur = next
+	}
+	return nil
+}
+
+func (s *Session) execLoopBodyWithScope(body Expr, curScope *scope, baseSource string, stack []string) (*scope, error) {
+	_, next, err := s.evalBlockExpr(body, curScope, baseSource, stack)
+	return next, err
+}
+
+func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, stack []string) (Value, *scope, error) {
+	switch n := body.(type) {
+	case *blockExpr:
+		cur := curScope
+		for _, stmt := range n.stmts {
+			switch st := stmt.(type) {
+			case letStmt:
+				expr, err := s.expandExpr(st.Expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				cur = &scope{
+					parent: cur,
+					items: map[string]binding{
+						st.Name: {expr: expr, env: cur},
+					},
+				}
+			case importStmt:
+				mod, err := s.rt.loadModule(s.ctx, st.Path, baseSource, stack)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				cur = &scope{
+					parent: cur,
+					items: map[string]binding{
+						st.Alias: {expr: &literalExpr{value: mod}, env: cur},
+					},
+				}
+			case macroStmt:
+				if err := s.registerMacro(st.Name, st.Params, st.Body); err != nil {
+					return nullValue(), cur, err
+				}
+			case funcStmt:
+				next, err := s.declareFunction(cur, st.Name, st.Params, st.Body)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				cur = next
+			case returnStmt, whileStmt, forStmt, breakStmt, continueStmt:
+				if err := s.execControlStmt(st, cur, baseSource, stack); err != nil {
+					return nullValue(), cur, err
+				}
+			case emitStmt, packageStmt, exportStmt:
+				return nullValue(), cur, fmt.Errorf("%s is not allowed in block expressions", statementKind(st))
+			default:
+				return nullValue(), cur, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, and continue statements")
+			}
+		}
+		if n.tail == nil {
+			return nullValue(), cur, nil
+		}
+		v, err := s.eval(n.tail, cur)
+		return v, cur, err
+	default:
+		v, err := s.eval(body, curScope)
+		return v, curScope, err
+	}
+}
+
 func (s *Session) eval(expr Expr, scope *scope) (Value, error) {
 	return s.ev.eval(expr, scope)
 }
@@ -158,7 +354,7 @@ func (s *Session) moduleValue() (Value, error) {
 			return v, nil
 		}
 		return nullValue(), fmt.Errorf("module %s has no member %q", s.packageName, name)
-	}), nil
+	}, exports), nil
 }
 
 func (rt *Runtime) EvalAt(ctx context.Context, prog *Program, frameIndex int, expr string) (Value, error) {

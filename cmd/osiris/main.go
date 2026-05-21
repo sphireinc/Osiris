@@ -48,6 +48,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runMap(ctx, args[1:], stdout)
 	case "deps":
 		return runDeps(ctx, args[1:], stdout)
+	case "heap":
+		return runHeap(ctx, args[1:], stdout, os.Stdin)
 	case "trace":
 		return runTrace(ctx, args[1:], stdout)
 	case "debug":
@@ -780,6 +782,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  osiris lsp")
 	fmt.Fprintln(w, "  osiris map [file]")
 	fmt.Fprintln(w, "  osiris deps [-json] [file]")
+	fmt.Fprintln(w, "  osiris heap [-json] [-query expr] [file]")
 	fmt.Fprintln(w, "  osiris trace [-json] [file]")
 	fmt.Fprintln(w, "  osiris debug [-json] [-break line[:col]] [file]")
 	fmt.Fprintln(w, "  osiris repl")

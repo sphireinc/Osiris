@@ -151,7 +151,11 @@ func (g *dotGraph) walkExpr(expr Expr) string {
 		}
 		return id
 	case *matchExpr:
-		id := g.node("match", "fillcolor", "khaki")
+		label := "match"
+		if n.keyword == tokenSwitch {
+			label = "switch"
+		}
+		id := g.node(label, "fillcolor", "khaki")
 		g.edge(id, g.walkExpr(n.subject))
 		for _, arm := range n.arms {
 			armID := g.node(formatPattern(arm.pattern), "fillcolor", "cornsilk")

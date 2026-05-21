@@ -51,7 +51,19 @@ func BuildSourceMap(prog *Program) SourceMap {
 			walkExpr(st.Expr, idx)
 		case macroStmt:
 			walkExpr(st.Body, idx)
-		case importStmt, packageStmt, exportStmt:
+		case funcStmt:
+			walkExpr(st.Body, idx)
+		case returnStmt:
+			if st.Expr != nil {
+				walkExpr(st.Expr, idx)
+			}
+		case whileStmt:
+			walkExpr(st.Cond, idx)
+			walkExpr(st.Body, idx)
+		case forStmt:
+			walkExpr(st.Iter, idx)
+			walkExpr(st.Body, idx)
+		case breakStmt, continueStmt, importStmt, packageStmt, exportStmt:
 		}
 	}
 
@@ -101,6 +113,18 @@ func stmtSpan(stmt Stmt) sourceSpan {
 	case emitStmt:
 		return st.Span
 	case macroStmt:
+		return st.Span
+	case funcStmt:
+		return st.Span
+	case returnStmt:
+		return st.Span
+	case whileStmt:
+		return st.Span
+	case forStmt:
+		return st.Span
+	case breakStmt:
+		return st.Span
+	case continueStmt:
 		return st.Span
 	case importStmt:
 		return st.Span

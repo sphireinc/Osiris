@@ -28,14 +28,19 @@ type callable = Builtin
 type moduleLookup func(ctx context.Context, name string) (Value, error)
 
 type functionValue struct {
-	name string
-	fn   callable
+	name    string
+	builtin callable
+	params  []string
+	body    Expr
+	closure *scope
+	session *Session
 }
 
 type moduleValue struct {
 	name    string
 	version string
 	lookup  moduleLookup
+	members map[string]Value
 }
 
 type Value struct {
@@ -62,10 +67,20 @@ func uintValue(v uint64, bits uint8) Value {
 func stringValue(v string) Value { return Value{kind: kindString, str: v} }
 func listValue(v []Value) Value  { return Value{kind: kindList, list: v} }
 func functionValueOf(name string, fn callable) Value {
-	return Value{kind: kindFunction, fn: &functionValue{name: name, fn: fn}}
+	return Value{kind: kindFunction, fn: &functionValue{name: name, builtin: fn}}
 }
-func moduleValueOf(name, version string, lookup moduleLookup) Value {
-	return Value{kind: kindModule, mod: &moduleValue{name: name, version: version, lookup: lookup}}
+
+func userFunctionValue(name string, params []string, body Expr, closure *scope, sess *Session) Value {
+	return Value{kind: kindFunction, fn: &functionValue{
+		name:    name,
+		params:  append([]string(nil), params...),
+		body:    body,
+		closure: closure,
+		session: sess,
+	}}
+}
+func moduleValueOf(name, version string, lookup moduleLookup, members map[string]Value) Value {
+	return Value{kind: kindModule, mod: &moduleValue{name: name, version: version, lookup: lookup, members: members}}
 }
 
 func (v Value) Kind() string { return v.kind.String() }
@@ -166,10 +181,10 @@ func (v Value) AsList() ([]Value, error) {
 }
 
 func (v Value) AsFunction() (callable, error) {
-	if v.kind != kindFunction || v.fn == nil {
+	if v.kind != kindFunction || v.fn == nil || v.fn.builtin == nil {
 		return nil, fmt.Errorf("expected function, got %s", v.kind)
 	}
-	return v.fn.fn, nil
+	return v.fn.builtin, nil
 }
 
 func (v Value) AsModule() (*moduleValue, error) {
@@ -205,9 +220,23 @@ func (v Value) Equal(other Value) bool {
 	case kindBool:
 		return other.kind == kindBool && v.boo == other.boo
 	case kindNumber:
-		return other.kind == kindNumber && v.num == other.num
+		switch other.kind {
+		case kindNumber:
+			return v.num == other.num
+		case kindUint:
+			return v.num == float64(other.u)
+		default:
+			return false
+		}
 	case kindUint:
-		return other.kind == kindUint && v.u == other.u && v.bits == other.bits
+		switch other.kind {
+		case kindUint:
+			return v.u == other.u && v.bits == other.bits
+		case kindNumber:
+			return float64(v.u) == other.num
+		default:
+			return false
+		}
 	case kindString:
 		return other.kind == kindString && v.str == other.str
 	case kindList:
@@ -235,24 +264,54 @@ func (v Value) Compare(other Value) (int, error) {
 	}
 	switch v.kind {
 	case kindNumber:
-		switch {
-		case v.num < other.num:
-			return -1, nil
-		case v.num > other.num:
-			return 1, nil
+		switch other.kind {
+		case kindNumber:
+			switch {
+			case v.num < other.num:
+				return -1, nil
+			case v.num > other.num:
+				return 1, nil
+			default:
+				return 0, nil
+			}
+		case kindUint:
+			ou := float64(other.u)
+			switch {
+			case v.num < ou:
+				return -1, nil
+			case v.num > ou:
+				return 1, nil
+			default:
+				return 0, nil
+			}
 		default:
-			return 0, nil
+			return 0, fmt.Errorf("ordering is only defined for numbers, unsigned integers, and strings")
 		}
 	case kindString:
 		return strings.Compare(v.str, other.str), nil
 	case kindUint:
-		switch {
-		case v.u < other.u:
-			return -1, nil
-		case v.u > other.u:
-			return 1, nil
+		switch other.kind {
+		case kindUint:
+			switch {
+			case v.u < other.u:
+				return -1, nil
+			case v.u > other.u:
+				return 1, nil
+			default:
+				return 0, nil
+			}
+		case kindNumber:
+			ov := other.num
+			switch {
+			case float64(v.u) < ov:
+				return -1, nil
+			case float64(v.u) > ov:
+				return 1, nil
+			default:
+				return 0, nil
+			}
 		default:
-			return 0, nil
+			return 0, fmt.Errorf("ordering is only defined for numbers, unsigned integers, and strings")
 		}
 	default:
 		return 0, fmt.Errorf("ordering is only defined for numbers, unsigned integers, and strings")
