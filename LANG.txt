@@ -1,0 +1,300 @@
+OSIRIS LANGUAGE GUIDE
+=====================
+
+WELCOME.
+
+This is the plain text guide to the Osiris language.
+It is meant to be read like an old README dropped in a release folder.
+
+No fluff. No ceremony. Just the language, the shape of programs, and the way
+to write them so they stay readable later.
+
+---------------------------------------------------------------------------
+WHAT OSIRIS IS
+---------------------------------------------------------------------------
+
+Osiris is a small deterministic language for turning inputs into outputs.
+It is good for:
+
+  * text transforms
+  * byte work
+  * bitwise work
+  * data pipelines
+  * repeatable scripts
+  * language/tooling experiments
+
+The main idea is simple:
+
+  input -> named transforms -> output
+
+---------------------------------------------------------------------------
+PROGRAM FILES
+---------------------------------------------------------------------------
+
+Osiris source normally lives in `.osr` files.
+
+A program is a list of statements.
+Statements can be separated by newlines or semicolons.
+
+Comments:
+
+  // line comment
+  # line comment
+
+---------------------------------------------------------------------------
+THE SHAPE OF A PROGRAM
+---------------------------------------------------------------------------
+
+The usual order is:
+
+  1. package
+  2. export
+  3. import
+  4. macro
+  5. let
+  6. emit
+
+That is not a law.
+It is just the shape that reads best.
+
+Example:
+
+  package sigil 1.0.0
+  export visible
+
+  import "std/text" as text
+
+  let seed = "osiris::demo"
+  let visible = text.slug(seed)
+  emit visible
+
+If a file is meant to be imported, give it a package name and explicit exports.
+
+---------------------------------------------------------------------------
+STATEMENTS
+---------------------------------------------------------------------------
+
+PACKAGE
+
+  package name
+  package name 1.2.3
+
+Declares the module identity.
+The version is metadata and can be used by import selectors.
+
+EXPORT
+
+  export name
+  export alpha, beta, gamma
+
+Exports only the listed names.
+
+IMPORT
+
+  import "./local.osr" as local
+  import "./local.osr@2.1.0" as local
+  import "std/text" as text
+  import "std/text@1" as text
+
+Imports are always aliased.
+
+LET
+
+  let name = expression
+
+Bindings are lexical and lazy.
+Prefer clear names.
+
+MACRO
+
+  macro name(arg, other) => expression
+
+Macros expand before evaluation.
+Use them for syntax shaping, not for hiding business logic.
+
+EMIT
+
+  emit expression
+
+Emits a result from the program.
+
+BLOCKS
+
+  emit {
+    let x = 2
+    let y = 3
+    x + y
+  }
+
+Blocks create local scope and return the last expression.
+
+---------------------------------------------------------------------------
+EXPRESSIONS
+---------------------------------------------------------------------------
+
+Osiris expressions are compact and composable.
+
+You can use:
+
+  * arithmetic: + - * / %
+  * comparisons: == != < <= > >=
+  * boolean logic: && || !
+  * bitwise ops: & | ^ ~ << >>
+  * calls: foo(x, y)
+  * member access: text.slug(...)
+  * lists: [1, 2, 3]
+  * blocks: { let x = 1; x + 2 }
+  * match expressions:
+
+      emit match [1, 2] {
+        [a, b] => a + b;
+        _ => 0
+      }
+
+Numbers may be plain, hex, binary, or sized fixed-width values such as:
+
+  42
+  0xff
+  0b1010
+  1u8
+  2u16
+  3u64
+
+If you need bytes, use the byte helpers and fixed-width casts.
+
+---------------------------------------------------------------------------
+HOW TO WRITE PROGRAMS
+---------------------------------------------------------------------------
+
+Write Osiris like a pipeline.
+
+Good habits:
+
+  * keep the package and exports at the top
+  * use imports instead of copying helpers into every file
+  * name intermediate values
+  * keep macros small and obvious
+  * use match for shape-driven branching
+  * keep emit at the end when possible
+  * prefer deterministic transforms
+  * keep the module surface narrow
+
+Good Osiris code is easy to trace.
+If a program is hard to inspect, it is usually written in the wrong shape.
+
+---------------------------------------------------------------------------
+BYTE AND BIT WORK
+---------------------------------------------------------------------------
+
+Osiris has a strong byte and bit surface.
+
+Useful builtins:
+
+  * u8, u16, u32, u64
+  * band, bor, bxor, bnot
+  * shl, shr, rotl, rotr
+  * hex, bin, bytes
+  * pack, unpack
+  * encode, decode
+
+Use these for:
+
+  * hashes
+  * compact identifiers
+  * binary formats
+  * content-addressed work
+  * low-level transforms
+
+---------------------------------------------------------------------------
+DATA WORK
+---------------------------------------------------------------------------
+
+Useful builtins:
+
+  * read, readbytes, write
+  * lines
+  * csv
+  * jsonparse
+  * hash, mix, slug, join, split, chunks
+
+This makes Osiris good for:
+
+  * build steps
+  * file transforms
+  * batch cleanup
+  * repeatable output generation
+  * data shaping
+
+---------------------------------------------------------------------------
+MODULES
+---------------------------------------------------------------------------
+
+File modules can be versioned and imported explicitly.
+
+Example:
+
+  package local 2.1.0
+  export visible
+
+  let visible = ...
+
+Use package/version headers when a file is meant to be reused.
+Use export to keep the public surface small.
+
+---------------------------------------------------------------------------
+TOOLS
+---------------------------------------------------------------------------
+
+Useful commands while writing Osiris:
+
+  osiris fmt
+  osiris run
+  osiris trace
+  osiris debug
+  osiris map
+  osiris deps
+  osiris lsp
+  osiris vm
+  osiris wasm
+
+If you are trying something out, use the REPL.
+If you are packaging code, add package and export.
+If you are debugging, use trace and debug.
+If you are distributing code, use modules and versions.
+
+---------------------------------------------------------------------------
+EXAMPLE
+---------------------------------------------------------------------------
+
+  package sigil 1.0.0
+  export visible
+
+  import "std/text" as text
+
+  let seed = "osiris::demo"
+  let basis = hash(seed)
+  let salt = mix(basis, "scarab", "moon")
+  let visible = text.slug(join("-", chunks(mix(basis, salt), 4)))
+  emit visible
+
+This is the preferred style:
+
+  * explicit package
+  * narrow export surface
+  * imported helpers
+  * named steps
+  * one clear final output
+
+---------------------------------------------------------------------------
+FINAL NOTE
+---------------------------------------------------------------------------
+
+Osiris is meant to stay small, sharp, and inspectable.
+
+Write it like something you will read again later.
+Keep the data flow obvious.
+Keep the modules tight.
+Keep the outputs deterministic.
+
+That is the Osiris way.
+
