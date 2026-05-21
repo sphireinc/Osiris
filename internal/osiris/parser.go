@@ -14,9 +14,9 @@ type Stmt interface {
 }
 
 type letStmt struct {
-	Name string
-	Expr Expr
-	Span sourceSpan
+	Name     string
+	Expr     Expr
+	Span     sourceSpan
 	NameSpan sourceSpan
 }
 
@@ -30,19 +30,66 @@ type emitStmt struct {
 func (emitStmt) stmtNode() {}
 
 type macroStmt struct {
-	Name   string
-	Params []string
-	Body   Expr
-	Span   sourceSpan
+	Name     string
+	Params   []string
+	Body     Expr
+	Span     sourceSpan
 	NameSpan sourceSpan
 }
 
 func (macroStmt) stmtNode() {}
 
+type funcStmt struct {
+	Name     string
+	Params   []string
+	Body     Expr
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (funcStmt) stmtNode() {}
+
+type returnStmt struct {
+	Expr Expr
+	Span sourceSpan
+}
+
+func (returnStmt) stmtNode() {}
+
+type whileStmt struct {
+	Cond Expr
+	Body Expr
+	Span sourceSpan
+}
+
+func (whileStmt) stmtNode() {}
+
+type forStmt struct {
+	Name     string
+	Iter     Expr
+	Body     Expr
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (forStmt) stmtNode() {}
+
+type breakStmt struct {
+	Span sourceSpan
+}
+
+func (breakStmt) stmtNode() {}
+
+type continueStmt struct {
+	Span sourceSpan
+}
+
+func (continueStmt) stmtNode() {}
+
 type importStmt struct {
-	Path  string
-	Alias string
-	Span  sourceSpan
+	Path      string
+	Alias     string
+	Span      sourceSpan
 	PathSpan  sourceSpan
 	AliasSpan sourceSpan
 }
@@ -50,18 +97,18 @@ type importStmt struct {
 func (importStmt) stmtNode() {}
 
 type packageStmt struct {
-	Name    string
-	Version string
-	Span    sourceSpan
-	NameSpan sourceSpan
+	Name        string
+	Version     string
+	Span        sourceSpan
+	NameSpan    sourceSpan
 	VersionSpan sourceSpan
 }
 
 func (packageStmt) stmtNode() {}
 
 type exportStmt struct {
-	Names []string
-	Span  sourceSpan
+	Names     []string
+	Span      sourceSpan
 	NameSpans []sourceSpan
 }
 
@@ -119,9 +166,9 @@ type blockExpr struct {
 func (blockExpr) exprNode() {}
 
 type memberExpr struct {
-	object Expr
-	name   string
-	Span   sourceSpan
+	object   Expr
+	name     string
+	Span     sourceSpan
 	NameSpan sourceSpan
 }
 
@@ -138,6 +185,7 @@ type matchExpr struct {
 	subject Expr
 	arms    []matchArm
 	Span    sourceSpan
+	keyword tokenKind
 }
 
 func (matchExpr) exprNode() {}
@@ -259,6 +307,77 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		return macroStmt{Name: nameTok.text, Params: params, Body: body, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+	case tokenFunc:
+		start := p.next()
+		nameTok, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(tokenLParen); err != nil {
+			return nil, err
+		}
+		params, err := p.parseNameListAllowEmpty()
+		if err != nil {
+			return nil, err
+		}
+		var body Expr
+		if p.match(tokenArrow) {
+			body, err = p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			body, err = p.parseBlockExpr()
+			if err != nil {
+				return nil, err
+			}
+		}
+		return funcStmt{Name: nameTok.text, Params: params, Body: body, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+	case tokenReturn:
+		start := p.next()
+		if p.peek().kind == tokenSemicolon || p.peek().kind == tokenRBrace || p.peek().kind == tokenEOF {
+			return returnStmt{Span: spanFromToken(start)}, nil
+		}
+		expr, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		return returnStmt{Expr: expr, Span: spanFromToken(start)}, nil
+	case tokenWhile:
+		start := p.next()
+		cond, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		body, err := p.parseBlockExpr()
+		if err != nil {
+			return nil, err
+		}
+		return whileStmt{Cond: cond, Body: body, Span: spanCover(spanFromToken(start), exprSpan(body))}, nil
+	case tokenFor:
+		start := p.next()
+		nameTok, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(tokenIn); err != nil {
+			return nil, err
+		}
+		iter, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		body, err := p.parseBlockExpr()
+		if err != nil {
+			return nil, err
+		}
+		return forStmt{Name: nameTok.text, Iter: iter, Body: body, Span: spanCover(spanFromToken(start), exprSpan(body)), NameSpan: spanFromToken(nameTok)}, nil
+	case tokenBreak:
+		start := p.next()
+		return breakStmt{Span: spanFromToken(start)}, nil
+	case tokenContinue:
+		start := p.next()
+		return continueStmt{Span: spanFromToken(start)}, nil
 	case tokenPackage:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
@@ -305,7 +424,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
 	default:
-		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, package, export, or import")
+		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, or import")
 	}
 }
 
@@ -411,8 +530,8 @@ func (p *parser) parsePrefix() (Expr, error) {
 		return p.parseList()
 	case tokenLBrace:
 		return p.parseBlockExpr()
-	case tokenMatch:
-		return p.parseMatchExpr()
+	case tokenMatch, tokenSwitch:
+		return p.parseMatchExpr(tok.kind)
 	default:
 		return nil, p.errorf(tok, "expected expression")
 	}
@@ -523,7 +642,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			return &blockExpr{stmts: stmts, tail: tail}, nil
 		}
 		switch p.peek().kind {
-		case tokenLet, tokenImport, tokenMacro:
+		case tokenLet, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue:
 			stmt, err := p.parseStmt()
 			if err != nil {
 				return nil, err
@@ -542,8 +661,8 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 	}
 }
 
-func (p *parser) parseMatchExpr() (Expr, error) {
-	if _, err := p.expect(tokenMatch); err != nil {
+func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
+	if _, err := p.expect(keyword); err != nil {
 		return nil, err
 	}
 	subject, err := p.parseExpr(0)
@@ -581,7 +700,32 @@ func (p *parser) parseMatchExpr() (Expr, error) {
 	if len(arms) == 0 {
 		return nil, p.errorf(p.peek(), "match requires at least one arm")
 	}
-	return &matchExpr{subject: subject, arms: arms}, nil
+	return &matchExpr{subject: subject, arms: arms, keyword: keyword}, nil
+}
+
+func exprSpan(expr Expr) sourceSpan {
+	switch n := expr.(type) {
+	case *literalExpr:
+		return n.Span
+	case *identExpr:
+		return n.Span
+	case *unaryExpr:
+		return n.Span
+	case *binaryExpr:
+		return n.Span
+	case *callExpr:
+		return n.Span
+	case *blockExpr:
+		return n.Span
+	case *memberExpr:
+		return n.Span
+	case *listExpr:
+		return n.Span
+	case *matchExpr:
+		return n.Span
+	default:
+		return sourceSpan{}
+	}
 }
 
 func (p *parser) parsePattern() (Pattern, error) {

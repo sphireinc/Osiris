@@ -181,6 +181,84 @@ emit shout("go")
 	}
 }
 
+func TestFunctionDeclarationsAndRecursion(t *testing.T) {
+	prog, err := Parse("<test>", `
+func fact(n) => if(n == 0, 1, n * fact(n - 1))
+emit fact(5)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 1; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), "120"; got != want {
+		t.Fatalf("output = %s, want %s", got, want)
+	}
+	vmOut, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("vm run failed: %v", err)
+	}
+	if got, want := len(vmOut), 1; got != want {
+		t.Fatalf("vm len(out) = %d, want %d", got, want)
+	}
+	if got, want := vmOut[0].String(), "120"; got != want {
+		t.Fatalf("vm output = %s, want %s", got, want)
+	}
+}
+
+func TestLoopsAndFlowControl(t *testing.T) {
+	prog, err := Parse("<test>", `
+func loopbreak() {
+	while true { break }
+	return 7
+}
+
+func loopcontinue(xs) {
+	for x in xs { continue }
+	return 9
+}
+
+emit loopbreak()
+emit loopcontinue([1, 2, 3])
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 2; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), "7u64"; got != want {
+		t.Fatalf("output[0] = %s, want %s", got, want)
+	}
+	if got, want := out[1].String(), "9u64"; got != want {
+		t.Fatalf("output[1] = %s, want %s", got, want)
+	}
+	vmOut, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("vm run failed: %v", err)
+	}
+	if got, want := len(vmOut), 2; got != want {
+		t.Fatalf("vm len(out) = %d, want %d", got, want)
+	}
+	if got, want := vmOut[0].String(), "7u64"; got != want {
+		t.Fatalf("vm output[0] = %s, want %s", got, want)
+	}
+	if got, want := vmOut[1].String(), "9u64"; got != want {
+		t.Fatalf("vm output[1] = %s, want %s", got, want)
+	}
+}
+
 func TestFormatSource(t *testing.T) {
 	formatted, err := FormatSource("<test>", `package demo; export alpha, beta; import "std/text" as text; let x=text.slug("Hello, World"); emit text.upper(x)`)
 	if err != nil {
@@ -368,6 +446,30 @@ emit match 9 { 1 => "nope"; _ => "fallback" }
 	}
 	if got, want := out[2].String(), `"fallback"`; got != want {
 		t.Fatalf("output[2] = %s, want %s", got, want)
+	}
+}
+
+func TestSwitchExpression(t *testing.T) {
+	prog, err := Parse("<test>", `
+emit switch [1, 2] { [a, b] => a + b; _ => 0 }
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 1; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), "3"; got != want {
+		t.Fatalf("output = %s, want %s", got, want)
+	}
+	formatted := FormatProgram(prog)
+	if !strings.Contains(formatted, "switch ") {
+		t.Fatalf("formatted output missing switch keyword: %s", formatted)
 	}
 }
 

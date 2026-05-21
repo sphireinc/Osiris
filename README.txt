@@ -37,9 +37,10 @@ With Osiris you can:
 
   * write scripts that turn inputs into stable outputs
   * work with files, text, JSON, CSV, lists, hashes, and bytes
-  * use imports, modules, exports, macros, and pattern matching
+  * use imports, modules, exports, macros, and pattern/switch matching
+  * define recursive functions and use loops for controlled iteration
   * run code through an interpreter, a bytecode VM, or WebAssembly
-  * inspect source maps, traces, dependency graphs, and live scopes
+  * inspect source maps, traces, heap snapshots, dependency graphs, and live scopes
   * use the LSP server for hover and go-to-definition
   * build reproducible transforms and language experiments in Go
 
@@ -71,8 +72,8 @@ The usual flow is:
   1. Write a `.osr` file.
   2. Run it with `osiris run`.
   3. Normalize it with `osiris fmt`.
-  4. Inspect it with `osiris trace`, `osiris debug`, `osiris map`, or
-     `osiris deps`.
+  4. Inspect it with `osiris trace`, `osiris debug`, `osiris heap`,
+     `osiris map`, or `osiris deps`.
   5. Use `osiris lsp` if you want editor integration.
   6. Use `osiris vm` or `osiris wasm` when you want alternate backends.
 
@@ -92,6 +93,7 @@ COMMANDS
   osiris lsp
   osiris map path/to/program.osr
   osiris deps [-json] path/to/program.osr
+  osiris heap [-json] [-query expr] path/to/program.osr
   osiris trace [-json] path/to/program.osr
   osiris debug [-json] [-break line[:col]] path/to/program.osr
   osiris repl
@@ -210,6 +212,7 @@ Good Osiris code is:
   * small on globals
   * explicit about modules
   * clear about byte work
+  * willing to use functions and loops when the shape needs it
   * direct about outputs
 
 Try to write programs like this:

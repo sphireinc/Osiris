@@ -92,8 +92,8 @@ type lspRange struct {
 }
 
 type lspLocation struct {
-	URI   string    `json:"uri"`
-	Range lspRange   `json:"range"`
+	URI   string   `json:"uri"`
+	Range lspRange `json:"range"`
 }
 
 type lspDiagnostic struct {
@@ -154,8 +154,8 @@ func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 		case "initialize":
 			if err := s.writeResponse(msg.ID, map[string]any{
 				"capabilities": map[string]any{
-					"textDocumentSync": map[string]any{"openClose": true, "change": 1},
-					"hoverProvider":    true,
+					"textDocumentSync":   map[string]any{"openClose": true, "change": 1},
+					"hoverProvider":      true,
 					"definitionProvider": true,
 				},
 			}, nil); err != nil {
@@ -487,6 +487,37 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			return nil, err
 		}
 		return scope.push(def), nil
+	case funcStmt:
+		def := &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		child := &lspScope{parent: scope, defs: map[string]*symbolDef{st.Name: def}}
+		for _, param := range st.Params {
+			child.defs[param] = &symbolDef{name: param, kind: "param", detail: "function parameter", uri: uri, span: st.Span}
+		}
+		if err := analyzeExpr(a, child, uri, st.Body); err != nil {
+			return nil, err
+		}
+		return scope.push(def), nil
+	case whileStmt:
+		if err := analyzeExpr(a, scope, uri, st.Cond); err != nil {
+			return nil, err
+		}
+		return scope, analyzeExpr(a, scope, uri, st.Body)
+	case forStmt:
+		if err := analyzeExpr(a, scope, uri, st.Iter); err != nil {
+			return nil, err
+		}
+		def := &symbolDef{name: st.Name, kind: "iter", detail: "loop item", uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		child := &lspScope{parent: scope, defs: map[string]*symbolDef{st.Name: def}}
+		return scope, analyzeExpr(a, child, uri, st.Body)
+	case returnStmt:
+		if st.Expr != nil {
+			return scope, analyzeExpr(a, scope, uri, st.Expr)
+		}
+		return scope, nil
+	case breakStmt, continueStmt:
+		return scope, nil
 	case exportStmt:
 		for i, name := range st.Names {
 			def := scope.lookup(name)
@@ -600,6 +631,10 @@ func defsFromParams(uri string, params []string, sp sourceSpan) []*symbolDef {
 		out = append(out, &symbolDef{name: name, kind: "param", detail: "macro parameter", uri: uri, span: sp})
 	}
 	return out
+}
+
+func functionDetail(st funcStmt) string {
+	return "function declaration"
 }
 
 func packageDetail(st packageStmt) string {

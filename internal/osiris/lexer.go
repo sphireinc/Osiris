@@ -17,10 +17,18 @@ const (
 	tokenLet
 	tokenEmit
 	tokenMacro
+	tokenFunc
+	tokenReturn
+	tokenWhile
+	tokenFor
+	tokenIn
+	tokenBreak
+	tokenContinue
 	tokenPackage
 	tokenExport
 	tokenImport
 	tokenMatch
+	tokenSwitch
 	tokenAs
 	tokenTrue
 	tokenFalse
@@ -86,6 +94,20 @@ func (k tokenKind) String() string {
 		return "emit"
 	case tokenMacro:
 		return "macro"
+	case tokenFunc:
+		return "func"
+	case tokenReturn:
+		return "return"
+	case tokenWhile:
+		return "while"
+	case tokenFor:
+		return "for"
+	case tokenIn:
+		return "in"
+	case tokenBreak:
+		return "break"
+	case tokenContinue:
+		return "continue"
 	case tokenPackage:
 		return "package"
 	case tokenExport:
@@ -94,6 +116,8 @@ func (k tokenKind) String() string {
 		return "import"
 	case tokenMatch:
 		return "match"
+	case tokenSwitch:
+		return "switch"
 	case tokenAs:
 		return "as"
 	case tokenTrue:
@@ -348,6 +372,20 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenEmit, text: text, line: startLine, col: startCol}, nil
 	case "macro":
 		return token{kind: tokenMacro, text: text, line: startLine, col: startCol}, nil
+	case "func":
+		return token{kind: tokenFunc, text: text, line: startLine, col: startCol}, nil
+	case "return":
+		return token{kind: tokenReturn, text: text, line: startLine, col: startCol}, nil
+	case "while":
+		return token{kind: tokenWhile, text: text, line: startLine, col: startCol}, nil
+	case "for":
+		return token{kind: tokenFor, text: text, line: startLine, col: startCol}, nil
+	case "in":
+		return token{kind: tokenIn, text: text, line: startLine, col: startCol}, nil
+	case "break":
+		return token{kind: tokenBreak, text: text, line: startLine, col: startCol}, nil
+	case "continue":
+		return token{kind: tokenContinue, text: text, line: startLine, col: startCol}, nil
 	case "package":
 		return token{kind: tokenPackage, text: text, line: startLine, col: startCol}, nil
 	case "export":
@@ -356,6 +394,8 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenImport, text: text, line: startLine, col: startCol}, nil
 	case "match":
 		return token{kind: tokenMatch, text: text, line: startLine, col: startCol}, nil
+	case "switch":
+		return token{kind: tokenSwitch, text: text, line: startLine, col: startCol}, nil
 	case "as":
 		return token{kind: tokenAs, text: text, line: startLine, col: startCol}, nil
 	case "true":

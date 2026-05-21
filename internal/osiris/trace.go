@@ -73,6 +73,18 @@ func statementKind(stmt Stmt) string {
 		return "import"
 	case macroStmt:
 		return "macro"
+	case funcStmt:
+		return "func"
+	case returnStmt:
+		return "return"
+	case whileStmt:
+		return "while"
+	case forStmt:
+		return "for"
+	case breakStmt:
+		return "break"
+	case continueStmt:
+		return "continue"
 	default:
 		return fmt.Sprintf("%T", stmt)
 	}
@@ -86,36 +98,5 @@ func valuesToStrings(values []Value) []string {
 	for i := range values {
 		out[i] = values[i].String()
 	}
-	return out
-}
-
-func (s *Session) snapshotScope() []TraceBinding {
-	if s.scope == nil {
-		return nil
-	}
-	seen := make(map[string]struct{})
-	var out []TraceBinding
-	var walk func(*scope)
-	walk = func(sc *scope) {
-		if sc == nil {
-			return
-		}
-		walk(sc.parent)
-		for name, b := range sc.items {
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			v, err := s.eval(b.expr, b.env)
-			value := "<error>"
-			if err != nil {
-				value = "<error: " + err.Error() + ">"
-			} else {
-				value = v.String()
-			}
-			out = append(out, TraceBinding{Name: name, Value: value})
-		}
-	}
-	walk(s.scope)
 	return out
 }
