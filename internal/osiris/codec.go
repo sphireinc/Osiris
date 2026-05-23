@@ -18,8 +18,10 @@ type byteCursor struct {
 	off  int
 }
 
+// remaining handles on byteCursor the remaining. It keeps the byteCursor subsystem self-contained by handling the remaining-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (c *byteCursor) remaining() int { return len(c.data) - c.off }
 
+// byte handles on byteCursor the byte. It keeps the byteCursor subsystem self-contained by handling the byte-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (c *byteCursor) byte() (byte, error) {
 	if c.off >= len(c.data) {
 		return 0, fmt.Errorf("unexpected end of encoded value")
@@ -29,6 +31,7 @@ func (c *byteCursor) byte() (byte, error) {
 	return b, nil
 }
 
+// take handles on byteCursor the take. It keeps the byteCursor subsystem self-contained by handling the take-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (c *byteCursor) take(n int) ([]byte, error) {
 	if n < 0 || c.off+n > len(c.data) {
 		return nil, fmt.Errorf("unexpected end of encoded value")
@@ -38,6 +41,7 @@ func (c *byteCursor) take(n int) ([]byte, error) {
 	return out, nil
 }
 
+// uvarint handles on byteCursor the uvarint. It keeps the byteCursor subsystem self-contained by handling the uvarint-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (c *byteCursor) uvarint() (uint64, error) {
 	v, n := binary.Uvarint(c.data[c.off:])
 	if n <= 0 {
@@ -47,6 +51,7 @@ func (c *byteCursor) uvarint() (uint64, error) {
 	return v, nil
 }
 
+// encodeValue performs the encode value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func encodeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("encode expects 1 argument")
@@ -58,6 +63,7 @@ func encodeValue(args []Value) (Value, error) {
 	return stringValue(string(raw)), nil
 }
 
+// decodeValue performs the decode value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func decodeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("decode expects 1 argument")
@@ -69,6 +75,7 @@ func decodeValue(args []Value) (Value, error) {
 	return decodeValueBytes(data)
 }
 
+// encodeValueBytes performs the encode value bytes step in the surrounding package and returns []byte, error.. It returns []byte and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func encodeValueBytes(v Value) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, 16))
 	buf.WriteString(codecHeader)
@@ -78,6 +85,7 @@ func encodeValueBytes(v Value) ([]byte, error) {
 	return append([]byte(nil), buf.Bytes()...), nil
 }
 
+// encodeInto performs the encode into step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
 func encodeInto(buf *bytes.Buffer, v Value) error {
 	switch v.kind {
 	case kindNull:
@@ -354,6 +362,7 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 	}
 }
 
+// decodeValueBytes performs the decode value bytes step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func decodeValueBytes(data []byte) (Value, error) {
 	cur := byteCursor{data: data}
 	head, err := cur.take(len(codecHeader))
@@ -373,6 +382,7 @@ func decodeValueBytes(data []byte) (Value, error) {
 	return v, nil
 }
 
+// decodeFrom performs the decode from step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func decodeFrom(cur *byteCursor) (Value, error) {
 	tag, err := cur.byte()
 	if err != nil {
@@ -725,6 +735,7 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 	}
 }
 
+// appendUvarint performs the append uvarint step in the surrounding package and returns []byte.. It returns []byte so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func appendUvarint(dst []byte, n uint64) []byte {
 	var tmp [10]byte
 	sz := binary.PutUvarint(tmp[:], n)

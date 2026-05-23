@@ -28,8 +28,10 @@ type LoopShape struct {
 	Canonical bool
 }
 
+// String handles on LoopProgram the string. It keeps the LoopProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *LoopProgram) String() string { return FormatLoopProgram(p) }
 
+// FormatLoopProgram formats the loop program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func FormatLoopProgram(prog *LoopProgram) string {
 	if prog == nil {
 		return ""
@@ -88,6 +90,7 @@ func FormatLoopProgram(prog *LoopProgram) string {
 	return b.String()
 }
 
+// BuildLoopProgram build on Runtime the loop program. It keeps the Runtime subsystem self-contained by handling the loop program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) BuildLoopProgram(ctx context.Context, prog *Program) (*LoopProgram, error) {
 	if rt == nil {
 		rt = NewRuntime()
@@ -99,6 +102,7 @@ func (rt *Runtime) BuildLoopProgram(ctx context.Context, prog *Program) (*LoopPr
 	return analyzeLoopProgram(ir), nil
 }
 
+// analyzeLoopProgram performs the analyze loop program step in the surrounding package and returns *LoopProgram.. It returns *LoopProgram so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func analyzeLoopProgram(ir *IRProgram) *LoopProgram {
 	if ir == nil {
 		return nil
@@ -117,6 +121,7 @@ func analyzeLoopProgram(ir *IRProgram) *LoopProgram {
 	return out
 }
 
+// canonicalLoopShape performs the canonical loop shape step in the surrounding package and returns *LoopShape, bool.. It returns *LoopShape, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
 	if block == nil {
 		return nil, false
@@ -160,10 +165,12 @@ func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
 	return nil, false
 }
 
+// isCanonicalWhileHeader performs the is canonical while header step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isCanonicalWhileHeader(name string) bool {
 	return strings.Contains(name, ".while.header")
 }
 
+// isCanonicalForHeader performs the is canonical for header step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isCanonicalForHeader(name string) bool {
 	return strings.Contains(name, ".for.header")
 }

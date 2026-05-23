@@ -6,6 +6,7 @@ type matchState struct {
 	bindings map[string]Value
 }
 
+// evalMatch performs the eval match step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func evalMatch(ev *evaluator, expr *matchExpr, scope *scope) (Value, error) {
 	subject, err := ev.eval(expr.subject, scope)
 	if err != nil {
@@ -25,6 +26,7 @@ func evalMatch(ev *evaluator, expr *matchExpr, scope *scope) (Value, error) {
 	return nullValue(), fmt.Errorf("no match for %s", subject.Kind())
 }
 
+// matchPattern performs the match pattern step in the surrounding package and returns bool, error.. It returns bool and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func matchPattern(pattern Pattern, value Value, state *matchState) (bool, error) {
 	switch p := pattern.(type) {
 	case wildcardPattern:
@@ -57,6 +59,7 @@ func matchPattern(pattern Pattern, value Value, state *matchState) (bool, error)
 	}
 }
 
+// extendScope performs the extend scope step in the surrounding package and returns *scope.. It returns *scope so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func extendScope(parent *scope, bindings map[string]Value) *scope {
 	if len(bindings) == 0 {
 		return parent

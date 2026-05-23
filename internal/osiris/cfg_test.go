@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestBuildCFG exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestBuildCFG(t *testing.T) {
 	prog, err := Parse("<cfg>", `
 let x = 0

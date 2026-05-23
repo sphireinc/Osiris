@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+// normalizeTensorShape performs the normalize tensor shape step in the surrounding package and returns []int.. It returns []int so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func normalizeTensorShape(shape []int, data []Value) []int {
 	if len(shape) == 0 {
 		return []int{1}
@@ -11,6 +12,7 @@ func normalizeTensorShape(shape []int, data []Value) []int {
 	return append([]int(nil), shape...)
 }
 
+// broadcastValuesToShape performs the broadcast values to shape step in the surrounding package and returns []Value, error.. It returns []Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func broadcastValuesToShape(shape []int, data []Value, target []int) ([]Value, error) {
 	if equalIntSlices(shape, target) {
 		return append([]Value(nil), data...), nil
@@ -39,6 +41,7 @@ func broadcastValuesToShape(shape []int, data []Value, target []int) ([]Value, e
 	return out, nil
 }
 
+// tensorSqueezeValue performs the tensor squeeze value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorSqueezeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("squeeze expects 1 argument")
@@ -56,6 +59,7 @@ func tensorSqueezeValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, data)
 }
 
+// tensorExpandDimsValue performs the tensor expand dims value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorExpandDimsValue(args []Value) (Value, error) {
 	if len(args) != 1 && len(args) != 2 {
 		return nullValue(), fmt.Errorf("expand_dims expects 1 or 2 arguments")
@@ -84,6 +88,7 @@ func tensorExpandDimsValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, data)
 }
 
+// tensorConcatValue performs the tensor concat value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorConcatValue(args []Value) (Value, error) {
 	if len(args) < 2 {
 		return nullValue(), fmt.Errorf("concat expects at least 2 arguments")
@@ -120,6 +125,7 @@ func tensorConcatValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, out)
 }
 
+// tensorStackValue performs the tensor stack value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorStackValue(args []Value) (Value, error) {
 	if len(args) < 2 {
 		return nullValue(), fmt.Errorf("stack expects at least 2 arguments")
@@ -151,6 +157,7 @@ func tensorStackValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, out)
 }
 
+// tensorRepeatValue performs the tensor repeat value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorRepeatValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("repeat expects 2 arguments")
@@ -181,10 +188,12 @@ func tensorRepeatValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, out)
 }
 
+// tensorTileValue performs the tensor tile value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorTileValue(args []Value) (Value, error) {
 	return tensorRepeatValue(args)
 }
 
+// tensorBroadcastToValue performs the tensor broadcast to value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorBroadcastToValue(args []Value) (Value, error) {
 	if len(args) < 2 {
 		return nullValue(), fmt.Errorf("broadcast_to expects a value and target shape")
@@ -204,6 +213,7 @@ func tensorBroadcastToValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(target, out)
 }
 
+// tensorWhereValue performs the tensor where value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorWhereValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("where expects 3 arguments")
@@ -247,6 +257,7 @@ func tensorWhereValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(outShape, out)
 }
 
+// tensorClipValue performs the tensor clip value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorClipValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("clip expects 3 arguments")
@@ -274,6 +285,7 @@ func tensorClipValue(args []Value) (Value, error) {
 	})
 }
 
+// tensorSplitValue performs the tensor split value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorSplitValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("split expects 2 arguments")
@@ -314,6 +326,7 @@ func tensorSplitValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+// tensorGatherValue performs the tensor gather value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorGatherValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("gather expects 2 arguments")
@@ -342,6 +355,7 @@ func tensorGatherValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(idxShape, out)
 }
 
+// tensorScatterValue performs the tensor scatter value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorScatterValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("scatter expects 3 arguments")
@@ -379,6 +393,7 @@ func tensorScatterValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(shape, out)
 }
 
+// tensorPadValue performs the tensor pad value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tensorPadValue(args []Value) (Value, error) {
 	if len(args) < 3 || len(args) > 4 {
 		return nullValue(), fmt.Errorf("pad expects value, left, right, and optional fill")

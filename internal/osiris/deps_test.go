@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// TestDependencyReportAndCycleError exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestDependencyReportAndCycleError(t *testing.T) {
 	dir := t.TempDir()
 	aPath := filepath.Join(dir, "a.osr")

@@ -15,6 +15,7 @@ type evalTask struct {
 
 type deterministicScheduler struct{}
 
+// run handles on deterministicScheduler the run. It keeps the deterministicScheduler subsystem self-contained by handling the run-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (deterministicScheduler) run(ctx context.Context, tasks []evalTask) ([]Value, error) {
 	if len(tasks) == 0 {
 		return nil, nil

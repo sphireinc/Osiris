@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestAnalyzeAliasProgram exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestAnalyzeAliasProgram(t *testing.T) {
 	prog, err := Parse("<alias>", `
 let base = tensor([1, 2, 3])

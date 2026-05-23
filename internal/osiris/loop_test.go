@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLoopCanonicalization exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestLoopCanonicalization(t *testing.T) {
 	prog, err := Parse("<test>", `
 func sweep(xs) {

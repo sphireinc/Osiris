@@ -63,15 +63,24 @@ type irReturn struct {
 
 type irUnreachable struct{}
 
-func (*irJump) irTerminator()        {}
-func (*irBranch) irTerminator()      {}
-func (*irReturn) irTerminator()      {}
+// irTerminator handles on irJump the ir terminator. It keeps the irJump subsystem self-contained by handling the ir terminator-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+func (*irJump) irTerminator() {}
+
+// irTerminator handles on irBranch the ir terminator. It keeps the irBranch subsystem self-contained by handling the ir terminator-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+func (*irBranch) irTerminator() {}
+
+// irTerminator handles on irReturn the ir terminator. It keeps the irReturn subsystem self-contained by handling the ir terminator-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+func (*irReturn) irTerminator() {}
+
+// irTerminator handles on irUnreachable the ir terminator. It keeps the irUnreachable subsystem self-contained by handling the ir terminator-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (*irUnreachable) irTerminator() {}
 
+// String handles on IRProgram the string. It keeps the IRProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *IRProgram) String() string {
 	return FormatIRProgram(p)
 }
 
+// FormatIRProgram formats the ir program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func FormatIRProgram(prog *IRProgram) string {
 	var b strings.Builder
 	if prog == nil {
@@ -113,6 +122,7 @@ func FormatIRProgram(prog *IRProgram) string {
 	return b.String()
 }
 
+// formatIRFunction performs the format ir function step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func formatIRFunction(b *strings.Builder, fn *IRFunction) {
 	if fn == nil {
 		b.WriteString("fn <nil>\n")
@@ -135,6 +145,7 @@ func formatIRFunction(b *strings.Builder, fn *IRFunction) {
 	b.WriteString("}\n")
 }
 
+// formatIRBlock performs the format ir block step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func formatIRBlock(b *strings.Builder, block *IRBlock) {
 	b.WriteString("  block ")
 	b.WriteString(block.Name)
@@ -156,6 +167,7 @@ func formatIRBlock(b *strings.Builder, block *IRBlock) {
 	}
 }
 
+// formatIRInstr performs the format ir instr step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatIRInstr(instr IRInstr) string {
 	op := instr.Op
 	if op == "" {
@@ -216,6 +228,7 @@ func formatIRInstr(instr IRInstr) string {
 	}
 }
 
+// formatIRTerminator performs the format ir terminator step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatIRTerminator(term IRTerminator) string {
 	switch t := term.(type) {
 	case *irJump:
@@ -245,6 +258,7 @@ func formatIRTerminator(term IRTerminator) string {
 	}
 }
 
+// BuildIR build on Runtime the ir. It keeps the Runtime subsystem self-contained by handling the ir-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, error) {
 	if rt == nil {
 		rt = NewRuntime()
@@ -285,6 +299,7 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 	return pb.prog, nil
 }
 
+// firstPackage performs the first package step in the surrounding package and returns packageStmt, bool.. It returns packageStmt, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func firstPackage(prog *Program) (packageStmt, bool) {
 	if prog == nil {
 		return packageStmt{}, false
@@ -303,6 +318,7 @@ type irProgramBuilder struct {
 	nextFunc int
 }
 
+// newFunction handles on irProgramBuilder the new function. It keeps the irProgramBuilder subsystem self-contained by handling the new function-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (pb *irProgramBuilder) newFunction(sourceName, label string, params []string) *IRFunction {
 	fn := &IRFunction{
 		Name:       label,
@@ -312,12 +328,14 @@ func (pb *irProgramBuilder) newFunction(sourceName, label string, params []strin
 	return fn
 }
 
+// nextFuncLabel handles on irProgramBuilder the next func label. It keeps the irProgramBuilder subsystem self-contained by handling the next func label-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (pb *irProgramBuilder) nextFuncLabel(source string) string {
 	label := fmt.Sprintf("%s.fn%d", source, pb.nextFunc)
 	pb.nextFunc++
 	return label
 }
 
+// appendFunction handles on irProgramBuilder the append function. It keeps the irProgramBuilder subsystem self-contained by handling the append function-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (pb *irProgramBuilder) appendFunction(fn *IRFunction) {
 	pb.prog.Functions = append(pb.prog.Functions, fn)
 }
@@ -350,6 +368,7 @@ type irLoopCtx struct {
 	loopIndex string
 }
 
+// newIRBuilder performs the new ir builder step in the surrounding package and returns *irBuilder.. It returns *irBuilder so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newIRBuilder(pb *irProgramBuilder, fn *IRFunction, prefix string) *irBuilder {
 	st := &irFnState{
 		blocks:  make([]*IRBlock, 0, 8),
@@ -368,6 +387,7 @@ func newIRBuilder(pb *irProgramBuilder, fn *IRFunction, prefix string) *irBuilde
 	}
 }
 
+// fork handles on irBuilder the fork. It keeps the irBuilder subsystem self-contained by handling the fork-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) fork() *irBuilder {
 	return &irBuilder{
 		pb:        b.pb,
@@ -381,6 +401,7 @@ func (b *irBuilder) fork() *irBuilder {
 	}
 }
 
+// cloneNameSet performs the clone name set step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func cloneNameSet(src map[string]struct{}) map[string]struct{} {
 	if len(src) == 0 {
 		return make(map[string]struct{})
@@ -392,22 +413,26 @@ func cloneNameSet(src map[string]struct{}) map[string]struct{} {
 	return dst
 }
 
+// terminated handles on irBuilder the terminated. It keeps the irBuilder subsystem self-contained by handling the terminated-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) terminated() bool {
 	return b.block != nil && b.block.Term != nil
 }
 
+// newTemp handles on irBuilder the new temp. It keeps the irBuilder subsystem self-contained by handling the new temp-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) newTemp() string {
 	name := fmt.Sprintf("%s.t%d", b.prefix, b.state.tempSeq)
 	b.state.tempSeq++
 	return name
 }
 
+// newBindName handles on irBuilder the new bind name. It keeps the irBuilder subsystem self-contained by handling the new bind name-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) newBindName(source string) string {
 	idx := b.state.bindSeq[source]
 	b.state.bindSeq[source] = idx + 1
 	return fmt.Sprintf("%s.%s.%d", b.prefix, source, idx)
 }
 
+// newBlock handles on irBuilder the new block. It keeps the irBuilder subsystem self-contained by handling the new block-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) newBlock(prefix string) *IRBlock {
 	name := fmt.Sprintf("%s.%s%d", b.prefix, prefix, len(b.state.blocks))
 	block := &IRBlock{Name: name}
@@ -415,6 +440,7 @@ func (b *irBuilder) newBlock(prefix string) *IRBlock {
 	return block
 }
 
+// emitInstr handles on irBuilder the emit instr. It keeps the irBuilder subsystem self-contained by handling the emit instr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) emitInstr(instr IRInstr) {
 	if b.block == nil {
 		return
@@ -422,6 +448,7 @@ func (b *irBuilder) emitInstr(instr IRInstr) {
 	b.block.Instrs = append(b.block.Instrs, instr)
 }
 
+// emitTerm handles on irBuilder the emit term. It keeps the irBuilder subsystem self-contained by handling the emit term-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) emitTerm(term IRTerminator) {
 	if b.block == nil {
 		return
@@ -429,6 +456,7 @@ func (b *irBuilder) emitTerm(term IRTerminator) {
 	b.block.Term = term
 }
 
+// valueOrUndef handles on irBuilder the value or undef. It keeps the irBuilder subsystem self-contained by handling the value or undef-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) valueOrUndef(name string) string {
 	if v, ok := b.env[name]; ok {
 		return v
@@ -438,6 +466,7 @@ func (b *irBuilder) valueOrUndef(name string) string {
 	return tmp
 }
 
+// resolveIdent handles on irBuilder the resolve ident. It keeps the irBuilder subsystem self-contained by handling the resolve ident-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) resolveIdent(name string) (string, error) {
 	if v, ok := b.env[name]; ok {
 		if _, local := b.locals[name]; !local {
@@ -459,6 +488,7 @@ func (b *irBuilder) resolveIdent(name string) (string, error) {
 	return "", fmt.Errorf("undefined name %q", name)
 }
 
+// recordCapture handles on irBuilder the record capture. It keeps the irBuilder subsystem self-contained by handling the record capture-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) recordCapture(name string) {
 	// Capture bookkeeping lives on the function value, so only function builders
 	// need to care. The top-level builder can ignore it.
@@ -474,6 +504,7 @@ func (b *irBuilder) recordCapture(name string) {
 	b.fn.Captures = append(b.fn.Captures, name)
 }
 
+// captureSeen performs the capture seen step in the surrounding package and returns int, bool.. It returns int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func captureSeen(list []string, name string) (int, bool) {
 	for i, item := range list {
 		if item == name {
@@ -483,6 +514,7 @@ func captureSeen(list []string, name string) (int, bool) {
 	return -1, false
 }
 
+// lowerProgram handles on irBuilder the lower program. It keeps the irBuilder subsystem self-contained by handling the lower program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerProgram(prog *Program) error {
 	for _, stmt := range prog.Statements {
 		terminated, err := b.lowerStmt(stmt)
@@ -497,6 +529,7 @@ func (b *irBuilder) lowerProgram(prog *Program) error {
 	return nil
 }
 
+// lowerStmt handles on irBuilder the lower stmt. It keeps the irBuilder subsystem self-contained by handling the lower stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 	switch st := stmt.(type) {
 	case packageStmt:
@@ -584,6 +617,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 	}
 }
 
+// nextLoopIndex handles on irBuilder the next loop index. It keeps the irBuilder subsystem self-contained by handling the next loop index-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) nextLoopIndex(name string) string {
 	// For the current IR pass, loop indices are represented as a simple
 	// incremented temp so the control-flow graph is explicit and stable.
@@ -594,6 +628,7 @@ func (b *irBuilder) nextLoopIndex(name string) string {
 	return tmp
 }
 
+// lowerFuncStmt handles on irBuilder the lower func stmt. It keeps the irBuilder subsystem self-contained by handling the lower func stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	label := b.pb.nextFuncLabel(st.Name)
 	fn := &IRFunction{
@@ -640,6 +675,7 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	return false, nil
 }
 
+// lowerWhileStmt handles on irBuilder the lower while stmt. It keeps the irBuilder subsystem self-contained by handling the lower while stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerWhileStmt(st whileStmt) (bool, error) {
 	carryNames := collectScopeNamesExpr(st.Body)
 	for name := range b.env {
@@ -717,6 +753,7 @@ func (b *irBuilder) lowerWhileStmt(st whileStmt) (bool, error) {
 	return false, nil
 }
 
+// lowerForStmt handles on irBuilder the lower for stmt. It keeps the irBuilder subsystem self-contained by handling the lower for stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerForStmt(st forStmt) (bool, error) {
 	carryNames := collectScopeNamesExpr(st.Body)
 	carryNames[st.Name] = struct{}{}
@@ -827,6 +864,7 @@ func (b *irBuilder) lowerForStmt(st forStmt) (bool, error) {
 	return false, nil
 }
 
+// emitOn handles on irBuilder the emit on. It keeps the irBuilder subsystem self-contained by handling the emit on-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) emitOn(block *IRBlock, term IRTerminator) {
 	if block == nil {
 		return
@@ -834,6 +872,7 @@ func (b *irBuilder) emitOn(block *IRBlock, term IRTerminator) {
 	block.Term = term
 }
 
+// evalExpr handles on irBuilder the eval expr. It keeps the irBuilder subsystem self-contained by handling the eval expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -953,6 +992,7 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 	}
 }
 
+// lowerIfExpr handles on irBuilder the lower if expr. It keeps the irBuilder subsystem self-contained by handling the lower if expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerIfExpr(n *callExpr) (string, error) {
 	if len(n.args) != 3 {
 		return "", fmt.Errorf("if expects 3 arguments")
@@ -1002,6 +1042,7 @@ func (b *irBuilder) lowerIfExpr(n *callExpr) (string, error) {
 	return phi, nil
 }
 
+// lowerLogicalBinary handles on irBuilder the lower logical binary. It keeps the irBuilder subsystem self-contained by handling the lower logical binary-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerLogicalBinary(n *binaryExpr, isOr bool) (string, error) {
 	leftBuilder := b.fork()
 	left, err := leftBuilder.evalExpr(n.left)
@@ -1063,6 +1104,7 @@ func (b *irBuilder) lowerLogicalBinary(n *binaryExpr, isOr bool) (string, error)
 	return phi, nil
 }
 
+// lowerLogicalCall handles on irBuilder the lower logical call. It keeps the irBuilder subsystem self-contained by handling the lower logical call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) lowerLogicalCall(n *callExpr, isOr bool) (string, error) {
 	// The call form shares the same lowering strategy as the operator form.
 	if len(n.args) != 2 {
@@ -1078,6 +1120,7 @@ func (b *irBuilder) lowerLogicalCall(n *callExpr, isOr bool) (string, error) {
 	return b.lowerLogicalBinary(binary, isOr)
 }
 
+// argsForNames handles on irBuilder the args for names. It keeps the irBuilder subsystem self-contained by handling the args for names-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *irBuilder) argsForNames(names []string) []string {
 	args := make([]string, 0, len(names))
 	for _, name := range names {
@@ -1086,6 +1129,7 @@ func (b *irBuilder) argsForNames(names []string) []string {
 	return args
 }
 
+// captureValues performs the capture values step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func captureValues(env map[string]string, names []string) []string {
 	args := make([]string, 0, len(names))
 	for _, name := range names {
@@ -1098,6 +1142,7 @@ func captureValues(env map[string]string, names []string) []string {
 	return args
 }
 
+// envFromParamValues performs the env from param values step in the surrounding package and returns map[string]string.. It returns map[string]string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func envFromParamValues(names []string, params []string, fallback map[string]string) map[string]string {
 	env := make(map[string]string, len(names))
 	for i, name := range names {
@@ -1114,12 +1159,14 @@ func envFromParamValues(names []string, params []string, fallback map[string]str
 	return env
 }
 
+// collectScopeNamesExpr performs the collect scope names expr step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func collectScopeNamesExpr(expr Expr) map[string]struct{} {
 	out := make(map[string]struct{})
 	collectScopeNamesExprInto(expr, out)
 	return out
 }
 
+// collectScopeNamesExprInto performs the collect scope names expr into step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func collectScopeNamesExprInto(expr Expr, out map[string]struct{}) {
 	switch n := expr.(type) {
 	case *blockExpr:
@@ -1127,6 +1174,7 @@ func collectScopeNamesExprInto(expr Expr, out map[string]struct{}) {
 	}
 }
 
+// collectScopeNamesBlock performs the collect scope names block step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func collectScopeNamesBlock(n *blockExpr, out map[string]struct{}) {
 	if n == nil {
 		return
@@ -1139,6 +1187,7 @@ func collectScopeNamesBlock(n *blockExpr, out map[string]struct{}) {
 	}
 }
 
+// collectScopeNamesStmt performs the collect scope names stmt step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func collectScopeNamesStmt(stmt Stmt, out map[string]struct{}) {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -1159,6 +1208,7 @@ func collectScopeNamesStmt(stmt Stmt, out map[string]struct{}) {
 	}
 }
 
+// sortedNames performs the sorted names step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func sortedNames(src map[string]struct{}) []string {
 	if len(src) == 0 {
 		return nil

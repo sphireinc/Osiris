@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// TestLanguageServerHoverAndDefinition exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestLanguageServerHoverAndDefinition(t *testing.T) {
 	rt := NewRuntime()
 	server := NewLanguageServer(rt, ioDiscardWriter{}, ioDiscardWriter{})
@@ -56,4 +57,5 @@ emit missing
 
 type ioDiscardWriter struct{}
 
+// Write write on ioDiscardWriter the requested work. It keeps the ioDiscardWriter subsystem self-contained by handling the requested work-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (ioDiscardWriter) Write(p []byte) (int, error) { return len(p), nil }

@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestPurityAnalysis exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestPurityAnalysis(t *testing.T) {
 	prog, err := Parse("<test>", `
 let base = tensor([1, 2, 3])

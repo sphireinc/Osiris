@@ -14,6 +14,7 @@ type CArtifact struct {
 	Source string
 }
 
+// CompileC compiles the c into the requested backend artifact so the caller can execute or inspect the program without keeping the source interpreter in the hot path.. It returns *CArtifact and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, error) {
 	if rt == nil {
 		rt = NewRuntime()
@@ -30,6 +31,7 @@ func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, erro
 	return &CArtifact{Source: buildCSnapshot(prog.SourceName, rendered)}, nil
 }
 
+// buildCSnapshot performs the build c snapshot step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func buildCSnapshot(sourceName string, outputs []string) string {
 	var b strings.Builder
 	b.WriteString("#include <stdio.h>\n\n")
@@ -59,6 +61,7 @@ func buildCSnapshot(sourceName string, outputs []string) string {
 	return b.String()
 }
 
+// cEscapeString performs the c escape string step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func cEscapeString(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -83,14 +86,17 @@ func cEscapeString(s string) string {
 	return b.String()
 }
 
+// CompileCObject compiles the c object into the requested backend artifact so the caller can execute or inspect the program without keeping the source interpreter in the hot path.. It returns an error when the operation cannot complete cleanly.
 func CompileCObject(ctx context.Context, source string, outputPath string) error {
 	return compileCArtifact(ctx, source, outputPath, true)
 }
 
+// CompileCExecutable compiles the c executable into the requested backend artifact so the caller can execute or inspect the program without keeping the source interpreter in the hot path.. It returns an error when the operation cannot complete cleanly.
 func CompileCExecutable(ctx context.Context, source string, outputPath string) error {
 	return compileCArtifact(ctx, source, outputPath, false)
 }
 
+// compileCArtifact performs the compile c artifact step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
 func compileCArtifact(ctx context.Context, source, outputPath string, object bool) error {
 	compiler := os.Getenv("CC")
 	if compiler == "" {

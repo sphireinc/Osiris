@@ -33,10 +33,12 @@ type InferFunction struct {
 	CaptureShapes []string
 }
 
+// String handles on InferProgram the string. It keeps the InferProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *InferProgram) String() string {
 	return FormatInferProgram(p)
 }
 
+// InferProgram infer on Runtime the program. It keeps the Runtime subsystem self-contained by handling the program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) InferProgram(ctx context.Context, prog *Program) (*InferProgram, error) {
 	_ = ctx
 	if prog == nil {
@@ -48,6 +50,7 @@ func (rt *Runtime) InferProgram(ctx context.Context, prog *Program) (*InferProgr
 	return inferProgram(prog), nil
 }
 
+// FormatInferProgram formats the infer program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func FormatInferProgram(prog *InferProgram) string {
 	if prog == nil {
 		return ""
@@ -170,6 +173,7 @@ type inferTypeInfo struct {
 	function *InferFunction
 }
 
+// inferProgram performs the infer program step in the surrounding package and returns *InferProgram.. It returns *InferProgram so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferProgram(prog *Program) *InferProgram {
 	out := &InferProgram{Program: prog}
 	root := &inferScope{items: make(map[string]*inferBindingState), name: "main"}
@@ -186,6 +190,7 @@ func inferProgram(prog *Program) *InferProgram {
 	return out
 }
 
+// inferSeq performs the infer seq step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferSeq(stmts []Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 	var last inferTypeInfo
 	for _, stmt := range stmts {
@@ -194,6 +199,7 @@ func inferSeq(stmts []Stmt, scope *inferScope, out *InferProgram) inferTypeInfo 
 	return last
 }
 
+// inferStmt performs the infer stmt step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -231,6 +237,7 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 	}
 }
 
+// inferFunctionStmt performs the infer function stmt step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferFunctionStmt(st funcStmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 	fnState := &inferFunctionState{
 		report: &InferFunction{
@@ -267,10 +274,12 @@ func inferFunctionStmt(st funcStmt, scope *inferScope, out *InferProgram) inferT
 	return fnInfo
 }
 
+// childForBlock handles on inferScope the child for block. It keeps the inferScope subsystem self-contained by handling the child for block-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (s *inferScope) childForBlock() *inferScope {
 	return &inferScope{parent: s, items: make(map[string]*inferBindingState), fn: s.fn, name: s.name}
 }
 
+// bindLocal handles on inferScope the bind local. It keeps the inferScope subsystem self-contained by handling the bind local-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (s *inferScope) bindLocal(name string, info inferTypeInfo) *inferBindingState {
 	bind := &InferBinding{Name: name, Scope: s.name, Kind: info.KindString(), Shape: info.ShapeString(), Units: info.UnitsString()}
 	state := &inferBindingState{binding: bind, info: info, owner: s.fn}
@@ -281,6 +290,7 @@ func (s *inferScope) bindLocal(name string, info inferTypeInfo) *inferBindingSta
 	return state
 }
 
+// lookup handles on inferScope the lookup. It keeps the inferScope subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (s *inferScope) lookup(name string) (*inferBindingState, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -300,6 +310,7 @@ func (s *inferScope) lookup(name string) (*inferBindingState, bool) {
 	return nil, false
 }
 
+// lookupLocal handles on inferScope the lookup local. It keeps the inferScope subsystem self-contained by handling the lookup local-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (s *inferScope) lookupLocal(name string) *inferBindingState {
 	for cur := s; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -312,6 +323,7 @@ func (s *inferScope) lookupLocal(name string) *inferBindingState {
 	return nil
 }
 
+// inferExpr performs the infer expr step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -411,6 +423,7 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 	}
 }
 
+// inferBuiltinInfo performs the infer builtin info step in the surrounding package and returns inferTypeInfo, bool.. It returns inferTypeInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 	switch name {
 	case "true", "false":
@@ -519,6 +532,7 @@ func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 	}
 }
 
+// inferBuiltinCall performs the infer builtin call step in the surrounding package and returns inferTypeInfo, bool.. It returns inferTypeInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferProgram) (inferTypeInfo, bool) {
 	switch name {
 	case "repeat":
@@ -819,6 +833,7 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 	}
 }
 
+// inferFixedCall performs the infer fixed call step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferFixedCall(args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 	info := inferTypeInfo{known: true, kind: "fixed"}
 	if len(args) >= 2 {
@@ -835,6 +850,7 @@ func inferFixedCall(args []Expr, scope *inferScope, out *InferProgram) inferType
 	return info
 }
 
+// inferTensorCall performs the infer tensor call step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferTensorCall(args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 	info := inferTypeInfo{known: true, kind: "tensor"}
 	if len(args) == 0 {
@@ -866,6 +882,7 @@ func inferTensorCall(args []Expr, scope *inferScope, out *InferProgram) inferTyp
 	return inferTypeInfo{kind: "tensor"}
 }
 
+// inferShapeInfo performs the infer shape info step in the surrounding package and returns shapeInfo.. It returns shapeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferShapeInfo(expr Expr, scope *inferScope, out *InferProgram) shapeInfo {
 	info, err := shapeOfExpr(expr, &shapeEnv{items: make(map[string]shapeInfo)})
 	if err != nil {
@@ -874,6 +891,7 @@ func inferShapeInfo(expr Expr, scope *inferScope, out *InferProgram) shapeInfo {
 	return info
 }
 
+// inferShapeLiteral performs the infer shape literal step in the surrounding package and returns []int, bool.. It returns []int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferShapeLiteral(expr Expr, scope *inferScope, out *InferProgram) ([]int, bool) {
 	dims, ok, err := intListLiteral(expr, &shapeEnv{items: make(map[string]shapeInfo)})
 	if err != nil || !ok {
@@ -882,6 +900,7 @@ func inferShapeLiteral(expr Expr, scope *inferScope, out *InferProgram) ([]int, 
 	return dims, true
 }
 
+// inferIntLiteral performs the infer int literal step in the surrounding package and returns int, bool.. It returns int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferIntLiteral(expr Expr, scope *inferScope, out *InferProgram) (int, bool) {
 	n, ok, err := intLiteralExpr(expr, &shapeEnv{items: make(map[string]shapeInfo)})
 	if err != nil || !ok {
@@ -890,6 +909,7 @@ func inferIntLiteral(expr Expr, scope *inferScope, out *InferProgram) (int, bool
 	return n, true
 }
 
+// inferShapeArgs performs the infer shape args step in the surrounding package and returns []int, bool.. It returns []int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferShapeArgs(args []Expr, scope *inferScope, out *InferProgram) ([]int, bool) {
 	if len(args) == 0 {
 		return nil, false
@@ -917,6 +937,7 @@ func inferShapeArgs(args []Expr, scope *inferScope, out *InferProgram) ([]int, b
 	return dims, true
 }
 
+// inferUnaryLikeBuiltin performs the infer unary like builtin step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferUnaryLikeBuiltin(args []Expr, scope *inferScope, out *InferProgram, scalarKind string) inferTypeInfo {
 	if len(args) != 1 {
 		return inferTypeInfo{kind: "unknown"}
@@ -932,6 +953,7 @@ func inferUnaryLikeBuiltin(args []Expr, scope *inferScope, out *InferProgram, sc
 	}
 }
 
+// inferPreserveContainerBuiltin performs the infer preserve container builtin step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferPreserveContainerBuiltin(args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 	if len(args) != 1 {
 		return inferTypeInfo{kind: "unknown"}
@@ -947,6 +969,7 @@ func inferPreserveContainerBuiltin(args []Expr, scope *inferScope, out *InferPro
 	}
 }
 
+// inferBinaryType performs the infer binary type step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferBinaryType(op tokenKind, left, right inferTypeInfo) inferTypeInfo {
 	switch op {
 	case tokenEqualEqual, tokenBangEqual, tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual, tokenAndAnd, tokenOrOr:
@@ -1009,6 +1032,7 @@ func inferBinaryType(op tokenKind, left, right inferTypeInfo) inferTypeInfo {
 	}
 }
 
+// promoteNumeric performs the promote numeric step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func promoteNumeric(left, right inferTypeInfo) inferTypeInfo {
 	switch {
 	case left.kind == "complex" || right.kind == "complex":
@@ -1070,6 +1094,7 @@ func promoteNumeric(left, right inferTypeInfo) inferTypeInfo {
 	}
 }
 
+// inferJoinType performs the infer join type step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferJoinType(a, b inferTypeInfo) inferTypeInfo {
 	if a.kind == b.kind && a.ShapeString() == b.ShapeString() && formatDims(a.units) == formatDims(b.units) && a.bits == b.bits && a.frac == b.frac {
 		return a
@@ -1083,6 +1108,7 @@ func inferJoinType(a, b inferTypeInfo) inferTypeInfo {
 	return inferTypeInfo{kind: "unknown"}
 }
 
+// inferTypeFromValue performs the infer type from value step in the surrounding package and returns inferTypeInfo.. It returns inferTypeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func inferTypeFromValue(v Value) inferTypeInfo {
 	info := inferTypeInfo{known: true}
 	switch v.kind {
@@ -1153,6 +1179,7 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 	return info
 }
 
+// KindString handles on inferTypeInfo the kind string. It keeps the inferTypeInfo subsystem self-contained by handling the kind string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (i inferTypeInfo) KindString() string {
 	switch i.kind {
 	case "int":
@@ -1210,6 +1237,7 @@ func (i inferTypeInfo) KindString() string {
 	}
 }
 
+// ShapeString handles on inferTypeInfo the shape string. It keeps the inferTypeInfo subsystem self-contained by handling the shape string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (i inferTypeInfo) ShapeString() string {
 	if len(i.shape) == 0 {
 		return ""
@@ -1217,10 +1245,12 @@ func (i inferTypeInfo) ShapeString() string {
 	return tensorShapeString(i.shape)
 }
 
+// UnitsString handles on inferTypeInfo the units string. It keeps the inferTypeInfo subsystem self-contained by handling the units string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (i inferTypeInfo) UnitsString() string {
 	return formatDims(i.units)
 }
 
+// maxBits performs the max bits step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func maxBits(a, b uint16) uint16 {
 	if a > b {
 		return a

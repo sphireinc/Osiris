@@ -10,6 +10,7 @@ import (
 
 type optimizeEnv map[string]Expr
 
+// OptimizeProgram performs the optimize program step in the surrounding package and returns *Program.. It returns *Program so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func OptimizeProgram(prog *Program) *Program {
 	if prog == nil {
 		return nil
@@ -21,11 +22,13 @@ func OptimizeProgram(prog *Program) *Program {
 	}
 }
 
+// optimizeStmt performs the optimize stmt step in the surrounding package and returns Stmt.. It returns Stmt so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeStmt(stmt Stmt) Stmt {
 	opt, _ := optimizeStmtWithEnv(stmt, nil)
 	return opt
 }
 
+// optimizeStmtWithEnv performs the optimize stmt with env step in the surrounding package and returns Stmt, optimizeEnv.. It returns Stmt, optimizeEnv so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 	switch s := stmt.(type) {
 	case letStmt:
@@ -66,14 +69,17 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 	}
 }
 
+// optimizeExpr performs the optimize expr step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeExpr(expr Expr) Expr {
 	return optimizeExprWithEnv(expr, nil)
 }
 
+// optimizeExprWithEnv performs the optimize expr with env step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeExprWithEnv(expr Expr, env optimizeEnv) Expr {
 	return optimizeExprWithEnvSeen(expr, env, nil)
 }
 
+// optimizeExprWithEnvSeen performs the optimize expr with env seen step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{}) Expr {
 	switch n := expr.(type) {
 	case *literalExpr, *identExpr:
@@ -196,6 +202,7 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 	}
 }
 
+// optimizeStmtSequence performs the optimize stmt sequence step in the surrounding package and returns []Stmt, optimizeEnv, map[string]value.. It returns []Stmt, optimizeEnv, map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeStmtSequence(stmts []Stmt, env optimizeEnv) ([]Stmt, optimizeEnv, map[string]struct{}) {
 	localEnv := cloneOptimizeEnv(env)
 	if localEnv == nil {
@@ -235,6 +242,7 @@ func optimizeStmtSequence(stmts []Stmt, env optimizeEnv) ([]Stmt, optimizeEnv, m
 	return optimized, localEnv, pureNames
 }
 
+// cloneOptimizeEnv performs the clone optimize env step in the surrounding package and returns optimizeEnv.. It returns optimizeEnv so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func cloneOptimizeEnv(env optimizeEnv) optimizeEnv {
 	if len(env) == 0 {
 		return nil
@@ -246,6 +254,7 @@ func cloneOptimizeEnv(env optimizeEnv) optimizeEnv {
 	return out
 }
 
+// sweepDeadStatements performs the sweep dead statements step in the surrounding package and returns []Stmt.. It returns []Stmt so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func sweepDeadStatements(stmts []Stmt, tail Expr, pureNames map[string]struct{}) []Stmt {
 	if len(stmts) == 0 {
 		return nil
@@ -279,18 +288,21 @@ func sweepDeadStatements(stmts []Stmt, tail Expr, pureNames map[string]struct{})
 	return out
 }
 
+// reverseStatements performs the reverse statements step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func reverseStatements(stmts []Stmt) {
 	for i, j := 0, len(stmts)-1; i < j; i, j = i+1, j-1 {
 		stmts[i], stmts[j] = stmts[j], stmts[i]
 	}
 }
 
+// collectRawRefsExpr performs the collect raw refs expr step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func collectRawRefsExpr(expr Expr) map[string]struct{} {
 	out := make(map[string]struct{})
 	collectRawRefsExprInto(expr, out)
 	return out
 }
 
+// collectRawRefsExprInto performs the collect raw refs expr into step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func collectRawRefsExprInto(expr Expr, out map[string]struct{}) {
 	switch n := expr.(type) {
 	case nil, *literalExpr:
@@ -329,12 +341,14 @@ func collectRawRefsExprInto(expr Expr, out map[string]struct{}) {
 	}
 }
 
+// collectRawRefsStmt performs the collect raw refs stmt step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func collectRawRefsStmt(stmt Stmt) map[string]struct{} {
 	out := make(map[string]struct{})
 	collectRawRefsStmtInto(stmt, out)
 	return out
 }
 
+// collectRawRefsStmtInto performs the collect raw refs stmt into step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func collectRawRefsStmtInto(stmt Stmt, out map[string]struct{}) {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -359,21 +373,25 @@ func collectRawRefsStmtInto(stmt Stmt, out map[string]struct{}) {
 	}
 }
 
+// addNames performs the add names step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func addNames(dst map[string]struct{}, src map[string]struct{}) {
 	for name := range src {
 		dst[name] = struct{}{}
 	}
 }
 
+// containsName performs the contains name step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func containsName(set map[string]struct{}, name string) bool {
 	_, ok := set[name]
 	return ok
 }
 
+// isPureExpr performs the is pure expr step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isPureExpr(expr Expr, env optimizeEnv, pureNames map[string]struct{}) bool {
 	return isPureExprSeen(expr, env, pureNames, nil)
 }
 
+// isPureExprSeen performs the is pure expr seen step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, seen map[string]struct{}) bool {
 	switch n := expr.(type) {
 	case nil, *literalExpr:
@@ -459,6 +477,7 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 	}
 }
 
+// optimizeBinaryWithLeftLiteral performs the optimize binary with left literal step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeBinaryWithLeftLiteral(op tokenKind, left Value, right Expr) Expr {
 	if isZeroValue(left) {
 		switch op {
@@ -475,6 +494,7 @@ func optimizeBinaryWithLeftLiteral(op tokenKind, left Value, right Expr) Expr {
 	return nil
 }
 
+// optimizeBinaryWithRightLiteral performs the optimize binary with right literal step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeBinaryWithRightLiteral(op tokenKind, left Expr, right Value) Expr {
 	if isZeroValue(right) {
 		switch op {
@@ -493,6 +513,7 @@ func optimizeBinaryWithRightLiteral(op tokenKind, left Expr, right Value) Expr {
 	return nil
 }
 
+// strengthReduceBinary performs the strength reduce binary step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func strengthReduceBinary(op tokenKind, left, right Expr, env optimizeEnv) Expr {
 	switch op {
 	case tokenStar:
@@ -510,6 +531,7 @@ func strengthReduceBinary(op tokenKind, left, right Expr, env optimizeEnv) Expr 
 	return nil
 }
 
+// powerOfTwoShift performs the power of two shift step in the surrounding package and returns uint64, bool.. It returns uint64, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func powerOfTwoShift(expr Expr) (uint64, bool) {
 	lit, ok := expr.(*literalExpr)
 	if !ok {
@@ -527,10 +549,12 @@ func powerOfTwoShift(expr Expr) (uint64, bool) {
 	}
 }
 
+// uintShiftLiteral performs the uint shift literal step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func uintShiftLiteral(shift uint64) Expr {
 	return &literalExpr{value: uintValue(shift, 64)}
 }
 
+// isUintishExpr performs the is uintish expr step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isUintishExpr(expr Expr, env optimizeEnv) bool {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -569,6 +593,7 @@ func isUintishExpr(expr Expr, env optimizeEnv) bool {
 	}
 }
 
+// optimizeIfCall performs the optimize if call step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeIfCall(args []Expr) Expr {
 	if len(args) != 3 {
 		return &callExpr{callee: &identExpr{name: "if"}, args: args}
@@ -582,6 +607,7 @@ func optimizeIfCall(args []Expr) Expr {
 	return &callExpr{callee: &identExpr{name: "if"}, args: args}
 }
 
+// optimizeAndCall performs the optimize and call step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeAndCall(args []Expr) Expr {
 	if len(args) != 2 {
 		return &callExpr{callee: &identExpr{name: "and"}, args: args}
@@ -595,6 +621,7 @@ func optimizeAndCall(args []Expr) Expr {
 	return &callExpr{callee: &identExpr{name: "and"}, args: args}
 }
 
+// optimizeOrCall performs the optimize or call step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func optimizeOrCall(args []Expr) Expr {
 	if len(args) != 2 {
 		return &callExpr{callee: &identExpr{name: "or"}, args: args}
@@ -608,6 +635,7 @@ func optimizeOrCall(args []Expr) Expr {
 	return &callExpr{callee: &identExpr{name: "or"}, args: args}
 }
 
+// pureBuiltinByName performs the pure builtin by name step in the surrounding package and returns Builtin, bool.. It returns Builtin, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func pureBuiltinByName(name string) (Builtin, bool) {
 	switch name {
 	case "cat":
@@ -951,6 +979,7 @@ func pureBuiltinByName(name string) (Builtin, bool) {
 	}
 }
 
+// isZeroValue performs the is zero value step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isZeroValue(v Value) bool {
 	switch v.kind {
 	case kindNumber:
@@ -975,6 +1004,7 @@ func isZeroValue(v Value) bool {
 	}
 }
 
+// isOneValue performs the is one value step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func isOneValue(v Value) bool {
 	switch v.kind {
 	case kindNumber:
@@ -1008,24 +1038,31 @@ var (
 	oneBigFloatValue = newBigFloatOne()
 )
 
+// newRatOne performs the new rat one step in the surrounding package and returns *big.Rat.. It returns *big.Rat so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newRatOne() *big.Rat {
 	return new(big.Rat).SetInt64(1)
 }
 
+// oneRat performs the one rat step in the surrounding package and returns *big.Rat.. It returns *big.Rat so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func oneRat() *big.Rat { return oneRatValue }
 
+// newBigIntOne performs the new big int one step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newBigIntOne() *big.Int {
 	return big.NewInt(1)
 }
 
+// oneBigInt performs the one big int step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func oneBigInt() *big.Int { return oneBigIntValue }
 
+// newBigFloatOne performs the new big float one step in the surrounding package and returns *big.Float.. It returns *big.Float so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newBigFloatOne() *big.Float {
 	return new(big.Float).SetInt64(1)
 }
 
+// oneBigFloat performs the one big float step in the surrounding package and returns *big.Float.. It returns *big.Float so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func oneBigFloat() *big.Float { return oneBigFloatValue }
 
+// decimalValueFromArgs performs the decimal value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func decimalValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("dec expects 1 argument")
@@ -1044,55 +1081,112 @@ func decimalValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
+// uintValueFromArgs performs the uint value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uintValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
 
+// byteValueFromArgs performs the byte value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func byteValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+
+// uf8ValueFromArgs performs the uf8 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf8ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 8, false)
 }
+
+// uf16ValueFromArgs performs the uf16 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf16ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 16, false)
 }
+
+// uf32ValueFromArgs performs the uf32 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf32ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 32, false)
 }
+
+// ufnumValueFromArgs performs the ufnum value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func ufnumValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 64, true)
 }
+
+// uf64ValueFromArgs performs the uf64 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf64ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 64, false)
 }
+
+// uf128ValueFromArgs performs the uf128 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf128ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 128, false)
 }
+
+// uf256ValueFromArgs performs the uf256 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf256ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 256, false)
 }
+
+// uf512ValueFromArgs performs the uf512 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf512ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 512, false)
 }
+
+// uf1024ValueFromArgs performs the uf1024 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func uf1024ValueFromArgs(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 1024, false)
 }
-func f32ValueFromArgs(args []Value) (Value, error)    { return castFloatWidthValue(args, 32) }
-func f64ValueFromArgs(args []Value) (Value, error)    { return castFloatWidthValue(args, 64) }
-func bf8ValueFromArgs(args []Value) (Value, error)    { return castBFloatWidthValue(args, 8) }
-func bf16ValueFromArgs(args []Value) (Value, error)   { return castBFloatWidthValue(args, 16) }
-func bf32ValueFromArgs(args []Value) (Value, error)   { return castBFloatWidthValue(args, 32) }
-func bf64ValueFromArgs(args []Value) (Value, error)   { return castBFloatWidthValue(args, 64) }
-func bf128ValueFromArgs(args []Value) (Value, error)  { return castBFloatWidthValue(args, 128) }
-func bf256ValueFromArgs(args []Value) (Value, error)  { return castBFloatWidthValue(args, 256) }
-func bf512ValueFromArgs(args []Value) (Value, error)  { return castBFloatWidthValue(args, 512) }
-func bf1024ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 1024) }
-func u8ValueFromArgs(args []Value) (Value, error)     { return castUnsignedWidthValue(args, 8) }
-func u16ValueFromArgs(args []Value) (Value, error)    { return castUnsignedWidthValue(args, 16) }
-func u32ValueFromArgs(args []Value) (Value, error)    { return castUnsignedWidthValue(args, 32) }
-func u64ValueFromArgs(args []Value) (Value, error)    { return castUnsignedWidthValue(args, 64) }
-func u128ValueFromArgs(args []Value) (Value, error)   { return castUnsignedWidthValue(args, 128) }
-func u256ValueFromArgs(args []Value) (Value, error)   { return castUnsignedWidthValue(args, 256) }
-func u512ValueFromArgs(args []Value) (Value, error)   { return castUnsignedWidthValue(args, 512) }
-func u1024ValueFromArgs(args []Value) (Value, error)  { return castUnsignedWidthValue(args, 1024) }
 
+// f32ValueFromArgs performs the f32 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func f32ValueFromArgs(args []Value) (Value, error) { return castFloatWidthValue(args, 32) }
+
+// f64ValueFromArgs performs the f64 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func f64ValueFromArgs(args []Value) (Value, error) { return castFloatWidthValue(args, 64) }
+
+// bf8ValueFromArgs performs the bf8 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf8ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 8) }
+
+// bf16ValueFromArgs performs the bf16 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf16ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 16) }
+
+// bf32ValueFromArgs performs the bf32 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf32ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 32) }
+
+// bf64ValueFromArgs performs the bf64 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf64ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 64) }
+
+// bf128ValueFromArgs performs the bf128 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf128ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 128) }
+
+// bf256ValueFromArgs performs the bf256 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf256ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 256) }
+
+// bf512ValueFromArgs performs the bf512 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf512ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 512) }
+
+// bf1024ValueFromArgs performs the bf1024 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func bf1024ValueFromArgs(args []Value) (Value, error) { return castBFloatWidthValue(args, 1024) }
+
+// u8ValueFromArgs performs the u8 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u8ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+
+// u16ValueFromArgs performs the u16 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u16ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 16) }
+
+// u32ValueFromArgs performs the u32 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u32ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 32) }
+
+// u64ValueFromArgs performs the u64 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u64ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
+
+// u128ValueFromArgs performs the u128 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u128ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 128) }
+
+// u256ValueFromArgs performs the u256 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u256ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 256) }
+
+// u512ValueFromArgs performs the u512 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u512ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 512) }
+
+// u1024ValueFromArgs performs the u1024 value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func u1024ValueFromArgs(args []Value) (Value, error) { return castUnsignedWidthValue(args, 1024) }
+
+// constValueExpr performs the const value expr step in the surrounding package and returns Value, bool.. It returns Value, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func constValueExpr(expr Expr) (Value, bool) {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -1112,6 +1206,7 @@ func constValueExpr(expr Expr) (Value, bool) {
 	}
 }
 
+// constValues performs the const values step in the surrounding package and returns []Value, bool.. It returns []Value, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func constValues(exprs []Expr) ([]Value, bool) {
 	values := make([]Value, len(exprs))
 	for i, expr := range exprs {
@@ -1124,6 +1219,7 @@ func constValues(exprs []Expr) ([]Value, bool) {
 	return values, true
 }
 
+// jsonValueFromArgs performs the json value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func jsonValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("json expects 1 argument")
@@ -1135,6 +1231,7 @@ func jsonValueFromArgs(args []Value) (Value, error) {
 	return stringValue(string(data)), nil
 }
 
+// formatValueFromArgs performs the format value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func formatValueFromArgs(args []Value) (Value, error) {
 	if len(args) == 0 {
 		return nullValue(), fmt.Errorf("format expects at least 1 argument")

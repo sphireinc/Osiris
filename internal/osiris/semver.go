@@ -13,6 +13,7 @@ type semVersion struct {
 	raw   string
 }
 
+// parseSemVersion performs the parse sem version step in the surrounding package and returns semVersion, error.. It returns semVersion and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func parseSemVersion(s string) (semVersion, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -49,6 +50,7 @@ func parseSemVersion(s string) (semVersion, error) {
 	return out, nil
 }
 
+// normalizeSemVersion performs the normalize sem version step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func normalizeSemVersion(major, minor, patch, parts int) string {
 	switch parts {
 	case 1:
@@ -60,6 +62,7 @@ func normalizeSemVersion(major, minor, patch, parts int) string {
 	}
 }
 
+// String handles on semVersion the string. It keeps the semVersion subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v semVersion) String() string {
 	if v.raw != "" {
 		return v.raw
@@ -67,6 +70,7 @@ func (v semVersion) String() string {
 	return normalizeSemVersion(v.major, v.minor, v.patch, 3)
 }
 
+// MatchesSelector match on semVersion the es selector. It keeps the semVersion subsystem self-contained by handling the es selector-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v semVersion) MatchesSelector(selector string) bool {
 	if selector == "" {
 		return true

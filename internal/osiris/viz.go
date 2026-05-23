@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// VizProgramDOT performs the viz program dot step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func VizProgramDOT(prog *Program) string {
 	g := newDotGraph("osiris-ast")
 	root := g.node(programLabel(prog), "box", "filled", "lightgoldenrodyellow")
@@ -15,6 +16,7 @@ func VizProgramDOT(prog *Program) string {
 	return g.String()
 }
 
+// VizImportsDOT performs the viz imports dot step in the surrounding package and returns string, error.. It returns string and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func VizImportsDOT(sourceName, src string) (string, error) {
 	g := newDotGraph("osiris-imports")
 	visited := make(map[string]struct{})
@@ -35,6 +37,7 @@ type dotGraph struct {
 	next int
 }
 
+// newDotGraph performs the new dot graph step in the surrounding package and returns *dotGraph.. It returns *dotGraph so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newDotGraph(name string) *dotGraph {
 	b := &strings.Builder{}
 	b.WriteString("digraph ")
@@ -45,11 +48,13 @@ func newDotGraph(name string) *dotGraph {
 	return &dotGraph{name: name, b: b}
 }
 
+// String handles on dotGraph the string. It keeps the dotGraph subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) String() string {
 	g.b.WriteString("}\n")
 	return g.b.String()
 }
 
+// node handles on dotGraph the node. It keeps the dotGraph subsystem self-contained by handling the node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) node(label string, attrs ...string) string {
 	id := fmt.Sprintf("n%d", g.next)
 	g.next++
@@ -69,6 +74,7 @@ func (g *dotGraph) node(label string, attrs ...string) string {
 	return id
 }
 
+// edge handles on dotGraph the edge. It keeps the dotGraph subsystem self-contained by handling the edge-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) edge(from, to string) {
 	g.b.WriteString("  ")
 	g.b.WriteString(from)
@@ -77,6 +83,7 @@ func (g *dotGraph) edge(from, to string) {
 	g.b.WriteString(";\n")
 }
 
+// walkStmt handles on dotGraph the walk stmt. It keeps the dotGraph subsystem self-contained by handling the walk stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) walkStmt(stmt Stmt) string {
 	switch s := stmt.(type) {
 	case packageStmt:
@@ -109,6 +116,7 @@ func (g *dotGraph) walkStmt(stmt Stmt) string {
 	}
 }
 
+// walkExpr handles on dotGraph the walk expr. It keeps the dotGraph subsystem self-contained by handling the walk expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) walkExpr(expr Expr) string {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -175,6 +183,7 @@ func (g *dotGraph) walkExpr(expr Expr) string {
 	}
 }
 
+// walkImports handles on dotGraph the walk imports. It keeps the dotGraph subsystem self-contained by handling the walk imports-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (g *dotGraph) walkImports(root string, sourceName, src string, visited map[string]struct{}) error {
 	prog, err := Parse(sourceName, src)
 	if err != nil {
@@ -218,6 +227,7 @@ func (g *dotGraph) walkImports(root string, sourceName, src string, visited map[
 	return nil
 }
 
+// programLabel performs the program label step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func programLabel(prog *Program) string {
 	if prog == nil {
 		return "<program>"
@@ -233,6 +243,7 @@ func programLabel(prog *Program) string {
 	return prog.SourceName
 }
 
+// programLabelFromSource performs the program label from source step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func programLabelFromSource(sourceName, src string) string {
 	prog, err := Parse(sourceName, src)
 	if err != nil {
@@ -241,6 +252,7 @@ func programLabelFromSource(sourceName, src string) string {
 	return programLabel(prog)
 }
 
+// moduleLabel performs the module label step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func moduleLabel(sourceName, src string) string {
 	label := sourceName
 	if prog, err := Parse(sourceName, src); err == nil {
@@ -254,6 +266,7 @@ func moduleLabel(sourceName, src string) string {
 	return label
 }
 
+// dotQuote performs the dot quote step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func dotQuote(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')

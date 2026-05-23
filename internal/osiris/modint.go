@@ -12,6 +12,7 @@ type modIntValue struct {
 	val *big.Int
 }
 
+// newModIntValue performs the new mod int value step in the surrounding package and returns *modIntValue, error.. It returns *modIntValue and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func newModIntValue(modulus, value *big.Int) (*modIntValue, error) {
 	if modulus == nil {
 		return nil, fmt.Errorf("modint requires a modulus")
@@ -30,6 +31,7 @@ func newModIntValue(modulus, value *big.Int) (*modIntValue, error) {
 	return &modIntValue{mod: mod, val: val}, nil
 }
 
+// modIntValueOf performs the mod int value of step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func modIntValueOf(modulus, value *big.Int) (Value, error) {
 	mv, err := newModIntValue(modulus, value)
 	if err != nil {
@@ -38,6 +40,7 @@ func modIntValueOf(modulus, value *big.Int) (Value, error) {
 	return Value{kind: kindModInt, mi: mv}, nil
 }
 
+// modIntValueFromArgs performs the mod int value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func modIntValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("modint expects 2 arguments")
@@ -53,6 +56,7 @@ func modIntValueFromArgs(args []Value) (Value, error) {
 	return modIntValueOf(modulus, value)
 }
 
+// parseExactIntArg performs the parse exact int arg step in the surrounding package and returns *big.Int, error.. It returns *big.Int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func parseExactIntArg(v Value, label string) (*big.Int, error) {
 	if v.kind == kindString {
 		if i, ok := new(big.Int).SetString(strings.TrimSpace(v.str), 0); ok {
@@ -67,6 +71,7 @@ func parseExactIntArg(v Value, label string) (*big.Int, error) {
 	return i, nil
 }
 
+// modIntFromValue performs the mod int from value step in the surrounding package and returns *modIntValue, error.. It returns *modIntValue and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func modIntFromValue(v Value) (*modIntValue, error) {
 	switch v.kind {
 	case kindModInt:
@@ -131,6 +136,7 @@ func modIntFromValue(v Value) (*modIntValue, error) {
 	}
 }
 
+// modIntResidueFromValue performs the mod int residue from value step in the surrounding package and returns *big.Int, error.. It returns *big.Int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func modIntResidueFromValue(v Value, mod *big.Int) (*big.Int, error) {
 	switch v.kind {
 	case kindModInt:
@@ -204,6 +210,7 @@ func modIntResidueFromValue(v Value, mod *big.Int) (*big.Int, error) {
 	}
 }
 
+// formatModInt performs the format mod int step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatModInt(v *modIntValue) string {
 	if v == nil {
 		return "0 mod 1"
@@ -211,6 +218,7 @@ func formatModInt(v *modIntValue) string {
 	return v.val.String() + " mod " + v.mod.String()
 }
 
+// modIntBinary performs the mod int binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func modIntBinary(op tokenKind, left, right Value) (Value, error) {
 	var mod *big.Int
 	if left.kind == kindModInt && left.mi != nil {

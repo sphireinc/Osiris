@@ -32,10 +32,12 @@ type ClosureFunction struct {
 	Captures   []string
 }
 
+// String handles on ClosureProgram the string. It keeps the ClosureProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *ClosureProgram) String() string {
 	return FormatClosureProgram(p)
 }
 
+// AnalyzeClosure analyze on Runtime the closure. It keeps the Runtime subsystem self-contained by handling the closure-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) AnalyzeClosure(ctx context.Context, prog *Program) (*ClosureProgram, error) {
 	if prog == nil {
 		return nil, fmt.Errorf("cannot analyze closures for nil program")
@@ -47,6 +49,7 @@ func (rt *Runtime) AnalyzeClosure(ctx context.Context, prog *Program) (*ClosureP
 	return analyzeClosureProgram(prog, ir), nil
 }
 
+// FormatClosureProgram formats the closure program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func FormatClosureProgram(prog *ClosureProgram) string {
 	if prog == nil {
 		return ""
@@ -127,6 +130,7 @@ func FormatClosureProgram(prog *ClosureProgram) string {
 	return b.String()
 }
 
+// analyzeClosureProgram performs the analyze closure program step in the surrounding package and returns *ClosureProgram.. It returns *ClosureProgram so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func analyzeClosureProgram(prog *Program, ir *IRProgram) *ClosureProgram {
 	out := &ClosureProgram{Program: prog}
 	if ir == nil {

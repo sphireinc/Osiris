@@ -20,6 +20,7 @@ type letStmt struct {
 	NameSpan sourceSpan
 }
 
+// stmtNode handles on letStmt the stmt node. It keeps the letStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (letStmt) stmtNode() {}
 
 type emitStmt struct {
@@ -27,6 +28,7 @@ type emitStmt struct {
 	Span sourceSpan
 }
 
+// stmtNode handles on emitStmt the stmt node. It keeps the emitStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (emitStmt) stmtNode() {}
 
 type macroStmt struct {
@@ -37,6 +39,7 @@ type macroStmt struct {
 	NameSpan sourceSpan
 }
 
+// stmtNode handles on macroStmt the stmt node. It keeps the macroStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (macroStmt) stmtNode() {}
 
 type funcStmt struct {
@@ -47,6 +50,7 @@ type funcStmt struct {
 	NameSpan sourceSpan
 }
 
+// stmtNode handles on funcStmt the stmt node. It keeps the funcStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (funcStmt) stmtNode() {}
 
 type returnStmt struct {
@@ -54,6 +58,7 @@ type returnStmt struct {
 	Span sourceSpan
 }
 
+// stmtNode handles on returnStmt the stmt node. It keeps the returnStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (returnStmt) stmtNode() {}
 
 type whileStmt struct {
@@ -62,6 +67,7 @@ type whileStmt struct {
 	Span sourceSpan
 }
 
+// stmtNode handles on whileStmt the stmt node. It keeps the whileStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (whileStmt) stmtNode() {}
 
 type forStmt struct {
@@ -72,18 +78,21 @@ type forStmt struct {
 	NameSpan sourceSpan
 }
 
+// stmtNode handles on forStmt the stmt node. It keeps the forStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (forStmt) stmtNode() {}
 
 type breakStmt struct {
 	Span sourceSpan
 }
 
+// stmtNode handles on breakStmt the stmt node. It keeps the breakStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (breakStmt) stmtNode() {}
 
 type continueStmt struct {
 	Span sourceSpan
 }
 
+// stmtNode handles on continueStmt the stmt node. It keeps the continueStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (continueStmt) stmtNode() {}
 
 type importStmt struct {
@@ -94,6 +103,7 @@ type importStmt struct {
 	AliasSpan sourceSpan
 }
 
+// stmtNode handles on importStmt the stmt node. It keeps the importStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (importStmt) stmtNode() {}
 
 type packageStmt struct {
@@ -104,6 +114,7 @@ type packageStmt struct {
 	VersionSpan sourceSpan
 }
 
+// stmtNode handles on packageStmt the stmt node. It keeps the packageStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (packageStmt) stmtNode() {}
 
 type exportStmt struct {
@@ -112,6 +123,7 @@ type exportStmt struct {
 	NameSpans []sourceSpan
 }
 
+// stmtNode handles on exportStmt the stmt node. It keeps the exportStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (exportStmt) stmtNode() {}
 
 type Expr interface {
@@ -123,6 +135,7 @@ type literalExpr struct {
 	Span  sourceSpan
 }
 
+// exprNode handles on literalExpr the expr node. It keeps the literalExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (literalExpr) exprNode() {}
 
 type identExpr struct {
@@ -130,6 +143,7 @@ type identExpr struct {
 	Span sourceSpan
 }
 
+// exprNode handles on identExpr the expr node. It keeps the identExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (identExpr) exprNode() {}
 
 type unaryExpr struct {
@@ -138,6 +152,7 @@ type unaryExpr struct {
 	Span sourceSpan
 }
 
+// exprNode handles on unaryExpr the expr node. It keeps the unaryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (unaryExpr) exprNode() {}
 
 type binaryExpr struct {
@@ -147,6 +162,7 @@ type binaryExpr struct {
 	Span  sourceSpan
 }
 
+// exprNode handles on binaryExpr the expr node. It keeps the binaryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (binaryExpr) exprNode() {}
 
 type callExpr struct {
@@ -155,6 +171,7 @@ type callExpr struct {
 	Span   sourceSpan
 }
 
+// exprNode handles on callExpr the expr node. It keeps the callExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (callExpr) exprNode() {}
 
 type blockExpr struct {
@@ -163,6 +180,7 @@ type blockExpr struct {
 	Span  sourceSpan
 }
 
+// exprNode handles on blockExpr the expr node. It keeps the blockExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (blockExpr) exprNode() {}
 
 type tryExpr struct {
@@ -172,6 +190,7 @@ type tryExpr struct {
 	Span      sourceSpan
 }
 
+// exprNode handles on tryExpr the expr node. It keeps the tryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (tryExpr) exprNode() {}
 
 type memberExpr struct {
@@ -181,6 +200,7 @@ type memberExpr struct {
 	NameSpan sourceSpan
 }
 
+// exprNode handles on memberExpr the expr node. It keeps the memberExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (memberExpr) exprNode() {}
 
 type listExpr struct {
@@ -188,6 +208,7 @@ type listExpr struct {
 	Span  sourceSpan
 }
 
+// exprNode handles on listExpr the expr node. It keeps the listExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (listExpr) exprNode() {}
 
 type matchExpr struct {
@@ -197,6 +218,7 @@ type matchExpr struct {
 	keyword tokenKind
 }
 
+// exprNode handles on matchExpr the expr node. It keeps the matchExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (matchExpr) exprNode() {}
 
 type matchArm struct {
@@ -210,6 +232,7 @@ type Pattern interface {
 
 type wildcardPattern struct{}
 
+// patternNode handles on wildcardPattern the pattern node. It keeps the wildcardPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (wildcardPattern) patternNode() {}
 
 type bindPattern struct {
@@ -217,6 +240,7 @@ type bindPattern struct {
 	Span sourceSpan
 }
 
+// patternNode handles on bindPattern the pattern node. It keeps the bindPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (bindPattern) patternNode() {}
 
 type literalPattern struct {
@@ -224,6 +248,7 @@ type literalPattern struct {
 	Span  sourceSpan
 }
 
+// patternNode handles on literalPattern the pattern node. It keeps the literalPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (literalPattern) patternNode() {}
 
 type listPattern struct {
@@ -231,8 +256,10 @@ type listPattern struct {
 	Span  sourceSpan
 }
 
+// patternNode handles on listPattern the pattern node. It keeps the listPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (listPattern) patternNode() {}
 
+// Parse parses the supplied the requested work and returns the structured form that the evaluator, optimizer, or analyzer expects to work on.. It returns *Program and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func Parse(sourceName, src string) (*Program, error) {
 	p := &parser{sourceName: sourceName, lexer: newLexer(src)}
 	return p.parse()
@@ -246,6 +273,7 @@ type parser struct {
 	lexErr     error
 }
 
+// parse handles on parser the parse. It keeps the parser subsystem self-contained by handling the parse-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parse() (*Program, error) {
 	var stmts []Stmt
 	for {
@@ -272,6 +300,7 @@ func (p *parser) parse() (*Program, error) {
 	return &Program{SourceName: p.sourceName, Statements: stmts}, nil
 }
 
+// parseStmt handles on parser the parse stmt. It keeps the parser subsystem self-contained by handling the parse stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseStmt() (Stmt, error) {
 	switch p.peek().kind {
 	case tokenLet:
@@ -462,6 +491,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 	}
 }
 
+// parseExpr handles on parser the parse expr. It keeps the parser subsystem self-contained by handling the parse expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseExpr(minPrec int) (Expr, error) {
 	left, err := p.parsePrefix()
 	if err != nil {
@@ -489,6 +519,7 @@ func (p *parser) parseExpr(minPrec int) (Expr, error) {
 	return left, nil
 }
 
+// parsePostfix handles on parser the parse postfix. It keeps the parser subsystem self-contained by handling the parse postfix-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	for {
 		switch p.peek().kind {
@@ -511,6 +542,7 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	}
 }
 
+// parsePrefix handles on parser the parse prefix. It keeps the parser subsystem self-contained by handling the parse prefix-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parsePrefix() (Expr, error) {
 	tok := p.peek()
 	switch tok.kind {
@@ -573,6 +605,7 @@ func (p *parser) parsePrefix() (Expr, error) {
 	}
 }
 
+// parseTryExpr handles on parser the parse try expr. It keeps the parser subsystem self-contained by handling the parse try expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseTryExpr() (Expr, error) {
 	start := p.next()
 	body, err := p.parseExpr(0)
@@ -593,6 +626,7 @@ func (p *parser) parseTryExpr() (Expr, error) {
 	return &tryExpr{body: body, catchName: nameTok.text, handler: handler, Span: spanCover(spanFromToken(start), exprSpan(handler))}, nil
 }
 
+// parseCallArgs handles on parser the parse call args. It keeps the parser subsystem self-contained by handling the parse call args-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseCallArgs() ([]Expr, error) {
 	if _, err := p.expect(tokenLParen); err != nil {
 		return nil, err
@@ -617,6 +651,7 @@ func (p *parser) parseCallArgs() ([]Expr, error) {
 	}
 }
 
+// parseNameList handles on parser the parse name list. It keeps the parser subsystem self-contained by handling the parse name list-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseNameList() ([]string, error) {
 	first, err := p.expect(tokenIdent)
 	if err != nil {
@@ -633,6 +668,7 @@ func (p *parser) parseNameList() ([]string, error) {
 	return names, nil
 }
 
+// parseNameListAllowEmpty handles on parser the parse name list allow empty. It keeps the parser subsystem self-contained by handling the parse name list allow empty-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseNameListAllowEmpty() ([]string, error) {
 	if p.match(tokenRParen) {
 		return nil, nil
@@ -655,6 +691,7 @@ func (p *parser) parseNameListAllowEmpty() ([]string, error) {
 	return names, nil
 }
 
+// parseList handles on parser the parse list. It keeps the parser subsystem self-contained by handling the parse list-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseList() (Expr, error) {
 	if _, err := p.expect(tokenLBracket); err != nil {
 		return nil, err
@@ -679,6 +716,7 @@ func (p *parser) parseList() (Expr, error) {
 	}
 }
 
+// parseBlockExpr handles on parser the parse block expr. It keeps the parser subsystem self-contained by handling the parse block expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseBlockExpr() (Expr, error) {
 	if _, err := p.expect(tokenLBrace); err != nil {
 		return nil, err
@@ -717,6 +755,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 	}
 }
 
+// parseMatchExpr handles on parser the parse match expr. It keeps the parser subsystem self-contained by handling the parse match expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	if _, err := p.expect(keyword); err != nil {
 		return nil, err
@@ -759,6 +798,7 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	return &matchExpr{subject: subject, arms: arms, keyword: keyword}, nil
 }
 
+// exprSpan performs the expr span step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func exprSpan(expr Expr) sourceSpan {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -786,6 +826,7 @@ func exprSpan(expr Expr) sourceSpan {
 	}
 }
 
+// parsePattern handles on parser the parse pattern. It keeps the parser subsystem self-contained by handling the parse pattern-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) parsePattern() (Pattern, error) {
 	tok := p.peek()
 	switch tok.kind {
@@ -849,6 +890,7 @@ func (p *parser) parsePattern() (Pattern, error) {
 	}
 }
 
+// precedence performs the precedence step in the surrounding package and returns int, bool.. It returns int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func precedence(kind tokenKind) (int, bool) {
 	switch kind {
 	case tokenOrOr:
@@ -876,6 +918,7 @@ func precedence(kind tokenKind) (int, bool) {
 	}
 }
 
+// peek handles on parser the peek. It keeps the parser subsystem self-contained by handling the peek-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) peek() token {
 	if p.peeked {
 		return p.cur
@@ -893,12 +936,14 @@ func (p *parser) peek() token {
 	return tok
 }
 
+// next handles on parser the next. It keeps the parser subsystem self-contained by handling the next-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) next() token {
 	tok := p.peek()
 	p.peeked = false
 	return tok
 }
 
+// match handles on parser the match. It keeps the parser subsystem self-contained by handling the match-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) match(kind tokenKind) bool {
 	if p.peek().kind != kind {
 		return false
@@ -907,6 +952,7 @@ func (p *parser) match(kind tokenKind) bool {
 	return true
 }
 
+// expect handles on parser the expect. It keeps the parser subsystem self-contained by handling the expect-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) expect(kind tokenKind) (token, error) {
 	tok := p.peek()
 	if tok.kind != kind {
@@ -916,6 +962,7 @@ func (p *parser) expect(kind tokenKind) (token, error) {
 	return tok, nil
 }
 
+// errorf handles on parser the errorf. It keeps the parser subsystem self-contained by handling the errorf-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (p *parser) errorf(tok token, format string, args ...any) error {
 	base := fmt.Sprintf(format, args...)
 	if tok.kind == tokenEOF {

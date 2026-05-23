@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+// runLanguageProgram performs the run language program step in the surrounding package and returns []Value.. It returns []Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func runLanguageProgram(t *testing.T, source string) []Value {
 	t.Helper()
 	prog, err := Parse("<suite>", source)
@@ -22,6 +23,7 @@ func runLanguageProgram(t *testing.T, source string) []Value {
 	return out
 }
 
+// assertLanguageOutputs performs the assert language outputs step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func assertLanguageOutputs(t *testing.T, source string, want []string) {
 	t.Helper()
 	out := runLanguageProgram(t, source)
@@ -35,6 +37,7 @@ func assertLanguageOutputs(t *testing.T, source string, want []string) {
 	}
 }
 
+// runLanguageProgramVM performs the run language program vm step in the surrounding package and returns []Value.. It returns []Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func runLanguageProgramVM(t *testing.T, source string) []Value {
 	t.Helper()
 	prog, err := Parse("<suite>", source)
@@ -49,6 +52,7 @@ func runLanguageProgramVM(t *testing.T, source string) []Value {
 	return out
 }
 
+// TestLanguageGeneralFeatureSuite exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestLanguageGeneralFeatureSuite(t *testing.T) {
 	t.Run("expressions-booleans-and-precedence", func(t *testing.T) {
 		assertLanguageOutputs(t, `

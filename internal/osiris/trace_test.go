@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestTraceProgram exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestTraceProgram(t *testing.T) {
 	prog, err := Parse("<test>", `
 let x = 3
@@ -33,6 +34,7 @@ emit x + 4
 	}
 }
 
+// TestEvalAt exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestEvalAt(t *testing.T) {
 	prog, err := Parse("<test>", `
 let x = 3
@@ -52,6 +54,7 @@ emit x + y
 	}
 }
 
+// TestTraceCarriesCallStack exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestTraceCarriesCallStack(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit cat("a", "b")

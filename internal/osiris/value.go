@@ -87,27 +87,40 @@ type Value struct {
 	mod    *moduleValue
 }
 
-func nullValue() Value            { return Value{kind: kindNull} }
-func boolValue(v bool) Value      { return Value{kind: kindBool, boo: v} }
+// nullValue performs the null value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func nullValue() Value { return Value{kind: kindNull} }
+
+// boolValue performs the bool value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func boolValue(v bool) Value { return Value{kind: kindBool, boo: v} }
+
+// numberValue performs the number value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func numberValue(v float64) Value { return floatValue(v, 0) }
+
+// floatValue performs the float value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func floatValue(v float64, bits uint16) Value {
 	if bits == 32 {
 		v = float64(float32(v))
 	}
 	return Value{kind: kindNumber, num: v, fbits: bits}
 }
+
+// bfloatValue performs the bfloat value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func bfloatValue(v float64, bits uint16) Value {
 	if bits == 32 {
 		v = float64(float32(v))
 	}
 	return Value{kind: kindNumber, num: v, fbits: bits, bfloat: true}
 }
+
+// decimalValue performs the decimal value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func decimalValue(v *big.Rat) Value {
 	if v == nil {
 		v = new(big.Rat)
 	}
 	return Value{kind: kindDecimal, dec: new(big.Rat).Set(v)}
 }
+
+// fixedValueOfValue performs the fixed value of value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedValueOfValue(v *fixedValue) Value {
 	if v == nil {
 		v = &fixedValue{width: 64}
@@ -118,64 +131,97 @@ func fixedValueOfValue(v *fixedValue) Value {
 	}
 	return Value{kind: kindFixed, fx: &fixedValue{width: v.width, frac: v.frac, raw: raw}}
 }
+
+// intervalValueOf performs the interval value of step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func intervalValueOf(v *intervalValue) Value {
 	if v == nil {
 		v = newIntervalValue(new(big.Rat), new(big.Rat))
 	}
 	return Value{kind: kindInterval, iv: newIntervalValue(v.lo, v.hi)}
 }
+
+// modIntValueOfValue performs the mod int value of value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func modIntValueOfValue(v *modIntValue) Value {
 	if v == nil {
 		v = &modIntValue{mod: big.NewInt(1), val: new(big.Int)}
 	}
 	return Value{kind: kindModInt, mi: &modIntValue{mod: new(big.Int).Set(v.mod), val: new(big.Int).Set(v.val)}}
 }
-func complexValue(v complex128) Value  { return Value{kind: kindComplex, cx: v} }
-func errorValue(msg string) Value      { return Value{kind: kindError, errMsg: msg} }
-func bigintValue(v *big.Int) Value     { return bigIntValue(v) }
+
+// complexValue performs the complex value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func complexValue(v complex128) Value { return Value{kind: kindComplex, cx: v} }
+
+// errorValue performs the error value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func errorValue(msg string) Value { return Value{kind: kindError, errMsg: msg} }
+
+// bigintValue performs the bigint value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func bigintValue(v *big.Int) Value { return bigIntValue(v) }
+
+// bigfloatValue performs the bigfloat value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func bigfloatValue(v *big.Float) Value { return bigFloatValue(v) }
+
+// intValue performs the int value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func intValue(v *big.Int, bits uint16) Value {
 	if bits == 0 {
 		bits = 64
 	}
 	return Value{kind: kindInt, i: wrapSignedWidth(v, bits), ibits: bits}
 }
+
+// measureValue performs the measure value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func measureValue(v *big.Rat, dims map[string]int) Value {
 	return quantityValueOf(v, dims)
 }
+
+// uintValue performs the uint value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func uintValue(v uint64, bits uint8) Value {
 	if bits == 0 || bits > 64 {
 		bits = 64
 	}
 	return Value{kind: kindUint, u: v & maskForWidth(bits), bits: bits}
 }
+
+// packedUintValue performs the packed uint value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func packedUintValue(v uint64, bits uint8, native bool) Value {
 	if bits == 0 || bits > 64 {
 		bits = 64
 	}
 	return Value{kind: kindUint, u: v & maskForWidth(bits), bits: bits, packed: true, native: native}
 }
+
+// wideUintValue performs the wide uint value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func wideUintValue(v *big.Int, bits uint16) Value {
 	if bits == 0 {
 		bits = 64
 	}
 	return Value{kind: kindUint, ub: wrapUnsignedWidth(v, bits), ubits: bits}
 }
+
+// packedWideUintValue performs the packed wide uint value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func packedWideUintValue(v *big.Int, bits uint16, native bool) Value {
 	if bits == 0 {
 		bits = 64
 	}
 	return Value{kind: kindUint, ub: wrapUnsignedWidth(v, bits), ubits: bits, packed: true, native: native}
 }
+
+// stringValue performs the string value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func stringValue(v string) Value { return Value{kind: kindString, str: v} }
-func listValue(v []Value) Value  { return Value{kind: kindList, list: v} }
+
+// listValue performs the list value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+func listValue(v []Value) Value { return Value{kind: kindList, list: v} }
+
+// tensorValue performs the tensor value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func tensorValue(shape []int, data []Value) Value {
 	return newTensorValue(shape, data)
 }
+
+// functionValueOf performs the function value of step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func functionValueOf(name string, fn callable) Value {
 	return Value{kind: kindFunction, fn: &functionValue{name: name, builtin: fn}}
 }
 
+// userFunctionValue performs the user function value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func userFunctionValue(name string, params []string, body Expr, closure *scope, sess *Session) Value {
 	return Value{kind: kindFunction, fn: &functionValue{
 		name:    name,
@@ -185,10 +231,13 @@ func userFunctionValue(name string, params []string, body Expr, closure *scope, 
 		session: sess,
 	}}
 }
+
+// moduleValueOf performs the module value of step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func moduleValueOf(name, version string, lookup moduleLookup, members map[string]Value) Value {
 	return Value{kind: kindModule, mod: &moduleValue{name: name, version: version, lookup: lookup, members: members}}
 }
 
+// Kind handles on Value the kind. It keeps the Value subsystem self-contained by handling the kind-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) Kind() string {
 	if v.kind == kindNumber && v.bfloat {
 		if v.fbits != 0 {
@@ -214,6 +263,7 @@ func (v Value) Kind() string {
 	return v.kind.String()
 }
 
+// String handles on valueKind the string. It keeps the valueKind subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (k valueKind) String() string {
 	switch k {
 	case kindNull:
@@ -258,6 +308,8 @@ func (k valueKind) String() string {
 		return "<?>"
 	}
 }
+
+// Truthy handles on Value the truthy. It keeps the Value subsystem self-contained by handling the truthy-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) Truthy() bool {
 	switch v.kind {
 	case kindNull:
@@ -303,6 +355,8 @@ func (v Value) Truthy() bool {
 		return false
 	}
 }
+
+// AsNumber handles on Value the as number. It keeps the Value subsystem self-contained by handling the as number-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsNumber() (float64, error) {
 	switch v.kind {
 	case kindNumber:
@@ -383,6 +437,7 @@ func (v Value) AsNumber() (float64, error) {
 	}
 }
 
+// AsString handles on Value the as string. It keeps the Value subsystem self-contained by handling the as string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsString() (string, error) {
 	switch v.kind {
 	case kindString:
@@ -407,6 +462,7 @@ func (v Value) AsString() (string, error) {
 	}
 }
 
+// AsUint handles on Value the as uint. It keeps the Value subsystem self-contained by handling the as uint-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsUint() (uint64, uint8, error) {
 	switch v.kind {
 	case kindUint:
@@ -488,6 +544,7 @@ func (v Value) AsUint() (uint64, uint8, error) {
 	}
 }
 
+// AsList handles on Value the as list. It keeps the Value subsystem self-contained by handling the as list-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsList() ([]Value, error) {
 	if v.kind != kindList && v.kind != kindTensor {
 		return nil, fmt.Errorf("expected list, got %s", v.kind)
@@ -498,6 +555,7 @@ func (v Value) AsList() ([]Value, error) {
 	return v.list, nil
 }
 
+// AsFunction handles on Value the as function. It keeps the Value subsystem self-contained by handling the as function-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsFunction() (callable, error) {
 	if v.kind != kindFunction || v.fn == nil || v.fn.builtin == nil {
 		return nil, fmt.Errorf("expected function, got %s", v.kind)
@@ -505,6 +563,7 @@ func (v Value) AsFunction() (callable, error) {
 	return v.fn.builtin, nil
 }
 
+// AsModule handles on Value the as module. It keeps the Value subsystem self-contained by handling the as module-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) AsModule() (*moduleValue, error) {
 	if v.kind != kindModule || v.mod == nil {
 		return nil, fmt.Errorf("expected module, got %s", v.kind)
@@ -512,6 +571,7 @@ func (v Value) AsModule() (*moduleValue, error) {
 	return v.mod, nil
 }
 
+// Int handles on Value the int. It keeps the Value subsystem self-contained by handling the int-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) Int() (int, error) {
 	switch v.kind {
 	case kindUint:
@@ -635,6 +695,7 @@ func (v Value) Int() (int, error) {
 	}
 }
 
+// Equal handles on Value the equal. It keeps the Value subsystem self-contained by handling the equal-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) Equal(other Value) bool {
 	switch v.kind {
 	case kindNull:
@@ -899,6 +960,7 @@ func (v Value) Equal(other Value) bool {
 	}
 }
 
+// Compare handles on Value the compare. It keeps the Value subsystem self-contained by handling the compare-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) Compare(other Value) (int, error) {
 	switch v.kind {
 	case kindNumber:
@@ -1167,6 +1229,7 @@ func (v Value) Compare(other Value) (int, error) {
 	}
 }
 
+// String handles on Value the string. It keeps the Value subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) String() string {
 	switch v.kind {
 	case kindNull:
@@ -1236,10 +1299,12 @@ func (v Value) String() string {
 	}
 }
 
+// MarshalJSON handles on Value the marshal json. It keeps the Value subsystem self-contained by handling the marshal json-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.toInterface())
 }
 
+// toInterface handles on Value the to interface. It keeps the Value subsystem self-contained by handling the to interface-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (v Value) toInterface() any {
 	switch v.kind {
 	case kindNull:
@@ -1342,6 +1407,7 @@ func (v Value) toInterface() any {
 	}
 }
 
+// formatNumber performs the format number step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatNumber(n float64) string {
 	if math.IsNaN(n) || math.IsInf(n, 0) {
 		return strconv.FormatFloat(n, 'g', -1, 64)
@@ -1352,6 +1418,7 @@ func formatNumber(n float64) string {
 	return strconv.FormatFloat(n, 'g', -1, 64)
 }
 
+// formatFloat performs the format float step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatFloat(n float64, bits uint16) string {
 	if bits == 0 {
 		return formatNumber(n)
@@ -1359,6 +1426,7 @@ func formatFloat(n float64, bits uint16) string {
 	return formatNumber(n) + "f" + strconv.FormatUint(uint64(bits), 10)
 }
 
+// formatBFloat performs the format b float step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatBFloat(n float64, bits uint16) string {
 	if bits == 0 {
 		return formatNumber(n)
@@ -1366,6 +1434,7 @@ func formatBFloat(n float64, bits uint16) string {
 	return formatNumber(n) + "bf" + strconv.FormatUint(uint64(bits), 10)
 }
 
+// formatFloatValue performs the format float value step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatFloatValue(v Value) string {
 	if v.bfloat {
 		return formatBFloat(v.num, v.fbits)
@@ -1373,6 +1442,7 @@ func formatFloatValue(v Value) string {
 	return formatFloat(v.num, v.fbits)
 }
 
+// formatComplex performs the format complex step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func formatComplex(c complex128) string {
 	re := real(c)
 	im := imag(c)
@@ -1388,6 +1458,7 @@ func formatComplex(c complex128) string {
 	}
 }
 
+// textify performs the textify step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func textify(v Value) string {
 	switch v.kind {
 	case kindNull:

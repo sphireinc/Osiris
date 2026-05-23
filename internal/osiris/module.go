@@ -11,6 +11,7 @@ import (
 	"unicode"
 )
 
+// loadModule handles on Runtime the load module. It keeps the Runtime subsystem self-contained by handling the load module-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) loadModule(ctx context.Context, ref, base string, stack []string) (Value, error) {
 	ref, selector := splitModuleRef(ref)
 	if strings.HasPrefix(ref, "std/") {
@@ -104,6 +105,7 @@ func (rt *Runtime) loadModule(ctx context.Context, ref, base string, stack []str
 	return mod, nil
 }
 
+// registryFor handles on Runtime the registry for. It keeps the Runtime subsystem self-contained by handling the registry for-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (rt *Runtime) registryFor(base string) *moduleRegistry {
 	root := registryRootFor(base)
 	rt.registryMu.Lock()
@@ -123,6 +125,7 @@ const (
 	moduleKindStdlib
 )
 
+// resolveModulePath performs the resolve module path step in the surrounding package and returns string, moduleKind, error.. It returns string, moduleKind, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func resolveModulePath(ref, base string) (string, moduleKind, error) {
 	if strings.HasPrefix(ref, "std/") {
 		return ref, moduleKindStdlib, nil
@@ -153,6 +156,7 @@ func resolveModulePath(ref, base string) (string, moduleKind, error) {
 	return abs, moduleKindFile, fmt.Errorf("module file not found at %s", abs)
 }
 
+// resolveModuleRef performs the resolve module ref step in the surrounding package and returns string, moduleKind, string, error.. It returns string, moduleKind, string, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func resolveModuleRef(ref, base string) (string, moduleKind, string, error) {
 	abs, kind, err := resolveModulePath(ref, base)
 	if err != nil {
@@ -175,6 +179,7 @@ func resolveModuleRef(ref, base string) (string, moduleKind, string, error) {
 	return "", 0, "", err
 }
 
+// stdlibModule performs the stdlib module step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func stdlibModule(name, selector string) (Value, error) {
 	switch name {
 	case "std/text":
@@ -370,6 +375,7 @@ func stdlibModule(name, selector string) (Value, error) {
 	}
 }
 
+// importCycleError performs the import cycle error step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
 func importCycleError(stack []string, key string) error {
 	idx := -1
 	for i, seen := range stack {
@@ -386,6 +392,7 @@ func importCycleError(stack []string, key string) error {
 	return fmt.Errorf("import cycle: %s", strings.Join(chain, " -> "))
 }
 
+// makeModule performs the make module step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func makeModule(name, version string, exports map[string]Value) Value {
 	return moduleValueOf(name, version, func(ctx context.Context, member string) (Value, error) {
 		if v, ok := exports[member]; ok {
@@ -395,6 +402,7 @@ func makeModule(name, version string, exports map[string]Value) Value {
 	}, exports)
 }
 
+// splitModuleRef performs the split module ref step in the surrounding package and returns string, string.. It returns string, string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func splitModuleRef(ref string) (string, string) {
 	i := strings.LastIndex(ref, "@")
 	if i <= 0 || i == len(ref)-1 {
@@ -407,6 +415,7 @@ func splitModuleRef(ref string) (string, string) {
 	return ref[:i], suffix
 }
 
+// looksLikeSemverSelector performs the looks like semver selector step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func looksLikeSemverSelector(s string) bool {
 	if s == "" {
 		return false
@@ -427,6 +436,7 @@ func looksLikeSemverSelector(s string) bool {
 	return true
 }
 
+// versionMatchesSelector performs the version matches selector step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func versionMatchesSelector(version, selector string) bool {
 	if selector == "" {
 		return true
@@ -444,15 +454,34 @@ func versionMatchesSelector(version, selector string) bool {
 	return v.MatchesSelector(selector)
 }
 
-func builtinHash(args []Value) (Value, error)    { return stringValue(hashValue(args)), nil }
-func builtinMix(args []Value) (Value, error)     { return mixValue(args), nil }
-func builtinCat(args []Value) (Value, error)     { return catValue(args) }
-func builtinUpper(args []Value) (Value, error)   { return oneString(args, strings.ToUpper) }
-func builtinLower(args []Value) (Value, error)   { return oneString(args, strings.ToLower) }
-func builtinTrim(args []Value) (Value, error)    { return oneString(args, strings.TrimSpace) }
+// builtinHash performs the builtin hash step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinHash(args []Value) (Value, error) { return stringValue(hashValue(args)), nil }
+
+// builtinMix performs the builtin mix step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinMix(args []Value) (Value, error) { return mixValue(args), nil }
+
+// builtinCat performs the builtin cat step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinCat(args []Value) (Value, error) { return catValue(args) }
+
+// builtinUpper performs the builtin upper step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUpper(args []Value) (Value, error) { return oneString(args, strings.ToUpper) }
+
+// builtinLower performs the builtin lower step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinLower(args []Value) (Value, error) { return oneString(args, strings.ToLower) }
+
+// builtinTrim performs the builtin trim step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinTrim(args []Value) (Value, error) { return oneString(args, strings.TrimSpace) }
+
+// builtinReplace performs the builtin replace step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func builtinReplace(args []Value) (Value, error) { return replaceValue(args) }
-func builtinRepeat(args []Value) (Value, error)  { return repeatValue(args) }
-func builtinSplit(args []Value) (Value, error)   { return splitValue(args) }
+
+// builtinRepeat performs the builtin repeat step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinRepeat(args []Value) (Value, error) { return repeatValue(args) }
+
+// builtinSplit performs the builtin split step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinSplit(args []Value) (Value, error) { return splitValue(args) }
+
+// repeatBuiltin performs the repeat builtin step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func repeatBuiltin(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("repeat expects 2 arguments")
@@ -462,6 +491,8 @@ func repeatBuiltin(args []Value) (Value, error) {
 	}
 	return tensorRepeatValue(args)
 }
+
+// splitBuiltin performs the split builtin step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func splitBuiltin(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("split expects 2 arguments")
@@ -471,84 +502,235 @@ func splitBuiltin(args []Value) (Value, error) {
 	}
 	return tensorSplitValue(args)
 }
-func builtinChunks(args []Value) (Value, error)    { return chunksValue(args) }
-func builtinJoin(args []Value) (Value, error)      { return joinValue(args) }
-func builtinSlug(args []Value) (Value, error)      { return slugValue(args) }
-func builtinLen(args []Value) (Value, error)       { return lenValue(args) }
-func builtinRange(args []Value) (Value, error)     { return rangeValue(args) }
-func builtinTake(args []Value) (Value, error)      { return takeValue(args) }
-func builtinSum(args []Value) (Value, error)       { return sumValue(args) }
-func builtinProduct(args []Value) (Value, error)   { return productValue(args) }
-func builtinAbs(args []Value) (Value, error)       { return absValue(args) }
-func builtinComplex(args []Value) (Value, error)   { return complexValueFromArgs(args) }
-func builtinReal(args []Value) (Value, error)      { return realValue(args) }
-func builtinImag(args []Value) (Value, error)      { return imagValue(args) }
+
+// builtinChunks performs the builtin chunks step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinChunks(args []Value) (Value, error) { return chunksValue(args) }
+
+// builtinJoin performs the builtin join step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinJoin(args []Value) (Value, error) { return joinValue(args) }
+
+// builtinSlug performs the builtin slug step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinSlug(args []Value) (Value, error) { return slugValue(args) }
+
+// builtinLen performs the builtin len step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinLen(args []Value) (Value, error) { return lenValue(args) }
+
+// builtinRange performs the builtin range step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinRange(args []Value) (Value, error) { return rangeValue(args) }
+
+// builtinTake performs the builtin take step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinTake(args []Value) (Value, error) { return takeValue(args) }
+
+// builtinSum performs the builtin sum step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinSum(args []Value) (Value, error) { return sumValue(args) }
+
+// builtinProduct performs the builtin product step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinProduct(args []Value) (Value, error) { return productValue(args) }
+
+// builtinAbs performs the builtin abs step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinAbs(args []Value) (Value, error) { return absValue(args) }
+
+// builtinComplex performs the builtin complex step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinComplex(args []Value) (Value, error) { return complexValueFromArgs(args) }
+
+// builtinReal performs the builtin real step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinReal(args []Value) (Value, error) { return realValue(args) }
+
+// builtinImag performs the builtin imag step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinImag(args []Value) (Value, error) { return imagValue(args) }
+
+// builtinMagnitude performs the builtin magnitude step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func builtinMagnitude(args []Value) (Value, error) { return magnitudeValue(args) }
-func builtinMin(args []Value) (Value, error)       { return minValue(args) }
-func builtinMax(args []Value) (Value, error)       { return maxValue(args) }
-func builtinClamp(args []Value) (Value, error)     { return clampValue(args) }
-func builtinFloor(args []Value) (Value, error)     { return roundUnary(args, math.Floor) }
-func builtinCeil(args []Value) (Value, error)      { return roundUnary(args, math.Ceil) }
-func builtinRound(args []Value) (Value, error)     { return roundUnary(args, math.Round) }
-func builtinSqrt(args []Value) (Value, error)      { return sqrtValue(args) }
-func builtinPow(args []Value) (Value, error)       { return powValue(args) }
-func builtinExpt(args []Value) (Value, error)      { return powValue(args) }
-func builtinExp(args []Value) (Value, error)       { return expValue(args) }
-func builtinLog(args []Value) (Value, error)       { return logValue(args) }
-func builtinLog10(args []Value) (Value, error)     { return log10Value(args) }
-func builtinLog2(args []Value) (Value, error)      { return log2Value(args) }
-func builtinI8(args []Value) (Value, error)        { return castSignedWidthValue(args, 8) }
-func builtinI16(args []Value) (Value, error)       { return castSignedWidthValue(args, 16) }
-func builtinI32(args []Value) (Value, error)       { return castSignedWidthValue(args, 32) }
-func builtinI64(args []Value) (Value, error)       { return castSignedWidthValue(args, 64) }
-func builtinI128(args []Value) (Value, error)      { return castSignedWidthValue(args, 128) }
-func builtinI256(args []Value) (Value, error)      { return castSignedWidthValue(args, 256) }
-func builtinI512(args []Value) (Value, error)      { return castSignedWidthValue(args, 512) }
-func builtinI1024(args []Value) (Value, error)     { return castSignedWidthValue(args, 1024) }
-func builtinU8(args []Value) (Value, error)        { return castUnsignedWidthValue(args, 8) }
-func builtinU16(args []Value) (Value, error)       { return castUnsignedWidthValue(args, 16) }
-func builtinU32(args []Value) (Value, error)       { return castUnsignedWidthValue(args, 32) }
-func builtinU64(args []Value) (Value, error)       { return castUnsignedWidthValue(args, 64) }
-func builtinU128(args []Value) (Value, error)      { return castUnsignedWidthValue(args, 128) }
-func builtinU256(args []Value) (Value, error)      { return castUnsignedWidthValue(args, 256) }
-func builtinU512(args []Value) (Value, error)      { return castUnsignedWidthValue(args, 512) }
-func builtinU1024(args []Value) (Value, error)     { return castUnsignedWidthValue(args, 1024) }
-func builtinUint(args []Value) (Value, error)      { return castUnsignedWidthValue(args, 64) }
-func builtinByte(args []Value) (Value, error)      { return castUnsignedWidthValue(args, 8) }
-func builtinUF8(args []Value) (Value, error)       { return castPackedUnsignedWidthValue(args, 8, false) }
-func builtinUF16(args []Value) (Value, error)      { return castPackedUnsignedWidthValue(args, 16, false) }
-func builtinUF32(args []Value) (Value, error)      { return castPackedUnsignedWidthValue(args, 32, false) }
-func builtinUFNum(args []Value) (Value, error)     { return castPackedUnsignedWidthValue(args, 64, true) }
-func builtinUF64(args []Value) (Value, error)      { return castPackedUnsignedWidthValue(args, 64, false) }
-func builtinUF128(args []Value) (Value, error)     { return castPackedUnsignedWidthValue(args, 128, false) }
-func builtinUF256(args []Value) (Value, error)     { return castPackedUnsignedWidthValue(args, 256, false) }
-func builtinUF512(args []Value) (Value, error)     { return castPackedUnsignedWidthValue(args, 512, false) }
+
+// builtinMin performs the builtin min step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinMin(args []Value) (Value, error) { return minValue(args) }
+
+// builtinMax performs the builtin max step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinMax(args []Value) (Value, error) { return maxValue(args) }
+
+// builtinClamp performs the builtin clamp step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinClamp(args []Value) (Value, error) { return clampValue(args) }
+
+// builtinFloor performs the builtin floor step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinFloor(args []Value) (Value, error) { return roundUnary(args, math.Floor) }
+
+// builtinCeil performs the builtin ceil step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinCeil(args []Value) (Value, error) { return roundUnary(args, math.Ceil) }
+
+// builtinRound performs the builtin round step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinRound(args []Value) (Value, error) { return roundUnary(args, math.Round) }
+
+// builtinSqrt performs the builtin sqrt step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinSqrt(args []Value) (Value, error) { return sqrtValue(args) }
+
+// builtinPow performs the builtin pow step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinPow(args []Value) (Value, error) { return powValue(args) }
+
+// builtinExpt performs the builtin expt step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinExpt(args []Value) (Value, error) { return powValue(args) }
+
+// builtinExp performs the builtin exp step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinExp(args []Value) (Value, error) { return expValue(args) }
+
+// builtinLog performs the builtin log step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinLog(args []Value) (Value, error) { return logValue(args) }
+
+// builtinLog10 performs the builtin log10 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinLog10(args []Value) (Value, error) { return log10Value(args) }
+
+// builtinLog2 performs the builtin log2 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinLog2(args []Value) (Value, error) { return log2Value(args) }
+
+// builtinI8 performs the builtin i8 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI8(args []Value) (Value, error) { return castSignedWidthValue(args, 8) }
+
+// builtinI16 performs the builtin i16 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI16(args []Value) (Value, error) { return castSignedWidthValue(args, 16) }
+
+// builtinI32 performs the builtin i32 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI32(args []Value) (Value, error) { return castSignedWidthValue(args, 32) }
+
+// builtinI64 performs the builtin i64 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI64(args []Value) (Value, error) { return castSignedWidthValue(args, 64) }
+
+// builtinI128 performs the builtin i128 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI128(args []Value) (Value, error) { return castSignedWidthValue(args, 128) }
+
+// builtinI256 performs the builtin i256 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI256(args []Value) (Value, error) { return castSignedWidthValue(args, 256) }
+
+// builtinI512 performs the builtin i512 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI512(args []Value) (Value, error) { return castSignedWidthValue(args, 512) }
+
+// builtinI1024 performs the builtin i1024 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinI1024(args []Value) (Value, error) { return castSignedWidthValue(args, 1024) }
+
+// builtinU8 performs the builtin u8 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU8(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+
+// builtinU16 performs the builtin u16 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU16(args []Value) (Value, error) { return castUnsignedWidthValue(args, 16) }
+
+// builtinU32 performs the builtin u32 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU32(args []Value) (Value, error) { return castUnsignedWidthValue(args, 32) }
+
+// builtinU64 performs the builtin u64 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU64(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
+
+// builtinU128 performs the builtin u128 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU128(args []Value) (Value, error) { return castUnsignedWidthValue(args, 128) }
+
+// builtinU256 performs the builtin u256 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU256(args []Value) (Value, error) { return castUnsignedWidthValue(args, 256) }
+
+// builtinU512 performs the builtin u512 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU512(args []Value) (Value, error) { return castUnsignedWidthValue(args, 512) }
+
+// builtinU1024 performs the builtin u1024 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinU1024(args []Value) (Value, error) { return castUnsignedWidthValue(args, 1024) }
+
+// builtinUint performs the builtin uint step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUint(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
+
+// builtinByte performs the builtin byte step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinByte(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+
+// builtinUF8 performs the builtin uf8 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF8(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 8, false) }
+
+// builtinUF16 performs the builtin uf16 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF16(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 16, false) }
+
+// builtinUF32 performs the builtin uf32 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF32(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 32, false) }
+
+// builtinUFNum performs the builtin uf num step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUFNum(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 64, true) }
+
+// builtinUF64 performs the builtin uf64 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF64(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 64, false) }
+
+// builtinUF128 performs the builtin uf128 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF128(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 128, false) }
+
+// builtinUF256 performs the builtin uf256 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF256(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 256, false) }
+
+// builtinUF512 performs the builtin uf512 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinUF512(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 512, false) }
+
+// builtinUF1024 performs the builtin uf1024 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func builtinUF1024(args []Value) (Value, error) {
 	return castPackedUnsignedWidthValue(args, 1024, false)
 }
-func builtinF32(args []Value) (Value, error)      { return castFloatWidthValue(args, 32) }
-func builtinF64(args []Value) (Value, error)      { return castFloatWidthValue(args, 64) }
-func builtinBF8(args []Value) (Value, error)      { return castBFloatWidthValue(args, 8) }
-func builtinBF16(args []Value) (Value, error)     { return castBFloatWidthValue(args, 16) }
-func builtinBF32(args []Value) (Value, error)     { return castBFloatWidthValue(args, 32) }
-func builtinBF64(args []Value) (Value, error)     { return castBFloatWidthValue(args, 64) }
-func builtinBF128(args []Value) (Value, error)    { return castBFloatWidthValue(args, 128) }
-func builtinBF256(args []Value) (Value, error)    { return castBFloatWidthValue(args, 256) }
-func builtinBF512(args []Value) (Value, error)    { return castBFloatWidthValue(args, 512) }
-func builtinBF1024(args []Value) (Value, error)   { return castBFloatWidthValue(args, 1024) }
-func builtinBigInt(args []Value) (Value, error)   { return bigIntValueFromArgs(args) }
-func builtinBigFloat(args []Value) (Value, error) { return bigFloatValueFromArgs(args) }
-func builtinSin(args []Value) (Value, error)      { return mathUnaryValue(args, "sin", math.Sin, false) }
-func builtinCos(args []Value) (Value, error)      { return mathUnaryValue(args, "cos", math.Cos, false) }
-func builtinTan(args []Value) (Value, error)      { return mathUnaryValue(args, "tan", math.Tan, false) }
-func builtinAsin(args []Value) (Value, error)     { return mathUnaryValue(args, "asin", math.Asin, true) }
-func builtinAcos(args []Value) (Value, error)     { return mathUnaryValue(args, "acos", math.Acos, true) }
-func builtinAtan(args []Value) (Value, error)     { return mathUnaryValue(args, "atan", math.Atan, false) }
-func builtinHypot(args []Value) (Value, error)    { return hypotValue(args) }
-func builtinNorm(args []Value) (Value, error)     { return normValue(args) }
-func builtinVector(args []Value) (Value, error)   { return vectorValueFromArgs(args) }
-func builtinNoise(args []Value) (Value, error)    { return noiseValue(args), nil }
 
+// builtinF32 performs the builtin f32 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinF32(args []Value) (Value, error) { return castFloatWidthValue(args, 32) }
+
+// builtinF64 performs the builtin f64 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinF64(args []Value) (Value, error) { return castFloatWidthValue(args, 64) }
+
+// builtinBF8 performs the builtin bf8 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF8(args []Value) (Value, error) { return castBFloatWidthValue(args, 8) }
+
+// builtinBF16 performs the builtin bf16 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF16(args []Value) (Value, error) { return castBFloatWidthValue(args, 16) }
+
+// builtinBF32 performs the builtin bf32 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF32(args []Value) (Value, error) { return castBFloatWidthValue(args, 32) }
+
+// builtinBF64 performs the builtin bf64 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF64(args []Value) (Value, error) { return castBFloatWidthValue(args, 64) }
+
+// builtinBF128 performs the builtin bf128 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF128(args []Value) (Value, error) { return castBFloatWidthValue(args, 128) }
+
+// builtinBF256 performs the builtin bf256 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF256(args []Value) (Value, error) { return castBFloatWidthValue(args, 256) }
+
+// builtinBF512 performs the builtin bf512 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF512(args []Value) (Value, error) { return castBFloatWidthValue(args, 512) }
+
+// builtinBF1024 performs the builtin bf1024 step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBF1024(args []Value) (Value, error) { return castBFloatWidthValue(args, 1024) }
+
+// builtinBigInt performs the builtin big int step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBigInt(args []Value) (Value, error) { return bigIntValueFromArgs(args) }
+
+// builtinBigFloat performs the builtin big float step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinBigFloat(args []Value) (Value, error) { return bigFloatValueFromArgs(args) }
+
+// builtinSin performs the builtin sin step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinSin(args []Value) (Value, error) { return mathUnaryValue(args, "sin", math.Sin, false) }
+
+// builtinCos performs the builtin cos step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinCos(args []Value) (Value, error) { return mathUnaryValue(args, "cos", math.Cos, false) }
+
+// builtinTan performs the builtin tan step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinTan(args []Value) (Value, error) { return mathUnaryValue(args, "tan", math.Tan, false) }
+
+// builtinAsin performs the builtin asin step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinAsin(args []Value) (Value, error) { return mathUnaryValue(args, "asin", math.Asin, true) }
+
+// builtinAcos performs the builtin acos step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinAcos(args []Value) (Value, error) { return mathUnaryValue(args, "acos", math.Acos, true) }
+
+// builtinAtan performs the builtin atan step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinAtan(args []Value) (Value, error) { return mathUnaryValue(args, "atan", math.Atan, false) }
+
+// builtinHypot performs the builtin hypot step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinHypot(args []Value) (Value, error) { return hypotValue(args) }
+
+// builtinNorm performs the builtin norm step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinNorm(args []Value) (Value, error) { return normValue(args) }
+
+// builtinVector performs the builtin vector step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinVector(args []Value) (Value, error) { return vectorValueFromArgs(args) }
+
+// builtinNoise performs the builtin noise step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+func builtinNoise(args []Value) (Value, error) { return noiseValue(args), nil }
+
+// oneString performs the one string step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func oneString(args []Value, fn func(string) string) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -560,6 +742,7 @@ func oneString(args []Value, fn func(string) string) (Value, error) {
 	return stringValue(fn(s)), nil
 }
 
+// catValue performs the cat value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func catValue(args []Value) (Value, error) {
 	var b strings.Builder
 	for _, arg := range args {
@@ -568,6 +751,7 @@ func catValue(args []Value) (Value, error) {
 	return stringValue(b.String()), nil
 }
 
+// replaceValue performs the replace value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func replaceValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("replace expects 3 arguments")
@@ -587,6 +771,7 @@ func replaceValue(args []Value) (Value, error) {
 	return stringValue(strings.ReplaceAll(s, old, newv)), nil
 }
 
+// repeatValue performs the repeat value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func repeatValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("repeat expects 2 arguments")
@@ -605,6 +790,7 @@ func repeatValue(args []Value) (Value, error) {
 	return stringValue(strings.Repeat(s, n)), nil
 }
 
+// splitValue performs the split value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func splitValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("split expects 2 arguments")
@@ -625,6 +811,7 @@ func splitValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+// chunksValue performs the chunks value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func chunksValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("chunks expects 2 arguments")
@@ -652,6 +839,7 @@ func chunksValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+// joinValue performs the join value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func joinValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("join expects 2 arguments")
@@ -671,6 +859,7 @@ func joinValue(args []Value) (Value, error) {
 	return stringValue(strings.Join(parts, sep)), nil
 }
 
+// slugValue performs the slug value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func slugValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("slug expects 1 argument")
@@ -695,6 +884,7 @@ func slugValue(args []Value) (Value, error) {
 	return stringValue(strings.Trim(b.String(), "-")), nil
 }
 
+// lenValue performs the len value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func lenValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("len expects 1 argument")
@@ -711,6 +901,7 @@ func lenValue(args []Value) (Value, error) {
 	}
 }
 
+// rangeValue performs the range value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func rangeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("range expects 1 argument")
@@ -729,6 +920,7 @@ func rangeValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+// takeValue performs the take value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func takeValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("take expects 2 arguments")
@@ -762,6 +954,7 @@ func takeValue(args []Value) (Value, error) {
 	}
 }
 
+// sumValue performs the sum value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func sumValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("sum expects 1 argument")
@@ -781,6 +974,7 @@ func sumValue(args []Value) (Value, error) {
 	return floatResultValue(total, items...), nil
 }
 
+// productValue performs the product value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func productValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("product expects 1 argument")
@@ -800,6 +994,7 @@ func productValue(args []Value) (Value, error) {
 	return floatResultValue(total, items...), nil
 }
 
+// absValue performs the abs value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func absValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("abs expects 1 argument")
@@ -807,6 +1002,7 @@ func absValue(args []Value) (Value, error) {
 	return magnitudeValue(args)
 }
 
+// minValue performs the min value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func minValue(args []Value) (Value, error) {
 	return foldNumeric(args, func(best, next float64) float64 {
 		if next < best {
@@ -816,6 +1012,7 @@ func minValue(args []Value) (Value, error) {
 	})
 }
 
+// maxValue performs the max value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func maxValue(args []Value) (Value, error) {
 	return foldNumeric(args, func(best, next float64) float64 {
 		if next > best {
@@ -825,6 +1022,7 @@ func maxValue(args []Value) (Value, error) {
 	})
 }
 
+// clampValue performs the clamp value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func clampValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("clamp expects 3 arguments")
@@ -849,6 +1047,7 @@ func clampValue(args []Value) (Value, error) {
 	return floatResultValue(v, args...), nil
 }
 
+// roundUnary performs the round unary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func roundUnary(args []Value, fn func(float64) float64) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -860,6 +1059,7 @@ func roundUnary(args []Value, fn func(float64) float64) (Value, error) {
 	return floatValueStyled(fn(n), floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// sqrtValue performs the sqrt value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func sqrtValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("sqrt expects 1 argument")
@@ -874,6 +1074,7 @@ func sqrtValue(args []Value) (Value, error) {
 	return floatValueStyled(math.Sqrt(n), floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// powValue performs the pow value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func powValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("pow expects 2 arguments")
@@ -892,6 +1093,7 @@ func powValue(args []Value) (Value, error) {
 	return floatResultValue(math.Pow(a, b), args...), nil
 }
 
+// expValue performs the exp value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func expValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("exp expects 1 argument")
@@ -907,6 +1109,7 @@ func expValue(args []Value) (Value, error) {
 	return floatValueStyled(out, floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// logValue performs the log value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func logValue(args []Value) (Value, error) {
 	switch len(args) {
 	case 1:
@@ -936,6 +1139,7 @@ func logValue(args []Value) (Value, error) {
 	}
 }
 
+// log10Value performs the log10 value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func log10Value(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("log10 expects 1 argument")
@@ -950,6 +1154,7 @@ func log10Value(args []Value) (Value, error) {
 	return floatValueStyled(math.Log10(n), floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// log2Value performs the log2 value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func log2Value(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("log2 expects 1 argument")
@@ -964,6 +1169,7 @@ func log2Value(args []Value) (Value, error) {
 	return floatValueStyled(math.Log2(n), floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// mathUnaryValue performs the math unary value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func mathUnaryValue(args []Value, name string, fn func(float64) float64, rejectInvalid bool) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("%s expects 1 argument", name)
@@ -979,6 +1185,7 @@ func mathUnaryValue(args []Value, name string, fn func(float64) float64, rejectI
 	return floatValueStyled(out, floatUnaryBits(args[0]), floatUnaryBFloat(args[0])), nil
 }
 
+// hypotValue performs the hypot value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func hypotValue(args []Value) (Value, error) {
 	if len(args) < 2 {
 		return nullValue(), fmt.Errorf("hypot expects at least 2 arguments")
@@ -994,6 +1201,7 @@ func hypotValue(args []Value) (Value, error) {
 	return floatResultValue(math.Sqrt(total), args...), nil
 }
 
+// normValue performs the norm value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func normValue(args []Value) (Value, error) {
 	if len(args) == 0 {
 		return nullValue(), fmt.Errorf("norm expects at least 1 argument")
@@ -1020,6 +1228,7 @@ func normValue(args []Value) (Value, error) {
 	return floatResultValue(math.Sqrt(total), args...), nil
 }
 
+// vectorValueFromArgs performs the vector value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func vectorValueFromArgs(args []Value) (Value, error) {
 	switch len(args) {
 	case 0:
@@ -1034,6 +1243,7 @@ func vectorValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
+// bigIntValueFromArgs performs the big int value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func bigIntValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("bigint expects 1 argument")
@@ -1053,6 +1263,7 @@ func bigIntValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
+// bigFloatValueFromArgs performs the big float value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func bigFloatValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("bigfloat expects 1 argument")
@@ -1079,6 +1290,7 @@ func bigFloatValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
+// foldNumeric performs the fold numeric step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func foldNumeric(args []Value, fn func(best, next float64) float64) (Value, error) {
 	if len(args) == 0 {
 		return nullValue(), fmt.Errorf("expected at least 1 argument")
@@ -1097,6 +1309,7 @@ func foldNumeric(args []Value, fn func(best, next float64) float64) (Value, erro
 	return floatResultValue(best, args...), nil
 }
 
+// mixValue performs the mix value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func mixValue(args []Value) Value {
 	// 64-bit byte mixer with a bit-scrambled avalanche step.
 	var state uint64 = 0xcbf29ce484222325
@@ -1113,6 +1326,7 @@ func mixValue(args []Value) Value {
 	return stringValue(fmt.Sprintf("%016x", state))
 }
 
+// noiseValue performs the noise value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func noiseValue(args []Value) Value {
 	var acc uint64 = 0x6a09e667f3bcc909
 	for i, arg := range args {
@@ -1123,6 +1337,7 @@ func noiseValue(args []Value) Value {
 	return stringValue(fmt.Sprintf("%016x", acc))
 }
 
+// hashBytes performs the hash bytes step in the surrounding package and returns uint64.. It returns uint64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func hashBytes(data []byte) uint64 {
 	var h uint64 = 0xcbf29ce484222325
 	for _, b := range data {
@@ -1133,6 +1348,7 @@ func hashBytes(data []byte) uint64 {
 	return h
 }
 
+// bitsRotate performs the bits rotate step in the surrounding package and returns uint64.. It returns uint64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func bitsRotate(v uint64, n uint) uint64 {
 	return (v << n) | (v >> (64 - n))
 }

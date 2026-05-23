@@ -34,6 +34,7 @@ type moduleRegistry struct {
 	lock   lockfile
 }
 
+// newModuleRegistry performs the new module registry step in the surrounding package and returns *moduleRegistry.. It returns *moduleRegistry so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func newModuleRegistry(root string) *moduleRegistry {
 	if root == "" {
 		root = "."
@@ -49,6 +50,7 @@ func newModuleRegistry(root string) *moduleRegistry {
 	}
 }
 
+// materialize handles on moduleRegistry the materialize. It keeps the moduleRegistry subsystem self-contained by handling the materialize-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 	abs, kind, err := resolveModulePath(ref, base)
 	if err != nil && kind != moduleKindFile {
@@ -94,6 +96,7 @@ func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 	return abs + "@" + entry.Hash, string(src), nil
 }
 
+// recordManifest handles on moduleRegistry the record manifest. It keeps the moduleRegistry subsystem self-contained by handling the record manifest-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (r *moduleRegistry) recordManifest(key, packageName, version string) error {
 	if packageName == "" && version == "" {
 		return nil
@@ -112,6 +115,7 @@ func (r *moduleRegistry) recordManifest(key, packageName, version string) error 
 	return r.saveLocked()
 }
 
+// loadLocked handles on moduleRegistry the load locked. It keeps the moduleRegistry subsystem self-contained by handling the load locked-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (r *moduleRegistry) loadLocked() error {
 	if r.loaded {
 		return nil
@@ -139,6 +143,7 @@ func (r *moduleRegistry) loadLocked() error {
 	return nil
 }
 
+// saveLocked handles on moduleRegistry the save locked. It keeps the moduleRegistry subsystem self-contained by handling the save locked-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (r *moduleRegistry) saveLocked() error {
 	data, err := json.MarshalIndent(r.lock, "", "  ")
 	if err != nil {
@@ -150,6 +155,7 @@ func (r *moduleRegistry) saveLocked() error {
 	return os.WriteFile(r.lockPath, append(data, '\n'), 0o644)
 }
 
+// registryRootFor performs the registry root for step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func registryRootFor(base string) string {
 	start := base
 	if start == "" || strings.HasPrefix(start, "<") {
@@ -177,6 +183,7 @@ func registryRootFor(base string) string {
 	}
 }
 
+// registryEntryPath performs the registry entry path step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func registryEntryPath(key string) string {
 	if i := strings.LastIndex(key, "@"); i > 0 {
 		return key[:i]

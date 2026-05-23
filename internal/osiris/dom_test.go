@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestBuildDom exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
 func TestBuildDom(t *testing.T) {
 	prog, err := Parse("<dom>", `
 let x = 0

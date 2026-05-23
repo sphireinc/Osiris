@@ -14,6 +14,7 @@ import (
 	"github.com/sphireinc/osiris/internal/osiris"
 )
 
+// main is the CLI entry point for the Osiris executable. It hands control to the command dispatcher and exits with the resulting status code so shell callers can treat the program like a normal command-line tool.
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -21,6 +22,7 @@ func main() {
 	}
 }
 
+// run handles the run command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		printUsage(stderr)
@@ -99,6 +101,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 }
 
+// runProgram handles the run program command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runProgram(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -135,6 +138,7 @@ func runProgram(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+// runProgramVM handles the run program vm command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runProgramVM(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("vm", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -171,6 +175,7 @@ func runProgramVM(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+// runEval handles the run eval command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runEval(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return fmt.Errorf("eval expects an expression")
@@ -194,6 +199,7 @@ func runEval(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+// runDemo handles the run demo command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runDemo(ctx context.Context, stdout io.Writer) error {
 	const demo = `
 let seed = "osiris::demo"
@@ -221,6 +227,7 @@ emit json([seed, basis, salt, sigil])
 	return nil
 }
 
+// runFmt handles the run fmt command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runFmt(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("fmt", flag.ContinueOnError)
@@ -253,6 +260,7 @@ func runFmt(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runOpt handles the run opt command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runOpt(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("opt", flag.ContinueOnError)
@@ -287,6 +295,7 @@ func runOpt(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runIR handles the run ir command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runIR(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("ir", flag.ContinueOnError)
@@ -316,6 +325,7 @@ func runIR(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runSSA handles the run ssa command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runSSA(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("ssa", flag.ContinueOnError)
@@ -345,6 +355,7 @@ func runSSA(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runCFG handles the run cfg command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runCFG(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("cfg", flag.ContinueOnError)
@@ -374,6 +385,7 @@ func runCFG(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runDom handles the run dom command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runDom(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("dom", flag.ContinueOnError)
@@ -403,6 +415,7 @@ func runDom(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runLoop handles the run loop command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runLoop(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("loop", flag.ContinueOnError)
@@ -432,18 +445,22 @@ func runLoop(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runC handles the run c command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runC(ctx context.Context, args []string, stdout io.Writer) error {
 	return runCBackend(ctx, args, stdout, cBackendSource)
 }
 
+// runObj handles the run obj command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runObj(ctx context.Context, args []string, stdout io.Writer) error {
 	return runCBackend(ctx, args, stdout, cBackendObject)
 }
 
+// runBuild handles the run build command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runBuild(ctx context.Context, args []string, stdout io.Writer) error {
 	return runCBackend(ctx, args, stdout, cBackendExecutable)
 }
 
+// runCompile handles the run compile command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runCompile(ctx context.Context, args []string, stdout io.Writer) error {
 	return runBuild(ctx, args, stdout)
 }
@@ -456,6 +473,7 @@ const (
 	cBackendExecutable
 )
 
+// runCBackend handles the run c backend command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBackendMode) error {
 	fs := flag.NewFlagSet("c", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -504,6 +522,7 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 	}
 }
 
+// runInfer handles the run infer command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runInfer(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("infer", flag.ContinueOnError)
@@ -533,6 +552,7 @@ func runInfer(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runAlias handles the run alias command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runAlias(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("alias", flag.ContinueOnError)
@@ -562,6 +582,7 @@ func runAlias(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runPurity handles the run purity command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runPurity(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("pure", flag.ContinueOnError)
@@ -591,6 +612,7 @@ func runPurity(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runClosure handles the run closure command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runClosure(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("closure", flag.ContinueOnError)
@@ -620,6 +642,7 @@ func runClosure(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runViz handles the run viz command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runViz(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("viz", flag.ContinueOnError)
@@ -654,6 +677,7 @@ func runViz(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runWASM handles the run wasm command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runWASM(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("wasm", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -699,6 +723,7 @@ func runWASM(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runGPU handles the run gpu command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runGPU(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("gpu", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -748,6 +773,7 @@ func runGPU(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// runRepl handles the run repl command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runRepl(ctx context.Context, stdout io.Writer) error {
 	sess := osiris.NewSession(osiris.NewRuntime(), ctx, "<repl>")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -789,12 +815,14 @@ func runRepl(ctx context.Context, stdout io.Writer) error {
 	}
 }
 
+// runLSP handles the run lsp command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runLSP(ctx context.Context, stdout, stderr io.Writer) error {
 	_ = stderr
 	server := osiris.NewLanguageServer(osiris.NewRuntime(), stdout, stderr)
 	return server.Serve(ctx, os.Stdin)
 }
 
+// runMap handles the run map command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runMap(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("map", flag.ContinueOnError)
@@ -820,6 +848,7 @@ func runMap(ctx context.Context, args []string, stdout io.Writer) error {
 	return enc.Encode(osiris.BuildSourceMap(prog))
 }
 
+// runDeps handles the run deps command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runDeps(ctx context.Context, args []string, stdout io.Writer) error {
 	_ = ctx
 	fs := flag.NewFlagSet("deps", flag.ContinueOnError)
@@ -888,6 +917,7 @@ type debugBreakpoint struct {
 
 type breakpointList []debugBreakpoint
 
+// String handles on breakpointList the string. It keeps the breakpointList subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *breakpointList) String() string {
 	if len(*b) == 0 {
 		return ""
@@ -903,6 +933,7 @@ func (b *breakpointList) String() string {
 	return strings.Join(parts, ",")
 }
 
+// Set handles on breakpointList the set. It keeps the breakpointList subsystem self-contained by handling the set-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
 func (b *breakpointList) Set(v string) error {
 	line, col, err := parseBreakpoint(v)
 	if err != nil {
@@ -912,6 +943,7 @@ func (b *breakpointList) Set(v string) error {
 	return nil
 }
 
+// runDebug handles the run debug command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runDebug(ctx context.Context, args []string, stdout io.Writer, stdin io.Reader) error {
 	fs := flag.NewFlagSet("debug", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -1042,6 +1074,7 @@ func runDebug(ctx context.Context, args []string, stdout io.Writer, stdin io.Rea
 	}
 }
 
+// parseBreakpoint handles the command-line the parse breakpoint input into a structured representation that the rest of the CLI can use without re-parsing raw text.. It returns int, int, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func parseBreakpoint(raw string) (int, int, error) {
 	if raw == "" {
 		return 0, 0, fmt.Errorf("empty breakpoint")
@@ -1066,6 +1099,7 @@ func parseBreakpoint(raw string) (int, int, error) {
 	return line, col, nil
 }
 
+// parseDebugBreakpoint handles the command-line the parse debug breakpoint input into a structured representation that the rest of the CLI can use without re-parsing raw text.. It returns debugBreakpoint and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func parseDebugBreakpoint(raw string) (debugBreakpoint, error) {
 	spec := raw
 	cond := ""
@@ -1080,6 +1114,7 @@ func parseDebugBreakpoint(raw string) (debugBreakpoint, error) {
 	return debugBreakpoint{Line: line, Column: col, Condition: cond}, nil
 }
 
+// breakpointHit performs the breakpoint hit step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func breakpointHit(ctx context.Context, rt *osiris.Runtime, prog *osiris.Program, frame osiris.TraceFrame, breaks []debugBreakpoint) bool {
 	for _, bp := range breaks {
 		if bp.Line != frame.Range.Start.Line {
@@ -1099,6 +1134,7 @@ func breakpointHit(ctx context.Context, rt *osiris.Runtime, prog *osiris.Program
 	return false
 }
 
+// printDebugFrame handles the CLI-facing the print debug frame view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func printDebugFrame(stdout io.Writer, frame osiris.TraceFrame) {
 	fmt.Fprintf(stdout, "#%d %s\n", frame.Index+1, frame.Statement)
 	if frame.Range.Start.Line > 0 {
@@ -1124,6 +1160,7 @@ func printDebugFrame(stdout io.Writer, frame osiris.TraceFrame) {
 	}
 }
 
+// printDebugScope handles the CLI-facing the print debug scope view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func printDebugScope(stdout io.Writer, frame *osiris.TraceFrame) {
 	if frame == nil {
 		fmt.Fprintln(stdout, "no frame")
@@ -1138,6 +1175,7 @@ func printDebugScope(stdout io.Writer, frame *osiris.TraceFrame) {
 	}
 }
 
+// printDebugStack handles the CLI-facing the print debug stack view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func printDebugStack(stdout io.Writer, frame *osiris.TraceFrame) {
 	if frame == nil {
 		fmt.Fprintln(stdout, "no frame")
@@ -1152,6 +1190,7 @@ func printDebugStack(stdout io.Writer, frame *osiris.TraceFrame) {
 	}
 }
 
+// runTrace handles the run trace command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
 func runTrace(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("trace", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -1204,6 +1243,7 @@ func runTrace(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
+// readSource performs the read source step in the surrounding package and returns string, string, error.. It returns string, string, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func readSource(path string) (string, string, error) {
 	if path == "" || path == "-" {
 		data, err := io.ReadAll(os.Stdin)
@@ -1219,6 +1259,7 @@ func readSource(path string) (string, string, error) {
 	return string(data), path, nil
 }
 
+// printUsage handles the CLI-facing the print usage view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "osiris: a concurrent sigil engine")
 	fmt.Fprintln(w, "usage:")
@@ -1234,6 +1275,7 @@ type commandHelpRow struct {
 	desc  string
 }
 
+// commandHelpRows performs the command help rows step in the surrounding package and returns []commandHelpRow.. It returns []commandHelpRow so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func commandHelpRows() []commandHelpRow {
 	return []commandHelpRow{
 		{"osiris run [-f file] [file]", "run source in the interpreter"},
@@ -1268,6 +1310,7 @@ func commandHelpRows() []commandHelpRow {
 	}
 }
 
+// printCommandHelp handles the CLI-facing the print command help view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
 func printCommandHelp(w io.Writer, name string) {
 	for _, cmd := range commandHelpRows() {
 		rest, ok := strings.CutPrefix(cmd.usage, "osiris ")

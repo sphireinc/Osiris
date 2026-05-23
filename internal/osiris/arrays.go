@@ -6,6 +6,7 @@ import (
 	"sort"
 )
 
+// mapValueUnary performs the map value unary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func mapValueUnary(v Value, fn func(Value) (Value, error)) (Value, error) {
 	switch v.kind {
 	case kindList:
@@ -33,6 +34,7 @@ func mapValueUnary(v Value, fn func(Value) (Value, error)) (Value, error) {
 	}
 }
 
+// numericUnaryValue performs the numeric unary value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func numericUnaryValue(args []Value, name string, fn func(float64) float64, rejectInvalid bool) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("%s expects 1 argument", name)
@@ -50,6 +52,7 @@ func numericUnaryValue(args []Value, name string, fn func(float64) float64, reje
 	})
 }
 
+// scalarUnaryMapped performs the scalar unary mapped step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func scalarUnaryMapped(args []Value, name string, fn func(float64) (float64, error)) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("%s expects 1 argument", name)
@@ -67,6 +70,7 @@ func scalarUnaryMapped(args []Value, name string, fn func(float64) (float64, err
 	})
 }
 
+// signValue performs the sign value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func signValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "sign", func(n float64) (float64, error) {
 		switch {
@@ -80,54 +84,67 @@ func signValue(args []Value) (Value, error) {
 	})
 }
 
+// sinhValue performs the sinh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func sinhValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "sinh", math.Sinh, false)
 }
 
+// coshValue performs the cosh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func coshValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "cosh", math.Cosh, false)
 }
 
+// tanhValue performs the tanh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func tanhValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "tanh", math.Tanh, false)
 }
 
+// asinhValue performs the asinh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func asinhValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "asinh", math.Asinh, false)
 }
 
+// acoshValue performs the acosh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func acoshValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "acosh", math.Acosh, true)
 }
 
+// atanhValue performs the atanh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func atanhValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "atanh", math.Atanh, true)
 }
 
+// expm1Value performs the expm1 value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func expm1Value(args []Value) (Value, error) {
 	return numericUnaryValue(args, "expm1", math.Expm1, false)
 }
 
+// log1pValue performs the log1p value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func log1pValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "log1p", math.Log1p, false)
 }
 
+// cbrtValue performs the cbrt value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func cbrtValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "cbrt", math.Cbrt, false)
 }
 
+// erfValue performs the erf value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func erfValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "erf", math.Erf, false)
 }
 
+// erfcValue performs the erfc value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func erfcValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "erfc", math.Erfc, false)
 }
 
+// gammaValue performs the gamma value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func gammaValue(args []Value) (Value, error) {
 	return numericUnaryValue(args, "gamma", math.Gamma, false)
 }
 
+// lgammaValue performs the lgamma value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func lgammaValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "lgamma", func(n float64) (float64, error) {
 		lg, _ := math.Lgamma(n)
@@ -135,6 +152,7 @@ func lgammaValue(args []Value) (Value, error) {
 	})
 }
 
+// stepValue performs the step value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func stepValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "step", func(n float64) (float64, error) {
 		if n > 0 {
@@ -144,6 +162,7 @@ func stepValue(args []Value) (Value, error) {
 	})
 }
 
+// heavisideValue performs the heaviside value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func heavisideValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "heaviside", func(n float64) (float64, error) {
 		switch {
@@ -157,6 +176,7 @@ func heavisideValue(args []Value) (Value, error) {
 	})
 }
 
+// reluValue performs the relu value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func reluValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "relu", func(n float64) (float64, error) {
 		if n < 0 {
@@ -166,6 +186,7 @@ func reluValue(args []Value) (Value, error) {
 	})
 }
 
+// sigmoidValue performs the sigmoid value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func sigmoidValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "sigmoid", func(n float64) (float64, error) {
 		if n >= 0 {
@@ -177,6 +198,7 @@ func sigmoidValue(args []Value) (Value, error) {
 	})
 }
 
+// softplusValue performs the softplus value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func softplusValue(args []Value) (Value, error) {
 	return scalarUnaryMapped(args, "softplus", func(n float64) (float64, error) {
 		if n > 20 {
@@ -187,6 +209,7 @@ func softplusValue(args []Value) (Value, error) {
 	})
 }
 
+// makeTensorWithFill performs the make tensor with fill step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func makeTensorWithFill(shape []int, fill Value) (Value, error) {
 	if len(shape) == 0 {
 		return fill, nil
@@ -202,6 +225,7 @@ func makeTensorWithFill(shape []int, fill Value) (Value, error) {
 	return tensorFromShapeAndData(shape, data)
 }
 
+// parseShapeArgs performs the parse shape args step in the surrounding package and returns []int, error.. It returns []int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func parseShapeArgs(args []Value) ([]int, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("shape expects at least 1 dimension")
@@ -235,6 +259,7 @@ func parseShapeArgs(args []Value) ([]int, error) {
 	return dims, nil
 }
 
+// zerosValue performs the zeros value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func zerosValue(args []Value) (Value, error) {
 	shape, err := parseShapeArgs(args)
 	if err != nil {
@@ -243,6 +268,7 @@ func zerosValue(args []Value) (Value, error) {
 	return makeTensorWithFill(shape, numberValue(0))
 }
 
+// onesValue performs the ones value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func onesValue(args []Value) (Value, error) {
 	shape, err := parseShapeArgs(args)
 	if err != nil {
@@ -251,6 +277,7 @@ func onesValue(args []Value) (Value, error) {
 	return makeTensorWithFill(shape, numberValue(1))
 }
 
+// fullValue performs the full value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func fullValue(args []Value) (Value, error) {
 	if len(args) < 2 {
 		return nullValue(), fmt.Errorf("full expects shape and fill value")
@@ -262,6 +289,7 @@ func fullValue(args []Value) (Value, error) {
 	return makeTensorWithFill(shape, args[len(args)-1])
 }
 
+// identityValue performs the identity value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func identityValue(args []Value) (Value, error) {
 	if len(args) != 1 && len(args) != 2 {
 		return nullValue(), fmt.Errorf("identity expects 1 or 2 arguments")
@@ -297,10 +325,12 @@ func identityValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{n, m}, data)
 }
 
+// eyeValue performs the eye value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func eyeValue(args []Value) (Value, error) {
 	return identityValue(args)
 }
 
+// arangeValue performs the arange value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func arangeValue(args []Value) (Value, error) {
 	if len(args) != 1 && len(args) != 2 && len(args) != 3 {
 		return nullValue(), fmt.Errorf("arange expects 1, 2, or 3 arguments")
@@ -360,6 +390,7 @@ func arangeValue(args []Value) (Value, error) {
 	return newTensorValue([]int{len(out)}, out), nil
 }
 
+// linspaceValue performs the linspace value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func linspaceValue(args []Value) (Value, error) {
 	if len(args) != 2 && len(args) != 3 {
 		return nullValue(), fmt.Errorf("linspace expects 2 or 3 arguments")
@@ -397,6 +428,7 @@ func linspaceValue(args []Value) (Value, error) {
 	return newTensorValue([]int{count}, out), nil
 }
 
+// logspaceValue performs the logspace value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func logspaceValue(args []Value) (Value, error) {
 	if len(args) != 3 && len(args) != 4 {
 		return nullValue(), fmt.Errorf("logspace expects 3 or 4 arguments")
@@ -438,6 +470,7 @@ func logspaceValue(args []Value) (Value, error) {
 	return newTensorValue([]int{count}, out), nil
 }
 
+// flattenValues performs the flatten values step in the surrounding package and returns []Value.. It returns []Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func flattenValues(v Value, out []Value) []Value {
 	switch v.kind {
 	case kindList:
@@ -455,6 +488,7 @@ func flattenValues(v Value, out []Value) []Value {
 	}
 }
 
+// numericSlice performs the numeric slice step in the surrounding package and returns []Value, error.. It returns []Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func numericSlice(args []Value) ([]Value, error) {
 	if len(args) != 1 {
 		return nil, fmt.Errorf("expected 1 argument")
@@ -462,6 +496,7 @@ func numericSlice(args []Value) ([]Value, error) {
 	return flattenValues(args[0], nil), nil
 }
 
+// meanValue performs the mean value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func meanValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -481,6 +516,7 @@ func meanValue(args []Value) (Value, error) {
 	return numberValue(total / float64(len(values))), nil
 }
 
+// varValue performs the var value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func varValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -506,6 +542,7 @@ func varValue(args []Value) (Value, error) {
 	return numberValue(sum / float64(len(values))), nil
 }
 
+// stdValue performs the std value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func stdValue(args []Value) (Value, error) {
 	v, err := varValue(args)
 	if err != nil {
@@ -518,6 +555,7 @@ func stdValue(args []Value) (Value, error) {
 	return numberValue(math.Sqrt(n)), nil
 }
 
+// medianValue performs the median value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func medianValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -542,6 +580,7 @@ func medianValue(args []Value) (Value, error) {
 	return numberValue((nums[mid-1] + nums[mid]) / 2), nil
 }
 
+// quantileValue performs the quantile value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func quantileValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("quantile expects data and q")
@@ -576,6 +615,7 @@ func quantileValue(args []Value) (Value, error) {
 	return numberValue(nums[lo]*(1-frac) + nums[hi]*frac), nil
 }
 
+// percentileValue performs the percentile value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func percentileValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("percentile expects data and p")
@@ -587,6 +627,7 @@ func percentileValue(args []Value) (Value, error) {
 	return quantileValue([]Value{args[0], numberValue(p / 100)})
 }
 
+// argminValue performs the argmin value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func argminValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -613,6 +654,7 @@ func argminValue(args []Value) (Value, error) {
 	return uintValue(uint64(best), 64), nil
 }
 
+// argmaxValue performs the argmax value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func argmaxValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -639,6 +681,7 @@ func argmaxValue(args []Value) (Value, error) {
 	return uintValue(uint64(best), 64), nil
 }
 
+// anyValue performs the any value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func anyValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -652,6 +695,7 @@ func anyValue(args []Value) (Value, error) {
 	return boolValue(false), nil
 }
 
+// allValue performs the all value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func allValue(args []Value) (Value, error) {
 	values, err := numericSlice(args)
 	if err != nil {
@@ -665,6 +709,7 @@ func allValue(args []Value) (Value, error) {
 	return boolValue(true), nil
 }
 
+// cumsumValue performs the cumsum value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func cumsumValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("cumsum expects 1 argument")
@@ -689,6 +734,7 @@ func cumsumValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+// cumprodValue performs the cumprod value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func cumprodValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("cumprod expects 1 argument")

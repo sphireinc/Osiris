@@ -13,6 +13,7 @@ type fixedValue struct {
 	raw   *big.Int
 }
 
+// newFixedValue performs the new fixed value step in the surrounding package and returns *fixedValue, error.. It returns *fixedValue and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func newFixedValue(width, frac uint16, raw *big.Int) (*fixedValue, error) {
 	if width == 0 {
 		width = 64
@@ -30,6 +31,7 @@ func newFixedValue(width, frac uint16, raw *big.Int) (*fixedValue, error) {
 	}, nil
 }
 
+// fixedValueOf performs the fixed value of step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func fixedValueOf(width, frac uint16, raw *big.Int) (Value, error) {
 	fx, err := newFixedValue(width, frac, raw)
 	if err != nil {
@@ -38,6 +40,7 @@ func fixedValueOf(width, frac uint16, raw *big.Int) (Value, error) {
 	return Value{kind: kindFixed, fx: fx}, nil
 }
 
+// fixedWidthOf performs the fixed width of step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedWidthOf(v Value) uint16 {
 	if v.kind != kindFixed || v.fx == nil || v.fx.width == 0 {
 		return 64
@@ -45,6 +48,7 @@ func fixedWidthOf(v Value) uint16 {
 	return v.fx.width
 }
 
+// fixedFracOf performs the fixed frac of step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedFracOf(v Value) uint16 {
 	if v.kind != kindFixed || v.fx == nil {
 		return 0
@@ -52,6 +56,7 @@ func fixedFracOf(v Value) uint16 {
 	return v.fx.frac
 }
 
+// fixedScale performs the fixed scale step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedScale(frac uint16) *big.Int {
 	if frac == 0 {
 		return big.NewInt(1)
@@ -59,6 +64,7 @@ func fixedScale(frac uint16) *big.Int {
 	return new(big.Int).Lsh(big.NewInt(1), uint(frac))
 }
 
+// fixedToRat performs the fixed to rat step in the surrounding package and returns *big.Rat.. It returns *big.Rat so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedToRat(v *fixedValue) *big.Rat {
 	if v == nil {
 		return new(big.Rat)
@@ -69,6 +75,7 @@ func fixedToRat(v *fixedValue) *big.Rat {
 	return new(big.Rat).SetFrac(new(big.Int).Set(v.raw), fixedScale(v.frac))
 }
 
+// fixedString performs the fixed string step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedString(v *fixedValue) string {
 	if v == nil {
 		return "fixed[64,0](0)"
@@ -76,6 +83,7 @@ func fixedString(v *fixedValue) string {
 	return fmt.Sprintf("fixed[%d,%d](%s)", v.width, v.frac, formatRat(fixedToRat(v)))
 }
 
+// fixedRatFromValue performs the fixed rat from value step in the surrounding package and returns *big.Rat, error.. It returns *big.Rat and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func fixedRatFromValue(v Value) (*big.Rat, error) {
 	switch v.kind {
 	case kindFixed:
@@ -150,6 +158,7 @@ func fixedRatFromValue(v Value) (*big.Rat, error) {
 	}
 }
 
+// fixedRawFromRat performs the fixed raw from rat step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedRawFromRat(r *big.Rat, frac uint16) *big.Int {
 	if r == nil {
 		return new(big.Int)
@@ -176,6 +185,7 @@ func fixedRawFromRat(r *big.Rat, frac uint16) *big.Int {
 	return q
 }
 
+// fixedIntFromValue performs the fixed int from value step in the surrounding package and returns *big.Int, uint16, uint16, error.. It returns *big.Int, uint16, uint16, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
 func fixedIntFromValue(v Value) (*big.Int, uint16, uint16, error) {
 	switch v.kind {
 	case kindFixed:
@@ -242,6 +252,7 @@ func fixedIntFromValue(v Value) (*big.Int, uint16, uint16, error) {
 	}
 }
 
+// fixedValueFromArgs performs the fixed value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func fixedValueFromArgs(args []Value) (Value, error) {
 	if len(args) != 2 && len(args) != 3 {
 		return nullValue(), fmt.Errorf("fixed expects 2 or 3 arguments")
@@ -278,6 +289,7 @@ func fixedValueFromArgs(args []Value) (Value, error) {
 	return fixedValueOf(width, frac, fixedRawFromRat(rat, frac))
 }
 
+// fixedBinary performs the fixed binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
 func fixedBinary(op tokenKind, left, right Value) (Value, error) {
 	if op == tokenPlus && (left.kind == kindString || right.kind == kindString) {
 		return stringValue(textify(left) + textify(right)), nil
