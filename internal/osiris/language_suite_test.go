@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,20 @@ func assertLanguageOutputs(t *testing.T, source string, want []string) {
 			t.Fatalf("output[%d] = %s, want %s", i, got, want[i])
 		}
 	}
+}
+
+func runLanguageProgramVM(t *testing.T, source string) []Value {
+	t.Helper()
+	prog, err := Parse("<suite>", source)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("vm run failed: %v", err)
+	}
+	return out
 }
 
 func TestLanguageGeneralFeatureSuite(t *testing.T) {
@@ -155,5 +170,58 @@ emit hex(bytes("AB"))
 			"[1u8, 2u16, \"go\"]",
 			`"4142"`,
 		})
+	})
+
+	t.Run("format-roundtrip-match-and-switch", func(t *testing.T) {
+		source := `
+let suffix = "!"
+macro shout(x) => cat(x, suffix)
+emit match [1, 2] { [a, b] => a + b; _ => 0 }
+emit switch 9 { 1 => "one"; _ => "other" }
+emit shout("osiris")
+`
+		formatted, err := FormatSource("<suite>", source)
+		if err != nil {
+			t.Fatalf("format failed: %v", err)
+		}
+		if !strings.Contains(formatted, "match ") {
+			t.Fatalf("formatted output missing match: %s", formatted)
+		}
+		if !strings.Contains(formatted, "switch ") {
+			t.Fatalf("formatted output missing switch: %s", formatted)
+		}
+		assertLanguageOutputs(t, formatted, []string{
+			"3u64",
+			`"other"`,
+			`"osiris!"`,
+		})
+	})
+
+	t.Run("vm-parity-on-core-programs", func(t *testing.T) {
+		source := `
+func fib(n) => if(n < 2, n, fib(n - 1) + fib(n - 2))
+emit fib(10)
+emit sum([1, 2, 3, 4, 5])
+emit matmul(matrix(2, 2, [1, 2, 3, 4]), matrix(2, 2, [5, 6, 7, 8]))
+`
+		out := runLanguageProgram(t, source)
+		vmOut := runLanguageProgramVM(t, source)
+		if got, want := len(out), len(vmOut); got != want {
+			t.Fatalf("len(run) = %d, len(vm) = %d", got, want)
+		}
+		for i := range out {
+			if got, want := out[i].String(), vmOut[i].String(); got != want {
+				t.Fatalf("vm parity mismatch at %d: run=%s vm=%s", i, got, want)
+			}
+		}
+		if got, want := out[0].String(), "55u64"; got != want {
+			t.Fatalf("fib output = %s, want %s", got, want)
+		}
+		if got, want := out[1].String(), "15"; got != want {
+			t.Fatalf("sum output = %s, want %s", got, want)
+		}
+		if got, want := out[2].String(), "tensor[2x2]([19, 22, 43, 50])"; got != want {
+			t.Fatalf("matmul output = %s, want %s", got, want)
+		}
 	})
 }
