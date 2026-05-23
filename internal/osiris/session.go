@@ -19,7 +19,12 @@ type Session struct {
 	macros         map[string]*macroDef
 }
 
-// NewSession constructs and returns a new the session with the default internal state already wired together so callers do not need to assemble caches or dependencies by hand.. It returns *Session so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// NewSession constructs a new session and wires together the internal caches,
+// registries, and default tables that the caller would otherwise have to
+// assemble by hand.
+//
+// It returns *Session so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	sess := &Session{
 		rt:         rt,
@@ -42,7 +47,12 @@ func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	return sess
 }
 
-// ExecSource handles on Session the exec source. It keeps the Session subsystem self-contained by handling the exec source-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// ExecSource operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []Value and an error. Callers should only trust the value when
+// the error is nil.
 func (s *Session) ExecSource(src string) ([]Value, error) {
 	prog, err := Parse(s.sourceName, src)
 	if err != nil {
@@ -51,7 +61,12 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 	return s.ExecProgram(prog, false, nil)
 }
 
-// ExecProgram handles on Session the exec program. It keeps the Session subsystem self-contained by handling the exec program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// ExecProgram operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []Value and an error. Callers should only trust the value when
+// the error is nil.
 func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([]Value, error) {
 	var outputs []Value
 	prevOutputs := s.outputs
@@ -85,7 +100,12 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	return outputs, nil
 }
 
-// execStmt handles on Session the exec stmt. It keeps the Session subsystem self-contained by handling the exec stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// execStmt operates on Session values and keeps the session-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns []Value, bool, error so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack []string) ([]Value, bool, error) {
 	switch st := stmt.(type) {
 	case packageStmt:
@@ -166,7 +186,12 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 	}
 }
 
-// execControlStmt handles on Session the exec control stmt. It keeps the Session subsystem self-contained by handling the exec control stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// execControlStmt operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *scope and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	switch st := stmt.(type) {
 	case returnStmt:
@@ -191,7 +216,12 @@ func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string,
 	}
 }
 
-// declareFunction handles on Session the declare function. It keeps the Session subsystem self-contained by handling the declare function-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// declareFunction operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *scope and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) declareFunction(cur *scope, name string, params []string, body Expr) (*scope, error) {
 	expanded, err := s.expandExpr(body, cur)
 	if err != nil {
@@ -215,7 +245,12 @@ func (s *Session) declareFunction(cur *scope, name string, params []string, body
 	}, nil
 }
 
-// execWhile handles on Session the exec while. It keeps the Session subsystem self-contained by handling the exec while-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// execWhile operates on Session values and keeps the session-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *scope and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	cur := curScope
 	for {
@@ -248,7 +283,12 @@ func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, st
 	}
 }
 
-// execFor handles on Session the exec for. It keeps the Session subsystem self-contained by handling the exec for-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// execFor operates on Session values and keeps the session-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *scope and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	cur := curScope
 	iter, err := s.eval(st.Iter, cur)
@@ -289,13 +329,23 @@ func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack 
 	return cur, nil
 }
 
-// execLoopBodyWithScope handles on Session the exec loop body with scope. It keeps the Session subsystem self-contained by handling the exec loop body with scope-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// execLoopBodyWithScope operates on Session values and keeps the
+// session-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns *scope and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) execLoopBodyWithScope(body Expr, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	_, next, err := s.evalBlockExpr(body, curScope, baseSource, stack)
 	return next, err
 }
 
-// evalBlockExpr handles on Session the eval block expr. It keeps the Session subsystem self-contained by handling the eval block expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// evalBlockExpr operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value, *scope, error so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, stack []string) (Value, *scope, error) {
 	switch n := body.(type) {
 	case *blockExpr:
@@ -367,12 +417,22 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 	}
 }
 
-// eval handles on Session the eval. It keeps the Session subsystem self-contained by handling the eval-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// eval operates on Session values and keeps the session-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) eval(expr Expr, scope *scope) (Value, error) {
 	return s.ev.eval(expr, scope)
 }
 
-// moduleValue handles on Session the module value. It keeps the Session subsystem self-contained by handling the module value-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// moduleValue operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) moduleValue() (Value, error) {
 	if s.packageName == "" {
 		return nullValue(), fmt.Errorf("module has no package name")
@@ -400,7 +460,12 @@ func (s *Session) moduleValue() (Value, error) {
 	}, exports), nil
 }
 
-// EvalAt eval on Runtime the at. It keeps the Runtime subsystem self-contained by handling the at-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// EvalAt operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (rt *Runtime) EvalAt(ctx context.Context, prog *Program, frameIndex int, expr string) (Value, error) {
 	if rt == nil {
 		rt = NewRuntime()

@@ -20,7 +20,12 @@ type letStmt struct {
 	NameSpan sourceSpan
 }
 
-// stmtNode handles on letStmt the stmt node. It keeps the letStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on letStmt values and keeps the letstmt-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (letStmt) stmtNode() {}
 
 type emitStmt struct {
@@ -28,7 +33,12 @@ type emitStmt struct {
 	Span sourceSpan
 }
 
-// stmtNode handles on emitStmt the stmt node. It keeps the emitStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on emitStmt values and keeps the emitstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (emitStmt) stmtNode() {}
 
 type macroStmt struct {
@@ -39,7 +49,12 @@ type macroStmt struct {
 	NameSpan sourceSpan
 }
 
-// stmtNode handles on macroStmt the stmt node. It keeps the macroStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on macroStmt values and keeps the macrostmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (macroStmt) stmtNode() {}
 
 type funcStmt struct {
@@ -50,7 +65,12 @@ type funcStmt struct {
 	NameSpan sourceSpan
 }
 
-// stmtNode handles on funcStmt the stmt node. It keeps the funcStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on funcStmt values and keeps the funcstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (funcStmt) stmtNode() {}
 
 type returnStmt struct {
@@ -58,7 +78,12 @@ type returnStmt struct {
 	Span sourceSpan
 }
 
-// stmtNode handles on returnStmt the stmt node. It keeps the returnStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on returnStmt values and keeps the returnstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (returnStmt) stmtNode() {}
 
 type whileStmt struct {
@@ -67,7 +92,12 @@ type whileStmt struct {
 	Span sourceSpan
 }
 
-// stmtNode handles on whileStmt the stmt node. It keeps the whileStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on whileStmt values and keeps the whilestmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (whileStmt) stmtNode() {}
 
 type forStmt struct {
@@ -78,21 +108,36 @@ type forStmt struct {
 	NameSpan sourceSpan
 }
 
-// stmtNode handles on forStmt the stmt node. It keeps the forStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on forStmt values and keeps the forstmt-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (forStmt) stmtNode() {}
 
 type breakStmt struct {
 	Span sourceSpan
 }
 
-// stmtNode handles on breakStmt the stmt node. It keeps the breakStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on breakStmt values and keeps the breakstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (breakStmt) stmtNode() {}
 
 type continueStmt struct {
 	Span sourceSpan
 }
 
-// stmtNode handles on continueStmt the stmt node. It keeps the continueStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on continueStmt values and keeps the continuestmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (continueStmt) stmtNode() {}
 
 type importStmt struct {
@@ -103,7 +148,12 @@ type importStmt struct {
 	AliasSpan sourceSpan
 }
 
-// stmtNode handles on importStmt the stmt node. It keeps the importStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on importStmt values and keeps the importstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (importStmt) stmtNode() {}
 
 type packageStmt struct {
@@ -114,7 +164,12 @@ type packageStmt struct {
 	VersionSpan sourceSpan
 }
 
-// stmtNode handles on packageStmt the stmt node. It keeps the packageStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on packageStmt values and keeps the packagestmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (packageStmt) stmtNode() {}
 
 type exportStmt struct {
@@ -123,7 +178,12 @@ type exportStmt struct {
 	NameSpans []sourceSpan
 }
 
-// stmtNode handles on exportStmt the stmt node. It keeps the exportStmt subsystem self-contained by handling the stmt node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// stmtNode operates on exportStmt values and keeps the exportstmt-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (exportStmt) stmtNode() {}
 
 type Expr interface {
@@ -135,7 +195,12 @@ type literalExpr struct {
 	Span  sourceSpan
 }
 
-// exprNode handles on literalExpr the expr node. It keeps the literalExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on literalExpr values and keeps the literalexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (literalExpr) exprNode() {}
 
 type identExpr struct {
@@ -143,7 +208,12 @@ type identExpr struct {
 	Span sourceSpan
 }
 
-// exprNode handles on identExpr the expr node. It keeps the identExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on identExpr values and keeps the identexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (identExpr) exprNode() {}
 
 type unaryExpr struct {
@@ -152,7 +222,12 @@ type unaryExpr struct {
 	Span sourceSpan
 }
 
-// exprNode handles on unaryExpr the expr node. It keeps the unaryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on unaryExpr values and keeps the unaryexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (unaryExpr) exprNode() {}
 
 type binaryExpr struct {
@@ -162,7 +237,12 @@ type binaryExpr struct {
 	Span  sourceSpan
 }
 
-// exprNode handles on binaryExpr the expr node. It keeps the binaryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on binaryExpr values and keeps the binaryexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (binaryExpr) exprNode() {}
 
 type callExpr struct {
@@ -171,7 +251,12 @@ type callExpr struct {
 	Span   sourceSpan
 }
 
-// exprNode handles on callExpr the expr node. It keeps the callExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on callExpr values and keeps the callexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (callExpr) exprNode() {}
 
 type blockExpr struct {
@@ -180,7 +265,12 @@ type blockExpr struct {
 	Span  sourceSpan
 }
 
-// exprNode handles on blockExpr the expr node. It keeps the blockExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on blockExpr values and keeps the blockexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (blockExpr) exprNode() {}
 
 type tryExpr struct {
@@ -190,7 +280,12 @@ type tryExpr struct {
 	Span      sourceSpan
 }
 
-// exprNode handles on tryExpr the expr node. It keeps the tryExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on tryExpr values and keeps the tryexpr-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (tryExpr) exprNode() {}
 
 type memberExpr struct {
@@ -200,7 +295,12 @@ type memberExpr struct {
 	NameSpan sourceSpan
 }
 
-// exprNode handles on memberExpr the expr node. It keeps the memberExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on memberExpr values and keeps the memberexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (memberExpr) exprNode() {}
 
 type listExpr struct {
@@ -208,7 +308,12 @@ type listExpr struct {
 	Span  sourceSpan
 }
 
-// exprNode handles on listExpr the expr node. It keeps the listExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on listExpr values and keeps the listexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (listExpr) exprNode() {}
 
 type matchExpr struct {
@@ -218,7 +323,12 @@ type matchExpr struct {
 	keyword tokenKind
 }
 
-// exprNode handles on matchExpr the expr node. It keeps the matchExpr subsystem self-contained by handling the expr node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// exprNode operates on matchExpr values and keeps the matchexpr-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (matchExpr) exprNode() {}
 
 type matchArm struct {
@@ -232,7 +342,12 @@ type Pattern interface {
 
 type wildcardPattern struct{}
 
-// patternNode handles on wildcardPattern the pattern node. It keeps the wildcardPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// patternNode operates on wildcardPattern values and keeps the
+// wildcardpattern-specific behavior attached to the receiver so callers can
+// use the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (wildcardPattern) patternNode() {}
 
 type bindPattern struct {
@@ -240,7 +355,12 @@ type bindPattern struct {
 	Span sourceSpan
 }
 
-// patternNode handles on bindPattern the pattern node. It keeps the bindPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// patternNode operates on bindPattern values and keeps the
+// bindpattern-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (bindPattern) patternNode() {}
 
 type literalPattern struct {
@@ -248,7 +368,12 @@ type literalPattern struct {
 	Span  sourceSpan
 }
 
-// patternNode handles on literalPattern the pattern node. It keeps the literalPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// patternNode operates on literalPattern values and keeps the
+// literalpattern-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (literalPattern) patternNode() {}
 
 type listPattern struct {
@@ -256,10 +381,19 @@ type listPattern struct {
 	Span  sourceSpan
 }
 
-// patternNode handles on listPattern the pattern node. It keeps the listPattern subsystem self-contained by handling the pattern node-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// patternNode operates on listPattern values and keeps the
+// listpattern-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (listPattern) patternNode() {}
 
-// Parse parses the supplied the requested work and returns the structured form that the evaluator, optimizer, or analyzer expects to work on.. It returns *Program and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// Parse parses the supplied work and returns the structured form that the
+// evaluator, optimizer, or analyzer expects to work on.
+//
+// It returns *Program and an error. Callers should only trust the value when
+// the error is nil.
 func Parse(sourceName, src string) (*Program, error) {
 	p := &parser{sourceName: sourceName, lexer: newLexer(src)}
 	return p.parse()
@@ -273,7 +407,12 @@ type parser struct {
 	lexErr     error
 }
 
-// parse handles on parser the parse. It keeps the parser subsystem self-contained by handling the parse-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parse operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *Program and an error. Callers should only trust the value when
+// the error is nil.
 func (p *parser) parse() (*Program, error) {
 	var stmts []Stmt
 	for {
@@ -300,7 +439,12 @@ func (p *parser) parse() (*Program, error) {
 	return &Program{SourceName: p.sourceName, Statements: stmts}, nil
 }
 
-// parseStmt handles on parser the parse stmt. It keeps the parser subsystem self-contained by handling the parse stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseStmt operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Stmt and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseStmt() (Stmt, error) {
 	switch p.peek().kind {
 	case tokenLet:
@@ -491,7 +635,12 @@ func (p *parser) parseStmt() (Stmt, error) {
 	}
 }
 
-// parseExpr handles on parser the parse expr. It keeps the parser subsystem self-contained by handling the parse expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseExpr operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseExpr(minPrec int) (Expr, error) {
 	left, err := p.parsePrefix()
 	if err != nil {
@@ -519,7 +668,12 @@ func (p *parser) parseExpr(minPrec int) (Expr, error) {
 	return left, nil
 }
 
-// parsePostfix handles on parser the parse postfix. It keeps the parser subsystem self-contained by handling the parse postfix-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parsePostfix operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	for {
 		switch p.peek().kind {
@@ -542,7 +696,12 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	}
 }
 
-// parsePrefix handles on parser the parse prefix. It keeps the parser subsystem self-contained by handling the parse prefix-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parsePrefix operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parsePrefix() (Expr, error) {
 	tok := p.peek()
 	switch tok.kind {
@@ -605,7 +764,12 @@ func (p *parser) parsePrefix() (Expr, error) {
 	}
 }
 
-// parseTryExpr handles on parser the parse try expr. It keeps the parser subsystem self-contained by handling the parse try expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseTryExpr operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseTryExpr() (Expr, error) {
 	start := p.next()
 	body, err := p.parseExpr(0)
@@ -626,7 +790,12 @@ func (p *parser) parseTryExpr() (Expr, error) {
 	return &tryExpr{body: body, catchName: nameTok.text, handler: handler, Span: spanCover(spanFromToken(start), exprSpan(handler))}, nil
 }
 
-// parseCallArgs handles on parser the parse call args. It keeps the parser subsystem self-contained by handling the parse call args-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseCallArgs operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseCallArgs() ([]Expr, error) {
 	if _, err := p.expect(tokenLParen); err != nil {
 		return nil, err
@@ -651,7 +820,12 @@ func (p *parser) parseCallArgs() ([]Expr, error) {
 	}
 }
 
-// parseNameList handles on parser the parse name list. It keeps the parser subsystem self-contained by handling the parse name list-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseNameList operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []string and an error. Callers should only trust the value when
+// the error is nil.
 func (p *parser) parseNameList() ([]string, error) {
 	first, err := p.expect(tokenIdent)
 	if err != nil {
@@ -668,7 +842,12 @@ func (p *parser) parseNameList() ([]string, error) {
 	return names, nil
 }
 
-// parseNameListAllowEmpty handles on parser the parse name list allow empty. It keeps the parser subsystem self-contained by handling the parse name list allow empty-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseNameListAllowEmpty operates on parser values and keeps the
+// parser-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns []string and an error. Callers should only trust the value when
+// the error is nil.
 func (p *parser) parseNameListAllowEmpty() ([]string, error) {
 	if p.match(tokenRParen) {
 		return nil, nil
@@ -691,7 +870,12 @@ func (p *parser) parseNameListAllowEmpty() ([]string, error) {
 	return names, nil
 }
 
-// parseList handles on parser the parse list. It keeps the parser subsystem self-contained by handling the parse list-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseList operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseList() (Expr, error) {
 	if _, err := p.expect(tokenLBracket); err != nil {
 		return nil, err
@@ -716,7 +900,12 @@ func (p *parser) parseList() (Expr, error) {
 	}
 }
 
-// parseBlockExpr handles on parser the parse block expr. It keeps the parser subsystem self-contained by handling the parse block expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseBlockExpr operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseBlockExpr() (Expr, error) {
 	if _, err := p.expect(tokenLBrace); err != nil {
 		return nil, err
@@ -755,7 +944,12 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 	}
 }
 
-// parseMatchExpr handles on parser the parse match expr. It keeps the parser subsystem self-contained by handling the parse match expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parseMatchExpr operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	if _, err := p.expect(keyword); err != nil {
 		return nil, err
@@ -798,7 +992,11 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	return &matchExpr{subject: subject, arms: arms, keyword: keyword}, nil
 }
 
-// exprSpan performs the expr span step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// exprSpan handles the expr span step in the surrounding package and returns
+// sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func exprSpan(expr Expr) sourceSpan {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -826,7 +1024,12 @@ func exprSpan(expr Expr) sourceSpan {
 	}
 }
 
-// parsePattern handles on parser the parse pattern. It keeps the parser subsystem self-contained by handling the parse pattern-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// parsePattern operates on parser values and keeps the parser-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Pattern and an error. Callers should only trust the value when
+// the error is nil.
 func (p *parser) parsePattern() (Pattern, error) {
 	tok := p.peek()
 	switch tok.kind {
@@ -890,7 +1093,11 @@ func (p *parser) parsePattern() (Pattern, error) {
 	}
 }
 
-// precedence performs the precedence step in the surrounding package and returns int, bool.. It returns int, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// precedence handles the precedence step in the surrounding package and
+// returns int, bool.
+//
+// It returns int, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func precedence(kind tokenKind) (int, bool) {
 	switch kind {
 	case tokenOrOr:
@@ -918,7 +1125,12 @@ func precedence(kind tokenKind) (int, bool) {
 	}
 }
 
-// peek handles on parser the peek. It keeps the parser subsystem self-contained by handling the peek-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// peek operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (p *parser) peek() token {
 	if p.peeked {
 		return p.cur
@@ -936,14 +1148,24 @@ func (p *parser) peek() token {
 	return tok
 }
 
-// next handles on parser the next. It keeps the parser subsystem self-contained by handling the next-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// next operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (p *parser) next() token {
 	tok := p.peek()
 	p.peeked = false
 	return tok
 }
 
-// match handles on parser the match. It keeps the parser subsystem self-contained by handling the match-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// match operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (p *parser) match(kind tokenKind) bool {
 	if p.peek().kind != kind {
 		return false
@@ -952,7 +1174,12 @@ func (p *parser) match(kind tokenKind) bool {
 	return true
 }
 
-// expect handles on parser the expect. It keeps the parser subsystem self-contained by handling the expect-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expect operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token and an error. Callers should only trust the value when the
+// error is nil.
 func (p *parser) expect(kind tokenKind) (token, error) {
 	tok := p.peek()
 	if tok.kind != kind {
@@ -962,7 +1189,11 @@ func (p *parser) expect(kind tokenKind) (token, error) {
 	return tok, nil
 }
 
-// errorf handles on parser the errorf. It keeps the parser subsystem self-contained by handling the errorf-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// errorf operates on parser values and keeps the parser-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (p *parser) errorf(tok token, format string, args ...any) error {
 	base := fmt.Sprintf(format, args...)
 	if tok.kind == tokenEOF {

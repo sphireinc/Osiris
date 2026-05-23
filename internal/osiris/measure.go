@@ -13,7 +13,11 @@ type quantityValue struct {
 	dims map[string]int
 }
 
-// newQuantityValue performs the new quantity value step in the surrounding package and returns *quantityValue.. It returns *quantityValue so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// newQuantityValue handles the new quantity value step in the surrounding
+// package and returns *quantityValue.
+//
+// It returns *quantityValue so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func newQuantityValue(mag *big.Rat, dims map[string]int) *quantityValue {
 	if mag == nil {
 		mag = new(big.Rat)
@@ -21,7 +25,11 @@ func newQuantityValue(mag *big.Rat, dims map[string]int) *quantityValue {
 	return &quantityValue{mag: new(big.Rat).Set(mag), dims: cloneDims(dims)}
 }
 
-// cloneDims performs the clone dims step in the surrounding package and returns map[string]int.. It returns map[string]int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneDims handles the clone dims step in the surrounding package and returns
+// map[string]int.
+//
+// It returns map[string]int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func cloneDims(dims map[string]int) map[string]int {
 	if len(dims) == 0 {
 		return nil
@@ -38,7 +46,11 @@ func cloneDims(dims map[string]int) map[string]int {
 	return out
 }
 
-// dimsEqual performs the dims equal step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// dimsEqual handles the dims equal step in the surrounding package and returns
+// bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func dimsEqual(a, b map[string]int) bool {
 	if len(a) != len(b) {
 		return false
@@ -51,7 +63,11 @@ func dimsEqual(a, b map[string]int) bool {
 	return true
 }
 
-// combineDims performs the combine dims step in the surrounding package and returns map[string]int.. It returns map[string]int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// combineDims handles the combine dims step in the surrounding package and
+// returns map[string]int.
+//
+// It returns map[string]int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func combineDims(left, right map[string]int, sign int) map[string]int {
 	out := cloneDims(left)
 	if out == nil && len(right) == 0 {
@@ -72,7 +88,11 @@ func combineDims(left, right map[string]int, sign int) map[string]int {
 	return out
 }
 
-// formatRat performs the format rat step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatRat handles the format rat step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatRat(r *big.Rat) string {
 	if r == nil {
 		return "0"
@@ -83,7 +103,11 @@ func formatRat(r *big.Rat) string {
 	return r.RatString()
 }
 
-// formatBigFloat performs the format big float step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatBigFloat handles the format big float step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatBigFloat(f *big.Float) string {
 	if f == nil {
 		return "0bf"
@@ -91,7 +115,11 @@ func formatBigFloat(f *big.Float) string {
 	return f.Text('g', -1) + "bf"
 }
 
-// formatDims performs the format dims step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatDims handles the format dims step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatDims(dims map[string]int) string {
 	if len(dims) == 0 {
 		return ""
@@ -128,7 +156,11 @@ func formatDims(dims map[string]int) string {
 	return out
 }
 
-// formatQuantity performs the format quantity step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatQuantity handles the format quantity step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatQuantity(q *quantityValue) string {
 	if q == nil || q.mag == nil {
 		return "0"
@@ -146,17 +178,29 @@ func formatQuantity(q *quantityValue) string {
 	return formatRat(q.mag) + "*" + dims
 }
 
-// unitValue performs the unit value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unitValue handles the unit value step in the surrounding package and returns
+// Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func unitValue(name string) Value {
 	return Value{kind: kindQuantity, qty: newQuantityValue(big.NewRat(1, 1), map[string]int{name: 1})}
 }
 
-// quantityValueOf performs the quantity value of step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// quantityValueOf handles the quantity value of step in the surrounding
+// package and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func quantityValueOf(mag *big.Rat, dims map[string]int) Value {
 	return Value{kind: kindQuantity, qty: newQuantityValue(mag, dims)}
 }
 
-// bigIntValue performs the big int value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// bigIntValue handles the big int value step in the surrounding package and
+// returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func bigIntValue(v *big.Int) Value {
 	if v == nil {
 		v = new(big.Int)
@@ -164,7 +208,11 @@ func bigIntValue(v *big.Int) Value {
 	return Value{kind: kindBigInt, bi: new(big.Int).Set(v)}
 }
 
-// bigFloatValue performs the big float value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// bigFloatValue handles the big float value step in the surrounding package
+// and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func bigFloatValue(v *big.Float) Value {
 	if v == nil {
 		v = new(big.Float).SetPrec(256)
@@ -172,7 +220,11 @@ func bigFloatValue(v *big.Float) Value {
 	return Value{kind: kindBigFloat, bf: new(big.Float).Copy(v)}
 }
 
-// isNumericish performs the is numericish step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// isNumericish handles the is numericish step in the surrounding package and
+// returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func isNumericish(v Value) bool {
 	switch v.kind {
 	case kindNumber, kindDecimal, kindFixed, kindInterval, kindModInt, kindComplex, kindUint, kindBool, kindBigInt, kindBigFloat, kindInt, kindQuantity:
@@ -182,7 +234,11 @@ func isNumericish(v Value) bool {
 	}
 }
 
-// quantityFromValue performs the quantity from value step in the surrounding package and returns *quantityValue, error.. It returns *quantityValue and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// quantityFromValue handles the quantity from value step in the surrounding
+// package and returns *quantityValue, error.
+//
+// It returns *quantityValue and an error. Callers should only trust the value
+// when the error is nil.
 func quantityFromValue(v Value) (*quantityValue, error) {
 	switch v.kind {
 	case kindQuantity:
@@ -231,7 +287,11 @@ func quantityFromValue(v Value) (*quantityValue, error) {
 	}
 }
 
-// bigFloatFromValue performs the big float from value step in the surrounding package and returns *big.Float, error.. It returns *big.Float and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// bigFloatFromValue handles the big float from value step in the surrounding
+// package and returns *big.Float, error.
+//
+// It returns *big.Float and an error. Callers should only trust the value when
+// the error is nil.
 func bigFloatFromValue(v Value) (*big.Float, error) {
 	switch v.kind {
 	case kindBigFloat:
@@ -305,7 +365,11 @@ func bigFloatFromValue(v Value) (*big.Float, error) {
 	}
 }
 
-// bigIntFromValue performs the big int from value step in the surrounding package and returns *big.Int, error.. It returns *big.Int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// bigIntFromValue handles the big int from value step in the surrounding
+// package and returns *big.Int, error.
+//
+// It returns *big.Int and an error. Callers should only trust the value when
+// the error is nil.
 func bigIntFromValue(v Value) (*big.Int, error) {
 	switch v.kind {
 	case kindBigInt:
@@ -382,7 +446,11 @@ func bigIntFromValue(v Value) (*big.Int, error) {
 	}
 }
 
-// quantityBinary performs the quantity binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// quantityBinary handles the quantity binary step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func quantityBinary(op tokenKind, left, right Value) (Value, error) {
 	lq, err := quantityFromValue(left)
 	if err != nil {
@@ -445,7 +513,11 @@ func quantityBinary(op tokenKind, left, right Value) (Value, error) {
 	return nullValue(), fmt.Errorf("unsupported quantity operator %s", op)
 }
 
-// bigBinary performs the big binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// bigBinary handles the big binary step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func bigBinary(op tokenKind, left, right Value) (Value, error) {
 	li, lerr := bigIntFromValue(left)
 	ri, rerr := bigIntFromValue(right)

@@ -21,7 +21,12 @@ type DependencyReport struct {
 	Cycles [][]string                `json:"cycles,omitempty"`
 }
 
-// BuildDependencyReport build on Runtime the dependency report. It keeps the Runtime subsystem self-contained by handling the dependency report-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// BuildDependencyReport operates on Runtime values and keeps the
+// runtime-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns DependencyReport and an error. Callers should only trust the
+// value when the error is nil.
 func (rt *Runtime) BuildDependencyReport(sourceName, src string) (DependencyReport, error) {
 	if rt == nil {
 		rt = NewRuntime()
@@ -125,7 +130,12 @@ func (rt *Runtime) BuildDependencyReport(sourceName, src string) (DependencyRepo
 	return report, nil
 }
 
-// resolveDependencySource handles on Runtime the resolve dependency source. It keeps the Runtime subsystem self-contained by handling the resolve dependency source-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// resolveDependencySource operates on Runtime values and keeps the
+// runtime-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns string, string, moduleKind, error so callers can continue with
+// the next stage of the pipeline without re-deriving the same information.
 func (rt *Runtime) resolveDependencySource(ref, base string) (string, string, moduleKind, error) {
 	if strings.HasPrefix(ref, "std/") {
 		return ref, "", moduleKindStdlib, nil
@@ -138,7 +148,11 @@ func (rt *Runtime) resolveDependencySource(ref, base string) (string, string, mo
 	return key, src, moduleKindFile, nil
 }
 
-// dependencyKindForRef performs the dependency kind for ref step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// dependencyKindForRef handles the dependency kind for ref step in the
+// surrounding package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func dependencyKindForRef(ref string) string {
 	if strings.HasPrefix(ref, "std/") {
 		return "stdlib"
@@ -149,7 +163,11 @@ func dependencyKindForRef(ref string) string {
 	return "file"
 }
 
-// dependencyLabel performs the dependency label step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// dependencyLabel handles the dependency label step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func dependencyLabel(ref string, prog *Program) string {
 	if p := firstPackageStmt(prog); p != nil {
 		label := "package " + p.Name
@@ -161,7 +179,11 @@ func dependencyLabel(ref string, prog *Program) string {
 	return ref
 }
 
-// firstPackageStmt performs the first package stmt step in the surrounding package and returns *packageStmt.. It returns *packageStmt so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// firstPackageStmt handles the first package stmt step in the surrounding
+// package and returns *packageStmt.
+//
+// It returns *packageStmt so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func firstPackageStmt(prog *Program) *packageStmt {
 	if prog == nil {
 		return nil
@@ -175,7 +197,11 @@ func firstPackageStmt(prog *Program) *packageStmt {
 	return nil
 }
 
-// stdlibVersion performs the stdlib version step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// stdlibVersion handles the stdlib version step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func stdlibVersion(name string) string {
 	switch name {
 	case "std/text", "std/math", "std/crypto", "std/list":

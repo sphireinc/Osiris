@@ -6,7 +6,12 @@ import (
 	"testing"
 )
 
-// TestTraceProgram exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTraceProgram exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTraceProgram(t *testing.T) {
 	prog, err := Parse("<test>", `
 let x = 3
@@ -34,7 +39,12 @@ emit x + 4
 	}
 }
 
-// TestEvalAt exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestEvalAt exercises the behavior described by its body and locks in the
+// observable language, runtime, or CLI semantics that the surrounding package
+// depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestEvalAt(t *testing.T) {
 	prog, err := Parse("<test>", `
 let x = 3
@@ -54,7 +64,12 @@ emit x + y
 	}
 }
 
-// TestTraceCarriesCallStack exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTraceCarriesCallStack exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTraceCarriesCallStack(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit cat("a", "b")

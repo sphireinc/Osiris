@@ -159,7 +159,11 @@ var namedConstantFactories = map[string]namedValueFactory{
 	"hecto": numberFactory(100),
 }
 
-// namedConstantValue performs the named constant value step in the surrounding package and returns Value, bool.. It returns Value, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// namedConstantValue handles the named constant value step in the surrounding
+// package and returns Value, bool.
+//
+// It returns Value, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func namedConstantValue(name string) (Value, bool) {
 	if factory, ok := namedConstantFactories[name]; ok {
 		return factory(), true
@@ -167,7 +171,11 @@ func namedConstantValue(name string) (Value, bool) {
 	return nullValue(), false
 }
 
-// namedConstantInfo performs the named constant info step in the surrounding package and returns inferTypeInfo, bool.. It returns inferTypeInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// namedConstantInfo handles the named constant info step in the surrounding
+// package and returns inferTypeInfo, bool.
+//
+// It returns inferTypeInfo, bool so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func namedConstantInfo(name string) (inferTypeInfo, bool) {
 	v, ok := namedConstantValue(name)
 	if !ok {
@@ -176,33 +184,53 @@ func namedConstantInfo(name string) (inferTypeInfo, bool) {
 	return inferTypeFromValue(v), true
 }
 
-// registerConstants performs the register constants step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// registerConstants handles the register constants step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func registerConstants(dst map[string]Value) {
 	for name, factory := range namedConstantFactories {
 		dst[name] = factory()
 	}
 }
 
-// unitFactory performs the unit factory step in the surrounding package and returns namedValueFactory.. It returns namedValueFactory so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unitFactory handles the unit factory step in the surrounding package and
+// returns namedValueFactory.
+//
+// It returns namedValueFactory so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func unitFactory(name string) namedValueFactory {
 	return func() Value { return unitValue(name) }
 }
 
-// quantityFactory performs the quantity factory step in the surrounding package and returns namedValueFactory.. It returns namedValueFactory so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// quantityFactory handles the quantity factory step in the surrounding package
+// and returns namedValueFactory.
+//
+// It returns namedValueFactory so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func quantityFactory(mag int64, dims map[string]int) namedValueFactory {
 	return func() Value {
 		return quantityValueOf(new(big.Rat).SetInt64(mag), dims)
 	}
 }
 
-// quantityFactoryFrac performs the quantity factory frac step in the surrounding package and returns namedValueFactory.. It returns namedValueFactory so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// quantityFactoryFrac handles the quantity factory frac step in the
+// surrounding package and returns namedValueFactory.
+//
+// It returns namedValueFactory so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func quantityFactoryFrac(num, den int64, dims map[string]int) namedValueFactory {
 	return func() Value {
 		return quantityValueOf(new(big.Rat).SetFrac(big.NewInt(num), big.NewInt(den)), dims)
 	}
 }
 
-// quantityFactoryText performs the quantity factory text step in the surrounding package and returns namedValueFactory.. It returns namedValueFactory so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// quantityFactoryText handles the quantity factory text step in the
+// surrounding package and returns namedValueFactory.
+//
+// It returns namedValueFactory so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func quantityFactoryText(text string, dims map[string]int) namedValueFactory {
 	return func() Value {
 		rat, err := parseDecimalText(text)
@@ -213,7 +241,11 @@ func quantityFactoryText(text string, dims map[string]int) namedValueFactory {
 	}
 }
 
-// numberFactory performs the number factory step in the surrounding package and returns namedValueFactory.. It returns namedValueFactory so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// numberFactory handles the number factory step in the surrounding package and
+// returns namedValueFactory.
+//
+// It returns namedValueFactory so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func numberFactory(v float64) namedValueFactory {
 	return func() Value { return numberValue(v) }
 }

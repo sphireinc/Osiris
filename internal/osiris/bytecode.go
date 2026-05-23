@@ -61,12 +61,21 @@ type vmCompiler struct {
 	emitted bool
 }
 
-// newVMCompiler performs the new vm compiler step in the surrounding package and returns *vmCompiler.. It returns *vmCompiler so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// newVMCompiler handles the new vmcompiler step in the surrounding package and
+// returns *vmCompiler.
+//
+// It returns *vmCompiler so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func newVMCompiler(sourceName string) *vmCompiler {
 	return &vmCompiler{chunk: &vmChunk{sourceName: sourceName, result: -1}}
 }
 
-// alloc handles on vmCompiler the alloc. It keeps the vmCompiler subsystem self-contained by handling the alloc-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// alloc operates on vmCompiler values and keeps the vmcompiler-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (c *vmCompiler) alloc() int {
 	reg := c.next
 	c.next++
@@ -76,13 +85,23 @@ func (c *vmCompiler) alloc() int {
 	return reg
 }
 
-// emit handles on vmCompiler the emit. It keeps the vmCompiler subsystem self-contained by handling the emit-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// emit operates on vmCompiler values and keeps the vmcompiler-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (c *vmCompiler) emit(instr vmInstr) {
 	c.chunk.code = append(c.chunk.code, instr)
 	c.emitted = true
 }
 
-// compileProgram handles on vmCompiler the compile program. It keeps the vmCompiler subsystem self-contained by handling the compile program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileProgram operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns *vmChunk and an error. Callers should only trust the value when
+// the error is nil.
 func (c *vmCompiler) compileProgram(prog *Program) (*vmChunk, error) {
 	for _, stmt := range prog.Statements {
 		if err := c.compileStmt(stmt); err != nil {
@@ -95,7 +114,11 @@ func (c *vmCompiler) compileProgram(prog *Program) (*vmChunk, error) {
 	return c.chunk, nil
 }
 
-// compileStmt handles on vmCompiler the compile stmt. It keeps the vmCompiler subsystem self-contained by handling the compile stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileStmt operates on vmCompiler values and keeps the vmcompiler-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (c *vmCompiler) compileStmt(stmt Stmt) error {
 	switch st := stmt.(type) {
 	case packageStmt:
@@ -143,7 +166,12 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 	}
 }
 
-// compileExpr handles on vmCompiler the compile expr. It keeps the vmCompiler subsystem self-contained by handling the compile expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileExpr operates on vmCompiler values and keeps the vmcompiler-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -246,7 +274,12 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 	}
 }
 
-// compileBlockExpr handles on vmCompiler the compile block expr. It keeps the vmCompiler subsystem self-contained by handling the compile block expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileBlockExpr operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileBlockExpr(n *blockExpr) (int, error) {
 	sub := newVMCompiler(c.chunk.sourceName)
 	sub.chunk.packageName = c.chunk.packageName
@@ -270,7 +303,12 @@ func (c *vmCompiler) compileBlockExpr(n *blockExpr) (int, error) {
 	return dst, nil
 }
 
-// compileExprChunk handles on vmCompiler the compile expr chunk. It keeps the vmCompiler subsystem self-contained by handling the compile expr chunk-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileExprChunk operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns *vmChunk and an error. Callers should only trust the value when
+// the error is nil.
 func (c *vmCompiler) compileExprChunk(expr Expr) (*vmChunk, error) {
 	sub := newVMCompiler(c.chunk.sourceName)
 	sub.chunk.packageName = c.chunk.packageName
@@ -283,7 +321,12 @@ func (c *vmCompiler) compileExprChunk(expr Expr) (*vmChunk, error) {
 	return sub.chunk, nil
 }
 
-// compileIfCall handles on vmCompiler the compile if call. It keeps the vmCompiler subsystem self-contained by handling the compile if call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileIfCall operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileIfCall(n *callExpr) (int, error) {
 	if len(n.args) != 3 {
 		return 0, fmt.Errorf("if expects 3 arguments")
@@ -305,7 +348,12 @@ func (c *vmCompiler) compileIfCall(n *callExpr) (int, error) {
 	return dst, nil
 }
 
-// compileAndCall handles on vmCompiler the compile and call. It keeps the vmCompiler subsystem self-contained by handling the compile and call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileAndCall operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileAndCall(n *callExpr) (int, error) {
 	if len(n.args) != 2 {
 		return 0, fmt.Errorf("and expects 2 arguments")
@@ -323,7 +371,12 @@ func (c *vmCompiler) compileAndCall(n *callExpr) (int, error) {
 	return dst, nil
 }
 
-// compileOrCall handles on vmCompiler the compile or call. It keeps the vmCompiler subsystem self-contained by handling the compile or call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileOrCall operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileOrCall(n *callExpr) (int, error) {
 	if len(n.args) != 2 {
 		return 0, fmt.Errorf("or expects 2 arguments")
@@ -341,7 +394,12 @@ func (c *vmCompiler) compileOrCall(n *callExpr) (int, error) {
 	return dst, nil
 }
 
-// compileLogicalBinary handles on vmCompiler the compile logical binary. It keeps the vmCompiler subsystem self-contained by handling the compile logical binary-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// compileLogicalBinary operates on vmCompiler values and keeps the
+// vmcompiler-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func (c *vmCompiler) compileLogicalBinary(n *binaryExpr) (int, error) {
 	left, err := c.compileExpr(n.left)
 	if err != nil {
@@ -366,7 +424,12 @@ type vmFrame struct {
 	locals map[string]Value
 }
 
-// lookup handles on vmFrame the lookup. It keeps the vmFrame subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on vmFrame values and keeps the vmframe-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Value, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (f *vmFrame) lookup(name string) (Value, bool) {
 	for cur := f; cur != nil; cur = cur.parent {
 		if cur.locals == nil {
@@ -379,7 +442,12 @@ func (f *vmFrame) lookup(name string) (Value, bool) {
 	return Value{}, false
 }
 
-// bind handles on vmFrame the bind. It keeps the vmFrame subsystem self-contained by handling the bind-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// bind operates on vmFrame values and keeps the vmframe-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (f *vmFrame) bind(name string, v Value) {
 	if f.locals == nil {
 		f.locals = make(map[string]Value)
@@ -387,7 +455,12 @@ func (f *vmFrame) bind(name string, v Value) {
 	f.locals[name] = v
 }
 
-// child handles on vmFrame the child. It keeps the vmFrame subsystem self-contained by handling the child-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// child operates on vmFrame values and keeps the vmframe-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *vmFrame so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (f *vmFrame) child(bindings map[string]Value) *vmFrame {
 	child := &vmFrame{parent: f}
 	if len(bindings) > 0 {
@@ -409,7 +482,12 @@ type vmRunner struct {
 	constRegs []Value
 }
 
-// run handles on vmRunner the run. It keeps the vmRunner subsystem self-contained by handling the run-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// run operates on vmRunner values and keeps the vmrunner-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 	regs := make([]Value, chunk.maxReg+1)
 	for _, instr := range chunk.code {
@@ -599,7 +677,12 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 	return nullValue(), nil
 }
 
-// runChild handles on vmRunner the run child. It keeps the vmRunner subsystem self-contained by handling the run child-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// runChild operates on vmRunner values and keeps the vmrunner-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (r *vmRunner) runChild(chunk *vmChunk) (Value, error) {
 	if chunk == nil {
 		return nullValue(), nil
@@ -614,7 +697,12 @@ func (r *vmRunner) runChild(chunk *vmChunk) (Value, error) {
 	return child.run(chunk)
 }
 
-// runChildWithBindings handles on vmRunner the run child with bindings. It keeps the vmRunner subsystem self-contained by handling the run child with bindings-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// runChildWithBindings operates on vmRunner values and keeps the
+// vmrunner-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Value) (Value, error) {
 	if chunk == nil {
 		return nullValue(), nil
@@ -629,7 +717,11 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 	return child.run(chunk)
 }
 
-// vmBinary performs the vm binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// vmBinary handles the vm binary step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, error) {
 	if left.kind == kindTensor || right.kind == kindTensor {
 		return tensorBinaryValue(ctx, deterministicScheduler{}, op, left, right)
@@ -810,7 +902,12 @@ func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, erro
 	return nullValue(), fmt.Errorf("unsupported operator %s", op)
 }
 
-// RunVM run on Runtime the vm. It keeps the Runtime subsystem self-contained by handling the vm-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// RunVM operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns []Value and an error. Callers should only trust the value when
+// the error is nil.
 func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	sess := NewSession(r, ctx, prog.SourceName)
 	expanded, err := sess.ExpandProgram(prog)
@@ -841,7 +938,11 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	return runner.outputs, nil
 }
 
-// containsControlFlow performs the contains control flow step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// containsControlFlow handles the contains control flow step in the
+// surrounding package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func containsControlFlow(prog *Program) bool {
 	if prog == nil {
 		return false
@@ -854,7 +955,11 @@ func containsControlFlow(prog *Program) bool {
 	return false
 }
 
-// stmtContainsControl performs the stmt contains control step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// stmtContainsControl handles the stmt contains control step in the
+// surrounding package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func stmtContainsControl(stmt Stmt) bool {
 	switch st := stmt.(type) {
 	case funcStmt, whileStmt, forStmt, returnStmt, breakStmt, continueStmt:
@@ -872,7 +977,11 @@ func stmtContainsControl(stmt Stmt) bool {
 	}
 }
 
-// exprContainsControl performs the expr contains control step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// exprContainsControl handles the expr contains control step in the
+// surrounding package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func exprContainsControl(expr Expr) bool {
 	switch n := expr.(type) {
 	case *blockExpr:

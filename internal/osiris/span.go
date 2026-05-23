@@ -12,7 +12,11 @@ type sourceSpan struct {
 	end   sourcePos
 }
 
-// spanFromToken performs the span from token step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// spanFromToken handles the span from token step in the surrounding package
+// and returns sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func spanFromToken(tok token) sourceSpan {
 	start := sourcePos{line: tok.line, col: tok.col}
 	end := start
@@ -22,7 +26,11 @@ func spanFromToken(tok token) sourceSpan {
 	return sourceSpan{start: start, end: end}
 }
 
-// spanFromTokens performs the span from tokens step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// spanFromTokens handles the span from tokens step in the surrounding package
+// and returns sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func spanFromTokens(start, end token) sourceSpan {
 	sp := spanFromToken(start)
 	if end.line > 0 || end.col > 0 {
@@ -31,7 +39,11 @@ func spanFromTokens(start, end token) sourceSpan {
 	return sp
 }
 
-// spanCover performs the span cover step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// spanCover handles the span cover step in the surrounding package and returns
+// sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func spanCover(a, b sourceSpan) sourceSpan {
 	if a.start.line == 0 && a.start.col == 0 {
 		return b
@@ -49,7 +61,11 @@ func spanCover(a, b sourceSpan) sourceSpan {
 	return out
 }
 
-// lessPos performs the less pos step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// lessPos handles the less pos step in the surrounding package and returns
+// bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func lessPos(a, b sourcePos) bool {
 	if a.line != b.line {
 		return a.line < b.line
@@ -57,7 +73,12 @@ func lessPos(a, b sourcePos) bool {
 	return a.col < b.col
 }
 
-// contains handles on sourceSpan the contains. It keeps the sourceSpan subsystem self-contained by handling the contains-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// contains operates on sourceSpan values and keeps the sourcespan-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (s sourceSpan) contains(pos sourcePos) bool {
 	if s.start.line == 0 && s.start.col == 0 && s.end.line == 0 && s.end.col == 0 {
 		return false

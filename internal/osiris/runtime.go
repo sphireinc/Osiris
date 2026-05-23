@@ -24,7 +24,12 @@ type Runtime struct {
 	registries map[string]*moduleRegistry
 }
 
-// NewRuntime constructs and returns a new the time with the default internal state already wired together so callers do not need to assemble caches or dependencies by hand.. It returns *Runtime so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// NewRuntime constructs a new runtime and wires together the internal caches,
+// registries, and default tables that the caller would otherwise have to
+// assemble by hand.
+//
+// It returns *Runtime so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func NewRuntime() *Runtime {
 	r := &Runtime{
 		Builtins:   make(map[string]Builtin),
@@ -37,7 +42,12 @@ func NewRuntime() *Runtime {
 	return r
 }
 
-// Run run on Runtime the requested work. It keeps the Runtime subsystem self-contained by handling the requested work-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Run operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns []Value and an error. Callers should only trust the value when
+// the error is nil.
 func (r *Runtime) Run(ctx context.Context, prog *Program) ([]Value, error) {
 	return NewSession(r, ctx, prog.SourceName).ExecProgram(prog, false, nil)
 }
@@ -52,7 +62,12 @@ type scope struct {
 	items  map[string]binding
 }
 
-// lookup handles on scope the lookup. It keeps the scope subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on scope values and keeps the scope-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns binding, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *scope) lookup(name string) (binding, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if b, ok := cur.items[name]; ok {
@@ -94,7 +109,12 @@ type evaluator struct {
 	traceActive bool
 }
 
-// eval handles on evaluator the eval. It keeps the evaluator subsystem self-contained by handling the eval-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// eval operates on evaluator values and keeps the evaluator-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 	if ev.session != nil {
 		expanded, err := ev.session.expandExpr(expr, scope)
@@ -113,7 +133,12 @@ func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 	return ev.evalWithKey(expr, scope, key)
 }
 
-// evalWithKey handles on evaluator the eval with key. It keeps the evaluator subsystem self-contained by handling the eval with key-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// evalWithKey operates on evaluator values and keeps the evaluator-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (ev *evaluator) evalWithKey(expr Expr, scope *scope, key string) (Value, error) {
 	if err := ev.ctx.Err(); err != nil {
 		return nullValue(), err
@@ -145,7 +170,12 @@ func (ev *evaluator) evalWithKey(expr Expr, scope *scope, key string) (Value, er
 	return v, err
 }
 
-// fingerprint handles on evaluator the fingerprint. It keeps the evaluator subsystem self-contained by handling the fingerprint-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// fingerprint operates on evaluator values and keeps the evaluator-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string and an error. Callers should only trust the value when the
+// error is nil.
 func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 	key := fpKey{expr: expr, scope: env}
 	ev.fpMu.Lock()
@@ -358,7 +388,11 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 	return out, nil
 }
 
-// computeExpr performs the compute expr step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// computeExpr handles the compute expr step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, error) {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -420,7 +454,11 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 	}
 }
 
-// evalBlock performs the eval block step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalBlock handles the eval block step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 	cur := env
 	for _, stmt := range n.stmts {
@@ -455,7 +493,11 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 	return ev.eval(n.tail, cur)
 }
 
-// fingerprintStmt performs the fingerprint stmt step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// fingerprintStmt handles the fingerprint stmt step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func fingerprintStmt(ev *evaluator, stmt Stmt, scope *scope) string {
 	switch st := stmt.(type) {
 	case packageStmt:
@@ -522,7 +564,11 @@ func fingerprintStmt(ev *evaluator, stmt Stmt, scope *scope) string {
 	}
 }
 
-// evalBinary performs the eval binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalBinary handles the eval binary step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 	switch n.op {
 	case tokenAndAnd:
@@ -761,7 +807,11 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 	return nullValue(), fmt.Errorf("unsupported operator %s", n.op)
 }
 
-// evalCall performs the eval call step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalCall handles the eval call step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if name, ok := specialFormName(n.callee); ok {
 		return evalSpecialForm(ev, name, n.args, curScope)
@@ -813,7 +863,12 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	return nullValue(), fmt.Errorf("value %s is not callable", callee.Kind())
 }
 
-// beginTraceFrame handles on evaluator the begin trace frame. It keeps the evaluator subsystem self-contained by handling the begin trace frame-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// beginTraceFrame operates on evaluator values and keeps the
+// evaluator-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (ev *evaluator) beginTraceFrame() {
 	ev.traceMu.Lock()
 	ev.traceActive = true
@@ -821,7 +876,12 @@ func (ev *evaluator) beginTraceFrame() {
 	ev.traceMu.Unlock()
 }
 
-// endTraceFrame handles on evaluator the end trace frame. It keeps the evaluator subsystem self-contained by handling the end trace frame-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// endTraceFrame operates on evaluator values and keeps the evaluator-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (ev *evaluator) endTraceFrame() []string {
 	ev.traceMu.Lock()
 	defer ev.traceMu.Unlock()
@@ -831,7 +891,12 @@ func (ev *evaluator) endTraceFrame() []string {
 	return out
 }
 
-// pushCall handles on evaluator the push call. It keeps the evaluator subsystem self-contained by handling the push call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// pushCall operates on evaluator values and keeps the evaluator-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (ev *evaluator) pushCall(name string) {
 	ev.traceMu.Lock()
 	ev.callStack = append(ev.callStack, name)
@@ -841,7 +906,12 @@ func (ev *evaluator) pushCall(name string) {
 	ev.traceMu.Unlock()
 }
 
-// popCall handles on evaluator the pop call. It keeps the evaluator subsystem self-contained by handling the pop call-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// popCall operates on evaluator values and keeps the evaluator-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (ev *evaluator) popCall() {
 	ev.traceMu.Lock()
 	if len(ev.callStack) > 0 {
@@ -850,7 +920,11 @@ func (ev *evaluator) popCall() {
 	ev.traceMu.Unlock()
 }
 
-// specialFormName performs the special form name step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// specialFormName handles the special form name step in the surrounding
+// package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func specialFormName(expr Expr) (string, bool) {
 	id, ok := expr.(*identExpr)
 	if !ok {
@@ -864,7 +938,11 @@ func specialFormName(expr Expr) (string, bool) {
 	}
 }
 
-// evalSpecialForm performs the eval special form step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalSpecialForm handles the eval special form step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Value, error) {
 	switch name {
 	case "if":
@@ -916,7 +994,11 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 	}
 }
 
-// resolveMember performs the resolve member step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// resolveMember handles the resolve member step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
 	mod, err := obj.AsModule()
 	if err != nil {
@@ -928,7 +1010,11 @@ func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
 	return mod.lookup(ctx, name)
 }
 
-// evalMany performs the eval many step in the surrounding package and returns []Value, error.. It returns []Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalMany handles the eval many step in the surrounding package and returns
+// []Value, error.
+//
+// It returns []Value and an error. Callers should only trust the value when
+// the error is nil.
 func evalMany(ev *evaluator, exprs []Expr, scope *scope) ([]Value, error) {
 	if len(exprs) == 0 {
 		return nil, nil
@@ -946,7 +1032,11 @@ func evalMany(ev *evaluator, exprs []Expr, scope *scope) ([]Value, error) {
 	return ev.sched.run(ev.ctx, tasks)
 }
 
-// applyUnary performs the apply unary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// applyUnary handles the apply unary step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func applyUnary(op tokenKind, v Value) (Value, error) {
 	switch op {
 	case tokenBang:
@@ -1004,7 +1094,11 @@ func applyUnary(op tokenKind, v Value) (Value, error) {
 	}
 }
 
-// hashParts performs the hash parts step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// hashParts handles the hash parts step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func hashParts(parts ...string) string {
 	h := sha256.New()
 	for _, part := range parts {
@@ -1014,7 +1108,11 @@ func hashParts(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// numericBuiltin performs the numeric builtin step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// numericBuiltin handles the numeric builtin step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func numericBuiltin(args []Value, fn func([]float64) (Value, error)) (Value, error) {
 	nums := make([]float64, len(args))
 	for i, arg := range args {
@@ -1027,7 +1125,11 @@ func numericBuiltin(args []Value, fn func([]float64) (Value, error)) (Value, err
 	return fn(nums)
 }
 
-// registerBuiltins performs the register builtins step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// registerBuiltins handles the register builtins step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func registerBuiltins(dst map[string]Builtin) {
 	dst["hash"] = func(args []Value) (Value, error) {
 		return stringValue(hashValue(args)), nil
@@ -1580,7 +1682,11 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["jsonparse"] = func(args []Value) (Value, error) { return jsonParseValue(args) }
 }
 
-// hashValue performs the hash value step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// hashValue handles the hash value step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func hashValue(args []Value) string {
 	h := sha256.New()
 	for _, arg := range args {

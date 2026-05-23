@@ -16,7 +16,12 @@ type GPUArtifact struct {
 	Kernels []GPUKernel `json:"kernels"`
 }
 
-// CompileGPU compiles the gpu into the requested backend artifact so the caller can execute or inspect the program without keeping the source interpreter in the hot path.. It returns GPUArtifact and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// CompileGPU compiles the gpu into the requested backend artifact so the
+// caller can execute or inspect the program without keeping the source
+// interpreter in the hot path.
+//
+// It returns GPUArtifact and an error. Callers should only trust the value
+// when the error is nil.
 func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
 	_ = ctx
 	plan := collectGPUPlan(prog)
@@ -31,7 +36,11 @@ type gpuPlan struct {
 	seen    map[string]struct{}
 }
 
-// collectGPUPlan performs the collect gpu plan step in the surrounding package and returns gpuPlan.. It returns gpuPlan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// collectGPUPlan handles the collect gpuplan step in the surrounding package
+// and returns gpuPlan.
+//
+// It returns gpuPlan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func collectGPUPlan(prog *Program) gpuPlan {
 	plan := gpuPlan{seen: make(map[string]struct{})}
 	for _, stmt := range prog.Statements {
@@ -48,7 +57,12 @@ func collectGPUPlan(prog *Program) gpuPlan {
 	return plan
 }
 
-// addKernel handles on gpuPlan the add kernel. It keeps the gpuPlan subsystem self-contained by handling the add kernel-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// addKernel operates on gpuPlan values and keeps the gpuplan-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (p *gpuPlan) addKernel(name, kind string) {
 	key := name + "::" + kind
 	if _, ok := p.seen[key]; ok {
@@ -58,7 +72,12 @@ func (p *gpuPlan) addKernel(name, kind string) {
 	p.Kernels = append(p.Kernels, GPUKernel{Name: name, Kind: kind})
 }
 
-// walkStmt handles on gpuPlan the walk stmt. It keeps the gpuPlan subsystem self-contained by handling the walk stmt-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// walkStmt operates on gpuPlan values and keeps the gpuplan-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (p *gpuPlan) walkStmt(stmt Stmt) {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -82,7 +101,12 @@ func (p *gpuPlan) walkStmt(stmt Stmt) {
 	}
 }
 
-// walkExpr handles on gpuPlan the walk expr. It keeps the gpuPlan subsystem self-contained by handling the walk expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// walkExpr operates on gpuPlan values and keeps the gpuplan-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (p *gpuPlan) walkExpr(expr Expr) {
 	switch n := expr.(type) {
 	case nil:
@@ -139,7 +163,11 @@ func (p *gpuPlan) walkExpr(expr Expr) {
 	}
 }
 
-// callName performs the call name step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// callName handles the call name step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func callName(expr Expr) string {
 	id, ok := expr.(*identExpr)
 	if !ok {
@@ -148,7 +176,11 @@ func callName(expr Expr) string {
 	return id.name
 }
 
-// renderGPUOpenCL performs the render gpu open cl step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// renderGPUOpenCL handles the render gpuopen cl step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func renderGPUOpenCL(plan gpuPlan) string {
 	var b strings.Builder
 	b.WriteString("__kernel void osiris_elemwise_add(__global const double* lhs, __global const double* rhs, __global double* out, ulong n) {\n")
@@ -193,7 +225,11 @@ func renderGPUOpenCL(plan gpuPlan) string {
 	return b.String()
 }
 
-// EncodeGPUArtifactJSON performs the encode gpu artifact json step in the surrounding package and returns []byte, error.. It returns []byte and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// EncodeGPUArtifactJSON handles the encode gpuartifact json step in the
+// surrounding package and returns []byte, error.
+//
+// It returns []byte and an error. Callers should only trust the value when the
+// error is nil.
 func EncodeGPUArtifactJSON(art GPUArtifact) ([]byte, error) {
 	return json.MarshalIndent(art, "", "  ")
 }

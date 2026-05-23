@@ -5,7 +5,12 @@ import (
 	"testing"
 )
 
-// TestConstantFoldingAndSimplification exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestConstantFoldingAndSimplification exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestConstantFoldingAndSimplification(t *testing.T) {
 	prog, err := Parse("<test>", `
 let a = 1 + 2 * 3
@@ -61,7 +66,12 @@ emit simplify(9)
 	}
 }
 
-// TestCommonSubexpressionElimination exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestCommonSubexpressionElimination exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestCommonSubexpressionElimination(t *testing.T) {
 	prog, err := Parse("<test>", `
 let a = hash("osiris")
@@ -94,7 +104,12 @@ let b = hash("osiris")
 	}
 }
 
-// TestNamedValueSimplification exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestNamedValueSimplification exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestNamedValueSimplification(t *testing.T) {
 	prog, err := Parse("<test>", `
 let distance = 2 * kilo * Meter
@@ -119,7 +134,12 @@ emit circle
 	}
 }
 
-// TestStrengthReduction exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestStrengthReduction exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestStrengthReduction(t *testing.T) {
 	prog, err := Parse("<test>", `
 func scale(x) {
@@ -139,7 +159,12 @@ func scale(x) {
 	}
 }
 
-// TestLoopOptimizationDoesNotFreezeMutableState exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestLoopOptimizationDoesNotFreezeMutableState exercises the behavior
+// described by its body and locks in the observable language, runtime, or CLI
+// semantics that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestLoopOptimizationDoesNotFreezeMutableState(t *testing.T) {
 	prog, err := Parse("<test>", `
 func sweep(n) {

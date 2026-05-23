@@ -22,7 +22,11 @@ type macroExpander struct {
 	seq        uint64
 }
 
-// cloneMacroDefs performs the clone macro defs step in the surrounding package and returns map[string]*macroDef.. It returns map[string]*macroDef so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneMacroDefs handles the clone macro defs step in the surrounding package
+// and returns map[string]*macroDef.
+//
+// It returns map[string]*macroDef so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func cloneMacroDefs(src map[string]*macroDef) map[string]*macroDef {
 	if len(src) == 0 {
 		return make(map[string]*macroDef)
@@ -34,7 +38,11 @@ func cloneMacroDefs(src map[string]*macroDef) map[string]*macroDef {
 	return dst
 }
 
-// cloneStringMap performs the clone string map step in the surrounding package and returns map[string]string.. It returns map[string]string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneStringMap handles the clone string map step in the surrounding package
+// and returns map[string]string.
+//
+// It returns map[string]string so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func cloneStringMap(src map[string]string) map[string]string {
 	if len(src) == 0 {
 		return make(map[string]string)
@@ -46,7 +54,11 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-// cloneExpr performs the clone expr step in the surrounding package and returns Expr.. It returns Expr so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneExpr handles the clone expr step in the surrounding package and returns
+// Expr.
+//
+// It returns Expr so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func cloneExpr(expr Expr) Expr {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -94,7 +106,11 @@ func cloneExpr(expr Expr) Expr {
 	}
 }
 
-// cloneStmt performs the clone stmt step in the surrounding package and returns Stmt.. It returns Stmt so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneStmt handles the clone stmt step in the surrounding package and returns
+// Stmt.
+//
+// It returns Stmt so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func cloneStmt(stmt Stmt) Stmt {
 	switch s := stmt.(type) {
 	case packageStmt:
@@ -129,7 +145,11 @@ func cloneStmt(stmt Stmt) Stmt {
 	}
 }
 
-// clonePattern performs the clone pattern step in the surrounding package and returns Pattern.. It returns Pattern so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// clonePattern handles the clone pattern step in the surrounding package and
+// returns Pattern.
+//
+// It returns Pattern so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func clonePattern(pattern Pattern) Pattern {
 	switch p := pattern.(type) {
 	case wildcardPattern:
@@ -149,7 +169,11 @@ func clonePattern(pattern Pattern) Pattern {
 	}
 }
 
-// registerMacro handles on Session the register macro. It keeps the Session subsystem self-contained by handling the register macro-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// registerMacro operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *Session) registerMacro(name string, params []string, body Expr) error {
 	if s.macros == nil {
 		s.macros = make(map[string]*macroDef)
@@ -167,19 +191,34 @@ func (s *Session) registerMacro(name string, params []string, body Expr) error {
 	return nil
 }
 
-// ExpandProgram handles on Session the expand program. It keeps the Session subsystem self-contained by handling the expand program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// ExpandProgram operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *Program and an error. Callers should only trust the value when
+// the error is nil.
 func (s *Session) ExpandProgram(prog *Program) (*Program, error) {
 	exp := &macroExpander{rt: s.rt, ctx: s.ctx, sourceName: s.sourceName}
 	return exp.expandProgram(prog, nil, cloneMacroDefs(s.macros), 0)
 }
 
-// expandExpr handles on Session the expand expr. It keeps the Session subsystem self-contained by handling the expand expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandExpr operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (s *Session) expandExpr(expr Expr, env *scope) (Expr, error) {
 	exp := &macroExpander{rt: s.rt, ctx: s.ctx, sourceName: s.sourceName}
 	return exp.expandExpr(expr, env, cloneMacroDefs(s.macros), 0)
 }
 
-// expandProgram handles on macroExpander the expand program. It keeps the macroExpander subsystem self-contained by handling the expand program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandProgram operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns *Program and an error. Callers should only trust the value when
+// the error is nil.
 func (e *macroExpander) expandProgram(prog *Program, env *scope, defs map[string]*macroDef, depth int) (*Program, error) {
 	stmts, _, _, err := e.expandStmtSeq(prog.Statements, env, defs, seqProgram, depth)
 	if err != nil {
@@ -195,7 +234,13 @@ const (
 	seqBlock
 )
 
-// expandStmtSeq handles on macroExpander the expand stmt seq. It keeps the macroExpander subsystem self-contained by handling the expand stmt seq-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandStmtSeq operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns []Stmt, *scope, map[string]*macroDef, error so callers can
+// continue with the next stage of the pipeline without re-deriving the same
+// information.
 func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]*macroDef, mode seqMode, depth int) ([]Stmt, *scope, map[string]*macroDef, error) {
 	curScope := env
 	curDefs := cloneMacroDefs(defs)
@@ -310,7 +355,12 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 	return out, curScope, curDefs, nil
 }
 
-// expandExpr handles on macroExpander the expand expr. It keeps the macroExpander subsystem self-contained by handling the expand expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandExpr operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macroDef, depth int) (Expr, error) {
 	if depth > macroExpansionLimit {
 		return nil, fmt.Errorf("macro expansion exceeded %d steps", macroExpansionLimit)
@@ -402,7 +452,12 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 	}
 }
 
-// expandBlockExpr handles on macroExpander the expand block expr. It keeps the macroExpander subsystem self-contained by handling the expand block expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandBlockExpr operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandBlockExpr(n *blockExpr, env *scope, defs map[string]*macroDef, depth int) (Expr, error) {
 	stmts, curScope, curDefs, err := e.expandStmtSeq(n.stmts, env, defs, seqBlock, depth)
 	if err != nil {
@@ -418,7 +473,11 @@ func (e *macroExpander) expandBlockExpr(n *blockExpr, env *scope, defs map[strin
 	return &blockExpr{stmts: stmts, tail: tail}, nil
 }
 
-// macroCallName performs the macro call name step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// macroCallName handles the macro call name step in the surrounding package
+// and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func macroCallName(expr Expr) (string, bool) {
 	id, ok := expr.(*identExpr)
 	if !ok {
@@ -427,7 +486,12 @@ func macroCallName(expr Expr) (string, bool) {
 	return id.name, true
 }
 
-// expandMacroCallRuntime handles on macroExpander the expand macro call runtime. It keeps the macroExpander subsystem self-contained by handling the expand macro call runtime-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandMacroCallRuntime operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandMacroCallRuntime(def *macroDef, args []Expr, env *scope, defs map[string]*macroDef, depth int) (Expr, error) {
 	templ, err := e.expandMacroCallTemplate(def, args, depth+1)
 	if err != nil {
@@ -436,7 +500,12 @@ func (e *macroExpander) expandMacroCallRuntime(def *macroDef, args []Expr, env *
 	return e.expandExpr(templ, env, defs, depth+1)
 }
 
-// expandMacroCallTemplate handles on macroExpander the expand macro call template. It keeps the macroExpander subsystem self-contained by handling the expand macro call template-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandMacroCallTemplate operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandMacroCallTemplate(def *macroDef, args []Expr, depth int) (Expr, error) {
 	if len(args) != len(def.params) {
 		return nil, fmt.Errorf("macro %s expects %d arguments", def.name, len(def.params))
@@ -448,7 +517,12 @@ func (e *macroExpander) expandMacroCallTemplate(def *macroDef, args []Expr, dept
 	return e.expandTemplateExpr(def.body, def.scope, def.defs, params, args, nil, depth+1)
 }
 
-// expandTemplateExpr handles on macroExpander the expand template expr. It keeps the macroExpander subsystem self-contained by handling the expand template expr-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandTemplateExpr operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[string]*macroDef, params map[string]int, args []Expr, renames map[string]string, depth int) (Expr, error) {
 	if depth > macroExpansionLimit {
 		return nil, fmt.Errorf("macro expansion exceeded %d steps", macroExpansionLimit)
@@ -567,7 +641,12 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 	}
 }
 
-// expandTemplateBlock handles on macroExpander the expand template block. It keeps the macroExpander subsystem self-contained by handling the expand template block-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// expandTemplateBlock operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Expr and an error. Callers should only trust the value when the
+// error is nil.
 func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[string]*macroDef, params map[string]int, args []Expr, renames map[string]string, depth int) (Expr, error) {
 	curScope := env
 	curDefs := cloneMacroDefs(defs)
@@ -678,13 +757,23 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 	return &blockExpr{stmts: out, tail: tail}, nil
 }
 
-// freshenPattern handles on macroExpander the freshen pattern. It keeps the macroExpander subsystem self-contained by handling the freshen pattern-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// freshenPattern operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Pattern, map[string]string so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func (e *macroExpander) freshenPattern(pattern Pattern) (Pattern, map[string]string) {
 	renames := make(map[string]string)
 	return e.freshenPatternInto(pattern, renames), renames
 }
 
-// freshenPatternInto handles on macroExpander the freshen pattern into. It keeps the macroExpander subsystem self-contained by handling the freshen pattern into-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// freshenPatternInto operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns Pattern so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (e *macroExpander) freshenPatternInto(pattern Pattern, renames map[string]string) Pattern {
 	switch p := pattern.(type) {
 	case wildcardPattern:
@@ -709,7 +798,12 @@ func (e *macroExpander) freshenPatternInto(pattern Pattern, renames map[string]s
 	}
 }
 
-// freshName handles on macroExpander the fresh name. It keeps the macroExpander subsystem self-contained by handling the fresh name-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// freshName operates on macroExpander values and keeps the
+// macroexpander-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (e *macroExpander) freshName(base string) string {
 	e.seq++
 	return fmt.Sprintf("__osiris_m%d_%s", e.seq, base)

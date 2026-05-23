@@ -10,7 +10,11 @@ type intervalValue struct {
 	hi *big.Rat
 }
 
-// newIntervalValue performs the new interval value step in the surrounding package and returns *intervalValue.. It returns *intervalValue so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// newIntervalValue handles the new interval value step in the surrounding
+// package and returns *intervalValue.
+//
+// It returns *intervalValue so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func newIntervalValue(lo, hi *big.Rat) *intervalValue {
 	if lo == nil {
 		lo = new(big.Rat)
@@ -27,7 +31,11 @@ func newIntervalValue(lo, hi *big.Rat) *intervalValue {
 	}
 }
 
-// intervalFromValue performs the interval from value step in the surrounding package and returns *intervalValue, error.. It returns *intervalValue and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// intervalFromValue handles the interval from value step in the surrounding
+// package and returns *intervalValue, error.
+//
+// It returns *intervalValue and an error. Callers should only trust the value
+// when the error is nil.
 func intervalFromValue(v Value) (*intervalValue, error) {
 	switch v.kind {
 	case kindInterval:
@@ -90,7 +98,11 @@ func intervalFromValue(v Value) (*intervalValue, error) {
 	}
 }
 
-// intervalValueFromArgs performs the interval value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// intervalValueFromArgs handles the interval value from args step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func intervalValueFromArgs(args []Value) (Value, error) {
 	switch len(args) {
 	case 1:
@@ -114,7 +126,11 @@ func intervalValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
-// intervalBoundFromValue performs the interval bound from value step in the surrounding package and returns *big.Rat, error.. It returns *big.Rat and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// intervalBoundFromValue handles the interval bound from value step in the
+// surrounding package and returns *big.Rat, error.
+//
+// It returns *big.Rat and an error. Callers should only trust the value when
+// the error is nil.
 func intervalBoundFromValue(v Value) (*big.Rat, error) {
 	switch v.kind {
 	case kindInterval:
@@ -170,7 +186,11 @@ func intervalBoundFromValue(v Value) (*big.Rat, error) {
 	}
 }
 
-// intervalBinary performs the interval binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// intervalBinary handles the interval binary step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func intervalBinary(op tokenKind, left, right Value) (Value, error) {
 	l, err := intervalFromValue(left)
 	if err != nil {
@@ -227,7 +247,11 @@ func intervalBinary(op tokenKind, left, right Value) (Value, error) {
 	return nullValue(), fmt.Errorf("unsupported interval operator %s", op)
 }
 
-// intervalMinMax performs the interval min max step in the surrounding package and returns *big.Rat, *big.Rat.. It returns *big.Rat, *big.Rat so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// intervalMinMax handles the interval min max step in the surrounding package
+// and returns *big.Rat, *big.Rat.
+//
+// It returns *big.Rat, *big.Rat so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func intervalMinMax(values []*big.Rat) (*big.Rat, *big.Rat) {
 	if len(values) == 0 {
 		return new(big.Rat), new(big.Rat)
@@ -245,7 +269,11 @@ func intervalMinMax(values []*big.Rat) (*big.Rat, *big.Rat) {
 	return lo, hi
 }
 
-// intervalCompare performs the interval compare step in the surrounding package and returns int, error.. It returns int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// intervalCompare handles the interval compare step in the surrounding package
+// and returns int, error.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func intervalCompare(left, right Value) (int, error) {
 	l, err := intervalFromValue(left)
 	if err != nil {
@@ -267,7 +295,11 @@ func intervalCompare(left, right Value) (int, error) {
 	return 0, fmt.Errorf("ordering is undefined for overlapping intervals")
 }
 
-// formatInterval performs the format interval step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatInterval handles the format interval step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatInterval(iv *intervalValue) string {
 	if iv == nil {
 		return "interval[0, 0]"

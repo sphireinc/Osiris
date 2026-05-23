@@ -6,7 +6,12 @@ import (
 	"testing"
 )
 
-// TestBuildSSA exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBuildSSA exercises the behavior described by its body and locks in the
+// observable language, runtime, or CLI semantics that the surrounding package
+// depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBuildSSA(t *testing.T) {
 	prog, err := Parse("<ssa>", `
 let base = 3
@@ -38,7 +43,12 @@ emit add1(4)
 	}
 }
 
-// TestVerifySSARejectsUnknownValue exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestVerifySSARejectsUnknownValue exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestVerifySSARejectsUnknownValue(t *testing.T) {
 	prog := &IRProgram{
 		SourceName: "<bad>",

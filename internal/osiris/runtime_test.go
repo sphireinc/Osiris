@@ -15,7 +15,12 @@ import (
 	"time"
 )
 
-// TestParseAndPrecedence exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestParseAndPrecedence exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestParseAndPrecedence(t *testing.T) {
 	prog, err := Parse("<test>", `emit 1 + 2 * 3`)
 	if err != nil {
@@ -34,7 +39,12 @@ func TestParseAndPrecedence(t *testing.T) {
 	}
 }
 
-// TestBooleanLiteralsAndLogic exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBooleanLiteralsAndLogic exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBooleanLiteralsAndLogic(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit true
@@ -63,7 +73,12 @@ emit if(true, "yes", "no")
 	}
 }
 
-// TestEmitInsideLoopBody exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestEmitInsideLoopBody exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestEmitInsideLoopBody(t *testing.T) {
 	prog, err := Parse("<test>", `
 let i = 0.0
@@ -91,7 +106,12 @@ while i < 3.0 {
 	}
 }
 
-// TestDecimalLiteralsAndArithmetic exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestDecimalLiteralsAndArithmetic exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestDecimalLiteralsAndArithmetic(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 0.1d + 0.2d == 0.3d
@@ -128,7 +148,12 @@ emit decode(encode(1d / 3d))
 	}
 }
 
-// TestFloatWidthsAndRoundTrip exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestFloatWidthsAndRoundTrip exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestFloatWidthsAndRoundTrip(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 1.5f32
@@ -156,7 +181,12 @@ emit 3.5f64
 	}
 }
 
-// TestBFloatWidthsAndRoundTrip exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBFloatWidthsAndRoundTrip exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBFloatWidthsAndRoundTrip(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 1.5bf32
@@ -184,7 +214,12 @@ emit 3.5bf64
 	}
 }
 
-// TestArrayConstructorsRangeGeneratorsAndStats exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestArrayConstructorsRangeGeneratorsAndStats exercises the behavior
+// described by its body and locks in the observable language, runtime, or CLI
+// semantics that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestArrayConstructorsRangeGeneratorsAndStats(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit shape(zeros(2, 3))
@@ -252,7 +287,12 @@ emit cumprod([2, 3, 4])
 	}
 }
 
-// TestShapeManipulationAndLinearAlgebraSurface exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestShapeManipulationAndLinearAlgebraSurface exercises the behavior
+// described by its body and locks in the observable language, runtime, or CLI
+// semantics that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestShapeManipulationAndLinearAlgebraSurface(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit squeeze(tensor([[1], [2]]))
@@ -324,7 +364,12 @@ emit svd(matrix(2, 2, [3, 0, 0, 2]))
 	}
 }
 
-// TestExactIntegerDivisionAndExponentiation exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestExactIntegerDivisionAndExponentiation exercises the behavior described
+// by its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestExactIntegerDivisionAndExponentiation(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 7 / 25 * 25 == 7
@@ -362,7 +407,12 @@ emit expt(bigint("999999999999"), 279)
 	}
 }
 
-// TestSignedIntegerLiteralsAndArithmetic exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestSignedIntegerLiteralsAndArithmetic exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestSignedIntegerLiteralsAndArithmetic(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 1i16 + 2i16
@@ -393,7 +443,12 @@ emit i32(42)
 	}
 }
 
-// TestComplexLiteralsAndArithmetic exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestComplexLiteralsAndArithmetic exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestComplexLiteralsAndArithmetic(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 5 + 3i
@@ -422,7 +477,12 @@ emit decode(encode(5 + 3i))
 	}
 }
 
-// TestUnsignedIntegerLiteralsAndConstructor exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestUnsignedIntegerLiteralsAndConstructor exercises the behavior described
+// by its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestUnsignedIntegerLiteralsAndConstructor(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 0xffu
@@ -449,7 +509,12 @@ emit decode(encode(uint(9)))
 	}
 }
 
-// TestWideUnsignedIntegers exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestWideUnsignedIntegers exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestWideUnsignedIntegers(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 1u128
@@ -481,7 +546,12 @@ emit decode(encode(1u128 << 100))
 	}
 }
 
-// TestPackedUnsignedFamily exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestPackedUnsignedFamily exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestPackedUnsignedFamily(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 1uf8
@@ -509,7 +579,12 @@ emit decode(encode(1uf1024))
 	}
 }
 
-// TestByteLiteralsAndConstructor exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestByteLiteralsAndConstructor exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestByteLiteralsAndConstructor(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 255b
@@ -536,7 +611,12 @@ emit pack([byte(65), byte(66)])
 	}
 }
 
-// TestNativeBitwiseOperators exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestNativeBitwiseOperators exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestNativeBitwiseOperators(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 7u8 & 3u8
@@ -565,7 +645,12 @@ emit 8u8 >> 1
 	}
 }
 
-// TestStdMathLibrary exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestStdMathLibrary exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestStdMathLibrary(t *testing.T) {
 	prog, err := Parse("<test>", `
 import "std/math" as math
@@ -616,7 +701,12 @@ emit math.u128(5)
 	}
 }
 
-// TestUnitTypesAndDimensionalAnalysis exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestUnitTypesAndDimensionalAnalysis exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestUnitTypesAndDimensionalAnalysis(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 10 * Meter / (2 * Second)
@@ -642,7 +732,12 @@ emit decode(encode(10 * Meter / (2 * Second)))
 	}
 }
 
-// TestUnitTypeMismatchFails exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestUnitTypeMismatchFails exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestUnitTypeMismatchFails(t *testing.T) {
 	prog, err := Parse("<test>", `emit Meter + Second`)
 	if err != nil {
@@ -656,7 +751,12 @@ func TestUnitTypeMismatchFails(t *testing.T) {
 	}
 }
 
-// TestBigNumberFallbacks exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBigNumberFallbacks exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBigNumberFallbacks(t *testing.T) {
 	prog, err := Parse("<test>", `
 import "std/math" as math
@@ -683,7 +783,12 @@ emit decode(encode(math.bigint("9223372036854775808")))
 	}
 }
 
-// TestRationalConstructorExactness exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestRationalConstructorExactness exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestRationalConstructorExactness(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit rational("1/3") + rational("1/6")
@@ -709,7 +814,12 @@ emit decode(encode(rational("1/7")))
 	}
 }
 
-// TestIntervalArithmeticAndEncoding exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestIntervalArithmeticAndEncoding exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestIntervalArithmeticAndEncoding(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit interval(1, 3) + interval(2, 4)
@@ -736,7 +846,12 @@ emit decode(encode(interval(5, 5)))
 	}
 }
 
-// TestModIntArithmeticAndEncoding exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestModIntArithmeticAndEncoding exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestModIntArithmeticAndEncoding(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit modint(17, 5) + modint(17, 14)
@@ -763,7 +878,12 @@ emit decode(encode(modint(17, 5)))
 	}
 }
 
-// TestFixedPointArithmeticAndEncoding exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestFixedPointArithmeticAndEncoding exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestFixedPointArithmeticAndEncoding(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit fixed(32, 16, 1.5d) + fixed(32, 16, 0.25d)
@@ -790,7 +910,12 @@ emit decode(encode(fixed(32, 16, 1.5d)))
 	}
 }
 
-// TestBigIntExactnessAndFallback exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBigIntExactnessAndFallback exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBigIntExactnessAndFallback(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit bigint("9223372036854775808") + 1
@@ -822,7 +947,12 @@ emit decode(encode(bigint("9223372036854775808")))
 	}
 }
 
-// TestTensorSIMDStyleVectorizationAndViews exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTensorSIMDStyleVectorizationAndViews exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTensorSIMDStyleVectorizationAndViews(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit matrix(2, 2, [1, 2, 3, 4]) * 2
@@ -852,7 +982,12 @@ emit clone(view(tensor([1, 2, 3])))
 	}
 }
 
-// TestGPUCompilerArtifact exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestGPUCompilerArtifact exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestGPUCompilerArtifact(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit matmul(matrix(2, 2, [1, 2, 3, 4]), matrix(2, 2, [5, 6, 7, 8]))
@@ -879,7 +1014,12 @@ emit matmul(matrix(2, 2, [1, 2, 3, 4]), matrix(2, 2, [5, 6, 7, 8]))
 	}
 }
 
-// TestConcurrentTaskScheduler exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestConcurrentTaskScheduler exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestConcurrentTaskScheduler(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit [gate(1), gate(2)]
@@ -920,7 +1060,12 @@ emit [gate(1), gate(2)]
 	}
 }
 
-// TestStringPrimitiveIsolation exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestStringPrimitiveIsolation exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestStringPrimitiveIsolation(t *testing.T) {
 	okProg, err := Parse("<test>", `
 emit "osiris"
@@ -953,7 +1098,12 @@ emit len("osiris")
 	}
 }
 
-// TestLanguageSyntaxLoopsAndBlocks exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestLanguageSyntaxLoopsAndBlocks exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestLanguageSyntaxLoopsAndBlocks(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit { let x = 2; let y = 3; x + y }
@@ -989,7 +1139,12 @@ emit sum
 	}
 }
 
-// TestTryCatchErrorHandling exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTryCatchErrorHandling exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTryCatchErrorHandling(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit try { uint("7") } catch err { cat("caught: ", err) }
@@ -1014,7 +1169,12 @@ emit try { let x = 1; x + 1 } catch err { cat("bad: ", err) }
 	}
 }
 
-// TestEmitConcatenatesCommaSeparatedValues exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestEmitConcatenatesCommaSeparatedValues exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestEmitConcatenatesCommaSeparatedValues(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit "Solved:", 42
@@ -1035,7 +1195,12 @@ emit "Solved:", 42
 	}
 }
 
-// TestTensorAndMatrixType exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTensorAndMatrixType exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTensorAndMatrixType(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit shape(tensor([[1, 2], [3, 4]]))
@@ -1073,7 +1238,12 @@ emit hex(tensor([byte(65), byte(66)]))
 	}
 }
 
-// TestTensorBroadcastSemantics exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTensorBroadcastSemantics exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTensorBroadcastSemantics(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit matrix(2, 1, [1, 2]) + matrix(1, 2, [10, 20])
@@ -1101,7 +1271,12 @@ emit matrix(2, 2, [1, 2, 3, 4]) * 2
 	}
 }
 
-// TestTensorShapeValidationAtCompileTime exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTensorShapeValidationAtCompileTime exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTensorShapeValidationAtCompileTime(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit matmul(matrix(3, 4, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), matrix(2, 3, [1, 2, 3, 4, 5, 6]))
@@ -1117,7 +1292,12 @@ emit matmul(matrix(3, 4, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]), matrix(2, 3, 
 	}
 }
 
-// TestLexicalShadowing exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestLexicalShadowing exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestLexicalShadowing(t *testing.T) {
 	prog, err := Parse("<test>", `
 let a = "moon"
@@ -1144,7 +1324,12 @@ emit a
 	}
 }
 
-// TestStructuralMemoization exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestStructuralMemoization exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestStructuralMemoization(t *testing.T) {
 	prog, err := Parse("<test>", `
 let a = probe("x", "y")
@@ -1177,7 +1362,12 @@ emit cat(a, b)
 	}
 }
 
-// TestStdlibImportAndMemberCall exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestStdlibImportAndMemberCall exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestStdlibImportAndMemberCall(t *testing.T) {
 	prog, err := Parse("<test>", `
 import "std/text" as text
@@ -1199,7 +1389,12 @@ emit text.slug("Hello, Weird World")
 	}
 }
 
-// TestSessionPersistsState exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestSessionPersistsState exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestSessionPersistsState(t *testing.T) {
 	rt := NewRuntime()
 	sess := NewSession(rt, context.Background(), "<repl>")
@@ -1220,7 +1415,12 @@ func TestSessionPersistsState(t *testing.T) {
 	}
 }
 
-// TestBlockExpression exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBlockExpression exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBlockExpression(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit { let x = 2; let y = 3; x + y }
@@ -1241,7 +1441,12 @@ emit { let x = 2; let y = 3; x + y }
 	}
 }
 
-// TestHygienicMacroExpansion exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestHygienicMacroExpansion exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestHygienicMacroExpansion(t *testing.T) {
 	prog, err := Parse("<test>", `
 let suffix = "!"
@@ -1274,7 +1479,12 @@ emit shout("go")
 	}
 }
 
-// TestFunctionDeclarationsAndRecursion exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestFunctionDeclarationsAndRecursion exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestFunctionDeclarationsAndRecursion(t *testing.T) {
 	prog, err := Parse("<test>", `
 func fact(n) => if(n == 0, 1, n * fact(n - 1))
@@ -1306,7 +1516,12 @@ emit fact(5)
 	}
 }
 
-// TestLoopsAndFlowControl exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestLoopsAndFlowControl exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestLoopsAndFlowControl(t *testing.T) {
 	prog, err := Parse("<test>", `
 func loopbreak() {
@@ -1354,7 +1569,12 @@ emit loopcontinue([1, 2, 3])
 	}
 }
 
-// TestFormatSource exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestFormatSource exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestFormatSource(t *testing.T) {
 	formatted, err := FormatSource("<test>", `package demo; export alpha, beta; import "std/text" as text; let x=text.slug("Hello, World"); emit text.upper(x); emit "Solved:", 42`)
 	if err != nil {
@@ -1366,7 +1586,12 @@ func TestFormatSource(t *testing.T) {
 	}
 }
 
-// TestFormatMacrosAndBlocks exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestFormatMacrosAndBlocks exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestFormatMacrosAndBlocks(t *testing.T) {
 	formatted, err := FormatSource("<test>", `macro shout(x)=>cat(x,suffix); emit { let x=2; x+1 }`)
 	if err != nil {
@@ -1378,7 +1603,12 @@ func TestFormatMacrosAndBlocks(t *testing.T) {
 	}
 }
 
-// TestModuleExportsAreExplicit exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestModuleExportsAreExplicit exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestModuleExportsAreExplicit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sigil.osr")
@@ -1417,7 +1647,12 @@ export visible
 	}
 }
 
-// TestPackageVersioning exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestPackageVersioning exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestPackageVersioning(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gizmo.osr")
@@ -1468,7 +1703,12 @@ let answer = 42
 	}
 }
 
-// TestBitwiseAndByteHelpers exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBitwiseAndByteHelpers exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBitwiseAndByteHelpers(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit 0xff & 0b1010
@@ -1501,7 +1741,12 @@ emit pack(bytes("Hi"))
 	}
 }
 
-// TestBinaryCodecRoundTrip exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBinaryCodecRoundTrip exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBinaryCodecRoundTrip(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit decode(encode([1, u8(2), "go"]))
@@ -1522,7 +1767,12 @@ emit decode(encode([1, u8(2), "go"]))
 	}
 }
 
-// TestMatchExpression exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestMatchExpression exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestMatchExpression(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit match [1, 2] { [a, b] => a + b; _ => 0 }
@@ -1551,7 +1801,12 @@ emit match 9 { 1 => "nope"; _ => "fallback" }
 	}
 }
 
-// TestSwitchExpression exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestSwitchExpression exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestSwitchExpression(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit switch [1, 2] { [a, b] => a + b; _ => 0 }
@@ -1576,7 +1831,12 @@ emit switch [1, 2] { [a, b] => a + b; _ => 0 }
 	}
 }
 
-// TestVizProgramDOT exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestVizProgramDOT exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestVizProgramDOT(t *testing.T) {
 	prog, err := Parse("<test>", `emit match [1, 2] { [a, b] => a + b; _ => 0 }`)
 	if err != nil {
@@ -1591,7 +1851,12 @@ func TestVizProgramDOT(t *testing.T) {
 	}
 }
 
-// TestVizImportsDOT exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestVizImportsDOT exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestVizImportsDOT(t *testing.T) {
 	dir := t.TempDir()
 	child := filepath.Join(dir, "child.osr")
@@ -1623,7 +1888,12 @@ emit child.value
 	}
 }
 
-// TestDataPipelineBuiltins exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestDataPipelineBuiltins exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestDataPipelineBuiltins(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "payload.txt")
@@ -1667,7 +1937,12 @@ emit jsonparse("{\"x\":1,\"y\":[true,false]}")
 	}
 }
 
-// TestWASMBackendSnapshot exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestWASMBackendSnapshot exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestWASMBackendSnapshot(t *testing.T) {
 	prog, err := Parse("<test>", `
 let seed = "osiris"
@@ -1696,7 +1971,12 @@ emit 7 + 3
 	}
 }
 
-// TestCBackendSnapshot exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestCBackendSnapshot exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestCBackendSnapshot(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit "osiris"
@@ -1717,7 +1997,12 @@ emit 7 + 3
 	}
 }
 
-// TestCBackendObjectAndExecutable exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestCBackendObjectAndExecutable exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestCBackendObjectAndExecutable(t *testing.T) {
 	compiler, err := exec.LookPath("cc")
 	if err != nil {
@@ -1758,7 +2043,12 @@ emit 7 + 3
 	}
 }
 
-// TestBytecodeVMParity exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBytecodeVMParity exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBytecodeVMParity(t *testing.T) {
 	prog, err := Parse("<test>", `
 import "std/text" as text
@@ -1790,7 +2080,12 @@ emit decode(encode([1u8, 2u16, "go"]))
 	}
 }
 
-// TestDeterministicSchedulerOrder exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestDeterministicSchedulerOrder exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestDeterministicSchedulerOrder(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit [tap("a"), tap("b"), tap("c")]
@@ -1841,7 +2136,12 @@ emit [tap("a"), tap("b"), tap("c")]
 	}
 }
 
-// TestModuleRegistryCacheFallback exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestModuleRegistryCacheFallback exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestModuleRegistryCacheFallback(t *testing.T) {
 	dir := t.TempDir()
 	child := filepath.Join(dir, "atom.osr")

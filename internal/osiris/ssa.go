@@ -24,12 +24,22 @@ type SSAFunctionReport struct {
 	FreeRefs      []string
 }
 
-// String handles on SSAProgram the string. It keeps the SSAProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on SSAProgram values and keeps the ssaprogram-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (sp *SSAProgram) String() string {
 	return FormatSSAProgram(sp)
 }
 
-// BuildSSA build on Runtime the ssa. It keeps the Runtime subsystem self-contained by handling the ssa-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// BuildSSA operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *SSAProgram and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) BuildSSA(ctx context.Context, prog *Program) (*SSAProgram, error) {
 	ir, err := rt.BuildIR(ctx, prog)
 	if err != nil {
@@ -38,7 +48,11 @@ func (rt *Runtime) BuildSSA(ctx context.Context, prog *Program) (*SSAProgram, er
 	return VerifySSAProgram(ir)
 }
 
-// VerifySSAProgram performs the verify ssa program step in the surrounding package and returns *SSAProgram, error.. It returns *SSAProgram and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// VerifySSAProgram handles the verify ssaprogram step in the surrounding
+// package and returns *SSAProgram, error.
+//
+// It returns *SSAProgram and an error. Callers should only trust the value
+// when the error is nil.
 func VerifySSAProgram(prog *IRProgram) (*SSAProgram, error) {
 	if prog == nil {
 		return nil, fmt.Errorf("cannot verify nil IR program")
@@ -57,7 +71,12 @@ func VerifySSAProgram(prog *IRProgram) (*SSAProgram, error) {
 	return out, nil
 }
 
-// FormatSSAProgram formats the ssa program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatSSAProgram formats the ssaprogram into a stable textual rendering. The
+// implementation is intentionally deterministic so round-tripping and
+// diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatSSAProgram(prog *SSAProgram) string {
 	if prog == nil {
 		return ""
@@ -127,7 +146,11 @@ func FormatSSAProgram(prog *SSAProgram) string {
 	return b.String()
 }
 
-// verifySSAFunction performs the verify ssa function step in the surrounding package and returns SSAFunctionReport, error.. It returns SSAFunctionReport and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// verifySSAFunction handles the verify ssafunction step in the surrounding
+// package and returns SSAFunctionReport, error.
+//
+// It returns SSAFunctionReport and an error. Callers should only trust the
+// value when the error is nil.
 func verifySSAFunction(fn *IRFunction) (SSAFunctionReport, error) {
 	report := SSAFunctionReport{
 		Name:          fn.Name,
@@ -222,7 +245,10 @@ func verifySSAFunction(fn *IRFunction) (SSAFunctionReport, error) {
 	return report, nil
 }
 
-// verifySSAInstr performs the verify ssa instr step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// verifySSAInstr handles the verify ssainstr step in the surrounding package
+// and returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func verifySSAInstr(fnName, blockName string, instr IRInstr, available map[string]struct{}, defs map[string]struct{}, blockMap map[string]*IRBlock, report *SSAFunctionReport) error {
 	for _, ref := range operandRefsForInstr(instr) {
 		if ref == "" {
@@ -244,7 +270,10 @@ func verifySSAInstr(fnName, blockName string, instr IRInstr, available map[strin
 	return nil
 }
 
-// verifySSATerminator performs the verify ssa terminator step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// verifySSATerminator handles the verify ssaterminator step in the surrounding
+// package and returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func verifySSATerminator(fnName, blockName string, term IRTerminator, available map[string]struct{}, blockMap map[string]*IRBlock, report *SSAFunctionReport) error {
 	switch t := term.(type) {
 	case *irJump:
@@ -311,7 +340,11 @@ func verifySSATerminator(fnName, blockName string, term IRTerminator, available 
 	return nil
 }
 
-// operandRefsForInstr performs the operand refs for instr step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// operandRefsForInstr handles the operand refs for instr step in the
+// surrounding package and returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func operandRefsForInstr(instr IRInstr) []string {
 	switch instr.Op {
 	case "copy", "unary", "binary", "emit", "phi", "list", "makefunc":
@@ -333,7 +366,10 @@ func operandRefsForInstr(instr IRInstr) []string {
 	}
 }
 
-// markSSAName performs the mark ssa name step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// markSSAName handles the mark ssaname step in the surrounding package and
+// returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func markSSAName(defs map[string]struct{}, name, kind, site string) error {
 	if name == "" {
 		return fmt.Errorf("ssa verification: empty %s at %s", kind, site)

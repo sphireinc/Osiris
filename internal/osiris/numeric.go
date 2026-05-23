@@ -12,7 +12,11 @@ import (
 	"strings"
 )
 
-// maskForWidth performs the mask for width step in the surrounding package and returns uint64.. It returns uint64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// maskForWidth handles the mask for width step in the surrounding package and
+// returns uint64.
+//
+// It returns uint64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func maskForWidth(bitsWidth uint8) uint64 {
 	if bitsWidth == 0 || bitsWidth >= 64 {
 		return ^uint64(0)
@@ -20,7 +24,11 @@ func maskForWidth(bitsWidth uint8) uint64 {
 	return (uint64(1) << bitsWidth) - 1
 }
 
-// formatUint performs the format uint step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatUint handles the format uint step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatUint(v uint64, bitsWidth uint8) string {
 	if bitsWidth == 0 || bitsWidth == 64 {
 		return fmt.Sprintf("%du64", v)
@@ -28,7 +36,11 @@ func formatUint(v uint64, bitsWidth uint8) string {
 	return fmt.Sprintf("%du%d", v&maskForWidth(bitsWidth), bitsWidth)
 }
 
-// formatWideUint performs the format wide uint step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatWideUint handles the format wide uint step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatWideUint(v *big.Int, bitsWidth uint16) string {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -39,7 +51,11 @@ func formatWideUint(v *big.Int, bitsWidth uint16) string {
 	return fmt.Sprintf("%su%d", v.String(), bitsWidth)
 }
 
-// formatUintValue performs the format uint value step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatUintValue handles the format uint value step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatUintValue(v Value) string {
 	if v.packed {
 		if v.native {
@@ -59,12 +75,20 @@ func formatUintValue(v Value) string {
 	return formatUint(v.u, v.bits)
 }
 
-// isWideUintValue performs the is wide uint value step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// isWideUintValue handles the is wide uint value step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func isWideUintValue(v Value) bool {
 	return v.kind == kindUint && v.ub != nil
 }
 
-// unsignedMask performs the unsigned mask step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unsignedMask handles the unsigned mask step in the surrounding package and
+// returns *big.Int.
+//
+// It returns *big.Int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unsignedMask(bitsWidth uint16) *big.Int {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -77,12 +101,20 @@ func unsignedMask(bitsWidth uint16) *big.Int {
 	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(bitsWidth)), big.NewInt(1))
 }
 
-// uintValueFromBig performs the uint value from big step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// uintValueFromBig handles the uint value from big step in the surrounding
+// package and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func uintValueFromBig(v *big.Int, bitsWidth uint16) Value {
 	return uintValueFromBigStyle(v, bitsWidth, unsignedStyleFromValues())
 }
 
-// uintValueFromBigStyle performs the uint value from big style step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// uintValueFromBigStyle handles the uint value from big style step in the
+// surrounding package and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func uintValueFromBigStyle(v *big.Int, bitsWidth uint16, style unsignedStyle) Value {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -105,7 +137,11 @@ type unsignedStyle struct {
 	native bool
 }
 
-// unsignedStyleFromValues performs the unsigned style from values step in the surrounding package and returns unsignedStyle.. It returns unsignedStyle so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unsignedStyleFromValues handles the unsigned style from values step in the
+// surrounding package and returns unsignedStyle.
+//
+// It returns unsignedStyle so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unsignedStyleFromValues(values ...Value) unsignedStyle {
 	var style unsignedStyle
 	for _, v := range values {
@@ -123,7 +159,11 @@ func unsignedStyleFromValues(values ...Value) unsignedStyle {
 	return style
 }
 
-// equalUnsignedValues performs the equal unsigned values step in the surrounding package and returns bool, error.. It returns bool and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// equalUnsignedValues handles the equal unsigned values step in the
+// surrounding package and returns bool, error.
+//
+// It returns bool and an error. Callers should only trust the value when the
+// error is nil.
 func equalUnsignedValues(left, right Value) (bool, error) {
 	if left.kind != kindUint || right.kind != kindUint {
 		return false, fmt.Errorf("expected unsigned integers")
@@ -142,7 +182,11 @@ func equalUnsignedValues(left, right Value) (bool, error) {
 	return left.u == right.u && left.bits == right.bits, nil
 }
 
-// compareUnsignedValues performs the compare unsigned values step in the surrounding package and returns int, error.. It returns int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// compareUnsignedValues handles the compare unsigned values step in the
+// surrounding package and returns int, error.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func compareUnsignedValues(left, right Value) (int, error) {
 	lu, _, err := unsignedIntFromValue(left)
 	if err != nil {
@@ -155,7 +199,11 @@ func compareUnsignedValues(left, right Value) (int, error) {
 	return lu.Cmp(ru), nil
 }
 
-// parseNumericLiteral performs the parse numeric literal step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// parseNumericLiteral handles the parse numeric literal step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func parseNumericLiteral(text string) (Value, error) {
 	cleaned := strings.ReplaceAll(text, "_", "")
 	if cleaned == "" {
@@ -177,7 +225,11 @@ func parseNumericLiteral(text string) (Value, error) {
 	return parseScalarNumericLiteral(cleaned)
 }
 
-// parseScalarNumericLiteral performs the parse scalar numeric literal step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// parseScalarNumericLiteral handles the parse scalar numeric literal step in
+// the surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func parseScalarNumericLiteral(cleaned string) (Value, error) {
 	suffixBits, stripped := parseWidthSuffix(cleaned)
 	if baseText, bits, ok := parseSignedSuffix(stripped); ok {
@@ -342,7 +394,11 @@ func parseScalarNumericLiteral(cleaned string) (Value, error) {
 	return uintValue(u, suffixBits), nil
 }
 
-// parseFloatWidthSuffix performs the parse float width suffix step in the surrounding package and returns string, uint16, bool.. It returns string, uint16, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseFloatWidthSuffix handles the parse float width suffix step in the
+// surrounding package and returns string, uint16, bool.
+//
+// It returns string, uint16, bool so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func parseFloatWidthSuffix(text string) (string, uint16, bool) {
 	if len(text) < 3 {
 		return "", 0, false
@@ -360,7 +416,11 @@ func parseFloatWidthSuffix(text string) (string, uint16, bool) {
 	return "", 0, false
 }
 
-// parseBFloatWidthSuffix performs the parse b float width suffix step in the surrounding package and returns string, uint16, bool.. It returns string, uint16, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseBFloatWidthSuffix handles the parse bfloat width suffix step in the
+// surrounding package and returns string, uint16, bool.
+//
+// It returns string, uint16, bool so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func parseBFloatWidthSuffix(text string) (string, uint16, bool) {
 	if len(text) < 4 {
 		return "", 0, false
@@ -378,7 +438,11 @@ func parseBFloatWidthSuffix(text string) (string, uint16, bool) {
 	return "", 0, false
 }
 
-// parseUnsignedSuffix performs the parse unsigned suffix step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseUnsignedSuffix handles the parse unsigned suffix step in the
+// surrounding package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func parseUnsignedSuffix(text string) (string, bool) {
 	if len(text) == 0 {
 		return "", false
@@ -390,7 +454,11 @@ func parseUnsignedSuffix(text string) (string, bool) {
 	return "", false
 }
 
-// parseUnsignedWidthSuffix performs the parse unsigned width suffix step in the surrounding package and returns string, uint16, bool.. It returns string, uint16, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseUnsignedWidthSuffix handles the parse unsigned width suffix step in the
+// surrounding package and returns string, uint16, bool.
+//
+// It returns string, uint16, bool so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func parseUnsignedWidthSuffix(text string) (string, uint16, bool) {
 	for _, width := range []string{"1024", "512", "256", "128", "64", "32", "16", "8"} {
 		suffix := "u" + width
@@ -408,7 +476,12 @@ func parseUnsignedWidthSuffix(text string) (string, uint16, bool) {
 	return "", 0, false
 }
 
-// parsePackedUnsignedWidthSuffix performs the parse packed unsigned width suffix step in the surrounding package and returns string, uint16, bool, bool.. It returns string, uint16, bool, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parsePackedUnsignedWidthSuffix handles the parse packed unsigned width
+// suffix step in the surrounding package and returns string, uint16, bool,
+// bool.
+//
+// It returns string, uint16, bool, bool so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func parsePackedUnsignedWidthSuffix(text string) (string, uint16, bool, bool) {
 	if strings.HasSuffix(text, "ufnum") {
 		return text[:len(text)-len("ufnum")], 64, true, true
@@ -426,7 +499,11 @@ func parsePackedUnsignedWidthSuffix(text string) (string, uint16, bool, bool) {
 	return "", 0, false, false
 }
 
-// parseSignedSuffix performs the parse signed suffix step in the surrounding package and returns string, uint16, bool.. It returns string, uint16, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseSignedSuffix handles the parse signed suffix step in the surrounding
+// package and returns string, uint16, bool.
+//
+// It returns string, uint16, bool so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func parseSignedSuffix(text string) (string, uint16, bool) {
 	if len(text) < 2 {
 		return "", 0, false
@@ -444,7 +521,11 @@ func parseSignedSuffix(text string) (string, uint16, bool) {
 	return "", 0, false
 }
 
-// parseByteSuffix performs the parse byte suffix step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseByteSuffix handles the parse byte suffix step in the surrounding
+// package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func parseByteSuffix(text string) (string, bool) {
 	if len(text) == 0 {
 		return "", false
@@ -456,7 +537,11 @@ func parseByteSuffix(text string) (string, bool) {
 	return "", false
 }
 
-// parseComplexSuffix performs the parse complex suffix step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseComplexSuffix handles the parse complex suffix step in the surrounding
+// package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func parseComplexSuffix(text string) (string, bool) {
 	if len(text) == 0 {
 		return "", false
@@ -468,7 +553,11 @@ func parseComplexSuffix(text string) (string, bool) {
 	return "", false
 }
 
-// parseDecimalSuffix performs the parse decimal suffix step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseDecimalSuffix handles the parse decimal suffix step in the surrounding
+// package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func parseDecimalSuffix(text string) (string, bool) {
 	if len(text) == 0 {
 		return "", false
@@ -480,7 +569,11 @@ func parseDecimalSuffix(text string) (string, bool) {
 	return "", false
 }
 
-// parseWidthSuffix performs the parse width suffix step in the surrounding package and returns uint8, string.. It returns uint8, string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// parseWidthSuffix handles the parse width suffix step in the surrounding
+// package and returns uint8, string.
+//
+// It returns uint8, string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func parseWidthSuffix(text string) (uint8, string) {
 	// Recognize trailing u8/u16/u32/u64 annotations, but leave packed forms
 	// like uf8 alone so the packed parser can handle them.
@@ -500,7 +593,11 @@ func parseWidthSuffix(text string) (uint8, string) {
 	}
 }
 
-// formatInt performs the format int step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatInt handles the format int step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatInt(v *big.Int, bitsWidth uint16) string {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -511,7 +608,11 @@ func formatInt(v *big.Int, bitsWidth uint16) string {
 	return v.String() + "i" + strconv.FormatUint(uint64(bitsWidth), 10)
 }
 
-// wrapSignedWidth performs the wrap signed width step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// wrapSignedWidth handles the wrap signed width step in the surrounding
+// package and returns *big.Int.
+//
+// It returns *big.Int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func wrapSignedWidth(v *big.Int, bitsWidth uint16) *big.Int {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -528,7 +629,11 @@ func wrapSignedWidth(v *big.Int, bitsWidth uint16) *big.Int {
 	return wrapped
 }
 
-// wrapUnsignedWidth performs the wrap unsigned width step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// wrapUnsignedWidth handles the wrap unsigned width step in the surrounding
+// package and returns *big.Int.
+//
+// It returns *big.Int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func wrapUnsignedWidth(v *big.Int, bitsWidth uint16) *big.Int {
 	if bitsWidth == 0 {
 		bitsWidth = 64
@@ -540,7 +645,11 @@ func wrapUnsignedWidth(v *big.Int, bitsWidth uint16) *big.Int {
 	return new(big.Int).Mod(new(big.Int).Set(v), mod)
 }
 
-// signedIntFromValue performs the signed int from value step in the surrounding package and returns *big.Int, uint16, error.. It returns *big.Int, uint16, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// signedIntFromValue handles the signed int from value step in the surrounding
+// package and returns *big.Int, uint16, error.
+//
+// It returns *big.Int, uint16, error so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func signedIntFromValue(v Value) (*big.Int, uint16, error) {
 	switch v.kind {
 	case kindInt:
@@ -603,7 +712,11 @@ func signedIntFromValue(v Value) (*big.Int, uint16, error) {
 	}
 }
 
-// exactUnsignedDivisionValue performs the exact unsigned division value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// exactUnsignedDivisionValue handles the exact unsigned division value step in
+// the surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func exactUnsignedDivisionValue(left, right Value) (Value, error) {
 	lu, lw, err := unsignedIntFromValue(left)
 	if err != nil {
@@ -627,7 +740,11 @@ func exactUnsignedDivisionValue(left, right Value) (Value, error) {
 	return decimalValue(new(big.Rat).SetFrac(lu, ru)), nil
 }
 
-// exactSignedDivisionValue performs the exact signed division value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// exactSignedDivisionValue handles the exact signed division value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func exactSignedDivisionValue(left, right Value) (Value, error) {
 	li, lw, err := signedIntFromValue(left)
 	if err != nil {
@@ -657,7 +774,11 @@ func exactSignedDivisionValue(left, right Value) (Value, error) {
 	return decimalValue(new(big.Rat).SetFrac(li, ri)), nil
 }
 
-// wideUnsignedBinary performs the wide unsigned binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// wideUnsignedBinary handles the wide unsigned binary step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func wideUnsignedBinary(op tokenKind, left, right Value) (Value, error) {
 	lu, lw, err := unsignedIntFromValue(left)
 	if err != nil {
@@ -692,7 +813,11 @@ func wideUnsignedBinary(op tokenKind, left, right Value) (Value, error) {
 	}
 }
 
-// exactPowValue performs the exact pow value step in the surrounding package and returns Value, bool, error.. It returns Value, bool, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// exactPowValue handles the exact pow value step in the surrounding package
+// and returns Value, bool, error.
+//
+// It returns Value, bool, error so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func exactPowValue(base, exponent Value) (Value, bool, error) {
 	if base.kind == kindFixed {
 		ei, err := bigIntFromValue(exponent)
@@ -749,7 +874,11 @@ func exactPowValue(base, exponent Value) (Value, bool, error) {
 	return bigIntValue(out), true, nil
 }
 
-// floatResultBits performs the float result bits step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatResultBits handles the float result bits step in the surrounding
+// package and returns uint16.
+//
+// It returns uint16 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func floatResultBits(left, right Value) uint16 {
 	l := left.fbits
 	r := right.fbits
@@ -768,7 +897,11 @@ func floatResultBits(left, right Value) uint16 {
 	return r
 }
 
-// floatUnaryBits performs the float unary bits step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatUnaryBits handles the float unary bits step in the surrounding package
+// and returns uint16.
+//
+// It returns uint16 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func floatUnaryBits(v Value) uint16 {
 	if v.fbits == 0 {
 		return 0
@@ -776,12 +909,20 @@ func floatUnaryBits(v Value) uint16 {
 	return v.fbits
 }
 
-// floatUnaryBFloat performs the float unary b float step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatUnaryBFloat handles the float unary bfloat step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func floatUnaryBFloat(v Value) bool {
 	return v.bfloat
 }
 
-// floatValueStyled performs the float value styled step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatValueStyled handles the float value styled step in the surrounding
+// package and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func floatValueStyled(n float64, bits uint16, bfloat bool) Value {
 	if bfloat {
 		return bfloatValue(n, bits)
@@ -789,7 +930,11 @@ func floatValueStyled(n float64, bits uint16, bfloat bool) Value {
 	return floatValue(n, bits)
 }
 
-// floatResultBitsMany performs the float result bits many step in the surrounding package and returns uint16.. It returns uint16 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatResultBitsMany handles the float result bits many step in the
+// surrounding package and returns uint16.
+//
+// It returns uint16 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func floatResultBitsMany(values ...Value) uint16 {
 	var bits uint16
 	var sawExplicit bool
@@ -813,7 +958,11 @@ func floatResultBitsMany(values ...Value) uint16 {
 	return bits
 }
 
-// floatResultBFloat performs the float result b float step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatResultBFloat handles the float result bfloat step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func floatResultBFloat(values ...Value) bool {
 	for _, v := range values {
 		if v.bfloat {
@@ -823,7 +972,11 @@ func floatResultBFloat(values ...Value) bool {
 	return false
 }
 
-// floatResultValue performs the float result value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// floatResultValue handles the float result value step in the surrounding
+// package and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func floatResultValue(n float64, values ...Value) Value {
 	if floatResultBFloat(values...) {
 		return bfloatValue(n, floatResultBitsMany(values...))
@@ -831,7 +984,11 @@ func floatResultValue(n float64, values ...Value) Value {
 	return floatValue(n, floatResultBitsMany(values...))
 }
 
-// parseDecimalText performs the parse decimal text step in the surrounding package and returns *big.Rat, error.. It returns *big.Rat and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// parseDecimalText handles the parse decimal text step in the surrounding
+// package and returns *big.Rat, error.
+//
+// It returns *big.Rat and an error. Callers should only trust the value when
+// the error is nil.
 func parseDecimalText(text string) (*big.Rat, error) {
 	if text == "" {
 		return nil, fmt.Errorf("invalid decimal literal")
@@ -897,7 +1054,11 @@ func parseDecimalText(text string) (*big.Rat, error) {
 	return new(big.Rat).SetFrac(coeff, den), nil
 }
 
-// pow10Big performs the pow10 big step in the surrounding package and returns *big.Int.. It returns *big.Int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// pow10Big handles the pow10 big step in the surrounding package and returns
+// *big.Int.
+//
+// It returns *big.Int so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func pow10Big(n int) *big.Int {
 	if n <= 0 {
 		return big.NewInt(1)
@@ -905,7 +1066,11 @@ func pow10Big(n int) *big.Int {
 	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)
 }
 
-// complexFromValue performs the complex from value step in the surrounding package and returns complex128, error.. It returns complex128 and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// complexFromValue handles the complex from value step in the surrounding
+// package and returns complex128, error.
+//
+// It returns complex128 and an error. Callers should only trust the value when
+// the error is nil.
 func complexFromValue(v Value) (complex128, error) {
 	switch v.kind {
 	case kindComplex:
@@ -935,7 +1100,11 @@ func complexFromValue(v Value) (complex128, error) {
 	}
 }
 
-// complexValueFromArgs performs the complex value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// complexValueFromArgs handles the complex value from args step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func complexValueFromArgs(args []Value) (Value, error) {
 	switch len(args) {
 	case 1:
@@ -959,7 +1128,11 @@ func complexValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
-// realValue performs the real value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// realValue handles the real value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func realValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("real expects 1 argument")
@@ -971,7 +1144,11 @@ func realValue(args []Value) (Value, error) {
 	return numberValue(real(c)), nil
 }
 
-// imagValue performs the imag value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// imagValue handles the imag value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func imagValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("imag expects 1 argument")
@@ -983,7 +1160,11 @@ func imagValue(args []Value) (Value, error) {
 	return numberValue(imag(c)), nil
 }
 
-// magnitudeValue performs the magnitude value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// magnitudeValue handles the magnitude value step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func magnitudeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("magnitude expects 1 argument")
@@ -1043,7 +1224,11 @@ func magnitudeValue(args []Value) (Value, error) {
 	return floatResultValue(cmplx.Abs(c), args[0]), nil
 }
 
-// complexBinary performs the complex binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// complexBinary handles the complex binary step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func complexBinary(op tokenKind, left, right Value) (Value, error) {
 	lc, err := complexFromValue(left)
 	if err != nil {
@@ -1070,7 +1255,11 @@ func complexBinary(op tokenKind, left, right Value) (Value, error) {
 	}
 }
 
-// isFloatLiteral performs the is float literal step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// isFloatLiteral handles the is float literal step in the surrounding package
+// and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func isFloatLiteral(text string) bool {
 	if strings.ContainsAny(text, ".eE") {
 		return true
@@ -1081,7 +1270,11 @@ func isFloatLiteral(text string) bool {
 	return false
 }
 
-// uintFromValue performs the uint from value step in the surrounding package and returns uint64, uint8, error.. It returns uint64, uint8, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// uintFromValue handles the uint from value step in the surrounding package
+// and returns uint64, uint8, error.
+//
+// It returns uint64, uint8, error so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func uintFromValue(v Value) (uint64, uint8, error) {
 	switch v.kind {
 	case kindUint:
@@ -1134,7 +1327,12 @@ func uintFromValue(v Value) (uint64, uint8, error) {
 	}
 }
 
-// ubitsToUint16 handles on Value the ubits to uint16. It keeps the Value subsystem self-contained by handling the ubits to uint16-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// ubitsToUint16 operates on Value values and keeps the value-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns uint16 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (v Value) ubitsToUint16() uint16 {
 	if v.kind != kindUint {
 		return 64
@@ -1148,7 +1346,11 @@ func (v Value) ubitsToUint16() uint16 {
 	return 64
 }
 
-// unsignedIntFromValue performs the unsigned int from value step in the surrounding package and returns *big.Int, uint16, error.. It returns *big.Int, uint16, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unsignedIntFromValue handles the unsigned int from value step in the
+// surrounding package and returns *big.Int, uint16, error.
+//
+// It returns *big.Int, uint16, error so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func unsignedIntFromValue(v Value) (*big.Int, uint16, error) {
 	switch v.kind {
 	case kindUint:
@@ -1217,7 +1419,12 @@ func unsignedIntFromValue(v Value) (*big.Int, uint16, error) {
 	}
 }
 
-// ibitsToUint8 handles on Value the ibits to uint8. It keeps the Value subsystem self-contained by handling the ibits to uint8-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// ibitsToUint8 operates on Value values and keeps the value-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns uint8 so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (v Value) ibitsToUint8() uint8 {
 	if v.kind != kindInt || v.ibits == 0 || v.ibits > 64 {
 		return 64
@@ -1225,7 +1432,11 @@ func (v Value) ibitsToUint8() uint8 {
 	return uint8(v.ibits)
 }
 
-// uintUnary performs the uint unary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// uintUnary handles the uint unary step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func uintUnary(v Value, fn func(uint64, uint8) uint64) (Value, error) {
 	u, bitsWidth, err := uintFromValue(v)
 	if err != nil {
@@ -1237,7 +1448,11 @@ func uintUnary(v Value, fn func(uint64, uint8) uint64) (Value, error) {
 	return uintValue(fn(u, bitsWidth), bitsWidth), nil
 }
 
-// uintBinary performs the uint binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// uintBinary handles the uint binary step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func uintBinary(a, b Value, fn func(uint64, uint64) uint64) (Value, error) {
 	ua, wa, err := uintFromValue(a)
 	if err != nil {
@@ -1261,7 +1476,11 @@ func uintBinary(a, b Value, fn func(uint64, uint64) uint64) (Value, error) {
 	return uintValue(fn(ua, ub), width), nil
 }
 
-// evalBitwiseUnary performs the eval bitwise unary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalBitwiseUnary handles the eval bitwise unary step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalBitwiseUnary(v Value) (Value, error) {
 	if v.kind == kindInt {
 		i, width, err := signedIntFromValue(v)
@@ -1291,7 +1510,11 @@ func evalBitwiseUnary(v Value) (Value, error) {
 	return uintValue(^u, bitsWidth), nil
 }
 
-// evalBitwiseBinary performs the eval bitwise binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// evalBitwiseBinary handles the eval bitwise binary step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func evalBitwiseBinary(op tokenKind, left, right Value) (Value, error) {
 	if left.kind == kindInt || right.kind == kindInt {
 		li, lw, err := signedIntFromValue(left)
@@ -1425,7 +1648,11 @@ func evalBitwiseBinary(op tokenKind, left, right Value) (Value, error) {
 	}
 }
 
-// unsignedShiftAmount performs the unsigned shift amount step in the surrounding package and returns uint, error.. It returns uint and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// unsignedShiftAmount handles the unsigned shift amount step in the
+// surrounding package and returns uint, error.
+//
+// It returns uint and an error. Callers should only trust the value when the
+// error is nil.
 func unsignedShiftAmount(v Value) (uint, error) {
 	u, _, err := unsignedIntFromValue(v)
 	if err != nil {
@@ -1437,7 +1664,11 @@ func unsignedShiftAmount(v Value) (uint, error) {
 	return uint(u.Uint64()), nil
 }
 
-// rotlValue performs the rotl value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// rotlValue handles the rotl value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func rotlValue(left, right Value) (Value, error) {
 	u, width, err := unsignedIntFromValue(left)
 	if err != nil {
@@ -1471,7 +1702,11 @@ func rotlValue(left, right Value) (Value, error) {
 	return uintValueFromBigStyle(new(big.Int).And(new(big.Int).Or(leftPart, rightPart), mask), width, unsignedStyleFromValues(left, right)), nil
 }
 
-// rotrValue performs the rotr value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// rotrValue handles the rotr value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func rotrValue(left, right Value) (Value, error) {
 	u, width, err := unsignedIntFromValue(left)
 	if err != nil {
@@ -1505,7 +1740,10 @@ func rotrValue(left, right Value) (Value, error) {
 	return uintValueFromBigStyle(new(big.Int).And(new(big.Int).Or(leftPart, rightPart), mask), width, unsignedStyleFromValues(left, right)), nil
 }
 
-// rotl performs the rotl step in the surrounding package and returns uint64.. It returns uint64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// rotl handles the rotl step in the surrounding package and returns uint64.
+//
+// It returns uint64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func rotl(u uint64, bitsWidth uint8, n uint64) uint64 {
 	if bitsWidth == 0 || bitsWidth >= 64 {
 		return bits.RotateLeft64(u, int(n))
@@ -1517,7 +1755,10 @@ func rotl(u uint64, bitsWidth uint8, n uint64) uint64 {
 	return ((u << shift) | (u >> (bw - shift))) & mask
 }
 
-// rotr performs the rotr step in the surrounding package and returns uint64.. It returns uint64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// rotr handles the rotr step in the surrounding package and returns uint64.
+//
+// It returns uint64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func rotr(u uint64, bitsWidth uint8, n uint64) uint64 {
 	if bitsWidth == 0 || bitsWidth >= 64 {
 		return bits.RotateLeft64(u, -int(n))
@@ -1529,7 +1770,11 @@ func rotr(u uint64, bitsWidth uint8, n uint64) uint64 {
 	return ((u >> shift) | (u << (bw - shift))) & mask
 }
 
-// packBytes performs the pack bytes step in the surrounding package and returns []byte, error.. It returns []byte and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// packBytes handles the pack bytes step in the surrounding package and returns
+// []byte, error.
+//
+// It returns []byte and an error. Callers should only trust the value when the
+// error is nil.
 func packBytes(values []Value) ([]byte, error) {
 	out := make([]byte, len(values))
 	for i, v := range values {
@@ -1542,7 +1787,11 @@ func packBytes(values []Value) ([]byte, error) {
 	return out, nil
 }
 
-// unpackBytes performs the unpack bytes step in the surrounding package and returns []Value.. It returns []Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unpackBytes handles the unpack bytes step in the surrounding package and
+// returns []Value.
+//
+// It returns []Value so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unpackBytes(data []byte) []Value {
 	out := make([]Value, len(data))
 	for i, b := range data {
@@ -1551,12 +1800,20 @@ func unpackBytes(data []byte) []Value {
 	return out
 }
 
-// hexBytes performs the hex bytes step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// hexBytes handles the hex bytes step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func hexBytes(data []byte) string {
 	return hex.EncodeToString(data)
 }
 
-// binBytes performs the bin bytes step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// binBytes handles the bin bytes step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func binBytes(data []byte) string {
 	var b strings.Builder
 	for _, by := range data {
@@ -1565,12 +1822,20 @@ func binBytes(data []byte) string {
 	return b.String()
 }
 
-// castWidthValue performs the cast width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castWidthValue handles the cast width value step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castWidthValue(args []Value, width uint8) (Value, error) {
 	return castUnsignedWidthValue(args, uint16(width))
 }
 
-// castUnsignedWidthValue performs the cast unsigned width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castUnsignedWidthValue handles the cast unsigned width value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castUnsignedWidthValue(args []Value, width uint16) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -1582,7 +1847,11 @@ func castUnsignedWidthValue(args []Value, width uint16) (Value, error) {
 	return uintValueFromBig(u, width), nil
 }
 
-// castPackedUnsignedWidthValue performs the cast packed unsigned width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castPackedUnsignedWidthValue handles the cast packed unsigned width value
+// step in the surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castPackedUnsignedWidthValue(args []Value, width uint16, native bool) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -1594,7 +1863,11 @@ func castPackedUnsignedWidthValue(args []Value, width uint16, native bool) (Valu
 	return uintValueFromBigStyle(u, width, unsignedStyle{packed: true, native: native}), nil
 }
 
-// castFloatWidthValue performs the cast float width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castFloatWidthValue handles the cast float width value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castFloatWidthValue(args []Value, width uint16) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -1606,7 +1879,11 @@ func castFloatWidthValue(args []Value, width uint16) (Value, error) {
 	return floatValueStyled(n, width, false), nil
 }
 
-// castBFloatWidthValue performs the cast b float width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castBFloatWidthValue handles the cast bfloat width value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castBFloatWidthValue(args []Value, width uint16) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -1618,7 +1895,11 @@ func castBFloatWidthValue(args []Value, width uint16) (Value, error) {
 	return bfloatValue(n, width), nil
 }
 
-// castSignedWidthValue performs the cast signed width value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// castSignedWidthValue handles the cast signed width value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func castSignedWidthValue(args []Value, width uint16) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("expected 1 argument")
@@ -1630,7 +1911,11 @@ func castSignedWidthValue(args []Value, width uint16) (Value, error) {
 	return intValue(i, width), nil
 }
 
-// bytesFromValue performs the bytes from value step in the surrounding package and returns []byte, error.. It returns []byte and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// bytesFromValue handles the bytes from value step in the surrounding package
+// and returns []byte, error.
+//
+// It returns []byte and an error. Callers should only trust the value when the
+// error is nil.
 func bytesFromValue(v Value) ([]byte, error) {
 	switch v.kind {
 	case kindString:
@@ -1671,14 +1956,22 @@ func bytesFromValue(v Value) ([]byte, error) {
 	}
 }
 
-// u64Bytes performs the u64 bytes step in the surrounding package and returns []byte.. It returns []byte so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// u64Bytes handles the u64 bytes step in the surrounding package and returns
+// []byte.
+//
+// It returns []byte so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func u64Bytes(v uint64) []byte {
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], v)
 	return buf[:]
 }
 
-// hexValue performs the hex value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// hexValue handles the hex value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func hexValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("hex expects 1 argument")
@@ -1690,7 +1983,11 @@ func hexValue(args []Value) (Value, error) {
 	return stringValue(hexBytes(b)), nil
 }
 
-// binValue performs the bin value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// binValue handles the bin value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func binValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("bin expects 1 argument")
@@ -1702,7 +1999,11 @@ func binValue(args []Value) (Value, error) {
 	return stringValue(binBytes(b)), nil
 }
 
-// bytesValue performs the bytes value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// bytesValue handles the bytes value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func bytesValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("bytes expects 1 argument")
@@ -1733,7 +2034,11 @@ func bytesValue(args []Value) (Value, error) {
 	}
 }
 
-// packValue performs the pack value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// packValue handles the pack value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func packValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("pack expects 1 argument")
@@ -1749,7 +2054,11 @@ func packValue(args []Value) (Value, error) {
 	return stringValue(string(b)), nil
 }
 
-// unpackValue performs the unpack value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// unpackValue handles the unpack value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func unpackValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("unpack expects 1 argument")
@@ -1761,7 +2070,11 @@ func unpackValue(args []Value) (Value, error) {
 	return listValue(unpackBytes([]byte(s))), nil
 }
 
-// atValue performs the at value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// atValue handles the at value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func atValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("at expects 2 arguments")
@@ -1795,7 +2108,11 @@ func atValue(args []Value) (Value, error) {
 	}
 }
 
-// setAtValue performs the set at value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// setAtValue handles the set at value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func setAtValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("setat expects 3 arguments")
@@ -1839,7 +2156,11 @@ func setAtValue(args []Value) (Value, error) {
 	}
 }
 
-// decimalFromValue performs the decimal from value step in the surrounding package and returns *big.Rat, error.. It returns *big.Rat and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// decimalFromValue handles the decimal from value step in the surrounding
+// package and returns *big.Rat, error.
+//
+// It returns *big.Rat and an error. Callers should only trust the value when
+// the error is nil.
 func decimalFromValue(v Value) (*big.Rat, error) {
 	switch v.kind {
 	case kindDecimal:
@@ -1884,7 +2205,11 @@ func decimalFromValue(v Value) (*big.Rat, error) {
 	}
 }
 
-// decimalValueFromString performs the decimal value from string step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// decimalValueFromString handles the decimal value from string step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func decimalValueFromString(text string) (Value, error) {
 	rat, err := parseDecimalText(strings.TrimSpace(strings.TrimSuffix(text, "d")))
 	if err != nil {
@@ -1893,7 +2218,11 @@ func decimalValueFromString(text string) (Value, error) {
 	return decimalValue(rat), nil
 }
 
-// decimalBinary performs the decimal binary step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// decimalBinary handles the decimal binary step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func decimalBinary(op tokenKind, left, right Value) (Value, error) {
 	ln, err := decimalFromValue(left)
 	if err != nil {
@@ -1920,7 +2249,11 @@ func decimalBinary(op tokenKind, left, right Value) (Value, error) {
 	}
 }
 
-// decimalCompare performs the decimal compare step in the surrounding package and returns int, error.. It returns int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// decimalCompare handles the decimal compare step in the surrounding package
+// and returns int, error.
+//
+// It returns int and an error. Callers should only trust the value when the
+// error is nil.
 func decimalCompare(left, right Value) (int, error) {
 	ln, err := decimalFromValue(left)
 	if err != nil {
@@ -1933,7 +2266,11 @@ func decimalCompare(left, right Value) (int, error) {
 	return ln.Cmp(rn), nil
 }
 
-// formatDecimal performs the format decimal step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatDecimal handles the format decimal step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatDecimal(r *big.Rat) string {
 	if r == nil {
 		return "0d"

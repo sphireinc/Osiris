@@ -11,7 +11,11 @@ import (
 	"strings"
 )
 
-// readValue performs the read value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// readValue handles the read value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func readValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("read expects 1 argument")
@@ -27,7 +31,11 @@ func readValue(args []Value) (Value, error) {
 	return stringValue(string(data)), nil
 }
 
-// readBytesValue performs the read bytes value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// readBytesValue handles the read bytes value step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func readBytesValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("readbytes expects 1 argument")
@@ -47,7 +55,11 @@ func readBytesValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
-// writeValue performs the write value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// writeValue handles the write value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func writeValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("write expects 2 arguments")
@@ -66,7 +78,11 @@ func writeValue(args []Value) (Value, error) {
 	return boolValue(true), nil
 }
 
-// linesValue performs the lines value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// linesValue handles the lines value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func linesValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("lines expects 1 argument")
@@ -88,7 +104,11 @@ func linesValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
-// csvValue performs the csv value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// csvValue handles the csv value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func csvValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("csv expects 1 argument")
@@ -113,7 +133,11 @@ func csvValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
-// jsonParseValue performs the json parse value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// jsonParseValue handles the json parse value step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func jsonParseValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("jsonparse expects 1 argument")
@@ -131,7 +155,11 @@ func jsonParseValue(args []Value) (Value, error) {
 	return jsonToValue(raw)
 }
 
-// jsonToValue performs the json to value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// jsonToValue handles the json to value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func jsonToValue(raw any) (Value, error) {
 	switch v := raw.(type) {
 	case nil:
@@ -174,7 +202,11 @@ func jsonToValue(raw any) (Value, error) {
 	}
 }
 
-// jsonNumberValue performs the json number value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// jsonNumberValue handles the json number value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func jsonNumberValue(n json.Number) (Value, error) {
 	text := n.String()
 	if strings.ContainsAny(text, ".eE") {

@@ -43,12 +43,22 @@ type AliasFunction struct {
 	Escapes         []string
 }
 
-// String handles on AliasProgram the string. It keeps the AliasProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on AliasProgram values and keeps the aliasprogram-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (p *AliasProgram) String() string {
 	return FormatAliasProgram(p)
 }
 
-// AnalyzeAlias analyze on Runtime the alias. It keeps the Runtime subsystem self-contained by handling the alias-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// AnalyzeAlias operates on Runtime values and keeps the runtime-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *AliasProgram and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) AnalyzeAlias(ctx context.Context, prog *Program) (*AliasProgram, error) {
 	_ = ctx
 	if prog == nil {
@@ -57,7 +67,12 @@ func (rt *Runtime) AnalyzeAlias(ctx context.Context, prog *Program) (*AliasProgr
 	return analyzeAliasProgram(prog), nil
 }
 
-// FormatAliasProgram formats the alias program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatAliasProgram formats the alias program into a stable textual
+// rendering. The implementation is intentionally deterministic so
+// round-tripping and diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatAliasProgram(prog *AliasProgram) string {
 	if prog == nil {
 		return ""
@@ -222,7 +237,11 @@ type aliasInfo struct {
 	builtin  string
 }
 
-// analyzeAliasProgram performs the analyze alias program step in the surrounding package and returns *AliasProgram.. It returns *AliasProgram so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzeAliasProgram handles the analyze alias program step in the
+// surrounding package and returns *AliasProgram.
+//
+// It returns *AliasProgram so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzeAliasProgram(prog *Program) *AliasProgram {
 	out := &AliasProgram{Program: prog}
 	root := &aliasScope{
@@ -247,7 +266,11 @@ func analyzeAliasProgram(prog *Program) *AliasProgram {
 	return out
 }
 
-// aliasSeq performs the alias seq step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasSeq handles the alias seq step in the surrounding package and returns
+// aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasSeq(stmts []Stmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 	var last aliasInfo
 	for _, stmt := range stmts {
@@ -256,7 +279,11 @@ func aliasSeq(stmts []Stmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 	return last
 }
 
-// aliasStmt performs the alias stmt step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasStmt handles the alias stmt step in the surrounding package and returns
+// aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasStmt(stmt Stmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -293,7 +320,11 @@ func aliasStmt(stmt Stmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 	}
 }
 
-// aliasFunctionStmt performs the alias function stmt step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasFunctionStmt handles the alias function stmt step in the surrounding
+// package and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasFunctionStmt(st funcStmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 	fnState := &aliasFunctionState{
 		report: &AliasFunction{
@@ -337,7 +368,12 @@ func aliasFunctionStmt(st funcStmt, scope *aliasScope, out *AliasProgram) aliasI
 	return fnInfo
 }
 
-// classifyResult handles on aliasFunctionState the classify result. It keeps the aliasFunctionState subsystem self-contained by handling the classify result-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// classifyResult operates on aliasFunctionState values and keeps the
+// aliasfunctionstate-specific behavior attached to the receiver so callers can
+// use the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (fn *aliasFunctionState) classifyResult(info aliasInfo) {
 	if info.class == nil {
 		fn.resultMode = "unknown"
@@ -360,7 +396,12 @@ func (fn *aliasFunctionState) classifyResult(info aliasInfo) {
 	fn.resultMode = "unknown"
 }
 
-// formatResult handles on aliasFunctionState the format result. It keeps the aliasFunctionState subsystem self-contained by handling the format result-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// formatResult operates on aliasFunctionState values and keeps the
+// aliasfunctionstate-specific behavior attached to the receiver so callers can
+// use the method as the natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (fn *aliasFunctionState) formatResult() string {
 	switch fn.resultMode {
 	case "param":
@@ -377,7 +418,12 @@ func (fn *aliasFunctionState) formatResult() string {
 	}
 }
 
-// childForBlock handles on aliasScope the child for block. It keeps the aliasScope subsystem self-contained by handling the child for block-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// childForBlock operates on aliasScope values and keeps the
+// aliasscope-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns *aliasScope so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *aliasScope) childForBlock() *aliasScope {
 	label := fmt.Sprintf("%s.b%d", s.name, s.blockSeq)
 	s.blockSeq++
@@ -390,14 +436,24 @@ func (s *aliasScope) childForBlock() *aliasScope {
 	}
 }
 
-// childForLoop handles on aliasScope the child for loop. It keeps the aliasScope subsystem self-contained by handling the child for loop-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// childForLoop operates on aliasScope values and keeps the aliasscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *aliasScope so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *aliasScope) childForLoop() *aliasScope {
 	child := s.childForBlock()
 	child.report = false
 	return child
 }
 
-// bindLocal handles on aliasScope the bind local. It keeps the aliasScope subsystem self-contained by handling the bind local-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// bindLocal operates on aliasScope values and keeps the aliasscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *aliasBindingState so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func (s *aliasScope) bindLocal(name string, info aliasInfo, out *AliasProgram, report bool) *aliasBindingState {
 	fullName := s.fullName(name)
 	if info.class != nil {
@@ -438,7 +494,12 @@ func (s *aliasScope) bindLocal(name string, info aliasInfo, out *AliasProgram, r
 	return state
 }
 
-// fullName handles on aliasScope the full name. It keeps the aliasScope subsystem self-contained by handling the full name-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// fullName operates on aliasScope values and keeps the aliasscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *aliasScope) fullName(name string) string {
 	if s == nil || s.name == "" {
 		return name
@@ -446,7 +507,12 @@ func (s *aliasScope) fullName(name string) string {
 	return s.name + "." + name
 }
 
-// lookup handles on aliasScope the lookup. It keeps the aliasScope subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on aliasScope values and keeps the aliasscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *aliasBindingState, bool so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func (s *aliasScope) lookup(name string) (*aliasBindingState, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -477,7 +543,12 @@ func (s *aliasScope) lookup(name string) (*aliasBindingState, bool) {
 	return nil, false
 }
 
-// lookupLocal handles on aliasScope the lookup local. It keeps the aliasScope subsystem self-contained by handling the lookup local-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookupLocal operates on aliasScope values and keeps the aliasscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *aliasBindingState, bool so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func (s *aliasScope) lookupLocal(name string) (*aliasBindingState, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -490,7 +561,11 @@ func (s *aliasScope) lookupLocal(name string) (*aliasBindingState, bool) {
 	return nil, false
 }
 
-// aliasExpr performs the alias expr step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasExpr handles the alias expr step in the surrounding package and returns
+// aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasExpr(expr Expr, scope *aliasScope, out *AliasProgram) aliasInfo {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -608,7 +683,11 @@ func aliasExpr(expr Expr, scope *aliasScope, out *AliasProgram) aliasInfo {
 	}
 }
 
-// aliasBlockExpr performs the alias block expr step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasBlockExpr handles the alias block expr step in the surrounding package
+// and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasBlockExpr(expr *blockExpr, scope *aliasScope, out *AliasProgram) aliasInfo {
 	cur := scope
 	for _, stmt := range expr.stmts {
@@ -644,7 +723,11 @@ func aliasBlockExpr(expr *blockExpr, scope *aliasScope, out *AliasProgram) alias
 	return aliasExpr(expr.tail, cur, out)
 }
 
-// aliasExprs performs the alias exprs step in the surrounding package and returns []aliasInfo.. It returns []aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasExprs handles the alias exprs step in the surrounding package and
+// returns []aliasInfo.
+//
+// It returns []aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasExprs(exprs []Expr, scope *aliasScope, out *AliasProgram) []aliasInfo {
 	if len(exprs) == 0 {
 		return nil
@@ -656,7 +739,11 @@ func aliasExprs(exprs []Expr, scope *aliasScope, out *AliasProgram) []aliasInfo 
 	return outInfos
 }
 
-// bindPatternAliases performs the bind pattern aliases step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// bindPatternAliases handles the bind pattern aliases step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func bindPatternAliases(pattern Pattern, subject aliasInfo, scope *aliasScope, out *AliasProgram) {
 	switch p := pattern.(type) {
 	case wildcardPattern, literalPattern:
@@ -670,7 +757,11 @@ func bindPatternAliases(pattern Pattern, subject aliasInfo, scope *aliasScope, o
 	}
 }
 
-// callFunctionAlias performs the call function alias step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// callFunctionAlias handles the call function alias step in the surrounding
+// package and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func callFunctionAlias(fn *aliasFunctionState, args []aliasInfo) aliasInfo {
 	if fn == nil {
 		return unknownAliasInfo("value")
@@ -701,7 +792,11 @@ func callFunctionAlias(fn *aliasFunctionState, args []aliasInfo) aliasInfo {
 	}
 }
 
-// aliasBuiltinCall performs the alias builtin call step in the surrounding package and returns aliasInfo, bool.. It returns aliasInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasBuiltinCall handles the alias builtin call step in the surrounding
+// package and returns aliasInfo, bool.
+//
+// It returns aliasInfo, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *AliasProgram) (aliasInfo, bool) {
 	switch name {
 	case "view":
@@ -765,7 +860,11 @@ func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *Ali
 	}
 }
 
-// aliasBuiltinValueInfo performs the alias builtin value info step in the surrounding package and returns aliasInfo, bool.. It returns aliasInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasBuiltinValueInfo handles the alias builtin value info step in the
+// surrounding package and returns aliasInfo, bool.
+//
+// It returns aliasInfo, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func aliasBuiltinValueInfo(name string) (aliasInfo, bool) {
 	switch name {
 	case "true", "false", "null":
@@ -784,7 +883,11 @@ func aliasBuiltinValueInfo(name string) (aliasInfo, bool) {
 	return unknownAliasInfo("value"), false
 }
 
-// aliasInfoFromValue performs the alias info from value step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasInfoFromValue handles the alias info from value step in the surrounding
+// package and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasInfoFromValue(v Value, origin string) aliasInfo {
 	switch v.kind {
 	case kindFunction:
@@ -804,7 +907,11 @@ func aliasInfoFromValue(v Value, origin string) aliasInfo {
 	}
 }
 
-// literalOrigin performs the literal origin step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// literalOrigin handles the literal origin step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func literalOrigin(v Value) string {
 	switch v.kind {
 	case kindString:
@@ -824,12 +931,20 @@ func literalOrigin(v Value) string {
 	}
 }
 
-// opOrigin performs the op origin step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// opOrigin handles the op origin step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func opOrigin(op tokenKind, origin string) string {
 	return fmt.Sprintf("%s(%s)", op.String(), origin)
 }
 
-// binaryOrigin performs the binary origin step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// binaryOrigin handles the binary origin step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func binaryOrigin(op tokenKind, left, right string) string {
 	if left == "" {
 		left = "?"
@@ -840,7 +955,11 @@ func binaryOrigin(op tokenKind, left, right string) string {
 	return fmt.Sprintf("%s(%s,%s)", op.String(), left, right)
 }
 
-// aliasScalarKind performs the alias scalar kind step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// aliasScalarKind handles the alias scalar kind step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func aliasScalarKind(kind string) string {
 	if kind == "" {
 		return "scalar"
@@ -853,7 +972,11 @@ func aliasScalarKind(kind string) string {
 	}
 }
 
-// joinKinds performs the join kinds step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// joinKinds handles the join kinds step in the surrounding package and returns
+// string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func joinKinds(a, b string) string {
 	if a == b {
 		return a
@@ -867,7 +990,11 @@ func joinKinds(a, b string) string {
 	return "value"
 }
 
-// freshLikeInfo performs the fresh like info step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// freshLikeInfo handles the fresh like info step in the surrounding package
+// and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func freshLikeInfo(info aliasInfo, origin string) aliasInfo {
 	kind := info.kind
 	if kind == "" || kind == "value" || !info.known {
@@ -876,7 +1003,11 @@ func freshLikeInfo(info aliasInfo, origin string) aliasInfo {
 	return freshAliasInfo(kind, origin)
 }
 
-// freshAliasInfo performs the fresh alias info step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// freshAliasInfo handles the fresh alias info step in the surrounding package
+// and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func freshAliasInfo(kind, origin string) aliasInfo {
 	if kind == "" {
 		kind = "value"
@@ -891,7 +1022,11 @@ func freshAliasInfo(kind, origin string) aliasInfo {
 	return aliasInfo{known: true, kind: kind, class: cls, origin: origin}
 }
 
-// unknownAliasInfo performs the unknown alias info step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unknownAliasInfo handles the unknown alias info step in the surrounding
+// package and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unknownAliasInfo(kind string) aliasInfo {
 	if kind == "" {
 		kind = "value"
@@ -899,7 +1034,11 @@ func unknownAliasInfo(kind string) aliasInfo {
 	return aliasInfo{known: false, kind: kind}
 }
 
-// joinAliasInfo performs the join alias info step in the surrounding package and returns aliasInfo.. It returns aliasInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// joinAliasInfo handles the join alias info step in the surrounding package
+// and returns aliasInfo.
+//
+// It returns aliasInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func joinAliasInfo(a, b aliasInfo) aliasInfo {
 	if a.class != nil && b.class != nil && a.class == b.class {
 		return a
@@ -917,7 +1056,11 @@ func joinAliasInfo(a, b aliasInfo) aliasInfo {
 	return unknownAliasInfo(joinKinds(a.kind, b.kind))
 }
 
-// classLabel performs the class label step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// classLabel handles the class label step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func classLabel(cls *AliasClass) string {
 	if cls == nil {
 		return ""
@@ -925,7 +1068,12 @@ func classLabel(cls *AliasClass) string {
 	return cls.Label
 }
 
-// addMember handles on AliasClass the add member. It keeps the AliasClass subsystem self-contained by handling the add member-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// addMember operates on AliasClass values and keeps the aliasclass-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (c *AliasClass) addMember(name string) {
 	if c == nil {
 		return
@@ -938,7 +1086,11 @@ func (c *AliasClass) addMember(name string) {
 	c.Members = append(c.Members, name)
 }
 
-// registerAliasClass performs the register alias class step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// registerAliasClass handles the register alias class step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func registerAliasClass(out *AliasProgram, cls *AliasClass) {
 	if out == nil || cls == nil {
 		return
@@ -951,7 +1103,11 @@ func registerAliasClass(out *AliasProgram, cls *AliasClass) {
 	out.Classes = append(out.Classes, cls)
 }
 
-// applyAliasCaptureEscapes performs the apply alias capture escapes step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// applyAliasCaptureEscapes handles the apply alias capture escapes step in the
+// surrounding package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func applyAliasCaptureEscapes(out *AliasProgram) {
 	if out == nil {
 		return
@@ -967,7 +1123,11 @@ func applyAliasCaptureEscapes(out *AliasProgram) {
 	}
 }
 
-// bindingFullName performs the binding full name step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// bindingFullName handles the binding full name step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func bindingFullName(bind AliasBinding) string {
 	if bind.Scope == "" {
 		return bind.Name
@@ -975,7 +1135,11 @@ func bindingFullName(bind AliasBinding) string {
 	return bind.Scope + "." + bind.Name
 }
 
-// containsString performs the contains string step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// containsString handles the contains string step in the surrounding package
+// and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {
@@ -987,7 +1151,11 @@ func containsString(items []string, want string) bool {
 
 var aliasTempSeq int
 
-// tempClassLabel performs the temp class label step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tempClassLabel handles the temp class label step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func tempClassLabel() string {
 	aliasTempSeq++
 	return "tmp" + strconv.Itoa(aliasTempSeq)

@@ -6,7 +6,12 @@ import (
 	"strings"
 )
 
-// FormatSource formats the source into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// FormatSource formats the source into a stable textual rendering. The
+// implementation is intentionally deterministic so round-tripping and
+// diff-based review stay predictable.
+//
+// It returns string and an error. Callers should only trust the value when the
+// error is nil.
 func FormatSource(sourceName, src string) (string, error) {
 	prog, err := Parse(sourceName, src)
 	if err != nil {
@@ -15,7 +20,12 @@ func FormatSource(sourceName, src string) (string, error) {
 	return FormatProgram(prog), nil
 }
 
-// FormatProgram formats the program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatProgram formats the program into a stable textual rendering. The
+// implementation is intentionally deterministic so round-tripping and
+// diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatProgram(prog *Program) string {
 	var b bytes.Buffer
 	for i, stmt := range prog.Statements {
@@ -30,7 +40,11 @@ func FormatProgram(prog *Program) string {
 	return b.String()
 }
 
-// formatStmt performs the format stmt step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatStmt handles the format stmt step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatStmt(stmt Stmt) string {
 	switch s := stmt.(type) {
 	case packageStmt:
@@ -71,7 +85,11 @@ func formatStmt(stmt Stmt) string {
 	}
 }
 
-// formatExpr performs the format expr step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatExpr handles the format expr step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatExpr(expr Expr, parentPrec int) string {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -187,7 +205,11 @@ func formatExpr(expr Expr, parentPrec int) string {
 	}
 }
 
-// formatEmitExpr performs the format emit expr step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatEmitExpr handles the format emit expr step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatEmitExpr(expr Expr) string {
 	call, ok := expr.(*callExpr)
 	if !ok {
@@ -213,7 +235,11 @@ func formatEmitExpr(expr Expr) string {
 	return strings.Join(parts, ", ")
 }
 
-// formatTensorSource performs the format tensor source step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatTensorSource handles the format tensor source step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatTensorSource(shape []int, data []Value) string {
 	var b strings.Builder
 	b.WriteString("tensor(")
@@ -231,7 +257,11 @@ func formatTensorSource(shape []int, data []Value) string {
 	return b.String()
 }
 
-// formatShapeList performs the format shape list step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatShapeList handles the format shape list step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatShapeList(shape []int) string {
 	var b strings.Builder
 	b.WriteByte('[')
@@ -252,7 +282,11 @@ const (
 	precPostfix = 30
 )
 
-// binaryPrecedence performs the binary precedence step in the surrounding package and returns int.. It returns int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// binaryPrecedence handles the binary precedence step in the surrounding
+// package and returns int.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func binaryPrecedence(op tokenKind) int {
 	switch op {
 	case tokenOrOr:
@@ -280,7 +314,11 @@ func binaryPrecedence(op tokenKind) int {
 	}
 }
 
-// unarySymbol performs the unary symbol step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unarySymbol handles the unary symbol step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unarySymbol(op tokenKind) string {
 	switch op {
 	case tokenMinus:
@@ -294,7 +332,11 @@ func unarySymbol(op tokenKind) string {
 	}
 }
 
-// formatPattern performs the format pattern step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatPattern handles the format pattern step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatPattern(p Pattern) string {
 	switch n := p.(type) {
 	case wildcardPattern:
@@ -319,7 +361,11 @@ func formatPattern(p Pattern) string {
 	}
 }
 
-// quoteString performs the quote string step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// quoteString handles the quote string step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func quoteString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')

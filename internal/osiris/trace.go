@@ -21,12 +21,22 @@ type TraceFrame struct {
 	Error     string         `json:"error,omitempty"`
 }
 
-// Trace handles on Runtime the trace. It keeps the Runtime subsystem self-contained by handling the trace-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Trace operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns []TraceFrame and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) Trace(ctx context.Context, prog *Program) ([]TraceFrame, error) {
 	return NewSession(rt, ctx, prog.SourceName).TraceProgram(prog, false, nil)
 }
 
-// TraceProgram handles on Session the trace program. It keeps the Session subsystem self-contained by handling the trace program-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// TraceProgram operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []TraceFrame and an error. Callers should only trust the value
+// when the error is nil.
 func (s *Session) TraceProgram(prog *Program, moduleMode bool, stack []string) ([]TraceFrame, error) {
 	frames := make([]TraceFrame, 0, len(prog.Statements))
 	for i, stmt := range prog.Statements {
@@ -61,7 +71,11 @@ func (s *Session) TraceProgram(prog *Program, moduleMode bool, stack []string) (
 	return frames, nil
 }
 
-// statementKind performs the statement kind step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// statementKind handles the statement kind step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func statementKind(stmt Stmt) string {
 	switch stmt.(type) {
 	case packageStmt:
@@ -93,7 +107,11 @@ func statementKind(stmt Stmt) string {
 	}
 }
 
-// valuesToStrings performs the values to strings step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// valuesToStrings handles the values to strings step in the surrounding
+// package and returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func valuesToStrings(values []Value) []string {
 	if len(values) == 0 {
 		return nil

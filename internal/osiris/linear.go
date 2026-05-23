@@ -6,7 +6,11 @@ import (
 	"sort"
 )
 
-// valueSliceToFloat64s performs the value slice to float64s step in the surrounding package and returns []float64, error.. It returns []float64 and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// valueSliceToFloat64s handles the value slice to float64s step in the
+// surrounding package and returns []float64, error.
+//
+// It returns []float64 and an error. Callers should only trust the value when
+// the error is nil.
 func valueSliceToFloat64s(values []Value) ([]float64, error) {
 	out := make([]float64, len(values))
 	for i := range values {
@@ -19,7 +23,11 @@ func valueSliceToFloat64s(values []Value) ([]float64, error) {
 	return out, nil
 }
 
-// matrixValues performs the matrix values step in the surrounding package and returns []int, [][]float64, error.. It returns []int, [][]float64, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// matrixValues handles the matrix values step in the surrounding package and
+// returns []int, [][]float64, error.
+//
+// It returns []int, [][]float64, error so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func matrixValues(v Value) ([]int, [][]float64, error) {
 	shape, data, err := inferTensor(v)
 	if err != nil {
@@ -54,7 +62,11 @@ func matrixValues(v Value) ([]int, [][]float64, error) {
 	return shape, mat, nil
 }
 
-// vectorValues performs the vector values step in the surrounding package and returns []float64, error.. It returns []float64 and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// vectorValues handles the vector values step in the surrounding package and
+// returns []float64, error.
+//
+// It returns []float64 and an error. Callers should only trust the value when
+// the error is nil.
 func vectorValues(v Value) ([]float64, error) {
 	_, data, err := inferTensor(v)
 	if err != nil {
@@ -63,7 +75,11 @@ func vectorValues(v Value) ([]float64, error) {
 	return valueSliceToFloat64s(data)
 }
 
-// floatMatrixValue performs the float matrix value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// floatMatrixValue handles the float matrix value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func floatMatrixValue(mat [][]float64) (Value, error) {
 	rows := len(mat)
 	cols := 0
@@ -82,7 +98,11 @@ func floatMatrixValue(mat [][]float64) (Value, error) {
 	return tensorFromShapeAndData([]int{rows, cols}, data)
 }
 
-// outerValue performs the outer value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// outerValue handles the outer value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func outerValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("outer expects 2 arguments")
@@ -104,7 +124,11 @@ func outerValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{len(left), len(right)}, out)
 }
 
-// traceValue performs the trace value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// traceValue handles the trace value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func traceValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("trace expects 1 argument")
@@ -128,7 +152,11 @@ func traceValue(args []Value) (Value, error) {
 	return numberValue(total), nil
 }
 
-// detValue performs the det value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// detValue handles the det value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func detValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("det expects 1 argument")
@@ -178,7 +206,11 @@ func detValue(args []Value) (Value, error) {
 	return numberValue(sign * det), nil
 }
 
-// solveValue performs the solve value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// solveValue handles the solve value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func solveValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("solve expects 2 arguments")
@@ -276,7 +308,11 @@ func solveValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{n, m}, out)
 }
 
-// invValue performs the inv value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// invValue handles the inv value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func invValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("inv expects 1 argument")
@@ -303,7 +339,11 @@ func invValue(args []Value) (Value, error) {
 	return solveValue([]Value{args[0], newTensorValue([]int{n, n}, eye)})
 }
 
-// qrValue performs the qr value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// qrValue handles the qr value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func qrValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("qr expects 1 argument")
@@ -368,7 +408,11 @@ func qrValue(args []Value) (Value, error) {
 	return listValue([]Value{qv, rv}), nil
 }
 
-// choleskyValue performs the cholesky value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// choleskyValue handles the cholesky value step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func choleskyValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("cholesky expects 1 argument")
@@ -404,7 +448,11 @@ func choleskyValue(args []Value) (Value, error) {
 	return floatMatrixValue(l)
 }
 
-// cloneFloatMatrix performs the clone float matrix step in the surrounding package and returns [][]float64.. It returns [][]float64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneFloatMatrix handles the clone float matrix step in the surrounding
+// package and returns [][]float64.
+//
+// It returns [][]float64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func cloneFloatMatrix(a [][]float64) [][]float64 {
 	out := make([][]float64, len(a))
 	for i := range a {
@@ -413,7 +461,11 @@ func cloneFloatMatrix(a [][]float64) [][]float64 {
 	return out
 }
 
-// identityFloatMatrix performs the identity float matrix step in the surrounding package and returns [][]float64.. It returns [][]float64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// identityFloatMatrix handles the identity float matrix step in the
+// surrounding package and returns [][]float64.
+//
+// It returns [][]float64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func identityFloatMatrix(n int) [][]float64 {
 	out := make([][]float64, n)
 	for i := range out {
@@ -423,7 +475,11 @@ func identityFloatMatrix(n int) [][]float64 {
 	return out
 }
 
-// transposeFloatMatrix performs the transpose float matrix step in the surrounding package and returns [][]float64.. It returns [][]float64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// transposeFloatMatrix handles the transpose float matrix step in the
+// surrounding package and returns [][]float64.
+//
+// It returns [][]float64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func transposeFloatMatrix(a [][]float64) [][]float64 {
 	if len(a) == 0 {
 		return nil
@@ -440,7 +496,11 @@ func transposeFloatMatrix(a [][]float64) [][]float64 {
 	return out
 }
 
-// multiplyFloatMatrices performs the multiply float matrices step in the surrounding package and returns [][]float64, error.. It returns [][]float64 and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// multiplyFloatMatrices handles the multiply float matrices step in the
+// surrounding package and returns [][]float64, error.
+//
+// It returns [][]float64 and an error. Callers should only trust the value
+// when the error is nil.
 func multiplyFloatMatrices(a, b [][]float64) ([][]float64, error) {
 	if len(a) == 0 || len(b) == 0 {
 		return nil, fmt.Errorf("matrix multiply expects non-empty matrices")
@@ -465,7 +525,11 @@ func multiplyFloatMatrices(a, b [][]float64) ([][]float64, error) {
 	return out, nil
 }
 
-// matrixVectorMultiply performs the matrix vector multiply step in the surrounding package and returns []float64, error.. It returns []float64 and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// matrixVectorMultiply handles the matrix vector multiply step in the
+// surrounding package and returns []float64, error.
+//
+// It returns []float64 and an error. Callers should only trust the value when
+// the error is nil.
 func matrixVectorMultiply(a [][]float64, v []float64) ([]float64, error) {
 	if len(a) == 0 || len(a[0]) != len(v) {
 		return nil, fmt.Errorf("matrix-vector shape mismatch")
@@ -481,7 +545,11 @@ func matrixVectorMultiply(a [][]float64, v []float64) ([]float64, error) {
 	return out, nil
 }
 
-// qrDecomposeFloat performs the qr decompose float step in the surrounding package and returns [][]float64, [][]float64, error.. It returns [][]float64, [][]float64, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// qrDecomposeFloat handles the qr decompose float step in the surrounding
+// package and returns [][]float64, [][]float64, error.
+//
+// It returns [][]float64, [][]float64, error so callers can continue with the
+// next stage of the pipeline without re-deriving the same information.
 func qrDecomposeFloat(a [][]float64) ([][]float64, [][]float64, error) {
 	if len(a) == 0 || len(a[0]) == 0 {
 		return nil, nil, fmt.Errorf("qr expects a non-empty matrix")
@@ -532,7 +600,11 @@ func qrDecomposeFloat(a [][]float64) ([][]float64, [][]float64, error) {
 	return q, r, nil
 }
 
-// maxOffDiagAbs performs the max off diag abs step in the surrounding package and returns float64.. It returns float64 so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// maxOffDiagAbs handles the max off diag abs step in the surrounding package
+// and returns float64.
+//
+// It returns float64 so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func maxOffDiagAbs(a [][]float64) float64 {
 	var max float64
 	for i := range a {
@@ -545,7 +617,11 @@ func maxOffDiagAbs(a [][]float64) float64 {
 	return max
 }
 
-// qrEigenDecomposition performs the qr eigen decomposition step in the surrounding package and returns []float64, [][]float64, error.. It returns []float64, [][]float64, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// qrEigenDecomposition handles the qr eigen decomposition step in the
+// surrounding package and returns []float64, [][]float64, error.
+//
+// It returns []float64, [][]float64, error so callers can continue with the
+// next stage of the pipeline without re-deriving the same information.
 func qrEigenDecomposition(a [][]float64, iters int) ([]float64, [][]float64, error) {
 	if len(a) == 0 || len(a) != len(a[0]) {
 		return nil, nil, fmt.Errorf("eig expects a square matrix")
@@ -578,7 +654,11 @@ func qrEigenDecomposition(a [][]float64, iters int) ([]float64, [][]float64, err
 	return vals, qTotal, nil
 }
 
-// jacobiEigenDecomposition performs the jacobi eigen decomposition step in the surrounding package and returns []float64, [][]float64, error.. It returns []float64, [][]float64, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// jacobiEigenDecomposition handles the jacobi eigen decomposition step in the
+// surrounding package and returns []float64, [][]float64, error.
+//
+// It returns []float64, [][]float64, error so callers can continue with the
+// next stage of the pipeline without re-deriving the same information.
 func jacobiEigenDecomposition(a [][]float64, iters int) ([]float64, [][]float64, error) {
 	if len(a) == 0 || len(a) != len(a[0]) {
 		return nil, nil, fmt.Errorf("eigh expects a square matrix")
@@ -640,7 +720,11 @@ func jacobiEigenDecomposition(a [][]float64, iters int) ([]float64, [][]float64,
 	return vals, v, nil
 }
 
-// eigValue performs the eig value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// eigValue handles the eig value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func eigValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("eig expects 1 argument")
@@ -671,7 +755,11 @@ func eigValue(args []Value) (Value, error) {
 	return listValue([]Value{valTensor, vv}), nil
 }
 
-// eighValue performs the eigh value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// eighValue handles the eigh value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func eighValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("eigh expects 1 argument")
@@ -721,7 +809,11 @@ func eighValue(args []Value) (Value, error) {
 	return listValue([]Value{valTensor, vv}), nil
 }
 
-// svdValue performs the svd value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// svdValue handles the svd value step in the surrounding package and returns
+// Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func svdValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("svd expects 1 argument")

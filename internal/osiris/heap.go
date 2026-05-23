@@ -36,7 +36,12 @@ type HeapInspector struct {
 	report HeapReport
 }
 
-// OpenHeapInspector handles on Runtime the open heap inspector. It keeps the Runtime subsystem self-contained by handling the open heap inspector-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// OpenHeapInspector operates on Runtime values and keeps the runtime-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *HeapInspector and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) OpenHeapInspector(ctx context.Context, sourceName, src string) (*HeapInspector, error) {
 	if rt == nil {
 		rt = NewRuntime()
@@ -75,7 +80,12 @@ func (rt *Runtime) OpenHeapInspector(ctx context.Context, sourceName, src string
 	}, nil
 }
 
-// Report handles on HeapInspector the report. It keeps the HeapInspector subsystem self-contained by handling the report-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Report operates on HeapInspector values and keeps the heapinspector-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns HeapReport so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (h *HeapInspector) Report() HeapReport {
 	if h == nil {
 		return HeapReport{}
@@ -83,7 +93,12 @@ func (h *HeapInspector) Report() HeapReport {
 	return h.report
 }
 
-// Query handles on HeapInspector the query. It keeps the HeapInspector subsystem self-contained by handling the query-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Query operates on HeapInspector values and keeps the heapinspector-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func (h *HeapInspector) Query(expr string) (Value, error) {
 	if h == nil || h.sess == nil {
 		return nullValue(), fmt.Errorf("heap inspector is not initialized")
@@ -99,7 +114,12 @@ func (h *HeapInspector) Query(expr string) (Value, error) {
 	return h.sess.eval(emit.Expr, h.sess.scope)
 }
 
-// Binding handles on HeapInspector the binding. It keeps the HeapInspector subsystem self-contained by handling the binding-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Binding operates on HeapInspector values and keeps the
+// heapinspector-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns HeapBinding, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func (h *HeapInspector) Binding(name string) (HeapBinding, bool) {
 	if h == nil || h.sess == nil {
 		return HeapBinding{}, false
@@ -115,7 +135,12 @@ func (h *HeapInspector) Binding(name string) (HeapBinding, bool) {
 	return HeapBinding{Name: name, Kind: v.Kind(), Value: v.String()}, true
 }
 
-// Module handles on HeapInspector the module. It keeps the HeapInspector subsystem self-contained by handling the module-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Module operates on HeapInspector values and keeps the heapinspector-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns HeapModule, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func (h *HeapInspector) Module(name string) (HeapModule, bool) {
 	if h == nil || h.sess == nil {
 		return HeapModule{}, false
@@ -138,7 +163,12 @@ func (h *HeapInspector) Module(name string) (HeapModule, bool) {
 	return heapModuleFromValue(name, "binding", mod), true
 }
 
-// snapshotHeapModules handles on Runtime the snapshot heap modules. It keeps the Runtime subsystem self-contained by handling the snapshot heap modules-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// snapshotHeapModules operates on Runtime values and keeps the
+// runtime-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns []HeapModule so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (rt *Runtime) snapshotHeapModules(report DependencyReport) []HeapModule {
 	if rt == nil {
 		return nil
@@ -178,7 +208,12 @@ func (rt *Runtime) snapshotHeapModules(report DependencyReport) []HeapModule {
 	return out
 }
 
-// moduleValueForRefLocked handles on Runtime the module value for ref locked. It keeps the Runtime subsystem self-contained by handling the module value for ref locked-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// moduleValueForRefLocked operates on Runtime values and keeps the
+// runtime-specific behavior attached to the receiver so callers can use the
+// method as the natural entry point for that data structure.
+//
+// It returns Value, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (rt *Runtime) moduleValueForRefLocked(ref string) (Value, bool) {
 	if mod, ok := rt.modules[ref]; ok {
 		return mod, true
@@ -191,7 +226,11 @@ func (rt *Runtime) moduleValueForRefLocked(ref string) (Value, bool) {
 	return Value{}, false
 }
 
-// heapModuleFromValue performs the heap module from value step in the surrounding package and returns HeapModule.. It returns HeapModule so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// heapModuleFromValue handles the heap module from value step in the
+// surrounding package and returns HeapModule.
+//
+// It returns HeapModule so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func heapModuleFromValue(ref, kind string, mod *moduleValue) HeapModule {
 	if mod == nil {
 		return HeapModule{Ref: ref, Kind: kind}
@@ -218,7 +257,12 @@ func heapModuleFromValue(ref, kind string, mod *moduleValue) HeapModule {
 	return hm
 }
 
-// snapshotHeapScope handles on Session the snapshot heap scope. It keeps the Session subsystem self-contained by handling the snapshot heap scope-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// snapshotHeapScope operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []HeapBinding so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *Session) snapshotHeapScope() []HeapBinding {
 	if s == nil || s.scope == nil {
 		return nil
@@ -254,7 +298,12 @@ func (s *Session) snapshotHeapScope() []HeapBinding {
 	return out
 }
 
-// snapshotScope handles on Session the snapshot scope. It keeps the Session subsystem self-contained by handling the snapshot scope-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// snapshotScope operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns []TraceBinding so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *Session) snapshotScope() []TraceBinding {
 	heap := s.snapshotHeapScope()
 	if len(heap) == 0 {
@@ -267,7 +316,12 @@ func (s *Session) snapshotScope() []TraceBinding {
 	return out
 }
 
-// String handles on HeapReport the string. It keeps the HeapReport subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on HeapReport values and keeps the heapreport-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (r HeapReport) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "root: %s\n", r.Root)

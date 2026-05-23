@@ -25,12 +25,22 @@ type CFGBlock struct {
 	Succs  []string
 }
 
-// String handles on CFGProgram the string. It keeps the CFGProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on CFGProgram values and keeps the cfgprogram-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (cp *CFGProgram) String() string {
 	return FormatCFGProgram(cp)
 }
 
-// BuildCFG build on Runtime the cfg. It keeps the Runtime subsystem self-contained by handling the cfg-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// BuildCFG operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *CFGProgram and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) BuildCFG(ctx context.Context, prog *Program) (*CFGProgram, error) {
 	ssaProg, err := rt.BuildSSA(ctx, prog)
 	if err != nil {
@@ -39,7 +49,12 @@ func (rt *Runtime) BuildCFG(ctx context.Context, prog *Program) (*CFGProgram, er
 	return BuildCFGProgram(ssaProg)
 }
 
-// BuildCFGProgram builds the cfg program representation from its input form, carrying all structural information forward and returning an error if the source cannot be lowered safely.. It returns *CFGProgram and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// BuildCFGProgram builds the cfgprogram representation from its input form,
+// carrying structural information forward and returning an error if the source
+// cannot be lowered safely.
+//
+// It returns *CFGProgram and an error. Callers should only trust the value
+// when the error is nil.
 func BuildCFGProgram(prog *SSAProgram) (*CFGProgram, error) {
 	if prog == nil || prog.Program == nil {
 		return nil, fmt.Errorf("cannot build CFG for nil program")
@@ -55,7 +70,12 @@ func BuildCFGProgram(prog *SSAProgram) (*CFGProgram, error) {
 	return out, nil
 }
 
-// FormatCFGProgram formats the cfg program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatCFGProgram formats the cfgprogram into a stable textual rendering. The
+// implementation is intentionally deterministic so round-tripping and
+// diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatCFGProgram(prog *CFGProgram) string {
 	if prog == nil {
 		return ""
@@ -117,7 +137,11 @@ func FormatCFGProgram(prog *CFGProgram) string {
 	return b.String()
 }
 
-// buildCFGFunction performs the build cfg function step in the surrounding package and returns CFGFunction, error.. It returns CFGFunction and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// buildCFGFunction handles the build cfgfunction step in the surrounding
+// package and returns CFGFunction, error.
+//
+// It returns CFGFunction and an error. Callers should only trust the value
+// when the error is nil.
 func buildCFGFunction(fn *IRFunction) (CFGFunction, error) {
 	cfgFn := CFGFunction{Name: fn.Name, SourceName: fn.SourceName}
 	if len(fn.Blocks) == 0 {
@@ -165,7 +189,11 @@ func buildCFGFunction(fn *IRFunction) (CFGFunction, error) {
 	return cfgFn, nil
 }
 
-// cfgSuccessors performs the cfg successors step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cfgSuccessors handles the cfg successors step in the surrounding package and
+// returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func cfgSuccessors(term IRTerminator) []string {
 	switch t := term.(type) {
 	case *irJump:

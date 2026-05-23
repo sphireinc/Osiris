@@ -12,7 +12,11 @@ import (
 	"github.com/sphireinc/osiris/internal/osiris"
 )
 
-// runHeap handles the run heap command path for the CLI. It parses the command-specific flags and arguments, performs the requested Osiris operation, and writes the user-facing result to the provided stream.. It returns an error when the operation cannot complete cleanly.
+// runHeap handles the run heap command path for the CLI. It parses the
+// command-specific flags and arguments, performs the requested Osiris
+// operation, and writes the user-facing result to the provided stream.
+//
+// It returns an error when the operation cannot complete cleanly.
 func runHeap(ctx context.Context, args []string, stdout io.Writer, stdin io.Reader) error {
 	fs := flag.NewFlagSet("heap", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -155,7 +159,12 @@ func runHeap(ctx context.Context, args []string, stdout io.Writer, stdin io.Read
 	}
 }
 
-// printHeapScope handles the CLI-facing the print heap scope view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapScope handles the CLI-facing print heap scope view. It turns
+// internal command data into stable text that can be read directly from a
+// terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapScope(stdout io.Writer, scope []osiris.HeapBinding) {
 	if len(scope) == 0 {
 		fmt.Fprintln(stdout, "scope is empty")
@@ -170,7 +179,12 @@ func printHeapScope(stdout io.Writer, scope []osiris.HeapBinding) {
 	}
 }
 
-// printHeapModules handles the CLI-facing the print heap modules view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapModules handles the CLI-facing print heap modules view. It turns
+// internal command data into stable text that can be read directly from a
+// terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapModules(stdout io.Writer, modules []osiris.HeapModule) {
 	if len(modules) == 0 {
 		fmt.Fprintln(stdout, "no modules loaded")
@@ -195,7 +209,12 @@ func printHeapModules(stdout io.Writer, modules []osiris.HeapModule) {
 	}
 }
 
-// printHeapDependencies handles the CLI-facing the print heap dependencies view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapDependencies handles the CLI-facing print heap dependencies view.
+// It turns internal command data into stable text that can be read directly
+// from a terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapDependencies(stdout io.Writer, deps osiris.DependencyReport) {
 	fmt.Fprintf(stdout, "root: %s\n", deps.Root)
 	if len(deps.Order) > 0 {
@@ -214,7 +233,12 @@ func printHeapDependencies(stdout io.Writer, deps osiris.DependencyReport) {
 	}
 }
 
-// printHeapGraph handles the CLI-facing the print heap graph view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapGraph handles the CLI-facing print heap graph view. It turns
+// internal command data into stable text that can be read directly from a
+// terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapGraph(stdout io.Writer, deps osiris.DependencyReport) {
 	if len(deps.Nodes) == 0 {
 		fmt.Fprintln(stdout, "graph is empty")
@@ -229,7 +253,12 @@ func printHeapGraph(stdout io.Writer, deps osiris.DependencyReport) {
 	}
 }
 
-// printHeapBinding handles the CLI-facing the print heap binding view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapBinding handles the CLI-facing print heap binding view. It turns
+// internal command data into stable text that can be read directly from a
+// terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapBinding(stdout io.Writer, insp *osiris.HeapInspector, name string) {
 	if binding, ok := insp.Binding(name); ok {
 		if binding.Kind != "" {
@@ -242,7 +271,12 @@ func printHeapBinding(stdout io.Writer, insp *osiris.HeapInspector, name string)
 	fmt.Fprintf(stdout, "no binding named %q\n", name)
 }
 
-// printHeapModule handles the CLI-facing the print heap module view. It is responsible for turning internal command data into stable text that can be read directly from a terminal or redirected to a file.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// printHeapModule handles the CLI-facing print heap module view. It turns
+// internal command data into stable text that can be read directly from a
+// terminal or redirected to a file.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func printHeapModule(stdout io.Writer, insp *osiris.HeapInspector, name string) {
 	mod, ok := insp.Module(name)
 	if !ok {

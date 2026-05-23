@@ -34,7 +34,12 @@ type documentAnalysis struct {
 	refs        []*symbolRef
 }
 
-// findAt handles on documentAnalysis the find at. It keeps the documentAnalysis subsystem self-contained by handling the find at-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// findAt operates on documentAnalysis values and keeps the
+// documentanalysis-specific behavior attached to the receiver so callers can
+// use the method as the natural entry point for that data structure.
+//
+// It returns *symbolRef, *symbolDef so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func (a *documentAnalysis) findAt(pos sourcePos) (*symbolRef, *symbolDef) {
 	var bestRef *symbolRef
 	for _, ref := range a.refs {
@@ -58,7 +63,11 @@ func (a *documentAnalysis) findAt(pos sourcePos) (*symbolRef, *symbolDef) {
 	return nil, bestDef
 }
 
-// spanWidth performs the span width step in the surrounding package and returns int.. It returns int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// spanWidth handles the span width step in the surrounding package and returns
+// int.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func spanWidth(sp sourceSpan) int {
 	if sp.start.line == 0 && sp.start.col == 0 && sp.end.line == 0 && sp.end.col == 0 {
 		return 1 << 30
@@ -115,7 +124,12 @@ type lspMarkupContent struct {
 	Value string `json:"value"`
 }
 
-// NewLanguageServer constructs and returns a new the language server with the default internal state already wired together so callers do not need to assemble caches or dependencies by hand.. It returns *languageServer so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// NewLanguageServer constructs a new language server and wires together the
+// internal caches, registries, and default tables that the caller would
+// otherwise have to assemble by hand.
+//
+// It returns *languageServer so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func NewLanguageServer(rt *Runtime, out, log io.Writer) *languageServer {
 	if rt == nil {
 		rt = NewRuntime()
@@ -129,7 +143,11 @@ func NewLanguageServer(rt *Runtime, out, log io.Writer) *languageServer {
 	return &languageServer{rt: rt, out: out, log: log, docs: make(map[string]*documentState)}
 }
 
-// Serve handles on languageServer the serve. It keeps the languageServer subsystem self-contained by handling the serve-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// Serve operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 	_ = ctx
 	r := bufio.NewReader(in)
@@ -230,7 +248,12 @@ func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 	}
 }
 
-// upsertDocument handles on languageServer the upsert document. It keeps the languageServer subsystem self-contained by handling the upsert document-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// upsertDocument operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (s *languageServer) upsertDocument(uri, text string) {
 	state := &documentState{uri: uri, sourceName: uri, text: text}
 	if path, err := uriToPath(uri); err == nil {
@@ -248,7 +271,12 @@ func (s *languageServer) upsertDocument(uri, text string) {
 	_ = s.publishDiagnostics(uri, state.diagnostics)
 }
 
-// hover handles on languageServer the hover. It keeps the languageServer subsystem self-contained by handling the hover-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// hover operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns *lspHover and an error. Callers should only trust the value when
+// the error is nil.
 func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
 	state := s.docs[uri]
 	if state == nil {
@@ -287,7 +315,12 @@ func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
 	return h, nil
 }
 
-// definition handles on languageServer the definition. It keeps the languageServer subsystem self-contained by handling the definition-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// definition operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns any and an error. Callers should only trust the value when the
+// error is nil.
 func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
 	state := s.docs[uri]
 	if state == nil {
@@ -312,7 +345,11 @@ func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
 	return nil, nil
 }
 
-// publishDiagnostics handles on languageServer the publish diagnostics. It keeps the languageServer subsystem self-contained by handling the publish diagnostics-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// publishDiagnostics operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) publishDiagnostics(uri string, diags []lspDiagnostic) error {
 	return s.writeNotification("textDocument/publishDiagnostics", map[string]any{
 		"uri":         uri,
@@ -320,7 +357,11 @@ func (s *languageServer) publishDiagnostics(uri string, diags []lspDiagnostic) e
 	})
 }
 
-// writeResponse handles on languageServer the write response. It keeps the languageServer subsystem self-contained by handling the write response-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// writeResponse operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) writeResponse(id json.RawMessage, result any, rpcErr error) error {
 	resp := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(id)}
 	if rpcErr != nil {
@@ -331,12 +372,20 @@ func (s *languageServer) writeResponse(id json.RawMessage, result any, rpcErr er
 	return s.writeMessage(resp)
 }
 
-// writeNotification handles on languageServer the write notification. It keeps the languageServer subsystem self-contained by handling the write notification-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// writeNotification operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) writeNotification(method string, params any) error {
 	return s.writeMessage(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
 }
 
-// writeMessage handles on languageServer the write message. It keeps the languageServer subsystem self-contained by handling the write message-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// writeMessage operates on languageServer values and keeps the
+// languageserver-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) writeMessage(v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -352,10 +401,19 @@ type lspMessage struct {
 	ID     json.RawMessage `json:"id"`
 }
 
-// IsRequest handles on lspMessage the is request. It keeps the lspMessage subsystem self-contained by handling the is request-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// IsRequest operates on lspMessage values and keeps the lspmessage-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (m lspMessage) IsRequest() bool { return len(m.ID) > 0 }
 
-// readLSPMessage performs the read lsp message step in the surrounding package and returns lspMessage, error.. It returns lspMessage and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// readLSPMessage handles the read lspmessage step in the surrounding package
+// and returns lspMessage, error.
+//
+// It returns lspMessage and an error. Callers should only trust the value when
+// the error is nil.
 func readLSPMessage(r *bufio.Reader) (lspMessage, error) {
 	var length int
 	for {
@@ -423,7 +481,11 @@ type definitionParams struct {
 	Position lspPosition `json:"position"`
 }
 
-// analyzeDocument performs the analyze document step in the surrounding package and returns *documentAnalysis.. It returns *documentAnalysis so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzeDocument handles the analyze document step in the surrounding package
+// and returns *documentAnalysis.
+//
+// It returns *documentAnalysis so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func analyzeDocument(rt *Runtime, uri string, prog *Program) *documentAnalysis {
 	a := &documentAnalysis{}
 	root := &lspScope{defs: map[string]*symbolDef{}}
@@ -439,7 +501,12 @@ type lspScope struct {
 	defs   map[string]*symbolDef
 }
 
-// lookup handles on lspScope the lookup. It keeps the lspScope subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on lspScope values and keeps the lspscope-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *symbolDef so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *lspScope) lookup(name string) *symbolDef {
 	for cur := s; cur != nil; cur = cur.parent {
 		if def, ok := cur.defs[name]; ok {
@@ -449,7 +516,12 @@ func (s *lspScope) lookup(name string) *symbolDef {
 	return nil
 }
 
-// push handles on lspScope the push. It keeps the lspScope subsystem self-contained by handling the push-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// push operates on lspScope values and keeps the lspscope-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *lspScope so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *lspScope) push(def *symbolDef) *lspScope {
 	return &lspScope{
 		parent: s,
@@ -459,7 +531,11 @@ func (s *lspScope) push(def *symbolDef) *lspScope {
 	}
 }
 
-// analyzeStmtSeq performs the analyze stmt seq step in the surrounding package and returns *lspScope, error.. It returns *lspScope and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// analyzeStmtSeq handles the analyze stmt seq step in the surrounding package
+// and returns *lspScope, error.
+//
+// It returns *lspScope and an error. Callers should only trust the value when
+// the error is nil.
 func analyzeStmtSeq(a *documentAnalysis, scope *lspScope, uri string, stmts []Stmt, inBlock bool) (*lspScope, error) {
 	cur := scope
 	for _, stmt := range stmts {
@@ -474,7 +550,11 @@ func analyzeStmtSeq(a *documentAnalysis, scope *lspScope, uri string, stmts []St
 	return cur, nil
 }
 
-// analyzeStmt performs the analyze stmt step in the surrounding package and returns *lspScope, error.. It returns *lspScope and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// analyzeStmt handles the analyze stmt step in the surrounding package and
+// returns *lspScope, error.
+//
+// It returns *lspScope and an error. Callers should only trust the value when
+// the error is nil.
 func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, inBlock bool) (*lspScope, error) {
 	switch st := stmt.(type) {
 	case packageStmt:
@@ -551,7 +631,10 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 	}
 }
 
-// analyzeExpr performs the analyze expr step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// analyzeExpr handles the analyze expr step in the surrounding package and
+// returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) error {
 	switch n := expr.(type) {
 	case *identExpr:
@@ -631,7 +714,11 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 	return nil
 }
 
-// resolveMemberTarget performs the resolve member target step in the surrounding package and returns *symbolDef.. It returns *symbolDef so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// resolveMemberTarget handles the resolve member target step in the
+// surrounding package and returns *symbolDef.
+//
+// It returns *symbolDef so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func resolveMemberTarget(a *documentAnalysis, scope *lspScope, expr Expr) *symbolDef {
 	if ident, ok := expr.(*identExpr); ok {
 		return scope.lookup(ident.name)
@@ -639,7 +726,11 @@ func resolveMemberTarget(a *documentAnalysis, scope *lspScope, expr Expr) *symbo
 	return nil
 }
 
-// patternDefs performs the pattern defs step in the surrounding package and returns []*symbolDef.. It returns []*symbolDef so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// patternDefs handles the pattern defs step in the surrounding package and
+// returns []*symbolDef.
+//
+// It returns []*symbolDef so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func patternDefs(uri string, p Pattern) []*symbolDef {
 	switch n := p.(type) {
 	case bindPattern:
@@ -655,7 +746,11 @@ func patternDefs(uri string, p Pattern) []*symbolDef {
 	}
 }
 
-// defsFromParams performs the defs from params step in the surrounding package and returns []*symbolDef.. It returns []*symbolDef so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// defsFromParams handles the defs from params step in the surrounding package
+// and returns []*symbolDef.
+//
+// It returns []*symbolDef so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func defsFromParams(uri string, params []string, sp sourceSpan) []*symbolDef {
 	out := make([]*symbolDef, 0, len(params))
 	for _, name := range params {
@@ -664,12 +759,20 @@ func defsFromParams(uri string, params []string, sp sourceSpan) []*symbolDef {
 	return out
 }
 
-// functionDetail performs the function detail step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// functionDetail handles the function detail step in the surrounding package
+// and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func functionDetail(st funcStmt) string {
 	return "function declaration"
 }
 
-// packageDetail performs the package detail step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// packageDetail handles the package detail step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func packageDetail(st packageStmt) string {
 	if st.Version == "" {
 		return "package"
@@ -677,7 +780,11 @@ func packageDetail(st packageStmt) string {
 	return "package version " + st.Version
 }
 
-// importDetail performs the import detail step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// importDetail handles the import detail step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func importDetail(st importStmt) string {
 	ref, selector := splitModuleRef(st.Path)
 	if selector != "" {
@@ -686,17 +793,29 @@ func importDetail(st importStmt) string {
 	return "import " + ref
 }
 
-// diagnosticAt performs the diagnostic at step in the surrounding package and returns lspDiagnostic.. It returns lspDiagnostic so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// diagnosticAt handles the diagnostic at step in the surrounding package and
+// returns lspDiagnostic.
+//
+// It returns lspDiagnostic so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func diagnosticAt(sp sourceSpan, msg string) lspDiagnostic {
 	return lspDiagnostic{Range: toLSPRange(sp), Severity: 1, Source: "osiris", Message: msg}
 }
 
-// toSourcePos performs the to source pos step in the surrounding package and returns sourcePos.. It returns sourcePos so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// toSourcePos handles the to source pos step in the surrounding package and
+// returns sourcePos.
+//
+// It returns sourcePos so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func toSourcePos(pos lspPosition) sourcePos {
 	return sourcePos{line: pos.Line + 1, col: pos.Character + 1}
 }
 
-// toLSPRange performs the to lsp range step in the surrounding package and returns lspRange.. It returns lspRange so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// toLSPRange handles the to lsprange step in the surrounding package and
+// returns lspRange.
+//
+// It returns lspRange so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func toLSPRange(sp sourceSpan) lspRange {
 	if sp.start.line == 0 && sp.start.col == 0 && sp.end.line == 0 && sp.end.col == 0 {
 		return lspRange{}
@@ -707,7 +826,11 @@ func toLSPRange(sp sourceSpan) lspRange {
 	}
 }
 
-// spanFromName performs the span from name step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// spanFromName handles the span from name step in the surrounding package and
+// returns sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func spanFromName(name string, fallback sourceSpan) sourceSpan {
 	if fallback.start.line != 0 || fallback.start.col != 0 {
 		return fallback
@@ -715,7 +838,11 @@ func spanFromName(name string, fallback sourceSpan) sourceSpan {
 	return sourceSpan{}
 }
 
-// uriToPath performs the uri to path step in the surrounding package and returns string, error.. It returns string and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// uriToPath handles the uri to path step in the surrounding package and
+// returns string, error.
+//
+// It returns string and an error. Callers should only trust the value when the
+// error is nil.
 func uriToPath(uri string) (string, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
@@ -734,7 +861,11 @@ func uriToPath(uri string) (string, error) {
 	return filepath.FromSlash(path), nil
 }
 
-// pathToURI performs the path to uri step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// pathToURI handles the path to uri step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func pathToURI(path string) string {
 	if !filepath.IsAbs(path) {
 		if abs, err := filepath.Abs(path); err == nil {

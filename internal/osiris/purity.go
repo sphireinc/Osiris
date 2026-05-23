@@ -30,12 +30,22 @@ type PurityFunction struct {
 	Calls  []string
 }
 
-// String handles on PurityProgram the string. It keeps the PurityProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on PurityProgram values and keeps the purityprogram-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (p *PurityProgram) String() string {
 	return FormatPurityProgram(p)
 }
 
-// AnalyzePurity analyze on Runtime the purity. It keeps the Runtime subsystem self-contained by handling the purity-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// AnalyzePurity operates on Runtime values and keeps the runtime-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *PurityProgram and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) AnalyzePurity(ctx context.Context, prog *Program) (*PurityProgram, error) {
 	_ = ctx
 	if prog == nil {
@@ -44,7 +54,12 @@ func (rt *Runtime) AnalyzePurity(ctx context.Context, prog *Program) (*PurityPro
 	return analyzePurityProgram(prog), nil
 }
 
-// FormatPurityProgram formats the purity program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatPurityProgram formats the purity program into a stable textual
+// rendering. The implementation is intentionally deterministic so
+// round-tripping and diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatPurityProgram(prog *PurityProgram) string {
 	if prog == nil {
 		return ""
@@ -158,7 +173,11 @@ type purityInfo struct {
 	function *purityFunctionState
 }
 
-// analyzePurityProgram performs the analyze purity program step in the surrounding package and returns *PurityProgram.. It returns *PurityProgram so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePurityProgram handles the analyze purity program step in the
+// surrounding package and returns *PurityProgram.
+//
+// It returns *PurityProgram so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePurityProgram(prog *Program) *PurityProgram {
 	out := &PurityProgram{Program: prog}
 	root := &purityScope{
@@ -182,7 +201,11 @@ func analyzePurityProgram(prog *Program) *PurityProgram {
 	return out
 }
 
-// analyzePuritySeq performs the analyze purity seq step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePuritySeq handles the analyze purity seq step in the surrounding
+// package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePuritySeq(stmts []Stmt, scope *purityScope, out *PurityProgram) purityInfo {
 	var last purityInfo
 	for _, stmt := range stmts {
@@ -191,7 +214,11 @@ func analyzePuritySeq(stmts []Stmt, scope *purityScope, out *PurityProgram) puri
 	return last
 }
 
-// analyzePurityStmt performs the analyze purity stmt step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePurityStmt handles the analyze purity stmt step in the surrounding
+// package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePurityStmt(stmt Stmt, scope *purityScope, out *PurityProgram) purityInfo {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -229,7 +256,11 @@ func analyzePurityStmt(stmt Stmt, scope *purityScope, out *PurityProgram) purity
 	}
 }
 
-// analyzePurityFunctionStmt performs the analyze purity function stmt step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePurityFunctionStmt handles the analyze purity function stmt step in
+// the surrounding package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePurityFunctionStmt(st funcStmt, scope *purityScope, out *PurityProgram) purityInfo {
 	fnState := &purityFunctionState{
 		report: &PurityFunction{
@@ -273,7 +304,12 @@ func analyzePurityFunctionStmt(st funcStmt, scope *purityScope, out *PurityProgr
 	return fnInfo
 }
 
-// childForBlock handles on purityScope the child for block. It keeps the purityScope subsystem self-contained by handling the child for block-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// childForBlock operates on purityScope values and keeps the
+// purityscope-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns *purityScope so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *purityScope) childForBlock() *purityScope {
 	label := fmt.Sprintf("%s.b%d", s.name, s.blockSeq)
 	s.blockSeq++
@@ -286,14 +322,24 @@ func (s *purityScope) childForBlock() *purityScope {
 	}
 }
 
-// childForLoop handles on purityScope the child for loop. It keeps the purityScope subsystem self-contained by handling the child for loop-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// childForLoop operates on purityScope values and keeps the
+// purityscope-specific behavior attached to the receiver so callers can use
+// the method as the natural entry point for that data structure.
+//
+// It returns *purityScope so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s *purityScope) childForLoop() *purityScope {
 	child := s.childForBlock()
 	child.report = false
 	return child
 }
 
-// bindLocal handles on purityScope the bind local. It keeps the purityScope subsystem self-contained by handling the bind local-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// bindLocal operates on purityScope values and keeps the purityscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *purityBindingState so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func (s *purityScope) bindLocal(name string, info purityInfo, out *PurityProgram, report bool) *purityBindingState {
 	bind := &PurityBinding{
 		Name:   name,
@@ -313,7 +359,12 @@ func (s *purityScope) bindLocal(name string, info purityInfo, out *PurityProgram
 	return state
 }
 
-// bindImport handles on purityScope the bind import. It keeps the purityScope subsystem self-contained by handling the bind import-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// bindImport operates on purityScope values and keeps the purityscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *purityBindingState so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func (s *purityScope) bindImport(alias, path string, info purityInfo, out *PurityProgram, report bool) *purityBindingState {
 	bind := &PurityBinding{
 		Name:   alias,
@@ -333,7 +384,12 @@ func (s *purityScope) bindImport(alias, path string, info purityInfo, out *Purit
 	return state
 }
 
-// lookup handles on purityScope the lookup. It keeps the purityScope subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on purityScope values and keeps the purityscope-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns *purityBindingState, bool so callers can continue with the next
+// stage of the pipeline without re-deriving the same information.
 func (s *purityScope) lookup(name string) (*purityBindingState, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -346,7 +402,11 @@ func (s *purityScope) lookup(name string) (*purityBindingState, bool) {
 	return nil, false
 }
 
-// analyzePurityExpr performs the analyze purity expr step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePurityExpr handles the analyze purity expr step in the surrounding
+// package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePurityExpr(expr Expr, scope *purityScope, out *PurityProgram) purityInfo {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -451,7 +511,11 @@ func analyzePurityExpr(expr Expr, scope *purityScope, out *PurityProgram) purity
 	}
 }
 
-// analyzePurityExprs performs the analyze purity exprs step in the surrounding package and returns []purityInfo.. It returns []purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePurityExprs handles the analyze purity exprs step in the surrounding
+// package and returns []purityInfo.
+//
+// It returns []purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePurityExprs(exprs []Expr, scope *purityScope, out *PurityProgram) []purityInfo {
 	if len(exprs) == 0 {
 		return nil
@@ -463,7 +527,11 @@ func analyzePurityExprs(exprs []Expr, scope *purityScope, out *PurityProgram) []
 	return outInfos
 }
 
-// analyzePuritySpecialForm performs the analyze purity special form step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// analyzePuritySpecialForm handles the analyze purity special form step in the
+// surrounding package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func analyzePuritySpecialForm(name string, args []Expr, scope *purityScope, out *PurityProgram) purityInfo {
 	switch name {
 	case "if":
@@ -486,7 +554,11 @@ func analyzePuritySpecialForm(name string, args []Expr, scope *purityScope, out 
 	}
 }
 
-// purityBuiltinValueInfo performs the purity builtin value info step in the surrounding package and returns purityInfo, bool.. It returns purityInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityBuiltinValueInfo handles the purity builtin value info step in the
+// surrounding package and returns purityInfo, bool.
+//
+// It returns purityInfo, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func purityBuiltinValueInfo(name string) (purityInfo, bool) {
 	switch name {
 	case "true", "false", "null":
@@ -503,7 +575,11 @@ func purityBuiltinValueInfo(name string) (purityInfo, bool) {
 	return purityInfo{}, false
 }
 
-// purityBuiltinCall performs the purity builtin call step in the surrounding package and returns purityInfo, bool.. It returns purityInfo, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityBuiltinCall handles the purity builtin call step in the surrounding
+// package and returns purityInfo, bool.
+//
+// It returns purityInfo, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func purityBuiltinCall(name string, args []Expr, scope *purityScope, out *PurityProgram) (purityInfo, bool) {
 	var info purityInfo
 	switch name {
@@ -549,7 +625,11 @@ func purityBuiltinCall(name string, args []Expr, scope *purityScope, out *Purity
 	return info, false
 }
 
-// callPurityFunction performs the call purity function step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// callPurityFunction handles the call purity function step in the surrounding
+// package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func callPurityFunction(fn *purityFunctionState, args []purityInfo, current *purityFunctionState) purityInfo {
 	if fn == nil {
 		return purityInfo{kind: "unknown", reason: "unknown function"}
@@ -574,7 +654,11 @@ func callPurityFunction(fn *purityFunctionState, args []purityInfo, current *pur
 	return purityInfo{kind: "unknown", reason: "unresolved function call"}
 }
 
-// bindPurityPattern performs the bind purity pattern step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// bindPurityPattern handles the bind purity pattern step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func bindPurityPattern(pattern Pattern, subject purityInfo, scope *purityScope, out *PurityProgram) {
 	switch p := pattern.(type) {
 	case wildcardPattern, literalPattern:
@@ -588,7 +672,11 @@ func bindPurityPattern(pattern Pattern, subject purityInfo, scope *purityScope, 
 	}
 }
 
-// combinePurity performs the combine purity step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// combinePurity handles the combine purity step in the surrounding package and
+// returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func combinePurity(label string, infos ...purityInfo) purityInfo {
 	out := purityInfo{known: true, pure: true, kind: "value", reason: label}
 	for _, info := range infos {
@@ -611,12 +699,20 @@ func combinePurity(label string, infos ...purityInfo) purityInfo {
 	return out
 }
 
-// combinePurityList performs the combine purity list step in the surrounding package and returns purityInfo.. It returns purityInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// combinePurityList handles the combine purity list step in the surrounding
+// package and returns purityInfo.
+//
+// It returns purityInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func combinePurityList(label string, infos []purityInfo) purityInfo {
 	return combinePurity(label, infos...)
 }
 
-// combinePurityKind performs the combine purity kind step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// combinePurityKind handles the combine purity kind step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func combinePurityKind(left, right string) string {
 	if left == right {
 		return left
@@ -630,7 +726,11 @@ func combinePurityKind(left, right string) string {
 	return "value"
 }
 
-// purityStatus performs the purity status step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityStatus handles the purity status step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func purityStatus(info purityInfo) string {
 	switch {
 	case !info.known:
@@ -642,7 +742,11 @@ func purityStatus(info purityInfo) string {
 	}
 }
 
-// purityReason performs the purity reason step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityReason handles the purity reason step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func purityReason(info purityInfo, fallback string) string {
 	if info.reason != "" {
 		return info.reason
@@ -656,7 +760,11 @@ func purityReason(info purityInfo, fallback string) string {
 	return "side effects"
 }
 
-// purityKindFromValue performs the purity kind from value step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityKindFromValue handles the purity kind from value step in the
+// surrounding package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func purityKindFromValue(v Value) string {
 	switch v.kind {
 	case kindNull:
@@ -694,7 +802,11 @@ func purityKindFromValue(v Value) string {
 	}
 }
 
-// builtinPurityKind performs the builtin purity kind step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// builtinPurityKind handles the builtin purity kind step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func builtinPurityKind(name string) string {
 	switch name {
 	case "tensor", "matrix", "vector", "vec", "reshape", "transpose", "flatten", "shape", "dot", "matmul", "clone", "view", "zeros", "ones", "full", "eye", "identity", "arange", "linspace", "logspace", "squeeze", "expand_dims", "concat", "stack", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "tile", "outer", "inv", "solve", "cholesky":
@@ -712,7 +824,11 @@ func builtinPurityKind(name string) string {
 	}
 }
 
-// purityBuiltinDeterministic performs the purity builtin deterministic step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// purityBuiltinDeterministic handles the purity builtin deterministic step in
+// the surrounding package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func purityBuiltinDeterministic(name string) bool {
 	switch name {
 	case "hash", "mix", "slug", "upper", "lower", "trim", "replace", "repeat",
@@ -725,13 +841,21 @@ func purityBuiltinDeterministic(name string) bool {
 	}
 }
 
-// containsPurityCall performs the contains purity call step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// containsPurityCall handles the contains purity call step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func containsPurityCall(calls map[string]struct{}, want string) bool {
 	_, ok := calls[want]
 	return ok
 }
 
-// recordPurityCall performs the record purity call step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// recordPurityCall handles the record purity call step in the surrounding
+// package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func recordPurityCall(fn *purityFunctionState, name string) {
 	if fn == nil || name == "" {
 		return

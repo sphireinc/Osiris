@@ -8,27 +8,48 @@ type shapeInfo struct {
 	tensorish bool
 }
 
-// knownScalarShape performs the known scalar shape step in the surrounding package and returns shapeInfo.. It returns shapeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// knownScalarShape handles the known scalar shape step in the surrounding
+// package and returns shapeInfo.
+//
+// It returns shapeInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func knownScalarShape() shapeInfo {
 	return shapeInfo{known: true, shape: nil}
 }
 
-// knownListShape performs the known list shape step in the surrounding package and returns shapeInfo.. It returns shapeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// knownListShape handles the known list shape step in the surrounding package
+// and returns shapeInfo.
+//
+// It returns shapeInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func knownListShape(shape []int) shapeInfo {
 	return shapeInfo{known: true, shape: append([]int(nil), shape...)}
 }
 
-// knownTensorShape performs the known tensor shape step in the surrounding package and returns shapeInfo.. It returns shapeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// knownTensorShape handles the known tensor shape step in the surrounding
+// package and returns shapeInfo.
+//
+// It returns shapeInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func knownTensorShape(shape []int) shapeInfo {
 	return shapeInfo{known: true, shape: append([]int(nil), shape...), tensorish: true}
 }
 
-// unknownShape performs the unknown shape step in the surrounding package and returns shapeInfo.. It returns shapeInfo so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// unknownShape handles the unknown shape step in the surrounding package and
+// returns shapeInfo.
+//
+// It returns shapeInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func unknownShape() shapeInfo {
 	return shapeInfo{}
 }
 
-// copy handles on shapeInfo the copy. It keeps the shapeInfo subsystem self-contained by handling the copy-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// copy operates on shapeInfo values and keeps the shapeinfo-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns shapeInfo so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (s shapeInfo) copy() shapeInfo {
 	if !s.known {
 		return unknownShape()
@@ -41,12 +62,22 @@ type shapeEnv struct {
 	items  map[string]shapeInfo
 }
 
-// child handles on shapeEnv the child. It keeps the shapeEnv subsystem self-contained by handling the child-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// child operates on shapeEnv values and keeps the shapeenv-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *shapeEnv so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (e *shapeEnv) child() *shapeEnv {
 	return &shapeEnv{parent: e, items: make(map[string]shapeInfo)}
 }
 
-// lookup handles on shapeEnv the lookup. It keeps the shapeEnv subsystem self-contained by handling the lookup-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// lookup operates on shapeEnv values and keeps the shapeenv-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns shapeInfo, bool so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func (e *shapeEnv) lookup(name string) (shapeInfo, bool) {
 	for cur := e; cur != nil; cur = cur.parent {
 		if cur.items == nil {
@@ -59,7 +90,12 @@ func (e *shapeEnv) lookup(name string) (shapeInfo, bool) {
 	return unknownShape(), false
 }
 
-// bind handles on shapeEnv the bind. It keeps the shapeEnv subsystem self-contained by handling the bind-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// bind operates on shapeEnv values and keeps the shapeenv-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (e *shapeEnv) bind(name string, info shapeInfo) {
 	if e.items == nil {
 		e.items = make(map[string]shapeInfo)
@@ -67,7 +103,10 @@ func (e *shapeEnv) bind(name string, info shapeInfo) {
 	e.items[name] = info.copy()
 }
 
-// validateTensorShapes performs the validate tensor shapes step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// validateTensorShapes handles the validate tensor shapes step in the
+// surrounding package and returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func validateTensorShapes(prog *Program) error {
 	if prog == nil {
 		return nil
@@ -75,7 +114,10 @@ func validateTensorShapes(prog *Program) error {
 	return validateStatements(prog.Statements, &shapeEnv{items: make(map[string]shapeInfo)})
 }
 
-// validateStatements performs the validate statements step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// validateStatements handles the validate statements step in the surrounding
+// package and returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func validateStatements(stmts []Stmt, env *shapeEnv) error {
 	for _, stmt := range stmts {
 		if err := validateStmtShapes(stmt, env); err != nil {
@@ -85,7 +127,10 @@ func validateStatements(stmts []Stmt, env *shapeEnv) error {
 	return nil
 }
 
-// validateStmtShapes performs the validate stmt shapes step in the surrounding package and returns error.. It returns an error when the operation cannot complete cleanly.
+// validateStmtShapes handles the validate stmt shapes step in the surrounding
+// package and returns error.
+//
+// It returns an error when the operation cannot complete cleanly.
 func validateStmtShapes(stmt Stmt, env *shapeEnv) error {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -138,7 +183,11 @@ func validateStmtShapes(stmt Stmt, env *shapeEnv) error {
 	return nil
 }
 
-// shapeOfExpr performs the shape of expr step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfExpr handles the shape of expr step in the surrounding package and
+// returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 	switch n := expr.(type) {
 	case *literalExpr:
@@ -318,7 +367,11 @@ func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 	}
 }
 
-// calledShapeName performs the called shape name step in the surrounding package and returns string, bool.. It returns string, bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// calledShapeName handles the called shape name step in the surrounding
+// package and returns string, bool.
+//
+// It returns string, bool so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func calledShapeName(expr Expr) (string, bool) {
 	switch n := expr.(type) {
 	case *identExpr:
@@ -330,7 +383,11 @@ func calledShapeName(expr Expr) (string, bool) {
 	}
 }
 
-// shapeOfIfCall performs the shape of if call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfIfCall handles the shape of if call step in the surrounding package
+// and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfIfCall(n *callExpr, env *shapeEnv) (shapeInfo, error) {
 	if len(n.args) != 3 {
 		return unknownShape(), fmt.Errorf("if expects 3 arguments")
@@ -352,7 +409,11 @@ func shapeOfIfCall(n *callExpr, env *shapeEnv) (shapeInfo, error) {
 	return unknownShape(), nil
 }
 
-// shapeOfTensorCall performs the shape of tensor call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfTensorCall handles the shape of tensor call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfTensorCall(args []Expr, env *shapeEnv, tensorish bool) (shapeInfo, error) {
 	switch len(args) {
 	case 1:
@@ -386,7 +447,11 @@ func shapeOfTensorCall(args []Expr, env *shapeEnv, tensorish bool) (shapeInfo, e
 	}
 }
 
-// shapeOfMatrixCall performs the shape of matrix call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfMatrixCall handles the shape of matrix call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfMatrixCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	switch len(args) {
 	case 1:
@@ -422,7 +487,11 @@ func shapeOfMatrixCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	}
 }
 
-// shapeOfReshapeCall performs the shape of reshape call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfReshapeCall handles the shape of reshape call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfReshapeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 2 {
 		return unknownShape(), fmt.Errorf("reshape expects 2 arguments")
@@ -444,7 +513,11 @@ func shapeOfReshapeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return shapeInfo{known: true, shape: dstShape, tensorish: true}, nil
 }
 
-// shapeOfMatMulCall performs the shape of mat mul call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfMatMulCall handles the shape of mat mul call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfMatMulCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 2 {
 		return unknownShape(), fmt.Errorf("matmul expects 2 arguments")
@@ -469,7 +542,11 @@ func shapeOfMatMulCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return shapeInfo{known: true, shape: []int{left.shape[0], right.shape[1]}, tensorish: true}, nil
 }
 
-// shapeOfTransposeCall performs the shape of transpose call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfTransposeCall handles the shape of transpose call step in the
+// surrounding package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfTransposeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 1 {
 		return unknownShape(), fmt.Errorf("transpose expects 1 argument")
@@ -487,7 +564,11 @@ func shapeOfTransposeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return shapeInfo{known: true, shape: []int{info.shape[1], info.shape[0]}, tensorish: true}, nil
 }
 
-// shapeOfFlattenCall performs the shape of flatten call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfFlattenCall handles the shape of flatten call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfFlattenCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 1 {
 		return unknownShape(), fmt.Errorf("flatten expects 1 argument")
@@ -502,7 +583,11 @@ func shapeOfFlattenCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return shapeInfo{known: true, shape: []int{tensorShapeProduct(info.shape)}, tensorish: false}, nil
 }
 
-// shapeOfShapeCall performs the shape of shape call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfShapeCall handles the shape of shape call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfShapeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 1 {
 		return unknownShape(), fmt.Errorf("shape expects 1 argument")
@@ -517,7 +602,11 @@ func shapeOfShapeCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return shapeInfo{known: true, shape: []int{len(info.shape)}, tensorish: false}, nil
 }
 
-// shapeOfDotCall performs the shape of dot call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfDotCall handles the shape of dot call step in the surrounding package
+// and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfDotCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 2 {
 		return unknownShape(), fmt.Errorf("dot expects 2 arguments")
@@ -539,7 +628,11 @@ func shapeOfDotCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	return unknownShape(), nil
 }
 
-// shapeOfVectorCall performs the shape of vector call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfVectorCall handles the shape of vector call step in the surrounding
+// package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfVectorCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	switch len(args) {
 	case 0:
@@ -562,7 +655,11 @@ func shapeOfVectorCall(args []Expr, env *shapeEnv) (shapeInfo, error) {
 	}
 }
 
-// shapeOfPassthroughTensorCall performs the shape of passthrough tensor call step in the surrounding package and returns shapeInfo, error.. It returns shapeInfo and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// shapeOfPassthroughTensorCall handles the shape of passthrough tensor call
+// step in the surrounding package and returns shapeInfo, error.
+//
+// It returns shapeInfo and an error. Callers should only trust the value when
+// the error is nil.
 func shapeOfPassthroughTensorCall(name string, args []Expr, env *shapeEnv) (shapeInfo, error) {
 	if len(args) != 1 {
 		return unknownShape(), fmt.Errorf("%s expects 1 argument", name)
@@ -578,7 +675,11 @@ func shapeOfPassthroughTensorCall(name string, args []Expr, env *shapeEnv) (shap
 	return info, nil
 }
 
-// intListLiteral performs the int list literal step in the surrounding package and returns []int, bool, error.. It returns []int, bool, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// intListLiteral handles the int list literal step in the surrounding package
+// and returns []int, bool, error.
+//
+// It returns []int, bool, error so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func intListLiteral(expr Expr, env *shapeEnv) ([]int, bool, error) {
 	switch n := expr.(type) {
 	case *listExpr:
@@ -613,7 +714,11 @@ func intListLiteral(expr Expr, env *shapeEnv) ([]int, bool, error) {
 	}
 }
 
-// intLiteralExpr performs the int literal expr step in the surrounding package and returns int, bool, error.. It returns int, bool, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// intLiteralExpr handles the int literal expr step in the surrounding package
+// and returns int, bool, error.
+//
+// It returns int, bool, error so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func intLiteralExpr(expr Expr, env *shapeEnv) (int, bool, error) {
 	switch n := expr.(type) {
 	case *literalExpr:

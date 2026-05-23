@@ -23,7 +23,12 @@ type SourceMap struct {
 	Entries    []SourceMapEntry `json:"entries"`
 }
 
-// BuildSourceMap builds the source map representation from its input form, carrying all structural information forward and returning an error if the source cannot be lowered safely.. It returns SourceMap so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// BuildSourceMap builds the source map representation from its input form,
+// carrying structural information forward and returning an error if the source
+// cannot be lowered safely.
+//
+// It returns SourceMap so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func BuildSourceMap(prog *Program) SourceMap {
 	sm := SourceMap{SourceName: prog.SourceName}
 	var walkStmt func(stmt Stmt, parent int)
@@ -110,7 +115,11 @@ func BuildSourceMap(prog *Program) SourceMap {
 	return sm
 }
 
-// stmtSpan performs the stmt span step in the surrounding package and returns sourceSpan.. It returns sourceSpan so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// stmtSpan handles the stmt span step in the surrounding package and returns
+// sourceSpan.
+//
+// It returns sourceSpan so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func stmtSpan(stmt Stmt) sourceSpan {
 	switch st := stmt.(type) {
 	case letStmt:
@@ -142,7 +151,11 @@ func stmtSpan(stmt Stmt) sourceSpan {
 	}
 }
 
-// toSourceRange performs the to source range step in the surrounding package and returns SourceRange.. It returns SourceRange so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// toSourceRange handles the to source range step in the surrounding package
+// and returns SourceRange.
+//
+// It returns SourceRange so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func toSourceRange(sp sourceSpan) SourceRange {
 	if sp.start.line == 0 && sp.start.col == 0 && sp.end.line == 0 && sp.end.col == 0 {
 		return SourceRange{}

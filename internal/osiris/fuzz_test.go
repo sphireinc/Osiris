@@ -5,7 +5,12 @@ import (
 	"testing"
 )
 
-// FuzzFormatRoundTrip feeds randomized inputs into the target parser, formatter, or evaluator path so that malformed or surprising inputs are caught before they can become runtime panics.
+// FuzzFormatRoundTrip feeds randomized inputs into the target parser,
+// formatter, or evaluator path so that malformed or surprising inputs are
+// caught before they can become runtime panics.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func FuzzFormatRoundTrip(f *testing.F) {
 	seeds := []string{
 		`emit 1 + 2 * 3`,
@@ -31,7 +36,12 @@ func FuzzFormatRoundTrip(f *testing.F) {
 	})
 }
 
-// FuzzEvalNoPanic feeds randomized inputs into the target parser, formatter, or evaluator path so that malformed or surprising inputs are caught before they can become runtime panics.
+// FuzzEvalNoPanic feeds randomized inputs into the target parser, formatter,
+// or evaluator path so that malformed or surprising inputs are caught before
+// they can become runtime panics.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func FuzzEvalNoPanic(f *testing.F) {
 	seeds := []string{
 		`1 + 2 * 3`,

@@ -76,12 +76,22 @@ type token struct {
 	col  int
 }
 
-// String handles on token the string. It keeps the token subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on token values and keeps the token-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (t token) String() string {
 	return fmt.Sprintf("%s(%q @ %d:%d)", t.kind, t.text, t.line, t.col)
 }
 
-// String handles on tokenKind the string. It keeps the tokenKind subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on tokenKind values and keeps the tokenkind-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (k tokenKind) String() string {
 	switch k {
 	case tokenEOF:
@@ -210,12 +220,21 @@ type lexer struct {
 	col  int
 }
 
-// newLexer performs the new lexer step in the surrounding package and returns *lexer.. It returns *lexer so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// newLexer handles the new lexer step in the surrounding package and returns
+// *lexer.
+//
+// It returns *lexer so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func newLexer(src string) *lexer {
 	return &lexer{src: src, line: 1, col: 1}
 }
 
-// nextToken handles on lexer the next token. It keeps the lexer subsystem self-contained by handling the next token-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// nextToken operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token and an error. Callers should only trust the value when the
+// error is nil.
 func (l *lexer) nextToken() (token, error) {
 	l.skipSpace()
 	if l.off >= len(l.src) {
@@ -364,7 +383,12 @@ func (l *lexer) nextToken() (token, error) {
 	return token{}, fmt.Errorf("unexpected character %q at %d:%d", ch, startLine, startCol)
 }
 
-// scanIdent handles on lexer the scan ident. It keeps the lexer subsystem self-contained by handling the scan ident-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// scanIdent operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token and an error. Callers should only trust the value when the
+// error is nil.
 func (l *lexer) scanIdent() (token, error) {
 	start := l.off
 	startLine, startCol := l.line, l.col
@@ -424,7 +448,12 @@ func (l *lexer) scanIdent() (token, error) {
 	}
 }
 
-// scanNumber handles on lexer the scan number. It keeps the lexer subsystem self-contained by handling the scan number-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// scanNumber operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token and an error. Callers should only trust the value when the
+// error is nil.
 func (l *lexer) scanNumber() (token, error) {
 	start := l.off
 	startLine, startCol := l.line, l.col
@@ -459,7 +488,12 @@ func (l *lexer) scanNumber() (token, error) {
 	return token{kind: tokenNumber, text: text, line: startLine, col: startCol}, nil
 }
 
-// scanString handles on lexer the scan string. It keeps the lexer subsystem self-contained by handling the scan string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// scanString operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns token and an error. Callers should only trust the value when the
+// error is nil.
 func (l *lexer) scanString() (token, error) {
 	startLine, startCol := l.line, l.col
 	l.advance(1)
@@ -499,7 +533,12 @@ func (l *lexer) scanString() (token, error) {
 	return token{}, fmt.Errorf("unterminated string at %d:%d", startLine, startCol)
 }
 
-// skipSpace handles on lexer the skip space. It keeps the lexer subsystem self-contained by handling the skip space-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// skipSpace operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (l *lexer) skipSpace() {
 	for l.off < len(l.src) {
 		r, w := utf8.DecodeRuneInString(l.src[l.off:])
@@ -511,7 +550,12 @@ func (l *lexer) skipSpace() {
 	}
 }
 
-// hasDigitAhead handles on lexer the has digit ahead. It keeps the lexer subsystem self-contained by handling the has digit ahead-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// hasDigitAhead operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (l *lexer) hasDigitAhead(delta int) bool {
 	off := l.off + delta
 	if off >= len(l.src) {
@@ -521,7 +565,12 @@ func (l *lexer) hasDigitAhead(delta int) bool {
 	return unicode.IsDigit(r)
 }
 
-// advance handles on lexer the advance. It keeps the lexer subsystem self-contained by handling the advance-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// advance operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func (l *lexer) advance(width int) {
 	for i := 0; i < width && l.off < len(l.src); i++ {
 		if l.src[l.off] == '\n' {
@@ -534,17 +583,30 @@ func (l *lexer) advance(width int) {
 	}
 }
 
-// match handles on lexer the match. It keeps the lexer subsystem self-contained by handling the match-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// match operates on lexer values and keeps the lexer-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func (l *lexer) match(text string) bool {
 	return strings.HasPrefix(l.src[l.off:], text)
 }
 
-// isIdentStart performs the is ident start step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// isIdentStart handles the is ident start step in the surrounding package and
+// returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func isIdentStart(r rune) bool {
 	return r == '_' || unicode.IsLetter(r)
 }
 
-// isIdentPart performs the is ident part step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// isIdentPart handles the is ident part step in the surrounding package and
+// returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func isIdentPart(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }

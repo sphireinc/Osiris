@@ -29,12 +29,22 @@ type DomBlock struct {
 	Children []string
 }
 
-// String handles on DomProgram the string. It keeps the DomProgram subsystem self-contained by handling the string-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// String operates on DomProgram values and keeps the domprogram-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func (dp *DomProgram) String() string {
 	return FormatDomProgram(dp)
 }
 
-// BuildDom build on Runtime the dom. It keeps the Runtime subsystem self-contained by handling the dom-specific logic behind a narrow method boundary and returning whatever the surrounding caller needs to continue.
+// BuildDom operates on Runtime values and keeps the runtime-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *DomProgram and an error. Callers should only trust the value
+// when the error is nil.
 func (rt *Runtime) BuildDom(ctx context.Context, prog *Program) (*DomProgram, error) {
 	cfgProg, err := rt.BuildCFG(ctx, prog)
 	if err != nil {
@@ -43,7 +53,12 @@ func (rt *Runtime) BuildDom(ctx context.Context, prog *Program) (*DomProgram, er
 	return BuildDomProgram(cfgProg)
 }
 
-// BuildDomProgram builds the dom program representation from its input form, carrying all structural information forward and returning an error if the source cannot be lowered safely.. It returns *DomProgram and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// BuildDomProgram builds the dom program representation from its input form,
+// carrying structural information forward and returning an error if the source
+// cannot be lowered safely.
+//
+// It returns *DomProgram and an error. Callers should only trust the value
+// when the error is nil.
 func BuildDomProgram(prog *CFGProgram) (*DomProgram, error) {
 	if prog == nil || prog.Program == nil {
 		return nil, fmt.Errorf("cannot build dominator tree for nil program")
@@ -59,7 +74,12 @@ func BuildDomProgram(prog *CFGProgram) (*DomProgram, error) {
 	return out, nil
 }
 
-// FormatDomProgram formats the dom program into a stable textual rendering. The implementation is intentionally deterministic so round-tripping and diff-based review stay predictable.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// FormatDomProgram formats the dom program into a stable textual rendering.
+// The implementation is intentionally deterministic so round-tripping and
+// diff-based review stay predictable.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func FormatDomProgram(prog *DomProgram) string {
 	if prog == nil {
 		return ""
@@ -126,7 +146,11 @@ func FormatDomProgram(prog *DomProgram) string {
 	return b.String()
 }
 
-// buildDomFunction performs the build dom function step in the surrounding package and returns DomFunction, error.. It returns DomFunction and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// buildDomFunction handles the build dom function step in the surrounding
+// package and returns DomFunction, error.
+//
+// It returns DomFunction and an error. Callers should only trust the value
+// when the error is nil.
 func buildDomFunction(fn CFGFunction) (DomFunction, error) {
 	domFn := DomFunction{Name: fn.Name, SourceName: fn.SourceName, Entry: fn.Entry}
 	if len(fn.Blocks) == 0 {
@@ -244,7 +268,11 @@ func buildDomFunction(fn CFGFunction) (DomFunction, error) {
 	return domFn, nil
 }
 
-// reachableCFGBlocks performs the reachable cfg blocks step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// reachableCFGBlocks handles the reachable cfgblocks step in the surrounding
+// package and returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func reachableCFGBlocks(fn *CFGFunction) []string {
 	if fn == nil || fn.Entry == "" {
 		return nil
@@ -278,7 +306,11 @@ func reachableCFGBlocks(fn *CFGFunction) []string {
 	return out
 }
 
-// filterReachable performs the filter reachable step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// filterReachable handles the filter reachable step in the surrounding package
+// and returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func filterReachable(names []string, reach map[string]struct{}) []string {
 	out := make([]string, 0, len(names))
 	for _, name := range names {
@@ -289,7 +321,11 @@ func filterReachable(names []string, reach map[string]struct{}) []string {
 	return out
 }
 
-// setOf performs the set of step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// setOf handles the set of step in the surrounding package and returns
+// map[string]value.
+//
+// It returns map[string]value so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func setOf(names ...string) map[string]struct{} {
 	out := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -298,7 +334,11 @@ func setOf(names ...string) map[string]struct{} {
 	return out
 }
 
-// cloneSet performs the clone set step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// cloneSet handles the clone set step in the surrounding package and returns
+// map[string]value.
+//
+// It returns map[string]value so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func cloneSet(src map[string]struct{}) map[string]struct{} {
 	if len(src) == 0 {
 		return make(map[string]struct{})
@@ -310,7 +350,11 @@ func cloneSet(src map[string]struct{}) map[string]struct{} {
 	return out
 }
 
-// intersectSets performs the intersect sets step in the surrounding package and returns map[string]value.. It returns map[string]value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// intersectSets handles the intersect sets step in the surrounding package and
+// returns map[string]value.
+//
+// It returns map[string]value so callers can continue with the next stage of
+// the pipeline without re-deriving the same information.
 func intersectSets(a, b map[string]struct{}) map[string]struct{} {
 	if len(a) == 0 || len(b) == 0 {
 		return make(map[string]struct{})
@@ -327,7 +371,11 @@ func intersectSets(a, b map[string]struct{}) map[string]struct{} {
 	return out
 }
 
-// sameSet performs the same set step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// sameSet handles the same set step in the surrounding package and returns
+// bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func sameSet(a, b map[string]struct{}) bool {
 	if len(a) != len(b) {
 		return false
@@ -340,7 +388,11 @@ func sameSet(a, b map[string]struct{}) bool {
 	return true
 }
 
-// setMembers performs the set members step in the surrounding package and returns []string.. It returns []string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// setMembers handles the set members step in the surrounding package and
+// returns []string.
+//
+// It returns []string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func setMembers(src map[string]struct{}) []string {
 	out := make([]string, 0, len(src))
 	for name := range src {
@@ -349,7 +401,11 @@ func setMembers(src map[string]struct{}) []string {
 	return out
 }
 
-// dominates performs the dominates step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// dominates handles the dominates step in the surrounding package and returns
+// bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func dominates(domSets map[string]map[string]struct{}, a, b string) bool {
 	if a == "" || b == "" {
 		return false
@@ -362,7 +418,10 @@ func dominates(domSets map[string]map[string]struct{}, a, b string) bool {
 	return ok
 }
 
-// min performs the min step in the surrounding package and returns int.. It returns int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// min handles the min step in the surrounding package and returns int.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func min(a, b int) int {
 	if a < b {
 		return a

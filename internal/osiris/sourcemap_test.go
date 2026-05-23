@@ -5,7 +5,12 @@ import (
 	"testing"
 )
 
-// TestBuildSourceMap exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestBuildSourceMap exercises the behavior described by its body and locks in
+// the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestBuildSourceMap(t *testing.T) {
 	prog, err := Parse("<test>", `
 let outer = { let inner = 3; inner }
@@ -27,7 +32,12 @@ emit outer
 	}
 }
 
-// TestTraceFrameCarriesSourceRange exercises the behavior described by its body and locks in the observable language, runtime, or CLI semantics that the surrounding package depends on.
+// TestTraceFrameCarriesSourceRange exercises the behavior described by its
+// body and locks in the observable language, runtime, or CLI semantics that
+// the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func TestTraceFrameCarriesSourceRange(t *testing.T) {
 	prog, err := Parse("<test>", `
 let x = 1

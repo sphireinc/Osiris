@@ -6,14 +6,22 @@ import (
 	"strings"
 )
 
-// newTensorValue performs the new tensor value step in the surrounding package and returns Value.. It returns Value so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// newTensorValue handles the new tensor value step in the surrounding package
+// and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func newTensorValue(shape []int, data []Value) Value {
 	shapeCopy := append([]int(nil), shape...)
 	dataCopy := append([]Value(nil), data...)
 	return Value{kind: kindTensor, shape: shapeCopy, data: dataCopy}
 }
 
-// tensorShapeMatches performs the tensor shape matches step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorShapeMatches handles the tensor shape matches step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func tensorShapeMatches(shape []int, n int) bool {
 	if len(shape) == 0 {
 		return n == 1
@@ -28,7 +36,11 @@ func tensorShapeMatches(shape []int, n int) bool {
 	return total == n
 }
 
-// tensorShapeProduct performs the tensor shape product step in the surrounding package and returns int.. It returns int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorShapeProduct handles the tensor shape product step in the surrounding
+// package and returns int.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func tensorShapeProduct(shape []int) int {
 	if len(shape) == 0 {
 		return 1
@@ -40,7 +52,11 @@ func tensorShapeProduct(shape []int) int {
 	return total
 }
 
-// tensorShapeString performs the tensor shape string step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorShapeString handles the tensor shape string step in the surrounding
+// package and returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func tensorShapeString(shape []int) string {
 	if len(shape) == 0 {
 		return "[]"
@@ -52,7 +68,11 @@ func tensorShapeString(shape []int) string {
 	return "[" + strings.Join(parts, "x") + "]"
 }
 
-// formatTensor performs the format tensor step in the surrounding package and returns string.. It returns string so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// formatTensor handles the format tensor step in the surrounding package and
+// returns string.
+//
+// It returns string so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
 func formatTensor(shape []int, data []Value) string {
 	var b strings.Builder
 	b.WriteString("tensor")
@@ -63,7 +83,11 @@ func formatTensor(shape []int, data []Value) string {
 	return b.String()
 }
 
-// inferTensor performs the infer tensor step in the surrounding package and returns []int, []Value, error.. It returns []int, []Value, error so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// inferTensor handles the infer tensor step in the surrounding package and
+// returns []int, []Value, error.
+//
+// It returns []int, []Value, error so callers can continue with the next stage
+// of the pipeline without re-deriving the same information.
 func inferTensor(v Value) ([]int, []Value, error) {
 	switch v.kind {
 	case kindTensor:
@@ -105,7 +129,11 @@ func inferTensor(v Value) ([]int, []Value, error) {
 	}
 }
 
-// equalIntSlices performs the equal int slices step in the surrounding package and returns bool.. It returns bool so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// equalIntSlices handles the equal int slices step in the surrounding package
+// and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func equalIntSlices(a, b []int) bool {
 	if len(a) != len(b) {
 		return false
@@ -118,7 +146,11 @@ func equalIntSlices(a, b []int) bool {
 	return true
 }
 
-// tensorBroadcastShape performs the tensor broadcast shape step in the surrounding package and returns []int, error.. It returns []int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorBroadcastShape handles the tensor broadcast shape step in the
+// surrounding package and returns []int, error.
+//
+// It returns []int and an error. Callers should only trust the value when the
+// error is nil.
 func tensorBroadcastShape(left, right []int) ([]int, error) {
 	width := len(left)
 	if len(right) > width {
@@ -146,7 +178,11 @@ func tensorBroadcastShape(left, right []int) ([]int, error) {
 	return out, nil
 }
 
-// tensorShapeStrides performs the tensor shape strides step in the surrounding package and returns []int.. It returns []int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorShapeStrides handles the tensor shape strides step in the surrounding
+// package and returns []int.
+//
+// It returns []int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func tensorShapeStrides(shape []int) []int {
 	if len(shape) == 0 {
 		return nil
@@ -160,7 +196,11 @@ func tensorShapeStrides(shape []int) []int {
 	return strides
 }
 
-// tensorFlatToCoords performs the tensor flat to coords step in the surrounding package and returns []int.. It returns []int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorFlatToCoords handles the tensor flat to coords step in the surrounding
+// package and returns []int.
+//
+// It returns []int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func tensorFlatToCoords(flat int, shape, strides []int) []int {
 	if len(shape) == 0 {
 		return nil
@@ -177,7 +217,11 @@ func tensorFlatToCoords(flat int, shape, strides []int) []int {
 	return coords
 }
 
-// tensorBroadcastIndexFromCoords performs the tensor broadcast index from coords step in the surrounding package and returns int.. It returns int so callers can continue with the next stage of the pipeline without re-deriving the same information.
+// tensorBroadcastIndexFromCoords handles the tensor broadcast index from
+// coords step in the surrounding package and returns int.
+//
+// It returns int so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
 func tensorBroadcastIndexFromCoords(coords, shape, strides []int) int {
 	if len(shape) == 0 {
 		return 0
@@ -193,7 +237,11 @@ func tensorBroadcastIndexFromCoords(coords, shape, strides []int) int {
 	return idx
 }
 
-// tensorIncrementCoords performs the tensor increment coords step in the surrounding package and returns no result.. It does not return a value; it communicates success or failure through its side effects or through a separate error path when one exists.
+// tensorIncrementCoords handles the tensor increment coords step in the
+// surrounding package and returns no result.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
 func tensorIncrementCoords(coords, shape []int) {
 	for i := len(coords) - 1; i >= 0; i-- {
 		coords[i]++
@@ -204,7 +252,11 @@ func tensorIncrementCoords(coords, shape []int) {
 	}
 }
 
-// tensorFromShapeAndData performs the tensor from shape and data step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorFromShapeAndData handles the tensor from shape and data step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorFromShapeAndData(shape []int, data []Value) (Value, error) {
 	if !tensorShapeMatches(shape, len(data)) {
 		return nullValue(), fmt.Errorf("tensor shape %v does not match %d elements", shape, len(data))
@@ -212,7 +264,11 @@ func tensorFromShapeAndData(shape []int, data []Value) (Value, error) {
 	return newTensorValue(shape, data), nil
 }
 
-// tensorValueFromArgs performs the tensor value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorValueFromArgs handles the tensor value from args step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorValueFromArgs(args []Value) (Value, error) {
 	switch len(args) {
 	case 1:
@@ -239,7 +295,11 @@ func tensorValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
-// matrixValueFromArgs performs the matrix value from args step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// matrixValueFromArgs handles the matrix value from args step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func matrixValueFromArgs(args []Value) (Value, error) {
 	switch len(args) {
 	case 1, 2:
@@ -267,7 +327,11 @@ func matrixValueFromArgs(args []Value) (Value, error) {
 	}
 }
 
-// tensorDims performs the tensor dims step in the surrounding package and returns []int, error.. It returns []int and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorDims handles the tensor dims step in the surrounding package and
+// returns []int, error.
+//
+// It returns []int and an error. Callers should only trust the value when the
+// error is nil.
 func tensorDims(v Value) ([]int, error) {
 	items, err := v.AsList()
 	if err != nil {
@@ -287,7 +351,11 @@ func tensorDims(v Value) ([]int, error) {
 	return dims, nil
 }
 
-// tensorShapeValue performs the tensor shape value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorShapeValue handles the tensor shape value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorShapeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("shape expects 1 argument")
@@ -303,7 +371,11 @@ func tensorShapeValue(args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
-// tensorFlattenValue performs the tensor flatten value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorFlattenValue handles the tensor flatten value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorFlattenValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("flatten expects 1 argument")
@@ -315,7 +387,11 @@ func tensorFlattenValue(args []Value) (Value, error) {
 	return listValue(append([]Value(nil), data...)), nil
 }
 
-// tensorTransposeValue performs the tensor transpose value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorTransposeValue handles the tensor transpose value step in the
+// surrounding package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorTransposeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("transpose expects 1 argument")
@@ -337,7 +413,11 @@ func tensorTransposeValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{cols, rows}, out)
 }
 
-// tensorDotValue performs the tensor dot value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorDotValue handles the tensor dot value step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorDotValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("dot expects 2 arguments")
@@ -368,7 +448,11 @@ func tensorDotValue(args []Value) (Value, error) {
 	return floatResultValue(total, append(append([]Value(nil), left...), right...)...), nil
 }
 
-// tensorMatMulValue performs the tensor mat mul value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorMatMulValue handles the tensor mat mul value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorMatMulValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("matmul expects 2 arguments")
@@ -409,7 +493,11 @@ func tensorMatMulValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{rows, cols}, out)
 }
 
-// tensorReshapeValue performs the tensor reshape value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorReshapeValue handles the tensor reshape value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorReshapeValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("reshape expects 2 arguments")
@@ -425,7 +513,11 @@ func tensorReshapeValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData(shape, data)
 }
 
-// tensorCloneValue performs the tensor clone value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorCloneValue handles the tensor clone value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorCloneValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("clone expects 1 argument")
@@ -436,7 +528,11 @@ func tensorCloneValue(args []Value) (Value, error) {
 	return newTensorValue(args[0].shape, args[0].data), nil
 }
 
-// tensorViewValue performs the tensor view value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorViewValue handles the tensor view value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorViewValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("view expects 1 argument")
@@ -447,7 +543,11 @@ func tensorViewValue(args []Value) (Value, error) {
 	return Value{kind: kindTensor, shape: args[0].shape, data: args[0].data}, nil
 }
 
-// tensorBinaryValue performs the tensor binary value step in the surrounding package and returns Value, error.. It returns Value and an error so callers can inspect the computed value while still receiving a failure report when one occurs.
+// tensorBinaryValue handles the tensor binary value step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
 func tensorBinaryValue(ctx context.Context, sched deterministicScheduler, op tokenKind, left, right Value) (Value, error) {
 	if op == tokenEqualEqual {
 		return boolValue(left.Equal(right)), nil
