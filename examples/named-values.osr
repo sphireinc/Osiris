@@ -1,0 +1,13 @@
+let distance = 2 * kilo * Meter
+let duration = 30 * minute
+let energy = 3 * Joule
+let circle = 2 * Pi
+let gravity = StandardGravity
+let light = SpeedOfLight
+
+emit distance
+emit duration
+emit energy
+emit circle
+emit gravity
+emit light

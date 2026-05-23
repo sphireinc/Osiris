@@ -1,0 +1,80 @@
+import "std/math" as math
+
+let puzzle =
+  ".34678912" +
+  "672195348" +
+  "198342567" +
+  "859761423" +
+  "426853791" +
+  "713924856" +
+  "961537284" +
+  "287419635" +
+  "345286179"
+
+let puzzle2 =
+  ".34.7891." +
+  "6.21.53.8" +
+  "19.....67" +
+  "8..761..3" +
+  ".26...79." +
+  "7..924..6" +
+  "96.....84" +
+  "2.74.96.5" +
+  ".45.8617."
+
+
+func row_ok(board, row, col, digit) {
+  if(col >= 9.0, true, if(at(board, row * 9.0 + col) == digit, false, row_ok(board, row, col + 1.0, digit)))
+}
+
+func col_ok(board, row, col, digit) {
+  if(row >= 9.0, true, if(at(board, row * 9.0 + col) == digit, false, col_ok(board, row + 1.0, col, digit)))
+}
+
+func box_ok(board, row0, col0, r, c, digit) {
+  if(r >= 3.0, true,
+    if(c >= 3.0,
+      box_ok(board, row0, col0, r + 1.0, 0.0, digit),
+      if(at(board, (row0 + r) * 9.0 + (col0 + c)) == digit, false, box_ok(board, row0, col0, r, c + 1.0, digit))
+    )
+  )
+}
+
+func valid(board, idx, digit) {
+  # let row = idx / 9.0
+  let row = math.floor(idx / 9.0)
+  let col = idx % 9.0
+  and(
+    row_ok(board, row, 0.0, digit),
+    and(
+      col_ok(board, 0.0, col, digit),
+      box_ok(board, math.floor(row / 3.0) * 3.0, math.floor(col / 3.0) * 3.0, 0.0, 0.0, digit)
+    )
+  )
+}
+
+func solve(board, idx, digit) {
+  if(idx >= 81.0, board,
+    if(at(board, idx) != ".",
+      solve(board, idx + 1.0, 1.0),
+      if(digit > 9.0, null,
+        if(valid(board, idx, format("%v", digit)),
+          {
+            let next = solve(setat(board, idx, format("%v", digit)), idx + 1.0, 1.0)
+            if(next == null, solve(board, idx, digit + 1.0), next)
+          },
+          solve(board, idx, digit + 1.0)
+        )
+      )
+    )
+  )
+}
+
+# let solved = solve(puzzle, 0.0, 1.0)
+# emit solved
+# emit join(" - ", chunks(solved, 9))
+
+
+let solved2 = solve(puzzle2, 0.0, 1.0)
+emit solved2
+emit join(" - ", chunks(solved2, 9))

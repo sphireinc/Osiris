@@ -19,6 +19,8 @@ const (
 	tokenMacro
 	tokenFunc
 	tokenReturn
+	tokenTry
+	tokenCatch
 	tokenWhile
 	tokenFor
 	tokenIn
@@ -98,6 +100,10 @@ func (k tokenKind) String() string {
 		return "func"
 	case tokenReturn:
 		return "return"
+	case tokenTry:
+		return "try"
+	case tokenCatch:
+		return "catch"
 	case tokenWhile:
 		return "while"
 	case tokenFor:
@@ -376,6 +382,10 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenFunc, text: text, line: startLine, col: startCol}, nil
 	case "return":
 		return token{kind: tokenReturn, text: text, line: startLine, col: startCol}, nil
+	case "try":
+		return token{kind: tokenTry, text: text, line: startLine, col: startCol}, nil
+	case "catch":
+		return token{kind: tokenCatch, text: text, line: startLine, col: startCol}, nil
 	case "while":
 		return token{kind: tokenWhile, text: text, line: startLine, col: startCol}, nil
 	case "for":
@@ -412,13 +422,32 @@ func (l *lexer) scanIdent() (token, error) {
 func (l *lexer) scanNumber() (token, error) {
 	start := l.off
 	startLine, startCol := l.line, l.col
+	seenExp := false
+	allowExpSign := false
 	for l.off < len(l.src) {
 		r, w := utf8.DecodeRuneInString(l.src[l.off:])
-		if unicode.IsDigit(r) || unicode.IsLetter(r) || r == '.' || r == '_' {
+		switch {
+		case unicode.IsDigit(r) || r == '_' || r == '.':
+			l.advance(w)
+			allowExpSign = false
+			continue
+		case (r == 'e' || r == 'E') && !seenExp:
+			seenExp = true
+			allowExpSign = true
 			l.advance(w)
 			continue
+		case allowExpSign && (r == '+' || r == '-'):
+			allowExpSign = false
+			l.advance(w)
+			continue
+		case unicode.IsLetter(r):
+			l.advance(w)
+			allowExpSign = false
+			continue
+		default:
+			text := l.src[start:l.off]
+			return token{kind: tokenNumber, text: text, line: startLine, col: startCol}, nil
 		}
-		break
 	}
 	text := l.src[start:l.off]
 	return token{kind: tokenNumber, text: text, line: startLine, col: startCol}, nil

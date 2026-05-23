@@ -1,0 +1,33 @@
+# Projectile trajectory sample inspired by the C version.
+# Emits [time, x, y] at fixed time steps until the projectile drops below ground.
+
+import "std/math" as math
+
+let velocity = 30.0
+let angle_deg = 45.0
+let g = 9.81
+let dt = 0.05
+let angle_rad = angle_deg * (Pi / 180.0)
+let vx = velocity * math.cos(angle_rad)
+let vy = velocity * math.sin(angle_rad)
+let x = 0.0
+let y = 0.0
+let time = 0.0
+
+emit "Time(s) \t X_Pos(m) \t Y_Pos(m)"
+emit "-----------------------------------------"
+
+while y >= 0.0 {
+  emit [
+    math.floor(time * 100.0 + 0.5) / 100.0,
+    math.floor(x * 100.0 + 0.5) / 100.0,
+    math.floor(y * 100.0 + 0.5) / 100.0
+  ]
+  let x = x + vx * dt
+  let y = y + vy * dt
+  let vy = vy - g * dt
+  let time = time + dt
+}
+
+emit "-----------------------------------------"
+emit cat("Impact detected around X = ", math.floor(x * 100.0 + 0.5) / 100.0, " meters.")

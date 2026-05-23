@@ -1,0 +1,7 @@
+import "std/math" as math
+let rounds = 1500
+let x0 = 0.3141592653589793
+let y0 = 0.2718281828459045
+let z0 = 0.7071067811865476
+func bench(i, x, y, z, acc, state, checksum) { if(i >= rounds, [acc, checksum, hex(state), x + y + z], { let x = (x * 3.999991 * (1 - x) + 1e-06 * y) % 1; let y = (y * 3.999983 * (1 - y) + 1e-06 * z) % 1; let z = (z * 3.999971 * (1 - z) + 1e-06 * x) % 1; let curvature = math.abs(x - y) + math.abs(y - z) + math.abs(z - x) + 1; let wave = math.sqrt(curvature); let spike = math.pow(wave + acc * 1e-07 + 1.000001, 2.25); let acc = acc + spike + x * y * z; let state = bxor(rotl(state, band(i, 31u64)), u64(math.floor(math.abs(acc * 1000000)))); let checksum = mix(checksum, hash(cat(checksum, hex(state), acc, wave, spike, x, y, z))); bench(i + 1, x, y, z, acc, state, checksum) }) }
+emit bench(0, x0, y0, z0, 0, u64(88172645463393265u64), "osiris::stress")

@@ -408,6 +408,10 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				regs[instr.dst] = v
 				continue
 			}
+			if v, ok := r.rt.Constants[instr.name]; ok {
+				regs[instr.dst] = v
+				continue
+			}
 			if fn, ok := r.rt.Builtins[instr.name]; ok {
 				regs[instr.dst] = functionValueOf(instr.name, fn)
 				continue
@@ -431,7 +435,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				regs[instr.dst] = v
 				continue
 			}
-			v, err := vmBinary(instr.tok, regs[instr.a], regs[instr.b])
+			v, err := vmBinary(r.ctx, instr.tok, regs[instr.a], regs[instr.b])
 			if err != nil {
 				return nullValue(), err
 			}
@@ -607,7 +611,103 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 	return child.run(chunk)
 }
 
-func vmBinary(op tokenKind, left, right Value) (Value, error) {
+func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, error) {
+	if left.kind == kindTensor || right.kind == kindTensor {
+		return tensorBinaryValue(ctx, deterministicScheduler{}, op, left, right)
+	}
+	if left.kind == kindQuantity || right.kind == kindQuantity {
+		return quantityBinary(op, left, right)
+	}
+	if left.kind == kindInterval || right.kind == kindInterval {
+		return intervalBinary(op, left, right)
+	}
+	if left.kind == kindModInt || right.kind == kindModInt {
+		return modIntBinary(op, left, right)
+	}
+	if left.kind == kindFixed || right.kind == kindFixed {
+		return fixedBinary(op, left, right)
+	}
+	if left.kind == kindBigInt || left.kind == kindBigFloat || left.kind == kindInt || right.kind == kindBigInt || right.kind == kindBigFloat || right.kind == kindInt {
+		return bigBinary(op, left, right)
+	}
+	if (left.kind == kindComplex || right.kind == kindComplex) && left.kind != kindString && right.kind != kindString {
+		switch op {
+		case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+			return complexBinary(op, left, right)
+		case tokenEqualEqual:
+			return boolValue(left.Equal(right)), nil
+		case tokenBangEqual:
+			return boolValue(!left.Equal(right)), nil
+		case tokenPercent:
+			return nullValue(), fmt.Errorf("complex modulo is not supported")
+		default:
+			return nullValue(), fmt.Errorf("ordering is not defined for complex numbers")
+		}
+	}
+	if (left.kind == kindDecimal || right.kind == kindDecimal) && left.kind != kindComplex && right.kind != kindComplex {
+		switch op {
+		case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+			return decimalBinary(op, left, right)
+		case tokenEqualEqual:
+			return boolValue(left.Equal(right)), nil
+		case tokenBangEqual:
+			return boolValue(!left.Equal(right)), nil
+		case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual:
+			cmp, err := decimalCompare(left, right)
+			if err != nil {
+				return nullValue(), err
+			}
+			switch op {
+			case tokenLess:
+				return boolValue(cmp < 0), nil
+			case tokenLessEqual:
+				return boolValue(cmp <= 0), nil
+			case tokenGreater:
+				return boolValue(cmp > 0), nil
+			case tokenGreaterEqual:
+				return boolValue(cmp >= 0), nil
+			}
+		case tokenPercent:
+			return nullValue(), fmt.Errorf("decimal modulo is not supported")
+		}
+	}
+	if left.kind == kindUint && right.kind == kindUint {
+		if isWideUintValue(left) || isWideUintValue(right) || left.packed || right.packed {
+			switch op {
+			case tokenPlus, tokenMinus, tokenStar, tokenPercent:
+				return wideUnsignedBinary(op, left, right)
+			case tokenSlash:
+				return exactUnsignedDivisionValue(left, right)
+			}
+		}
+		lu, lw, err := uintFromValue(left)
+		if err != nil {
+			return nullValue(), err
+		}
+		ru, rw, err := uintFromValue(right)
+		if err != nil {
+			return nullValue(), err
+		}
+		width := lw
+		if rw > width {
+			width = rw
+		}
+		switch op {
+		case tokenPlus:
+			return uintValue(lu+ru, width), nil
+		case tokenMinus:
+			return uintValue(lu-ru, width), nil
+		case tokenStar:
+			return uintValue(lu*ru, width), nil
+		case tokenSlash:
+			return exactUnsignedDivisionValue(left, right)
+		case tokenPercent:
+			if ru == 0 {
+				return nullValue(), fmt.Errorf("modulo by zero")
+			}
+			return uintValue(lu%ru, width), nil
+		}
+	}
 	switch op {
 	case tokenPlus:
 		if left.kind == kindString || right.kind == kindString {
@@ -621,7 +721,7 @@ func vmBinary(op tokenKind, left, right Value) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln + rn), nil
+		return floatResultValue(ln+rn, left, right), nil
 	case tokenMinus:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -631,7 +731,7 @@ func vmBinary(op tokenKind, left, right Value) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln - rn), nil
+		return floatResultValue(ln-rn, left, right), nil
 	case tokenStar:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -641,7 +741,7 @@ func vmBinary(op tokenKind, left, right Value) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln * rn), nil
+		return floatResultValue(ln*rn, left, right), nil
 	case tokenSlash:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -654,7 +754,7 @@ func vmBinary(op tokenKind, left, right Value) (Value, error) {
 		if rn == 0 {
 			return nullValue(), fmt.Errorf("division by zero")
 		}
-		return numberValue(ln / rn), nil
+		return floatResultValue(ln/rn, left, right), nil
 	case tokenPercent:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -667,7 +767,7 @@ func vmBinary(op tokenKind, left, right Value) (Value, error) {
 		if rn == 0 {
 			return nullValue(), fmt.Errorf("modulo by zero")
 		}
-		return numberValue(math.Mod(ln, rn)), nil
+		return floatResultValue(math.Mod(ln, rn), left, right), nil
 	case tokenEqualEqual:
 		return boolValue(left.Equal(right)), nil
 	case tokenBangEqual:
@@ -695,6 +795,9 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	sess := NewSession(r, ctx, prog.SourceName)
 	expanded, err := sess.ExpandProgram(prog)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateTensorShapes(expanded); err != nil {
 		return nil, err
 	}
 	if containsControlFlow(expanded) {
@@ -789,6 +892,8 @@ func exprContainsControl(expr Expr) bool {
 			}
 		}
 		return false
+	case *tryExpr:
+		return true
 	default:
 		return false
 	}

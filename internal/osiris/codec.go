@@ -5,6 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/big"
+	"sort"
+	"strconv"
+	"strings"
 )
 
 const codecHeader = "OSR1"
@@ -84,22 +88,247 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 		}
 		return buf.WriteByte(0x01)
 	case kindNumber:
-		if err := buf.WriteByte(0x03); err != nil {
+		if v.bfloat {
+			if err := buf.WriteByte(0x12); err != nil {
+				return err
+			}
+			if err := buf.WriteByte(byte(v.fbits)); err != nil {
+				return err
+			}
+			var tmp [8]byte
+			binary.BigEndian.PutUint64(tmp[:], math.Float64bits(v.num))
+			_, err := buf.Write(tmp[:])
+			return err
+		}
+		if v.fbits != 0 {
+			if err := buf.WriteByte(0x10); err != nil {
+				return err
+			}
+			if err := buf.WriteByte(byte(v.fbits)); err != nil {
+				return err
+			}
+		} else if err := buf.WriteByte(0x03); err != nil {
 			return err
 		}
 		var tmp [8]byte
 		binary.BigEndian.PutUint64(tmp[:], math.Float64bits(v.num))
 		_, err := buf.Write(tmp[:])
 		return err
+	case kindDecimal:
+		if err := buf.WriteByte(0x07); err != nil {
+			return err
+		}
+		text := v.String()
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindInterval:
+		if err := buf.WriteByte(0x13); err != nil {
+			return err
+		}
+		text := "interval[0, 0]"
+		if v.iv != nil {
+			text = formatInterval(v.iv)
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindModInt:
+		if err := buf.WriteByte(0x14); err != nil {
+			return err
+		}
+		text := "modint[1, 0]"
+		if v.mi != nil {
+			text = "modint[" + v.mi.mod.String() + ", " + v.mi.val.String() + "]"
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindFixed:
+		if err := buf.WriteByte(0x15); err != nil {
+			return err
+		}
+		text := "fixed[64, 0, 0]"
+		if v.fx != nil {
+			text = "fixed[" + strconv.FormatUint(uint64(v.fx.width), 10) + ", " + strconv.FormatUint(uint64(v.fx.frac), 10) + ", " + v.fx.raw.String() + "]"
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindComplex:
+		if err := buf.WriteByte(0x08); err != nil {
+			return err
+		}
+		var tmp [16]byte
+		binary.BigEndian.PutUint64(tmp[:8], math.Float64bits(real(v.cx)))
+		binary.BigEndian.PutUint64(tmp[8:], math.Float64bits(imag(v.cx)))
+		_, err := buf.Write(tmp[:])
+		return err
+	case kindBigInt:
+		if err := buf.WriteByte(0x0b); err != nil {
+			return err
+		}
+		text := "0"
+		if v.bi != nil {
+			text = v.bi.String()
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindBigFloat:
+		if err := buf.WriteByte(0x0c); err != nil {
+			return err
+		}
+		text := "0"
+		if v.bf != nil {
+			r, _ := v.bf.Rat(nil)
+			text = r.RatString()
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindInt:
+		if err := buf.WriteByte(0x0e); err != nil {
+			return err
+		}
+		width := v.ibits
+		if width == 0 {
+			width = 64
+		}
+		if err := buf.WriteByte(byte(width)); err != nil {
+			return err
+		}
+		text := "0"
+		if v.i != nil {
+			text = v.i.String()
+		}
+		buf.Write(appendUvarint(nil, uint64(len(text))))
+		_, err := buf.WriteString(text)
+		return err
+	case kindQuantity:
+		if err := buf.WriteByte(0x0d); err != nil {
+			return err
+		}
+		mag := "0"
+		var dims map[string]int
+		if v.qty != nil {
+			if v.qty.mag != nil {
+				mag = v.qty.mag.RatString()
+			}
+			dims = v.qty.dims
+		}
+		buf.Write(appendUvarint(nil, uint64(len(mag))))
+		if _, err := buf.WriteString(mag); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(dims))))
+		keys := make([]string, 0, len(dims))
+		for k := range dims {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			buf.Write(appendUvarint(nil, uint64(len(k))))
+			if _, err := buf.WriteString(k); err != nil {
+				return err
+			}
+			var tmp [binary.MaxVarintLen64]byte
+			n := binary.PutVarint(tmp[:], int64(dims[k]))
+			if _, err := buf.Write(tmp[:n]); err != nil {
+				return err
+			}
+		}
+		return nil
+	case kindTensor:
+		if err := buf.WriteByte(0x09); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.shape))))
+		for _, dim := range v.shape {
+			buf.Write(appendUvarint(nil, uint64(dim)))
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.data))))
+		for i := range v.data {
+			if err := encodeInto(buf, v.data[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	case kindError:
+		if err := buf.WriteByte(0x0a); err != nil {
+			return err
+		}
+		msg := v.errMsg
+		buf.Write(appendUvarint(nil, uint64(len(msg))))
+		_, err := buf.WriteString(msg)
+		return err
 	case kindUint:
+		if v.packed {
+			if err := buf.WriteByte(0x11); err != nil {
+				return err
+			}
+			width := v.ubitsToUint16()
+			if width == 0 {
+				width = uint16(v.bits)
+			}
+			if width == 0 {
+				width = 64
+			}
+			buf.Write(appendUvarint(nil, uint64(width)))
+			if v.native {
+				if err := buf.WriteByte(1); err != nil {
+					return err
+				}
+			} else if err := buf.WriteByte(0); err != nil {
+				return err
+			}
+			if v.ub != nil && width > 64 {
+				if err := buf.WriteByte(1); err != nil {
+					return err
+				}
+				text := v.ub.String()
+				buf.Write(appendUvarint(nil, uint64(len(text))))
+				_, err := buf.WriteString(text)
+				return err
+			}
+			if err := buf.WriteByte(0); err != nil {
+				return err
+			}
+			var tmp [8]byte
+			if v.ub != nil {
+				binary.BigEndian.PutUint64(tmp[:], v.ub.Uint64())
+			} else {
+				binary.BigEndian.PutUint64(tmp[:], v.u)
+			}
+			_, err := buf.Write(tmp[:])
+			return err
+		}
+		if v.ub != nil && v.ubitsToUint16() > 64 {
+			if err := buf.WriteByte(0x0f); err != nil {
+				return err
+			}
+			buf.Write(appendUvarint(nil, uint64(v.ubitsToUint16())))
+			text := v.ub.String()
+			buf.Write(appendUvarint(nil, uint64(len(text))))
+			_, err := buf.WriteString(text)
+			return err
+		}
 		if err := buf.WriteByte(0x04); err != nil {
 			return err
 		}
-		if err := buf.WriteByte(v.bits); err != nil {
+		width := v.bits
+		if width == 0 {
+			width = 64
+		}
+		if err := buf.WriteByte(width); err != nil {
 			return err
 		}
 		var tmp [8]byte
-		binary.BigEndian.PutUint64(tmp[:], v.u)
+		if v.ub != nil {
+			binary.BigEndian.PutUint64(tmp[:], v.ub.Uint64())
+		} else {
+			binary.BigEndian.PutUint64(tmp[:], v.u)
+		}
 		_, err := buf.Write(tmp[:])
 		return err
 	case kindString:
@@ -162,6 +391,249 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			return nullValue(), err
 		}
 		return numberValue(math.Float64frombits(binary.BigEndian.Uint64(raw))), nil
+	case 0x10:
+		width, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(8)
+		if err != nil {
+			return nullValue(), err
+		}
+		return floatValue(math.Float64frombits(binary.BigEndian.Uint64(raw)), uint16(width)), nil
+	case 0x12:
+		width, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(8)
+		if err != nil {
+			return nullValue(), err
+		}
+		return bfloatValue(math.Float64frombits(binary.BigEndian.Uint64(raw)), uint16(width)), nil
+	case 0x07:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		return decimalValueFromString(string(raw))
+	case 0x13:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		text := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(text, "interval[") || !strings.HasSuffix(text, "]") {
+			return nullValue(), fmt.Errorf("invalid interval encoding")
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(text, "interval["), "]")
+		parts := strings.SplitN(body, ",", 2)
+		if len(parts) != 2 {
+			return nullValue(), fmt.Errorf("invalid interval encoding")
+		}
+		lo, ok := new(big.Rat).SetString(strings.TrimSpace(parts[0]))
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid interval encoding")
+		}
+		hi, ok := new(big.Rat).SetString(strings.TrimSpace(parts[1]))
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid interval encoding")
+		}
+		return intervalValueOf(newIntervalValue(lo, hi)), nil
+	case 0x14:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		text := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(text, "modint[") || !strings.HasSuffix(text, "]") {
+			return nullValue(), fmt.Errorf("invalid modint encoding")
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(text, "modint["), "]")
+		parts := strings.SplitN(body, ",", 2)
+		if len(parts) != 2 {
+			return nullValue(), fmt.Errorf("invalid modint encoding")
+		}
+		mod, ok := new(big.Int).SetString(strings.TrimSpace(parts[0]), 0)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid modint encoding")
+		}
+		val, ok := new(big.Int).SetString(strings.TrimSpace(parts[1]), 0)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid modint encoding")
+		}
+		return modIntValueOf(mod, val)
+	case 0x15:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		text := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(text, "fixed[") || !strings.HasSuffix(text, "]") {
+			return nullValue(), fmt.Errorf("invalid fixed encoding")
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(text, "fixed["), "]")
+		parts := strings.SplitN(body, ",", 3)
+		if len(parts) != 3 {
+			return nullValue(), fmt.Errorf("invalid fixed encoding")
+		}
+		widthI, ok := new(big.Int).SetString(strings.TrimSpace(parts[0]), 10)
+		if !ok || !widthI.IsUint64() {
+			return nullValue(), fmt.Errorf("invalid fixed encoding")
+		}
+		fracI, ok := new(big.Int).SetString(strings.TrimSpace(parts[1]), 10)
+		if !ok || !fracI.IsUint64() {
+			return nullValue(), fmt.Errorf("invalid fixed encoding")
+		}
+		rawI, ok := new(big.Int).SetString(strings.TrimSpace(parts[2]), 10)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid fixed encoding")
+		}
+		return fixedValueOf(uint16(widthI.Uint64()), uint16(fracI.Uint64()), rawI)
+	case 0x08:
+		raw, err := cur.take(16)
+		if err != nil {
+			return nullValue(), err
+		}
+		re := math.Float64frombits(binary.BigEndian.Uint64(raw[:8]))
+		im := math.Float64frombits(binary.BigEndian.Uint64(raw[8:]))
+		return complexValue(complex(re, im)), nil
+	case 0x0b:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		bi, ok := new(big.Int).SetString(string(raw), 10)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid big integer encoding")
+		}
+		return bigIntValue(bi), nil
+	case 0x0c:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		rat, ok := new(big.Rat).SetString(string(raw))
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid big float encoding")
+		}
+		return bigFloatValue(new(big.Float).SetRat(rat)), nil
+	case 0x0d:
+		magLen, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(magLen))
+		if err != nil {
+			return nullValue(), err
+		}
+		mag, ok := new(big.Rat).SetString(string(raw))
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid quantity encoding")
+		}
+		dimsLen, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		dims := make(map[string]int, dimsLen)
+		for i := uint64(0); i < dimsLen; i++ {
+			nameLen, err := cur.uvarint()
+			if err != nil {
+				return nullValue(), err
+			}
+			nameRaw, err := cur.take(int(nameLen))
+			if err != nil {
+				return nullValue(), err
+			}
+			exp, n := binary.Varint(cur.data[cur.off:])
+			if n <= 0 {
+				return nullValue(), fmt.Errorf("invalid quantity encoding")
+			}
+			cur.off += n
+			dims[string(nameRaw)] = int(exp)
+		}
+		return quantityValueOf(mag, dims), nil
+	case 0x0e:
+		bitsWidth, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		i, ok := new(big.Int).SetString(string(raw), 10)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid signed integer encoding")
+		}
+		return intValue(i, uint16(bitsWidth)), nil
+	case 0x09:
+		shapeLen, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		shape := make([]int, shapeLen)
+		for i := range shape {
+			n, err := cur.uvarint()
+			if err != nil {
+				return nullValue(), err
+			}
+			shape[i] = int(n)
+		}
+		dataLen, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if dataLen != uint64(tensorShapeProduct(shape)) {
+			return nullValue(), fmt.Errorf("encoded tensor shape does not match element count")
+		}
+		data := make([]Value, 0, dataLen)
+		for i := uint64(0); i < dataLen; i++ {
+			item, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			data = append(data, item)
+		}
+		return newTensorValue(shape, data), nil
+	case 0x0a:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		return errorValue(string(raw)), nil
 	case 0x04:
 		bitsWidth, err := cur.byte()
 		if err != nil {
@@ -172,6 +644,58 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			return nullValue(), err
 		}
 		return uintValue(binary.BigEndian.Uint64(raw), bitsWidth), nil
+	case 0x0f:
+		bitsWidth, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		raw, err := cur.take(int(n))
+		if err != nil {
+			return nullValue(), err
+		}
+		bi, ok := new(big.Int).SetString(string(raw), 10)
+		if !ok {
+			return nullValue(), fmt.Errorf("invalid wide unsigned integer encoding")
+		}
+		return wideUintValue(bi, uint16(bitsWidth)), nil
+	case 0x11:
+		bitsWidth, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		nativeFlag, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		mode, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		native := nativeFlag != 0
+		if mode == 1 {
+			n, err := cur.uvarint()
+			if err != nil {
+				return nullValue(), err
+			}
+			raw, err := cur.take(int(n))
+			if err != nil {
+				return nullValue(), err
+			}
+			bi, ok := new(big.Int).SetString(string(raw), 10)
+			if !ok {
+				return nullValue(), fmt.Errorf("invalid packed wide unsigned integer encoding")
+			}
+			return packedWideUintValue(bi, uint16(bitsWidth), native), nil
+		}
+		raw, err := cur.take(8)
+		if err != nil {
+			return nullValue(), err
+		}
+		return packedUintValue(binary.BigEndian.Uint64(raw), uint8(bitsWidth), native), nil
 	case 0x05:
 		n, err := cur.uvarint()
 		if err != nil {

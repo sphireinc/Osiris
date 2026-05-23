@@ -1,0 +1,29 @@
+import "std/math" as math
+
+let c = 299792458.0
+let mass = 1.0
+let samples = 512.0
+let threshold = 1.0e16
+
+func gamma(v) => 1.0 / math.sqrt(1.0 - (v * v) / (c * c))
+func kinetic(v) => (gamma(v) - 1.0) * mass * c * c
+
+func sweep(i, hits, total, peak) {
+  if(i >= samples, [
+    hits,
+    total / samples,
+    peak
+  ], {
+    let frac = i / samples
+    let v = c * frac * 0.999
+    let ke = kinetic(v)
+    sweep(
+      i + 1.0,
+      hits + if(ke > threshold, 1.0, 0.0),
+      total + ke,
+      if(ke > peak, ke, peak)
+    )
+  })
+}
+
+emit sweep(0.0, 0.0, 0.0, 0.0)

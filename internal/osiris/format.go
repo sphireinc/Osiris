@@ -40,7 +40,7 @@ func formatStmt(stmt Stmt) string {
 	case letStmt:
 		return "let " + s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:
-		return "emit " + formatExpr(s.Expr, 0)
+		return "emit " + formatEmitExpr(s.Expr)
 	case macroStmt:
 		return "macro " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
 	case funcStmt:
@@ -71,6 +71,9 @@ func formatStmt(stmt Stmt) string {
 func formatExpr(expr Expr, parentPrec int) string {
 	switch n := expr.(type) {
 	case *literalExpr:
+		if n.value.kind == kindTensor {
+			return formatTensorSource(n.value.shape, n.value.data)
+		}
 		return n.value.String()
 	case *identExpr:
 		return n.name
@@ -130,6 +133,12 @@ func formatExpr(expr Expr, parentPrec int) string {
 		}
 		b.WriteByte('}')
 		return b.String()
+	case *tryExpr:
+		s := "try " + formatExpr(n.body, precLowest) + " catch " + n.catchName + " " + formatExpr(n.handler, precLowest)
+		if precLowest < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
 	case *matchExpr:
 		var b strings.Builder
 		if n.keyword == tokenSwitch {
@@ -172,6 +181,61 @@ func formatExpr(expr Expr, parentPrec int) string {
 	default:
 		return "<expr>"
 	}
+}
+
+func formatEmitExpr(expr Expr) string {
+	call, ok := expr.(*callExpr)
+	if !ok {
+		return formatExpr(expr, 0)
+	}
+	name, ok := call.callee.(*identExpr)
+	if !ok || name.name != "cat" {
+		return formatExpr(expr, 0)
+	}
+	if len(call.args) < 3 || len(call.args)%2 == 0 {
+		return formatExpr(expr, 0)
+	}
+	parts := make([]string, 0, (len(call.args)+1)/2)
+	for i := 0; i < len(call.args); i += 2 {
+		if i > 0 {
+			lit, ok := call.args[i-1].(*literalExpr)
+			if !ok || lit.value.kind != kindString || lit.value.str != ", " {
+				return formatExpr(expr, 0)
+			}
+		}
+		parts = append(parts, formatExpr(call.args[i], 0))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatTensorSource(shape []int, data []Value) string {
+	var b strings.Builder
+	b.WriteString("tensor(")
+	b.WriteString(formatShapeList(shape))
+	b.WriteString(", ")
+	b.WriteByte('[')
+	for i, item := range data {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(item.String())
+	}
+	b.WriteByte(']')
+	b.WriteByte(')')
+	return b.String()
+}
+
+func formatShapeList(shape []int) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, dim := range shape {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(fmt.Sprintf("%d", dim))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 const (

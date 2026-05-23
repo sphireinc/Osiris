@@ -1,0 +1,29 @@
+import "std/math" as math
+
+# computes the average kinetic energy needed to accelerate a 1 kg mass from rest to 0.99c using a numerical loop
+
+let c = 299792458.0
+let mass = 1.0
+let steps = 5000.0
+let max_v = c * 0.99
+let dv = max_v / steps
+
+func gamma(v) => 1.0 / math.sqrt(1.0 - (v * v) / (c * c))
+
+func kinetic(v) => (gamma(v) - 1.0) * mass * c * c
+
+func sweep(n) {
+    let i = 0.0
+    let v = 0.0
+    let total = 0.0
+
+    while i < n {
+      let total = total + kinetic(v)
+      let v = v + dv
+      let i = i + 1.0
+    }
+
+    return total / n
+}
+
+emit sweep(steps)

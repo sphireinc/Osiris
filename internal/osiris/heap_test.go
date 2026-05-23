@@ -64,7 +64,7 @@ emit probe(x)
 	if err != nil {
 		t.Fatalf("query failed: %v", err)
 	}
-	if got, want := v.String(), "7"; got != want {
+	if got, want := v.String(), "7u64"; got != want {
 		t.Fatalf("query output = %s, want %s", got, want)
 	}
 }

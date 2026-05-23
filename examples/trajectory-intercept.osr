@@ -1,0 +1,43 @@
+# Two objects moving at constant speed.
+# Object 2 is adjusted so it intercepts object 1 at t = 18 seconds.
+# The output is one sample per second:
+# [t, x1, y1, z1, x2, y2, z2]
+
+let intercept_t = 18.0
+
+# Object 1: fixed constant-speed trajectory.
+let p1x = 0.0
+let p1y = 0.0
+let p1z = 0.0
+let v1x = 3.0
+let v1y = 1.0
+let v1z = 0.5
+
+# Object 2 starts elsewhere.
+let p2x = -90.0
+let p2y = -18.0
+let p2z = 45.0
+
+# Choose the intercept point by sampling object 1 at t = 18.
+let targetx = p1x + v1x * intercept_t
+let targety = p1y + v1y * intercept_t
+let targetz = p1z + v1z * intercept_t
+
+# Retarget object 2 so it reaches the same point at the same time.
+let v2x = (targetx - p2x) / intercept_t
+let v2y = (targety - p2y) / intercept_t
+let v2z = (targetz - p2z) / intercept_t
+
+let t = 0.0
+while t <= intercept_t {
+  emit [
+    t,
+    p1x + v1x * t,
+    p1y + v1y * t,
+    p1z + v1z * t,
+    p2x + v2x * t,
+    p2y + v2y * t,
+    p2z + v2z * t
+  ]
+  let t = t + 1.0
+}

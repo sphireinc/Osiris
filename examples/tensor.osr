@@ -1,0 +1,28 @@
+let n = 32
+let rounds = 6.0
+
+let base = matrix(n, n, range(n * n)) / 1024.0
+let bias = matrix(n, n, range(n * n)) / 2048.0
+let seed = matrix(n, n, range(n * n)) / 4096.0
+
+func mix(a, b, c) {
+  let p = matmul(a, transpose(b))
+  let q = (p + c) * 0.25 + (a * 0.75)
+  let r = transpose(q) + bias
+  return reshape(r, [n, n])
+}
+
+func run(steps, a, b, c) {
+  let i = 0.0
+  while i < steps {
+    let a = mix(a, b, c)
+    let b = mix(b, c, a)
+    let c = mix(c, a, b)
+    let i = i + 1.0
+  }
+
+  let checksum = sum(flatten(a)) + sum(flatten(b)) + sum(flatten(c))
+  return checksum
+}
+
+emit run(rounds, base, bias, seed)

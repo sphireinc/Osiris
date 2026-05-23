@@ -11,6 +11,7 @@ type Session struct {
 	sourceName     string
 	scope          *scope
 	ev             *evaluator
+	outputs        *[]Value
 	packageName    string
 	packageVersion string
 	exportOrder    []string
@@ -50,6 +51,11 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 
 func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([]Value, error) {
 	var outputs []Value
+	prevOutputs := s.outputs
+	s.outputs = &outputs
+	defer func() {
+		s.outputs = prevOutputs
+	}()
 	for _, stmt := range prog.Statements {
 		v, ok, err := s.execStmt(stmt, prog.SourceName, moduleMode, stack)
 		if err != nil {
@@ -59,6 +65,9 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 			return nil, err
 		}
 		if ok {
+			if _, isEmit := stmt.(emitStmt); isEmit {
+				continue
+			}
 			outputs = append(outputs, v...)
 		}
 	}
@@ -104,7 +113,14 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		s.scope = scope
 		return nil, false, nil
 	case returnStmt, whileStmt, forStmt, breakStmt, continueStmt:
-		return nil, false, s.execControlStmt(stmt, s.scope, baseSource, stack)
+		nextScope, err := s.execControlStmt(stmt, s.scope, baseSource, stack)
+		if err != nil {
+			return nil, false, err
+		}
+		if nextScope != nil {
+			s.scope = nextScope
+		}
+		return nil, false, nil
 	case letStmt:
 		expr, err := s.expandExpr(st.Expr, s.scope)
 		if err != nil {
@@ -137,33 +153,36 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		if err != nil {
 			return nil, false, err
 		}
+		if s.outputs != nil {
+			*s.outputs = append(*s.outputs, v)
+		}
 		return []Value{v}, true, nil
 	default:
 		return nil, false, fmt.Errorf("internal error: unknown statement type %T", stmt)
 	}
 }
 
-func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string, stack []string) error {
+func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	switch st := stmt.(type) {
 	case returnStmt:
 		if st.Expr == nil {
-			return newFlow(flowReturn, nullValue())
+			return curScope, newFlow(flowReturn, nullValue())
 		}
 		v, err := s.eval(st.Expr, curScope)
 		if err != nil {
-			return err
+			return curScope, err
 		}
-		return newFlow(flowReturn, v)
+		return curScope, newFlow(flowReturn, v)
 	case whileStmt:
 		return s.execWhile(st, curScope, baseSource, stack)
 	case forStmt:
 		return s.execFor(st, curScope, baseSource, stack)
 	case breakStmt:
-		return newFlow(flowBreak, nullValue())
+		return curScope, newFlow(flowBreak, nullValue())
 	case continueStmt:
-		return newFlow(flowContinue, nullValue())
+		return curScope, newFlow(flowContinue, nullValue())
 	default:
-		return fmt.Errorf("internal error: unsupported control statement %T", stmt)
+		return curScope, fmt.Errorf("internal error: unsupported control statement %T", stmt)
 	}
 }
 
@@ -190,50 +209,50 @@ func (s *Session) declareFunction(cur *scope, name string, params []string, body
 	}, nil
 }
 
-func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, stack []string) error {
+func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	cur := curScope
 	for {
 		cond, err := s.eval(st.Cond, cur)
 		if err != nil {
 			if sig, ok := asFlow(err); ok {
-				return flowError(sig.kind, "while")
+				return cur, flowError(sig.kind, "while")
 			}
-			return err
+			return cur, err
 		}
 		if !cond.Truthy() {
-			return nil
+			return cur, nil
 		}
 		next, err := s.execLoopBodyWithScope(st.Body, cur, baseSource, stack)
 		if err != nil {
 			if sig, ok := asFlow(err); ok {
 				switch sig.kind {
 				case flowBreak:
-					return nil
+					return next, nil
 				case flowContinue:
 					cur = next
 					continue
 				case flowReturn:
-					return err
+					return cur, err
 				}
 			}
-			return err
+			return cur, err
 		}
 		cur = next
 	}
 }
 
-func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack []string) error {
+func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	cur := curScope
 	iter, err := s.eval(st.Iter, cur)
 	if err != nil {
 		if sig, ok := asFlow(err); ok {
-			return flowError(sig.kind, "for")
+			return cur, flowError(sig.kind, "for")
 		}
-		return err
+		return cur, err
 	}
 	items, err := iter.AsList()
 	if err != nil {
-		return err
+		return cur, err
 	}
 	for _, item := range items {
 		iterScope := &scope{
@@ -247,19 +266,19 @@ func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack 
 			if sig, ok := asFlow(err); ok {
 				switch sig.kind {
 				case flowBreak:
-					return nil
+					return next, nil
 				case flowContinue:
 					cur = next
 					continue
 				case flowReturn:
-					return err
+					return cur, err
 				}
 			}
-			return err
+			return cur, err
 		}
 		cur = next
 	}
-	return nil
+	return cur, nil
 }
 
 func (s *Session) execLoopBodyWithScope(body Expr, curScope *scope, baseSource string, stack []string) (*scope, error) {
@@ -306,13 +325,25 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 				}
 				cur = next
 			case returnStmt, whileStmt, forStmt, breakStmt, continueStmt:
-				if err := s.execControlStmt(st, cur, baseSource, stack); err != nil {
+				next, err := s.execControlStmt(st, cur, baseSource, stack)
+				if err != nil {
 					return nullValue(), cur, err
 				}
-			case emitStmt, packageStmt, exportStmt:
+				if next != nil {
+					cur = next
+				}
+			case emitStmt:
+				v, err := s.ev.eval(st.Expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				if s.outputs != nil {
+					*s.outputs = append(*s.outputs, v)
+				}
+			case packageStmt, exportStmt:
 				return nullValue(), cur, fmt.Errorf("%s is not allowed in block expressions", statementKind(st))
 			default:
-				return nullValue(), cur, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, and continue statements")
+				return nullValue(), cur, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, continue, and emit statements")
 			}
 		}
 		if n.tail == nil {

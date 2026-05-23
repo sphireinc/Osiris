@@ -92,6 +92,9 @@ func BuildSourceMap(prog *Program) SourceMap {
 			for _, item := range n.items {
 				walkExpr(item, parent)
 			}
+		case *tryExpr:
+			walkExpr(n.body, parent)
+			walkExpr(n.handler, parent)
 		case *matchExpr:
 			walkExpr(n.subject, parent)
 			for _, arm := range n.arms {

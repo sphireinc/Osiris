@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"math/big"
 	"strings"
 	"sync"
 	"unicode"
@@ -16,6 +17,7 @@ type Builtin func(args []Value) (Value, error)
 
 type Runtime struct {
 	Builtins   map[string]Builtin
+	Constants  map[string]Value
 	moduleMu   sync.Mutex
 	modules    map[string]Value
 	registryMu sync.Mutex
@@ -23,8 +25,14 @@ type Runtime struct {
 }
 
 func NewRuntime() *Runtime {
-	r := &Runtime{Builtins: make(map[string]Builtin), modules: make(map[string]Value), registries: make(map[string]*moduleRegistry)}
+	r := &Runtime{
+		Builtins:   make(map[string]Builtin),
+		Constants:  make(map[string]Value),
+		modules:    make(map[string]Value),
+		registries: make(map[string]*moduleRegistry),
+	}
 	registerBuiltins(r.Builtins)
+	registerConstants(r.Constants)
 	return r
 }
 
@@ -164,6 +172,9 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 	case *identExpr:
 		b, ok := env.lookup(n.name)
 		if !ok {
+			if v, exists := ev.rt.Constants[n.name]; exists {
+				return hashParts("const", n.name, v.String()), nil
+			}
 			if _, exists := ev.builtin[n.name]; exists {
 				return hashParts("builtin", n.name), nil
 			}
@@ -314,6 +325,21 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 			parts = append(parts, tail)
 		}
 		out = hashParts(parts...)
+	case *tryExpr:
+		body, err := ev.fingerprint(n.body, env)
+		if err != nil {
+			return "", err
+		}
+		handler, err := ev.fingerprint(n.handler, &scope{
+			parent: env,
+			items: map[string]binding{
+				n.catchName: {expr: &literalExpr{value: errorValue("fingerprint")}, env: env},
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		out = hashParts("try", n.catchName, body, handler)
 	default:
 		return "", fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -326,13 +352,16 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 	return out, nil
 }
 
-func computeExpr(ev *evaluator, expr Expr, scope *scope, key string) (Value, error) {
+func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, error) {
 	switch n := expr.(type) {
 	case *literalExpr:
 		return n.value, nil
 	case *identExpr:
-		b, ok := scope.lookup(n.name)
+		b, ok := curScope.lookup(n.name)
 		if !ok {
+			if v, exists := ev.rt.Constants[n.name]; exists {
+				return v, nil
+			}
 			if fn, exists := ev.builtin[n.name]; exists {
 				return functionValueOf(n.name, fn), nil
 			}
@@ -340,30 +369,45 @@ func computeExpr(ev *evaluator, expr Expr, scope *scope, key string) (Value, err
 		}
 		return computeExpr(ev, b.expr, b.env, key)
 	case *memberExpr:
-		obj, err := ev.eval(n.object, scope)
+		obj, err := ev.eval(n.object, curScope)
 		if err != nil {
 			return nullValue(), err
 		}
 		return resolveMember(ev.ctx, obj, n.name)
 	case *unaryExpr:
-		v, err := ev.eval(n.expr, scope)
+		v, err := ev.eval(n.expr, curScope)
 		if err != nil {
 			return nullValue(), err
 		}
 		return applyUnary(n.op, v)
 	case *binaryExpr:
-		return evalBinary(ev, n, scope)
+		return evalBinary(ev, n, curScope)
 	case *callExpr:
-		return evalCall(ev, n, scope)
+		return evalCall(ev, n, curScope)
 	case *listExpr:
-		items, err := evalMany(ev, n.items, scope)
+		items, err := evalMany(ev, n.items, curScope)
 		if err != nil {
 			return nullValue(), err
 		}
 		return listValue(items), nil
 	case *blockExpr:
-		v, _, err := ev.session.evalBlockExpr(n, scope, ev.session.sourceName, nil)
+		v, _, err := ev.session.evalBlockExpr(n, curScope, ev.session.sourceName, nil)
 		return v, err
+	case *tryExpr:
+		v, err := ev.eval(n.body, curScope)
+		if err == nil {
+			return v, nil
+		}
+		if sig, ok := asFlow(err); ok {
+			return nullValue(), flowError(sig.kind, "try")
+		}
+		catchScope := &scope{
+			parent: curScope,
+			items: map[string]binding{
+				n.catchName: {expr: &literalExpr{value: errorValue(err.Error())}, env: curScope},
+			},
+		}
+		return ev.eval(n.handler, catchScope)
 	default:
 		return nullValue(), fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -520,6 +564,108 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 	}
 	left, right := values[0], values[1]
 
+	if left.kind == kindTensor || right.kind == kindTensor {
+		return tensorBinaryValue(ev.ctx, ev.sched, n.op, left, right)
+	}
+	if left.kind == kindQuantity || right.kind == kindQuantity {
+		return quantityBinary(n.op, left, right)
+	}
+	if left.kind == kindInterval || right.kind == kindInterval {
+		return intervalBinary(n.op, left, right)
+	}
+	if left.kind == kindModInt || right.kind == kindModInt {
+		return modIntBinary(n.op, left, right)
+	}
+	if left.kind == kindFixed || right.kind == kindFixed {
+		return fixedBinary(n.op, left, right)
+	}
+	if left.kind == kindBigInt || left.kind == kindBigFloat || left.kind == kindInt || right.kind == kindBigInt || right.kind == kindBigFloat || right.kind == kindInt {
+		return bigBinary(n.op, left, right)
+	}
+
+	if n.op != tokenPlus || (left.kind != kindString && right.kind != kindString) {
+		if (left.kind == kindDecimal || right.kind == kindDecimal) && left.kind != kindComplex && right.kind != kindComplex {
+			switch n.op {
+			case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+				return decimalBinary(n.op, left, right)
+			case tokenEqualEqual:
+				return boolValue(left.Equal(right)), nil
+			case tokenBangEqual:
+				return boolValue(!left.Equal(right)), nil
+			case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual:
+				cmp, err := decimalCompare(left, right)
+				if err != nil {
+					return nullValue(), err
+				}
+				switch n.op {
+				case tokenLess:
+					return boolValue(cmp < 0), nil
+				case tokenLessEqual:
+					return boolValue(cmp <= 0), nil
+				case tokenGreater:
+					return boolValue(cmp > 0), nil
+				case tokenGreaterEqual:
+					return boolValue(cmp >= 0), nil
+				}
+			case tokenPercent:
+				return nullValue(), fmt.Errorf("decimal modulo is not supported")
+			}
+		}
+	}
+
+	if (left.kind == kindComplex || right.kind == kindComplex) && left.kind != kindString && right.kind != kindString {
+		switch n.op {
+		case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+			return complexBinary(n.op, left, right)
+		case tokenEqualEqual:
+			return boolValue(left.Equal(right)), nil
+		case tokenBangEqual:
+			return boolValue(!left.Equal(right)), nil
+		case tokenPercent:
+			return nullValue(), fmt.Errorf("complex modulo is not supported")
+		default:
+			return nullValue(), fmt.Errorf("ordering is not defined for complex numbers")
+		}
+	}
+
+	if left.kind == kindUint && right.kind == kindUint {
+		if isWideUintValue(left) || isWideUintValue(right) || left.packed || right.packed {
+			switch n.op {
+			case tokenPlus, tokenMinus, tokenStar, tokenPercent:
+				return wideUnsignedBinary(n.op, left, right)
+			case tokenSlash:
+				return exactUnsignedDivisionValue(left, right)
+			}
+		}
+		lu, lw, err := uintFromValue(left)
+		if err != nil {
+			return nullValue(), err
+		}
+		ru, rw, err := uintFromValue(right)
+		if err != nil {
+			return nullValue(), err
+		}
+		width := lw
+		if rw > width {
+			width = rw
+		}
+		switch n.op {
+		case tokenPlus:
+			return uintValue(lu+ru, width), nil
+		case tokenMinus:
+			return uintValue(lu-ru, width), nil
+		case tokenStar:
+			return uintValue(lu*ru, width), nil
+		case tokenSlash:
+			return exactUnsignedDivisionValue(left, right)
+		case tokenPercent:
+			if ru == 0 {
+				return nullValue(), fmt.Errorf("modulo by zero")
+			}
+			return uintValue(lu%ru, width), nil
+		}
+	}
+
 	switch n.op {
 	case tokenPlus:
 		if left.kind == kindString || right.kind == kindString {
@@ -533,7 +679,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln + rn), nil
+		return floatResultValue(ln+rn, left, right), nil
 	case tokenMinus:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -543,7 +689,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln - rn), nil
+		return floatResultValue(ln-rn, left, right), nil
 	case tokenStar:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -553,7 +699,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(ln * rn), nil
+		return floatResultValue(ln*rn, left, right), nil
 	case tokenSlash:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -566,7 +712,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 		if rn == 0 {
 			return nullValue(), fmt.Errorf("division by zero")
 		}
-		return numberValue(ln / rn), nil
+		return floatResultValue(ln/rn, left, right), nil
 	case tokenPercent:
 		ln, err := left.AsNumber()
 		if err != nil {
@@ -579,7 +725,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 		if rn == 0 {
 			return nullValue(), fmt.Errorf("modulo by zero")
 		}
-		return numberValue(math.Mod(ln, rn)), nil
+		return floatResultValue(math.Mod(ln, rn), left, right), nil
 	case tokenAmp, tokenPipe, tokenCaret, tokenShiftLeft, tokenShiftRight:
 		return evalBitwiseBinary(n.op, left, right)
 	case tokenEqualEqual:
@@ -786,11 +932,51 @@ func applyUnary(op tokenKind, v Value) (Value, error) {
 	case tokenBang:
 		return boolValue(!v.Truthy()), nil
 	case tokenMinus:
+		if v.kind == kindBigInt {
+			return bigIntValue(new(big.Int).Neg(v.bi)), nil
+		}
+		if v.kind == kindInt {
+			return intValue(new(big.Int).Neg(v.i), v.ibits), nil
+		}
+		if v.kind == kindBigFloat {
+			return bigFloatValue(new(big.Float).Neg(v.bf)), nil
+		}
+		if v.kind == kindQuantity {
+			return quantityValueOf(new(big.Rat).Neg(v.qty.mag), v.qty.dims), nil
+		}
+		if v.kind == kindInterval {
+			if v.iv == nil {
+				return intervalValueOf(newIntervalValue(new(big.Rat), new(big.Rat))), nil
+			}
+			return intervalValueOf(newIntervalValue(new(big.Rat).Neg(v.iv.hi), new(big.Rat).Neg(v.iv.lo))), nil
+		}
+		if v.kind == kindModInt {
+			if v.mi == nil {
+				return modIntValueOf(big.NewInt(1), new(big.Int))
+			}
+			return modIntValueOf(v.mi.mod, new(big.Int).Neg(v.mi.val))
+		}
+		if v.kind == kindDecimal {
+			r, err := decimalFromValue(v)
+			if err != nil {
+				return nullValue(), err
+			}
+			return decimalValue(new(big.Rat).Neg(r)), nil
+		}
+		if v.kind == kindFixed {
+			if v.fx == nil {
+				return fixedValueOf(64, 0, new(big.Int))
+			}
+			return fixedValueOf(v.fx.width, v.fx.frac, new(big.Int).Neg(v.fx.raw))
+		}
+		if v.kind == kindComplex {
+			return complexValue(-v.cx), nil
+		}
 		n, err := v.AsNumber()
 		if err != nil {
 			return nullValue(), err
 		}
-		return numberValue(-n), nil
+		return floatValueStyled(-n, floatUnaryBits(v), floatUnaryBFloat(v)), nil
 	case tokenTilde:
 		return evalBitwiseUnary(v)
 	default:
@@ -890,37 +1076,43 @@ func registerBuiltins(dst map[string]Builtin) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("repeat expects 2 arguments")
 		}
-		s, err := args[0].AsString()
-		if err != nil {
-			return nullValue(), err
+		if args[0].kind == kindString {
+			s, err := args[0].AsString()
+			if err != nil {
+				return nullValue(), err
+			}
+			n, err := args[1].Int()
+			if err != nil {
+				return nullValue(), err
+			}
+			if n < 0 {
+				return nullValue(), fmt.Errorf("repeat count must be non-negative")
+			}
+			return stringValue(strings.Repeat(s, n)), nil
 		}
-		n, err := args[1].Int()
-		if err != nil {
-			return nullValue(), err
-		}
-		if n < 0 {
-			return nullValue(), fmt.Errorf("repeat count must be non-negative")
-		}
-		return stringValue(strings.Repeat(s, n)), nil
+		return tensorRepeatValue(args)
 	}
 	dst["split"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("split expects 2 arguments")
 		}
-		s, err := args[0].AsString()
-		if err != nil {
-			return nullValue(), err
+		if args[0].kind == kindString {
+			s, err := args[0].AsString()
+			if err != nil {
+				return nullValue(), err
+			}
+			sep, err := args[1].AsString()
+			if err != nil {
+				return nullValue(), err
+			}
+			parts := strings.Split(s, sep)
+			out := make([]Value, len(parts))
+			for i := range parts {
+				out[i] = stringValue(parts[i])
+			}
+			return listValue(out), nil
 		}
-		sep, err := args[1].AsString()
-		if err != nil {
-			return nullValue(), err
-		}
-		parts := strings.Split(s, sep)
-		out := make([]Value, len(parts))
-		for i := range parts {
-			out[i] = stringValue(parts[i])
-		}
-		return listValue(out), nil
+		return tensorSplitValue(args)
 	}
 	dst["chunks"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
@@ -973,10 +1165,12 @@ func registerBuiltins(dst map[string]Builtin) {
 		switch args[0].kind {
 		case kindList:
 			return numberValue(float64(len(args[0].list))), nil
+		case kindTensor:
+			return numberValue(float64(len(args[0].data))), nil
 		case kindString:
 			return numberValue(float64(len([]rune(args[0].str)))), nil
 		default:
-			return nullValue(), fmt.Errorf("len expects a string or list")
+			return nullValue(), fmt.Errorf("len expects a string, list, or tensor")
 		}
 	}
 	dst["take"] = func(args []Value) (Value, error) {
@@ -1002,8 +1196,13 @@ func registerBuiltins(dst map[string]Builtin) {
 				n = len(args[0].list)
 			}
 			return listValue(append([]Value(nil), args[0].list[:n]...)), nil
+		case kindTensor:
+			if n > len(args[0].data) {
+				n = len(args[0].data)
+			}
+			return newTensorValue([]int{n}, append([]Value(nil), args[0].data[:n]...)), nil
 		default:
-			return nullValue(), fmt.Errorf("take expects a string or list")
+			return nullValue(), fmt.Errorf("take expects a string, list, or tensor")
 		}
 	}
 	dst["range"] = func(args []Value) (Value, error) {
@@ -1116,137 +1315,238 @@ func registerBuiltins(dst map[string]Builtin) {
 		n := h.Sum64()
 		return stringValue(fmt.Sprintf("%016x", n^((n<<13)|(n>>51)))), nil
 	}
-	dst["u8"] = func(args []Value) (Value, error) { return castWidthValue(args, 8) }
-	dst["u16"] = func(args []Value) (Value, error) { return castWidthValue(args, 16) }
-	dst["u32"] = func(args []Value) (Value, error) { return castWidthValue(args, 32) }
-	dst["u64"] = func(args []Value) (Value, error) { return castWidthValue(args, 64) }
+	dst["zeros"] = func(args []Value) (Value, error) { return zerosValue(args) }
+	dst["ones"] = func(args []Value) (Value, error) { return onesValue(args) }
+	dst["full"] = func(args []Value) (Value, error) { return fullValue(args) }
+	dst["eye"] = func(args []Value) (Value, error) { return eyeValue(args) }
+	dst["identity"] = func(args []Value) (Value, error) { return identityValue(args) }
+	dst["arange"] = func(args []Value) (Value, error) { return arangeValue(args) }
+	dst["linspace"] = func(args []Value) (Value, error) { return linspaceValue(args) }
+	dst["logspace"] = func(args []Value) (Value, error) { return logspaceValue(args) }
+	dst["sinh"] = func(args []Value) (Value, error) { return sinhValue(args) }
+	dst["cosh"] = func(args []Value) (Value, error) { return coshValue(args) }
+	dst["tanh"] = func(args []Value) (Value, error) { return tanhValue(args) }
+	dst["asinh"] = func(args []Value) (Value, error) { return asinhValue(args) }
+	dst["acosh"] = func(args []Value) (Value, error) { return acoshValue(args) }
+	dst["atanh"] = func(args []Value) (Value, error) { return atanhValue(args) }
+	dst["expm1"] = func(args []Value) (Value, error) { return expm1Value(args) }
+	dst["log1p"] = func(args []Value) (Value, error) { return log1pValue(args) }
+	dst["cbrt"] = func(args []Value) (Value, error) { return cbrtValue(args) }
+	dst["erf"] = func(args []Value) (Value, error) { return erfValue(args) }
+	dst["erfc"] = func(args []Value) (Value, error) { return erfcValue(args) }
+	dst["gamma"] = func(args []Value) (Value, error) { return gammaValue(args) }
+	dst["lgamma"] = func(args []Value) (Value, error) { return lgammaValue(args) }
+	dst["sign"] = func(args []Value) (Value, error) { return signValue(args) }
+	dst["step"] = func(args []Value) (Value, error) { return stepValue(args) }
+	dst["heaviside"] = func(args []Value) (Value, error) { return heavisideValue(args) }
+	dst["relu"] = func(args []Value) (Value, error) { return reluValue(args) }
+	dst["sigmoid"] = func(args []Value) (Value, error) { return sigmoidValue(args) }
+	dst["softplus"] = func(args []Value) (Value, error) { return softplusValue(args) }
+	dst["mean"] = func(args []Value) (Value, error) { return meanValue(args) }
+	dst["var"] = func(args []Value) (Value, error) { return varValue(args) }
+	dst["std"] = func(args []Value) (Value, error) { return stdValue(args) }
+	dst["median"] = func(args []Value) (Value, error) { return medianValue(args) }
+	dst["quantile"] = func(args []Value) (Value, error) { return quantileValue(args) }
+	dst["percentile"] = func(args []Value) (Value, error) { return percentileValue(args) }
+	dst["argmin"] = func(args []Value) (Value, error) { return argminValue(args) }
+	dst["argmax"] = func(args []Value) (Value, error) { return argmaxValue(args) }
+	dst["any"] = func(args []Value) (Value, error) { return anyValue(args) }
+	dst["all"] = func(args []Value) (Value, error) { return allValue(args) }
+	dst["cumsum"] = func(args []Value) (Value, error) { return cumsumValue(args) }
+	dst["cumprod"] = func(args []Value) (Value, error) { return cumprodValue(args) }
+	dst["u8"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+	dst["u16"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 16) }
+	dst["u32"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 32) }
+	dst["u64"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
+	dst["u128"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 128) }
+	dst["u256"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 256) }
+	dst["u512"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 512) }
+	dst["u1024"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 1024) }
+	dst["uint"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 64) }
+	dst["byte"] = func(args []Value) (Value, error) { return castUnsignedWidthValue(args, 8) }
+	dst["uf8"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 8, false) }
+	dst["uf16"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 16, false) }
+	dst["uf32"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 32, false) }
+	dst["ufnum"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 64, true) }
+	dst["uf64"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 64, false) }
+	dst["uf128"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 128, false) }
+	dst["uf256"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 256, false) }
+	dst["uf512"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 512, false) }
+	dst["uf1024"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 1024, false) }
+	dst["f32"] = func(args []Value) (Value, error) { return castFloatWidthValue(args, 32) }
+	dst["f64"] = func(args []Value) (Value, error) { return castFloatWidthValue(args, 64) }
+	dst["bf8"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 8) }
+	dst["bf16"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 16) }
+	dst["bf32"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 32) }
+	dst["bf64"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 64) }
+	dst["bf128"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 128) }
+	dst["bf256"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 256) }
+	dst["bf512"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 512) }
+	dst["bf1024"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 1024) }
+	dst["i8"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 8) }
+	dst["i16"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 16) }
+	dst["i32"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 32) }
+	dst["i64"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 64) }
+	dst["i128"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 128) }
+	dst["i256"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 256) }
+	dst["i512"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 512) }
+	dst["i1024"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 1024) }
+	dst["complex"] = func(args []Value) (Value, error) { return complexValueFromArgs(args) }
+	dst["real"] = func(args []Value) (Value, error) { return realValue(args) }
+	dst["imag"] = func(args []Value) (Value, error) { return imagValue(args) }
+	dst["magnitude"] = func(args []Value) (Value, error) { return magnitudeValue(args) }
+	dst["abs"] = func(args []Value) (Value, error) { return magnitudeValue(args) }
+	dst["exp"] = func(args []Value) (Value, error) { return expValue(args) }
+	dst["log"] = func(args []Value) (Value, error) { return logValue(args) }
+	dst["log10"] = func(args []Value) (Value, error) { return log10Value(args) }
+	dst["log2"] = func(args []Value) (Value, error) { return log2Value(args) }
+	dst["pow"] = func(args []Value) (Value, error) { return powValue(args) }
+	dst["expt"] = func(args []Value) (Value, error) { return powValue(args) }
+	dst["sin"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "sin", math.Sin, false) }
+	dst["cos"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "cos", math.Cos, false) }
+	dst["tan"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "tan", math.Tan, false) }
+	dst["asin"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "asin", math.Asin, true) }
+	dst["acos"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "acos", math.Acos, true) }
+	dst["atan"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "atan", math.Atan, false) }
+	dst["hypot"] = func(args []Value) (Value, error) { return hypotValue(args) }
+	dst["norm"] = func(args []Value) (Value, error) { return normValue(args) }
+	dst["vector"] = func(args []Value) (Value, error) { return vectorValueFromArgs(args) }
+	dst["vec"] = func(args []Value) (Value, error) { return vectorValueFromArgs(args) }
+	dst["clone"] = func(args []Value) (Value, error) { return tensorCloneValue(args) }
+	dst["view"] = func(args []Value) (Value, error) { return tensorViewValue(args) }
+	dst["tensor"] = func(args []Value) (Value, error) { return tensorValueFromArgs(args) }
+	dst["matrix"] = func(args []Value) (Value, error) { return matrixValueFromArgs(args) }
+	dst["shape"] = func(args []Value) (Value, error) { return tensorShapeValue(args) }
+	dst["flatten"] = func(args []Value) (Value, error) { return tensorFlattenValue(args) }
+	dst["squeeze"] = func(args []Value) (Value, error) { return tensorSqueezeValue(args) }
+	dst["expand_dims"] = func(args []Value) (Value, error) { return tensorExpandDimsValue(args) }
+	dst["concat"] = func(args []Value) (Value, error) { return tensorConcatValue(args) }
+	dst["stack"] = func(args []Value) (Value, error) { return tensorStackValue(args) }
+	dst["tile"] = func(args []Value) (Value, error) { return tensorTileValue(args) }
+	dst["broadcast_to"] = func(args []Value) (Value, error) { return tensorBroadcastToValue(args) }
+	dst["where"] = func(args []Value) (Value, error) { return tensorWhereValue(args) }
+	dst["clip"] = func(args []Value) (Value, error) { return tensorClipValue(args) }
+	dst["gather"] = func(args []Value) (Value, error) { return tensorGatherValue(args) }
+	dst["scatter"] = func(args []Value) (Value, error) { return tensorScatterValue(args) }
+	dst["pad"] = func(args []Value) (Value, error) { return tensorPadValue(args) }
+	dst["transpose"] = func(args []Value) (Value, error) { return tensorTransposeValue(args) }
+	dst["dot"] = func(args []Value) (Value, error) { return tensorDotValue(args) }
+	dst["matmul"] = func(args []Value) (Value, error) { return tensorMatMulValue(args) }
+	dst["outer"] = func(args []Value) (Value, error) { return outerValue(args) }
+	dst["trace"] = func(args []Value) (Value, error) { return traceValue(args) }
+	dst["det"] = func(args []Value) (Value, error) { return detValue(args) }
+	dst["solve"] = func(args []Value) (Value, error) { return solveValue(args) }
+	dst["inv"] = func(args []Value) (Value, error) { return invValue(args) }
+	dst["qr"] = func(args []Value) (Value, error) { return qrValue(args) }
+	dst["cholesky"] = func(args []Value) (Value, error) { return choleskyValue(args) }
+	dst["eig"] = func(args []Value) (Value, error) { return eigValue(args) }
+	dst["eigh"] = func(args []Value) (Value, error) { return eighValue(args) }
+	dst["svd"] = func(args []Value) (Value, error) { return svdValue(args) }
+	dst["reshape"] = func(args []Value) (Value, error) { return tensorReshapeValue(args) }
+	dst["dec"] = func(args []Value) (Value, error) {
+		if len(args) != 1 {
+			return nullValue(), fmt.Errorf("dec expects 1 argument")
+		}
+		switch args[0].kind {
+		case kindDecimal:
+			return decimalValue(args[0].dec), nil
+		case kindString:
+			return decimalValueFromString(args[0].str)
+		default:
+			rat, err := decimalFromValue(args[0])
+			if err != nil {
+				return nullValue(), err
+			}
+			return decimalValue(rat), nil
+		}
+	}
+	dst["decimal"] = func(args []Value) (Value, error) { return dst["dec"](args) }
+	dst["rat"] = func(args []Value) (Value, error) { return dst["dec"](args) }
+	dst["rational"] = func(args []Value) (Value, error) { return dst["dec"](args) }
+	dst["interval"] = func(args []Value) (Value, error) { return intervalValueFromArgs(args) }
+	dst["modint"] = func(args []Value) (Value, error) { return modIntValueFromArgs(args) }
+	dst["fixed"] = func(args []Value) (Value, error) { return fixedValueFromArgs(args) }
+	dst["bigint"] = func(args []Value) (Value, error) { return bigIntValueFromArgs(args) }
+	dst["bigfloat"] = func(args []Value) (Value, error) { return bigFloatValueFromArgs(args) }
 	dst["band"] = func(args []Value) (Value, error) {
 		if len(args) < 2 {
 			return nullValue(), fmt.Errorf("band expects at least 2 arguments")
 		}
-		acc, bitsWidth, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
+		acc := args[0]
+		var err error
 		for _, arg := range args[1:] {
-			u, width, err := uintFromValue(arg)
+			acc, err = evalBitwiseBinary(tokenAmp, acc, arg)
 			if err != nil {
 				return nullValue(), err
 			}
-			if width < bitsWidth {
-				bitsWidth = width
-			}
-			acc &= u
 		}
-		return uintValue(acc, bitsWidth), nil
+		return acc, nil
 	}
 	dst["bor"] = func(args []Value) (Value, error) {
 		if len(args) < 2 {
 			return nullValue(), fmt.Errorf("bor expects at least 2 arguments")
 		}
-		acc, bitsWidth, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
+		acc := args[0]
+		var err error
 		for _, arg := range args[1:] {
-			u, width, err := uintFromValue(arg)
+			acc, err = evalBitwiseBinary(tokenPipe, acc, arg)
 			if err != nil {
 				return nullValue(), err
 			}
-			if width > bitsWidth {
-				bitsWidth = width
-			}
-			acc |= u
 		}
-		return uintValue(acc, bitsWidth), nil
+		return acc, nil
 	}
 	dst["bxor"] = func(args []Value) (Value, error) {
 		if len(args) < 2 {
 			return nullValue(), fmt.Errorf("bxor expects at least 2 arguments")
 		}
-		acc, bitsWidth, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
+		acc := args[0]
+		var err error
 		for _, arg := range args[1:] {
-			u, width, err := uintFromValue(arg)
+			acc, err = evalBitwiseBinary(tokenCaret, acc, arg)
 			if err != nil {
 				return nullValue(), err
 			}
-			if width > bitsWidth {
-				bitsWidth = width
-			}
-			acc ^= u
 		}
-		return uintValue(acc, bitsWidth), nil
+		return acc, nil
 	}
 	dst["bnot"] = func(args []Value) (Value, error) {
 		if len(args) != 1 {
 			return nullValue(), fmt.Errorf("bnot expects 1 argument")
 		}
-		return uintUnary(args[0], func(u uint64, width uint8) uint64 { return ^u & maskForWidth(width) })
+		return evalBitwiseUnary(args[0])
 	}
 	dst["shl"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("shl expects 2 arguments")
 		}
-		left, width, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
-		shift, _, err := uintFromValue(args[1])
-		if err != nil {
-			return nullValue(), err
-		}
-		return uintValue((left<<uint(shift))&maskForWidth(width), width), nil
+		return evalBitwiseBinary(tokenShiftLeft, args[0], args[1])
 	}
 	dst["shr"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("shr expects 2 arguments")
 		}
-		left, width, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
-		shift, _, err := uintFromValue(args[1])
-		if err != nil {
-			return nullValue(), err
-		}
-		return uintValue((left>>uint(shift))&maskForWidth(width), width), nil
+		return evalBitwiseBinary(tokenShiftRight, args[0], args[1])
 	}
 	dst["rotl"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("rotl expects 2 arguments")
 		}
-		left, width, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
-		shift, _, err := uintFromValue(args[1])
-		if err != nil {
-			return nullValue(), err
-		}
-		return uintValue(rotl(left, width, shift), width), nil
+		return rotlValue(args[0], args[1])
 	}
 	dst["rotr"] = func(args []Value) (Value, error) {
 		if len(args) != 2 {
 			return nullValue(), fmt.Errorf("rotr expects 2 arguments")
 		}
-		left, width, err := uintFromValue(args[0])
-		if err != nil {
-			return nullValue(), err
-		}
-		shift, _, err := uintFromValue(args[1])
-		if err != nil {
-			return nullValue(), err
-		}
-		return uintValue(rotr(left, width, shift), width), nil
+		return rotrValue(args[0], args[1])
 	}
 	dst["hex"] = func(args []Value) (Value, error) { return hexValue(args) }
 	dst["bin"] = func(args []Value) (Value, error) { return binValue(args) }
 	dst["bytes"] = func(args []Value) (Value, error) { return bytesValue(args) }
 	dst["pack"] = func(args []Value) (Value, error) { return packValue(args) }
 	dst["unpack"] = func(args []Value) (Value, error) { return unpackValue(args) }
+	dst["at"] = func(args []Value) (Value, error) { return atValue(args) }
+	dst["setat"] = func(args []Value) (Value, error) { return setAtValue(args) }
 	dst["encode"] = func(args []Value) (Value, error) { return encodeValue(args) }
 	dst["decode"] = func(args []Value) (Value, error) { return decodeValue(args) }
 	dst["read"] = func(args []Value) (Value, error) { return readValue(args) }

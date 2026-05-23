@@ -165,6 +165,15 @@ type blockExpr struct {
 
 func (blockExpr) exprNode() {}
 
+type tryExpr struct {
+	body      Expr
+	catchName string
+	handler   Expr
+	Span      sourceSpan
+}
+
+func (tryExpr) exprNode() {}
+
 type memberExpr struct {
 	object   Expr
 	name     string
@@ -285,7 +294,32 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return emitStmt{Expr: expr, Span: spanFromToken(start)}, nil
+		exprs := []Expr{expr}
+		for p.match(tokenComma) {
+			nextExpr, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			exprs = append(exprs, nextExpr)
+		}
+		if len(exprs) == 1 {
+			return emitStmt{Expr: expr, Span: spanFromToken(start)}, nil
+		}
+		args := make([]Expr, 0, len(exprs)*2-1)
+		for i, item := range exprs {
+			if i > 0 {
+				args = append(args, &literalExpr{value: stringValue(", "), Span: spanFromToken(start)})
+			}
+			args = append(args, item)
+		}
+		return emitStmt{
+			Expr: &callExpr{
+				callee: &identExpr{name: "cat", Span: spanFromToken(start)},
+				args:   args,
+				Span:   spanFromToken(start),
+			},
+			Span: spanFromToken(start),
+		}, nil
 	case tokenMacro:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
@@ -530,11 +564,33 @@ func (p *parser) parsePrefix() (Expr, error) {
 		return p.parseList()
 	case tokenLBrace:
 		return p.parseBlockExpr()
+	case tokenTry:
+		return p.parseTryExpr()
 	case tokenMatch, tokenSwitch:
 		return p.parseMatchExpr(tok.kind)
 	default:
 		return nil, p.errorf(tok, "expected expression")
 	}
+}
+
+func (p *parser) parseTryExpr() (Expr, error) {
+	start := p.next()
+	body, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(tokenCatch); err != nil {
+		return nil, err
+	}
+	nameTok, err := p.expect(tokenIdent)
+	if err != nil {
+		return nil, err
+	}
+	handler, err := p.parseExpr(0)
+	if err != nil {
+		return nil, err
+	}
+	return &tryExpr{body: body, catchName: nameTok.text, handler: handler, Span: spanCover(spanFromToken(start), exprSpan(handler))}, nil
 }
 
 func (p *parser) parseCallArgs() ([]Expr, error) {
@@ -642,7 +698,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			return &blockExpr{stmts: stmts, tail: tail}, nil
 		}
 		switch p.peek().kind {
-		case tokenLet, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue:
+		case tokenLet, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
 			stmt, err := p.parseStmt()
 			if err != nil {
 				return nil, err
@@ -722,6 +778,8 @@ func exprSpan(expr Expr) sourceSpan {
 	case *listExpr:
 		return n.Span
 	case *matchExpr:
+		return n.Span
+	case *tryExpr:
 		return n.Span
 	default:
 		return sourceSpan{}

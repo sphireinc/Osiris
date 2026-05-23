@@ -572,6 +572,15 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 				return err
 			}
 		}
+	case *tryExpr:
+		if err := analyzeExpr(a, scope, uri, n.body); err != nil {
+			return err
+		}
+		child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
+		catchDef := &symbolDef{name: n.catchName, kind: "error", detail: "caught error", uri: uri, span: n.Span}
+		child.defs[n.catchName] = catchDef
+		a.defs = append(a.defs, catchDef)
+		return analyzeExpr(a, child, uri, n.handler)
 	case *blockExpr:
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
 		_, err := analyzeStmtSeq(a, child, uri, n.stmts, true)

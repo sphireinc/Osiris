@@ -28,7 +28,7 @@ emit x + 4
 	if len(frames[0].Scope) == 0 || frames[0].Scope[0].Name != "x" || frames[0].Scope[0].Value != "3u64" {
 		t.Fatalf("scope snapshot missing binding: %#v", frames[0].Scope)
 	}
-	if frames[1].Kind != "emit" || len(frames[1].Outputs) != 1 || frames[1].Outputs[0] != "7" {
+	if frames[1].Kind != "emit" || len(frames[1].Outputs) != 1 || frames[1].Outputs[0] != "7u64" {
 		t.Fatalf("unexpected second frame: %#v", frames[1])
 	}
 }
@@ -47,7 +47,7 @@ emit x + y
 	if err != nil {
 		t.Fatalf("eval at failed: %v", err)
 	}
-	if got, want := v.String(), "7"; got != want {
+	if got, want := v.String(), "7u64"; got != want {
 		t.Fatalf("watch = %s, want %s", got, want)
 	}
 }

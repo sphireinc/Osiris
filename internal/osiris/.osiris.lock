@@ -1,13 +1,68 @@
 {
   "version": 1,
   "modules": {
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit102996792/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit102996792/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1032880190/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1032880190/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1090668448/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1090668448/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1102152539/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1102152539/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1161302823/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1161302823/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1165741263/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1165741263/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1231247614/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1231247614/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1376522687/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1376522687/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1402666729/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1402666729/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1402720551/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1402720551/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit142051238/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit142051238/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1426074468/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1426074468/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1435206798/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1435206798/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -21,8 +76,83 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1524566080/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1524566080/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1533126377/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1533126377/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1617264491/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1617264491/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1658296531/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1658296531/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1683927691/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1683927691/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit176722143/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit176722143/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1774160491/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1774160491/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1774762761/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1774762761/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1782313325/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1782313325/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit179515111/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit179515111/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1810103179/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1810103179/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit18129535/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit18129535/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1820701584/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1820701584/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1821870149/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1821870149/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1846385658/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1846385658/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1852801864/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1852801864/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -31,8 +161,68 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1933061748/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1933061748/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1967122596/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1967122596/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1988962371/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1988962371/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1995067732/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit1995067732/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2023044681/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2023044681/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2085154982/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2085154982/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2105303068/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2105303068/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2115664996/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2115664996/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2133136680/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2133136680/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2173011516/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2173011516/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2176384123/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2176384123/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2204296609/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2204296609/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2219791713/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2219791713/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -46,13 +236,143 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2309711593/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2309711593/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit234386434/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit234386434/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2350179161/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2350179161/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2400757305/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2400757305/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit242119685/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit242119685/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2473773528/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2473773528/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2518543493/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2518543493/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2519238809/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2519238809/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2545179629/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2545179629/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2576997680/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2576997680/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2583713372/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2583713372/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2606484334/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2606484334/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2608333403/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2608333403/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2652439343/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2652439343/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2664716069/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2664716069/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2691584931/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2691584931/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit269930118/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit269930118/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2706287027/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2706287027/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2779954250/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2779954250/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit280158662/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit280158662/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2813294750/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2813294750/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit281558996/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit281558996/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2824553155/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2824553155/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2840747232/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2840747232/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2870266013/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2870266013/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2898503131/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2898503131/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit297857360/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit297857360/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2998663439/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit2998663439/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -71,6 +391,21 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3114691733/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3114691733/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3122726390/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3122726390/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3126184240/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3126184240/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3163043633/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3163043633/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
@@ -86,8 +421,48 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3218508125/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3218508125/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3241416539/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3241416539/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3276929032/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3276929032/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit328197196/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit328197196/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3332918932/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3332918932/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3348443333/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3348443333/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3380530126/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3380530126/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit339905177/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit339905177/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3457512813/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3457512813/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -96,13 +471,43 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3505570863/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3505570863/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3537673459/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3537673459/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit356214500/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit356214500/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3576684985/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3576684985/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3603942547/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3603942547/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3624768347/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3624768347/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3682203775/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3682203775/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3690490837/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3690490837/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -116,8 +521,28 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3780333387/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3780333387/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3808750031/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3808750031/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3872484092/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3872484092/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3889456486/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3889456486/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3908990202/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3908990202/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -126,8 +551,73 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3966851261/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3966851261/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3987392077/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3987392077/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3991775371/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit3991775371/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4123587943/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4123587943/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4181534764/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4181534764/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4195455149/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4195455149/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4196849573/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4196849573/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4205157726/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4205157726/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4220299784/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4220299784/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4266512187/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit4266512187/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit440153665/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit440153665/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit46399117/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit46399117/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit474244293/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit474244293/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit500561150/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit500561150/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -141,8 +631,78 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit519756452/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit519756452/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit530909999/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit530909999/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit560658456/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit560658456/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit56338962/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit56338962/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit593580802/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit593580802/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit604914004/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit604914004/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit636262214/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit636262214/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit654532968/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit654532968/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit698937429/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit698937429/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit765959276/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit765959276/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit784803830/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit784803830/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit81195556/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit81195556/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit858599657/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit858599657/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit909515645/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit909515645/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit925838340/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit925838340/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
@@ -151,8 +711,34 @@
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit943623284/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit943623284/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr",
+      "package": "sigil"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit951918233/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit951918233/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit957484226/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit957484226/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
     "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit962702631/001/sigil.osr": {
       "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit962702631/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit965177465/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit965177465/001/sigil.osr",
+      "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
+      "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
+    },
+    "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit992997849/001/sigil.osr": {
+      "source": "/var/folders/q6/pdsr6cyd34n6mzl906czq1_00000gp/T/TestModuleExportsAreExplicit992997849/001/sigil.osr",
       "hash": "21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281",
       "cache": "/Users/JuanSanchez/SphireProjects/Osiris/internal/osiris/.osiris/cache/modules/21f776a9a8b8bcaaca5bc4aad4ad1b45a704d245406c5dba66e6270c6043d281.osr"
     },

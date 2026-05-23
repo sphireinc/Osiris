@@ -1,0 +1,16 @@
+# A single object moving in 3D at constant velocity.
+# The output is one sample per second: [t, x, y, z].
+
+let startx = -20.0
+let starty = 5.0
+let startz = 2.0
+let velx = 4.0
+let vely = -1.0
+let velz = 0.5
+let t = 0.0
+let duration = 24.0
+
+while t <= duration {
+  emit [t, startx + velx * t, starty + vely * t, startz + velz * t]
+  let t = t + 1.0
+}

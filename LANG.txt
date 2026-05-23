@@ -164,11 +164,21 @@ BREAK / CONTINUE
 Break exits the nearest loop.
 Continue skips to the next iteration.
 
+TRY / CATCH
+
+  try { risky() } catch err { fallback(err) }
+
+Use this when a computation might fail and you want to handle the failure
+inline. The catch binding receives an error value.
+
 EMIT
 
   emit expression
+  emit left, right
 
 Emits a result from the program.
+Multiple expressions are concatenated with `, ` using the same text path as
+`cat(...)`.
 
 BLOCKS
 
@@ -216,17 +226,139 @@ You can use:
       func fact(n) => if(n == 0, 1, n * fact(n - 1))
       while ready { break }
       for x in xs { continue }
+      try { uint("7") } catch err { fallback(err) }
 
 Numbers may be plain, hex, binary, or sized fixed-width values such as:
 
   42
   0xff
   0b1010
+  42u
+  1.5f32
+  2.25f64
+  42i16
+  255b
   1u8
   2u16
   3u64
 
+Use `uint(...)` when you want the host-width unsigned form explicitly.
+Use `f32(...)` or `f64(...)` when you want explicit float widths.
+Use `u8(...)`, `u16(...)`, `u32(...)`, `u64(...)`, `u128(...)`, `u256(...)`,
+`u512(...)`, or `u1024(...)` when you want exact unsigned fixed-width math.
+Use `i8(...)`, `i16(...)`, `i32(...)`, `i64(...)`, `i128(...)`, `i256(...)`,
+`i512(...)`, or `i1024(...)` when you want signed fixed-width integers.
+Use `byte(...)` when you want to say "raw 8-bit data" directly.
+
+Exact decimal values may use a `d` suffix or the `dec(...)` builtin:
+
+  0.1d
+  1.25d
+  dec("0.3")
+
+Complex values may use an `i` suffix or the `complex(...)` builtin:
+
+  5 + 3i
+  complex(5, 3)
+  abs(3 + 4i)
+
 If you need bytes, use the byte helpers and fixed-width casts.
+
+Tensor values are contiguous on the inside.
+
+  tensor([[1, 2], [3, 4]])
+  matrix(2, 2, [1, 2, 3, 4])
+  shape(value)
+  flatten(value)
+  transpose(matrix)
+  dot(a, b)
+  matmul(left, right)
+  reshape(value, [rows, cols])
+  view(tensor)
+  clone(tensor)
+
+The shape metadata stays separate from the flat data buffer.
+That is the point. Keep the data linear and the dimensions explicit.
+Tensor arithmetic is vectorized when possible, so simple element-wise math is
+lowered to parallel chunk work instead of a naive scalar loop.
+Compatible shapes broadcast across axes the way NumPy does.
+Obvious constant shape mistakes are caught during assembly before runtime.
+
+Math helpers live in the same direct style.
+
+  sin(x)
+  cos(x)
+  tan(x)
+  asin(x)
+  acos(x)
+  atan(x)
+  exp(x)
+  log(x)
+  log(x, base)
+  log10(x)
+  log2(x)
+  hypot(a, b, ...)
+  norm(v)
+  vector(...)
+  vec(...)
+
+Use these for scalar math and linear algebra without writing custom loops
+every time.
+
+There is also a GPU compiler target.
+
+  osiris gpu file.osr
+
+This emits kernel source and a kernel plan for tensor math and matrix
+operations. Use it when you want to inspect how a program would be lowered for
+a GPU backend.
+
+Strings are their own primitive too.
+
+  "osiris"
+  len("osiris")
+  at("osiris", 2)
+  setat("osiris", 0, "O")
+
+Do not rely on strings as hidden numbers.
+If you want bytes, use byte helpers.
+If you want numbers, use numeric literals or explicit casts.
+
+Physical units are first-class values.
+
+  Meter
+  Second
+  Kilogram
+  meter
+  second
+  kilogram
+  m, s, kg, A, K, mol, cd
+  Newton, Joule, Watt, Pascal, Coulomb, Volt, Farad
+  Ohm, Siemens, Weber, Tesla, Henry, Lumen, Lux
+  Becquerel, Gray, Sievert, Katal, Liter, Minute, Hour, Day, Week
+  kilo, mega, giga, tera, milli, micro, nano, pico
+  Pi, Tau, E, SpeedOfLight, Planck, Boltzmann, Avogadro
+  10 * Meter / (2 * Second)
+  2 * kilo * Meter
+  30 * minute
+  2 * Pi
+  (3 * Meter) + (2 * Meter)
+
+These names are just identifiers.
+That means you can multiply, divide, store, and pass them around like any
+other value.
+
+Use matching dimensions for addition and subtraction.
+Multiply and divide to build derived units.
+
+Arbitrary-precision values are available when plain machine numbers are not
+enough.
+
+  bigint("9223372036854775808")
+  bigfloat("1.5")
+
+Use these for very large integer or floating-point calculations that should not
+overflow the normal fast path.
 
 ---------------------------------------------------------------------------
 HOW TO WRITE PROGRAMS
@@ -259,7 +391,7 @@ Osiris has a strong byte and bit surface.
 
 Useful builtins:
 
-  * u8, u16, u32, u64
+  * u8, u16, u32, u64, u128, u256, u512, u1024
   * band, bor, bxor, bnot
   * shl, shr, rotl, rotr
   * hex, bin, bytes
@@ -318,6 +450,19 @@ Useful commands while writing Osiris:
 
   osiris fmt
   osiris run
+  osiris ir
+  osiris ssa
+  osiris cfg
+  osiris dom
+  osiris loop
+  osiris c
+  osiris obj
+  osiris build
+  osiris compile
+  osiris alias
+  osiris pure
+  osiris closure
+  osiris infer
   osiris trace
   osiris debug
   osiris map
