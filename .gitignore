@@ -1,6 +1,7 @@
 .osiris.lock
 .osiris/
 
+IO.txt
 CHECKLIST.md
 OPTCHK.md
 TYPECHK.txt

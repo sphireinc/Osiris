@@ -1,0 +1,241 @@
+OSIRIS DOCS CONTENT GUIDE
+=========================
+
+This file explains what should live in the Osiris docs site and what should
+stay out of it.
+
+The docs site should behave like a manual, not like a changelog and not like a
+dumping ground for internal implementation notes.
+
+---------------------------------------------------------------------------
+PRIMARY PURPOSE
+---------------------------------------------------------------------------
+
+The docs site should answer the questions a user asks when they are trying to
+write or understand an Osiris program.
+
+It should explain:
+
+  * what the language is for
+  * how to write programs in it
+  * what each callable function does
+  * what each core language construct means
+  * how modules, versions, and exports behave
+  * how exact math, tensors, and data I/O behave
+  * how to use native interop when it exists
+
+If a page does not help a user write or read Osiris code, it probably does not
+belong in the manual.
+
+---------------------------------------------------------------------------
+WHAT BELONGS IN THE DOCS
+---------------------------------------------------------------------------
+
+The docs should include:
+
+  * language overview pages
+  * statement and expression references
+  * function reference pages
+  * type and semantics notes
+  * module and import behavior
+  * I/O behavior
+  * exact math behavior
+  * tensor and matrix behavior
+  * native interop design notes
+  * examples that can be run
+  * versioning and compatibility notes
+  * user-facing CLI behavior when it affects language usage
+
+Reference pages should be explicit about:
+
+  * syntax
+  * arguments
+  * return values
+  * errors
+  * edge cases
+  * examples
+
+That is the shape of a manual entry.
+
+---------------------------------------------------------------------------
+WHAT SHOULD STAY OUT
+---------------------------------------------------------------------------
+
+The docs should avoid:
+
+  * commit history
+  * branch names
+  * CI logs
+  * temporary artifacts
+  * benchmark noise
+  * internal refactoring notes that do not change behavior
+  * long implementation dumps
+  * private debugging scratch notes
+
+If a note is only useful to the maintainers while they are editing code, it
+does not need to sit in the user-facing manual.
+
+---------------------------------------------------------------------------
+STYLE RULES
+---------------------------------------------------------------------------
+
+The docs should read like a manual.
+
+That means:
+
+  * short section headers
+  * concrete syntax examples
+  * consistent terminology
+  * deliberate examples
+  * plain language where possible
+  * technical precision when needed
+
+The tone should be direct and useful, not promotional.
+
+If a function is exact, say so.
+If a function returns a byte list, say so.
+If a function can fail, say so.
+If a construct is compile-time only, say so.
+
+---------------------------------------------------------------------------
+PAGE SHAPE
+---------------------------------------------------------------------------
+
+A good manual page should usually follow this pattern:
+
+  1. purpose
+  2. syntax
+  3. arguments
+  4. return value
+  5. errors or edge cases
+  6. example
+  7. see also
+
+Not every page needs every section, but this is the default structure.
+
+---------------------------------------------------------------------------
+MODULE DOCUMENTATION
+---------------------------------------------------------------------------
+
+Modules should be documented as public surfaces.
+
+Each module page should explain:
+
+  * why the module exists
+  * what it exports
+  * how to import it
+  * which version selectors it accepts
+  * what the common usage patterns look like
+
+If a module is host-backed, the docs should say that plainly.
+
+If a module is versioned, the docs should say that plainly.
+
+If a module is experimental or likely to change, the docs should say that too.
+
+---------------------------------------------------------------------------
+FUNCTION DOCUMENTATION
+---------------------------------------------------------------------------
+
+Function pages should be honest about behavior.
+
+For each function, try to say:
+
+  * what it consumes
+  * what it returns
+  * whether it is exact or approximate
+  * whether it mutates or copies
+  * whether it is safe for large inputs
+  * whether it is intended for text, bytes, math, tensors, or modules
+
+If a function is a family, document the family rather than repeating the same
+sentence many times.
+
+For example:
+
+  * signed integer family
+  * unsigned integer family
+  * packed unsigned family
+  * bfloat family
+
+That keeps the manual readable.
+
+---------------------------------------------------------------------------
+EXAMPLES
+---------------------------------------------------------------------------
+
+Examples should be:
+
+  * short
+  * executable where possible
+  * representative of the real use case
+  * not overloaded with unrelated syntax
+
+Examples should prefer:
+
+  * actual Osiris code
+  * realistic inputs
+  * a visible result
+
+Examples should avoid:
+
+  * fake edge cases that nobody writes
+  * giant programs where the point gets buried
+  * output that cannot be validated
+
+---------------------------------------------------------------------------
+MAINTENANCE RULES
+---------------------------------------------------------------------------
+
+When the language changes, the docs should change with it.
+
+That means:
+
+  * new functions get entries
+  * changed return values get updated
+  * changed semantics get explained
+  * removed features get removed from the docs
+  * experimental features should be labelled as such
+
+Documentation should not drift behind the implementation for long.
+
+If it does, the manual becomes a lie.
+
+---------------------------------------------------------------------------
+SITE STRUCTURE
+---------------------------------------------------------------------------
+
+The docs site should include at least:
+
+  * a landing page
+  * a language semantics chapter
+  * a function reference index
+  * an I/O chapter
+  * a native interop chapter
+  * a type and exact-math chapter
+  * a guide for docs authors
+
+If the site gets larger, function families may be split into separate pages.
+
+---------------------------------------------------------------------------
+EDITORIAL PRIORITY
+---------------------------------------------------------------------------
+
+Write docs in this order:
+
+  1. user-facing semantics
+  2. callable surface
+  3. type behavior
+  4. I/O behavior
+  5. interop behavior
+  6. advanced compiler behavior
+
+That order keeps the manual useful to people who are actually trying to write
+programs.
+
+---------------------------------------------------------------------------
+FINAL RULE
+---------------------------------------------------------------------------
+
+If a page cannot help a user answer "how do I write this in Osiris?", the page
+probably belongs elsewhere.

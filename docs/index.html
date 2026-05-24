@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Osiris Manual</title>
+  <meta name="description" content="Osiris language manual and function reference.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="backdrop backdrop-a"></div>
+  <div class="backdrop backdrop-b"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">O</div>
+      <div>
+        <div class="brand-kicker">OSIRIS MANUAL</div>
+        <div class="brand-title">Deterministic language reference</div>
+      </div>
+    </div>
+    <div class="search-panel">
+      <label for="search" class="search-label">Search reference</label>
+      <input id="search" type="search" placeholder="Search functions, constructs, modules, semantics">
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel panel-intro">
+        <p class="eyebrow">GitHub Pages manual</p>
+        <h1>Osiris</h1>
+        <p class="lede">
+          A manual-style reference for the language, its semantics, built-in
+          functions, native module surface, and design notes.
+        </p>
+      </div>
+
+      <nav class="nav" id="nav"></nav>
+
+      <div class="panel panel-note">
+        <p class="eyebrow">Quick links</p>
+        <a href="CONTENT-GUIDE.txt">Editorial guide</a>
+        <a href="#semantics">Language semantics</a>
+        <a href="#functions">Function reference</a>
+        <a href="#io">I/O and data</a>
+        <a href="#native">Native interop</a>
+      </div>
+    </aside>
+
+    <main id="app" class="content"></main>
+  </div>
+
+  <footer class="footer">
+    <span>Osiris manual and reference site.</span>
+    <span>Designed for GitHub Pages under <code>docs/</code>.</span>
+  </footer>
+
+  <script src="content.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

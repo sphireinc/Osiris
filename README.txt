@@ -78,6 +78,8 @@ The usual flow is:
      `osiris map`, or `osiris deps`.
   5. Use `osiris lsp` if you want editor integration.
   6. Use `osiris ir` to inspect the lowered IR.
+  7. Open the GitHub Pages manual under `docs/` for the long-form language
+     reference, function index, and editorial guide.
   7. Use `osiris ssa` to inspect the SSA-verified IR and capture flow.
   8. Use `osiris cfg` to inspect the control-flow graph.
   9. Use `osiris dom` to inspect the dominator tree.

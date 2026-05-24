@@ -1,0 +1,431 @@
+OSIRIS AND GO CODE
+==================
+
+This file explains what Osiris can and cannot import from Go, and why.
+
+Short version:
+
+  * Osiris does not dynamically import arbitrary Go packages the way Python
+    imports Python modules.
+  * Osiris does already use Go as the host implementation language for its
+    built-in standard modules.
+  * The practical model is: write or wrap Go code, expose it as an Osiris
+    std module, and let Osiris programs import that module by name.
+
+That model is deliberate.
+
+It keeps the language surface simple while still letting Osiris reuse the Go
+ecosystem where it makes sense.
+
+---------------------------------------------------------------------------
+WHAT THIS MEANS IN PRACTICE
+---------------------------------------------------------------------------
+
+When an Osiris program writes:
+
+  import "std/text" as text
+
+it is not loading an arbitrary Go package from source at runtime.
+It is asking the runtime for a named module that the host already knows how
+to provide.
+
+The same pattern is used for:
+
+  * `std/text`
+  * `std/math`
+  * `std/crypto`
+  * `std/list`
+
+Those modules are backed by Go code in the host runtime.
+Osiris sees a module interface, not Go source files.
+
+That is the key idea:
+
+  Osiris imports modules.
+  The host may implement those modules in Go.
+
+---------------------------------------------------------------------------
+WHY THIS IS THE RIGHT MODEL
+---------------------------------------------------------------------------
+
+There are a few reasons this is the right shape for Osiris.
+
+1. GO DOES NOT WANT TO BE A DYNAMIC PLUGIN LANGUAGE
+
+   Go is designed around compilation units, modules, and static linking.
+   It is not built around a universal dynamic ABI for arbitrary package
+   loading.
+
+   That means "import any Go package at runtime from Osiris" is the wrong
+   promise to make.
+
+2. OSIRIS NEEDS STABLE SEMANTICS
+
+   Osiris is trying to stay deterministic, inspectable, and compiler-friendly.
+   If the language surface were tied to arbitrary host package loading, then
+   the behavior of a program would become much harder to reason about.
+
+   Explicit host modules are easier to test, cache, version, and document.
+
+3. WRAPPERS CAN NORMALIZE THE API
+
+   A Go package's raw API is often not ideal for Osiris.
+   A wrapper can:
+
+     * rename functions to match Osiris conventions
+     * normalize error handling
+     * convert Go types into Osiris values
+     * preserve determinism
+     * hide implementation details
+     * keep the module surface small and readable
+
+4. THE HOST CAN CONTROL COST
+
+   A wrapper module can decide whether to:
+
+     * precompute
+     * cache
+     * copy
+     * borrow
+     * convert
+     * stream
+     * validate eagerly
+
+   That is a better fit for a compiler-driven language than exposing raw Go
+   internals directly.
+
+---------------------------------------------------------------------------
+THE BASIC MODEL
+---------------------------------------------------------------------------
+
+The simplest way to think about Go-backed Osiris modules is:
+
+  Go code -> wrapper -> Osiris module -> Osiris import
+
+The wrapper is the boundary.
+
+Inside the wrapper, Go may do whatever it needs to do.
+Outside the wrapper, Osiris sees a regular module with functions and values.
+
+That means the wrapper owns:
+
+  * type conversion
+  * error translation
+  * naming
+  * versioning
+  * export selection
+  * performance choices
+
+The Osiris program does not need to know how the wrapper works.
+It just imports the module and uses it.
+
+---------------------------------------------------------------------------
+WHAT OSIRIS ALREADY DOES
+---------------------------------------------------------------------------
+
+Osiris already uses this model for its standard modules.
+
+Examples:
+
+  * `std/text` is backed by Go text helpers
+  * `std/math` is backed by Go numeric helpers
+  * `std/crypto` is backed by Go crypto helpers
+  * `std/list` is backed by Go collection helpers
+
+Those modules are implemented by the runtime rather than by the Osiris
+language itself.
+
+That is why it is fair to say:
+
+  "Importing Go code that you explicitly wrap and expose as Osiris std
+  modules is already basically the model Osiris uses today."
+
+The important word there is "explicitly".
+
+---------------------------------------------------------------------------
+WHAT OSIRIS DOES NOT DO
+---------------------------------------------------------------------------
+
+Osiris does not currently do all of the following:
+
+  * discover arbitrary Go packages at runtime
+  * import a Go package path and call it directly like a scripting language
+  * reflect over Go modules automatically and expose everything
+  * promise ABI-level compatibility with any Go package
+
+That would be a different design, and a much messier one.
+
+If you want those capabilities, the clean route is to build a wrapper layer.
+
+---------------------------------------------------------------------------
+HOW TO WRAP GO CODE FOR OSIRIS
+---------------------------------------------------------------------------
+
+The process should be boring and explicit.
+
+Step 1. Pick a stable module name.
+
+  Good:
+
+    * `std/text`
+    * `std/math`
+    * `std/crypto`
+    * `std/json`
+    * `std/fs`
+    * `std/hash`
+
+  Less good:
+
+    * a raw Go import path
+    * a package name that leaks internal Go structure
+    * a module name that changes every time the Go repo layout changes
+
+Step 2. Decide the exported surface.
+
+  Only expose the functions Osiris actually needs.
+
+  Example:
+
+    * `slug(text) -> text`
+    * `hash(bytes) -> bytes`
+    * `parse(json) -> value`
+    * `join(parts) -> text`
+
+  Keep the surface small. Wrap more only when there is real use.
+
+Step 3. Convert arguments explicitly.
+
+  The wrapper should translate Osiris values into Go types on entry:
+
+    * strings
+    * numbers
+    * booleans
+    * byte lists
+    * tensors
+    * maps or records if those exist in the surface
+
+  Then it should convert results back into Osiris values on exit.
+
+Step 4. Translate errors cleanly.
+
+  Go errors should become Osiris errors.
+
+  The wrapper should preserve:
+
+    * the fact that an error occurred
+    * a readable message
+    * enough context to debug the problem
+
+  It should not hide errors behind nil-return weirdness.
+
+Step 5. Version the module.
+
+  Osiris already has module version selectors.
+  A Go-backed module should use them too.
+
+  That gives you:
+
+    * compatibility control
+    * predictable imports
+    * room to evolve APIs without breaking callers
+
+Step 6. Test the wrapper like a language feature.
+
+  Do not treat the wrapper as a throwaway bridge.
+
+  Test:
+
+    * imports
+    * exports
+    * errors
+    * type conversion
+    * version selectors
+    * round trips
+    * deterministic output
+
+---------------------------------------------------------------------------
+EXAMPLE: A SMALL GO-WRAPPED MODULE
+---------------------------------------------------------------------------
+
+Suppose you want a simple JSON helper module.
+
+The Go side might look conceptually like this:
+
+```go
+package stdjson
+
+func Parse(input string) (any, error) {
+    // parse JSON and return a Go value
+}
+
+func Stringify(value any) (string, error) {
+    // turn a Go value back into JSON
+}
+```
+
+The Osiris wrapper would expose those as module functions:
+
+  * `parse(data)`
+  * `stringify(value)`
+
+The Osiris user would write:
+
+```osr
+import "std/json" as json
+
+let value = json.parse("{\"name\":\"osiris\"}")
+emit json.stringify(value)
+```
+
+The user sees a clean module API.
+The Go implementation stays hidden behind the wrapper.
+
+---------------------------------------------------------------------------
+EXAMPLE: WRAPPING THE GO STANDARD LIBRARY
+---------------------------------------------------------------------------
+
+If you wanted to expose a piece of Go's standard library, the wrapper would
+not usually mirror the raw Go package one-to-one.
+
+For example, instead of exposing a large chunk of `encoding/json` directly,
+you would expose a small, Osiris-shaped surface:
+
+  * `parse`
+  * `stringify`
+  * `pretty`
+  * `compact`
+
+Likewise, for `crypto/sha256`, a wrapper might expose:
+
+  * `hash`
+  * `hex`
+  * `digest`
+
+That keeps the Osiris module pleasant to use and easy to optimize.
+
+---------------------------------------------------------------------------
+EXAMPLE: A FILE SYSTEM STYLE WRAPPER
+---------------------------------------------------------------------------
+
+A Go-backed filesystem module could expose:
+
+  * `exists(path)`
+  * `read(path)`
+  * `write(path, data)`
+  * `list(path)`
+  * `walk(path)`
+
+The wrapper might use Go's filesystem packages underneath, but Osiris users
+would still see an Osiris-native interface.
+
+That is the important part.
+The host implementation should not leak all of its own habits into the
+language surface.
+
+---------------------------------------------------------------------------
+NATIVE PERFORMANCE IMPLICATIONS
+---------------------------------------------------------------------------
+
+Explicit Go wrappers are also the right shape for performance.
+
+Why:
+
+  * the compiler can know the export surface in advance
+  * the runtime can cache module instances
+  * the bridge can specialize conversions
+  * hot paths can be optimized around stable shapes
+  * the module can be versioned and profiled independently
+
+That is a much better starting point than arbitrary dynamic package loading.
+
+If a module turns out to be hot, Osiris can later:
+
+  * inline parts of it
+  * move pieces into native codegen
+  * substitute specialized tensor kernels
+  * precompute stable results
+
+The explicit wrapper model leaves room for all of that.
+
+---------------------------------------------------------------------------
+WHAT A GOOD WRAPPER SHOULD FEEL LIKE
+---------------------------------------------------------------------------
+
+A good Osiris wrapper should feel like a normal Osiris module.
+
+It should:
+
+  * use plain function names
+  * keep return values predictable
+  * be small enough to read
+  * preserve exactness where it matters
+  * preserve bytes and text boundaries
+  * avoid awkward Go-ism leaking into the user API
+
+Bad wrapper design usually looks like this:
+
+  * too many arguments
+  * too much type leakage
+  * too much nil/error juggling
+  * unstable names
+  * surprise mutation
+
+Good wrapper design feels boring.
+That is a compliment.
+
+---------------------------------------------------------------------------
+VERSIONING AND COMPATIBILITY
+---------------------------------------------------------------------------
+
+Go-backed modules should be versioned like any other Osiris module.
+
+That means a user should be able to write:
+
+  import "std/json@1" as json
+
+or:
+
+  import "./mywrapper.osr@2.1.0" as wrap
+
+The versioning story matters because the wrapper is part of the contract.
+If the wrapper changes its behavior, that should be deliberate and visible.
+
+---------------------------------------------------------------------------
+RECOMMENDED POLICY
+---------------------------------------------------------------------------
+
+The practical policy for Osiris should be:
+
+  * use Go to implement host modules
+  * expose those modules explicitly
+  * keep the module surface Osiris-shaped
+  * do not promise arbitrary Go package imports
+  * do not pretend the Go ABI is a scripting runtime
+
+That keeps the language honest.
+
+---------------------------------------------------------------------------
+SHORT ANSWER
+---------------------------------------------------------------------------
+
+Can Osiris import Go code?
+
+  * Yes, when the Go code is explicitly wrapped and exposed as an Osiris
+    module.
+  * No, not as a general arbitrary-package import system.
+
+That is the model Osiris already uses, and it is the one that scales best.
+
+---------------------------------------------------------------------------
+NEXT STEPS IF THIS GROWS
+---------------------------------------------------------------------------
+
+If this model becomes a bigger part of Osiris, the next documents should be:
+
+  * a module authoring guide
+  * a native FFI guide
+  * a wrapper style guide
+  * a conversion and marshalling spec
+  * a versioning policy for host modules
+
+Those notes would make the import story much easier to maintain over time.

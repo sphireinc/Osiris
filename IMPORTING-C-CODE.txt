@@ -1,0 +1,456 @@
+OSIRIS AND C CODE
+=================
+
+This file explains how Osiris should think about C libraries, C stdlib style
+functions, and native linking.
+
+Short version:
+
+  * C is the easiest serious native interop target for Osiris.
+  * C libraries have a relatively stable ABI and are meant to be linked.
+  * Osiris should treat C imports as explicit native dependencies, not as
+    magic runtime behavior.
+  * The clean model is: import a C-backed capability, describe its boundary,
+    then let `osiris build` link it into the native output.
+
+That model fits Osiris well because Osiris already wants to be:
+
+  * deterministic
+  * inspectable
+  * compiler-friendly
+  * exact about types and shapes
+  * explicit about modules and versions
+
+---------------------------------------------------------------------------
+WHY C IS THE RIGHT FIRST NATIVE TARGET
+---------------------------------------------------------------------------
+
+If Osiris wants to talk to native code, C is the first place to start.
+
+There are a few reasons.
+
+1. C HAS A STABLE ENOUGH ABI FOR THIS JOB
+
+   C is not perfect, but it is the native language most systems already agree
+   on. It is the common denominator for shared libraries, object files, and
+   low-level runtime interfaces.
+
+   That makes it a practical bridge for Osiris.
+
+2. C MAPS WELL TO A BUILD-TIME LINK MODEL
+
+   Osiris already has a build path that goes through C and then compiles with
+   `cc -O3`.
+
+   That means C interop fits the current architecture naturally:
+
+     Osiris source -> Osiris lowering -> C emission -> native compilation
+
+   The interop layer can live in the same pipeline.
+
+3. C IS A GOOD FIT FOR PERFORMANCE-CRITICAL LOW-LEVEL WORK
+
+   C libraries are often used for:
+
+     * math kernels
+     * parsers
+     * compression
+     * hashing
+     * image codecs
+     * database engines
+     * linear algebra backends
+     * system interfaces
+
+   Those are exactly the kinds of things Osiris may want to reuse instead of
+   reimplementing from scratch.
+
+4. C IS SMALLER THAN A LANGUAGE RUNTIME
+
+   C bindings can be kept narrow.
+   That matters because Osiris should expose the useful part of a native
+   dependency without letting the entire foreign API leak into the language.
+
+---------------------------------------------------------------------------
+WHAT "IMPORTING C" SHOULD MEAN
+---------------------------------------------------------------------------
+
+When Osiris imports C code, it should not mean "scan every header and expose
+everything automatically."
+
+It should mean:
+
+  * the user declares a native dependency
+  * the binding layer names the functions and types that matter
+  * the build system links the required objects or shared libraries
+  * Osiris values are marshalled explicitly across the boundary
+  * the imported capability behaves like an Osiris module
+
+That keeps the language surface disciplined.
+
+The user should see something conceptually like:
+
+  import "c:libm" as mathc
+
+or:
+
+  import "c:sqlite3" as db
+
+But the important thing is not the syntax itself.
+The important thing is the contract:
+
+  "This module comes from C, and the build pipeline knows how to link it."
+
+---------------------------------------------------------------------------
+THE BOUNDARY MODEL
+---------------------------------------------------------------------------
+
+The C boundary should be explicit.
+
+That means the binding layer is responsible for:
+
+  * argument conversion
+  * return conversion
+  * pointer ownership
+  * memory lifetime
+  * buffer sizing
+  * error code handling
+  * string encoding expectations
+  * struct layout assumptions
+
+The Osiris user should not have to guess what happens at the ABI boundary.
+
+The wrapper should decide:
+
+  * whether a C string becomes a copied Osiris string
+  * whether a byte buffer is borrowed or copied
+  * whether a struct is flattened into fields
+  * whether a pointer is opaque
+  * whether a return code becomes an error value
+
+This is where the safety and simplicity of Osiris matters.
+
+---------------------------------------------------------------------------
+THE RECOMMENDED POLICY
+---------------------------------------------------------------------------
+
+The best policy for Osiris is:
+
+  * keep the C boundary narrow
+  * prefer wrappers over raw header dumping
+  * expose Osiris-shaped functions
+  * make ownership explicit
+  * keep errors visible
+  * link in the build pipeline, not in hidden runtime tricks
+
+The point is to be practical, not to recreate every detail of C inside Osiris.
+
+---------------------------------------------------------------------------
+HOW A C WRAPPER SHOULD FEEL
+---------------------------------------------------------------------------
+
+A good C wrapper should feel like a clean Osiris module.
+
+Good:
+
+  * `mathc.sin(x)`
+  * `mathc.cos(x)`
+  * `hash.sha256(data)`
+  * `db.open(path)`
+  * `db.query(sql)`
+
+Less good:
+
+  * raw function names that mirror a header file exactly
+  * pointer-heavy APIs with no ownership rules
+  * direct exposure of every enum and macro
+  * calling conventions that force the user to think in C all day
+
+The wrapper should hide the ugly parts where possible and preserve the useful
+parts where necessary.
+
+---------------------------------------------------------------------------
+WHAT SHOULD BE WRAPPED FIRST
+---------------------------------------------------------------------------
+
+The best early C imports are the ones with stable, obvious semantics.
+
+Good first targets:
+
+  * `libm`
+  * `libc` helpers
+  * cryptographic libraries
+  * compression libraries
+  * image codecs
+  * linear algebra backends
+  * database libraries
+
+These are useful because they solve real problems and they already have
+standard calling conventions.
+
+For math-heavy work, `libm` and linear algebra backends are especially useful.
+
+---------------------------------------------------------------------------
+EXAMPLE: WRAPPING LIBM
+---------------------------------------------------------------------------
+
+Suppose Osiris wants a C-backed math module.
+
+The wrapper might expose:
+
+  * `sin(x)`
+  * `cos(x)`
+  * `tan(x)`
+  * `sqrt(x)`
+  * `pow(x, y)`
+  * `log(x)`
+  * `exp(x)`
+
+The user might write:
+
+```osr
+import "c:libm" as cmath
+
+let angle = 0.5
+emit cmath.sin(angle)
+```
+
+The wrapper would translate the Osiris number into a C `double`, call the C
+function, then translate the result back.
+
+That is the simplest useful case.
+
+---------------------------------------------------------------------------
+EXAMPLE: WRAPPING A STRING OR BYTE LIBRARY
+---------------------------------------------------------------------------
+
+Suppose Osiris wants to wrap a C compression library.
+
+The wrapper might expose:
+
+  * `compress(bytes)`
+  * `decompress(bytes)`
+  * `bound(size)`
+
+The wrapper would need to define:
+
+  * whether input bytes are copied
+  * whether output is allocated by C or Osiris
+  * how errors are reported
+  * who frees the result
+
+For this class of library, explicit ownership rules matter more than anything
+else.
+
+The Osiris side should not make the user juggle raw pointers unless there is a
+very strong reason.
+
+---------------------------------------------------------------------------
+EXAMPLE: WRAPPING A DATABASE LIBRARY
+---------------------------------------------------------------------------
+
+A database wrapper should not expose raw C internals unless needed.
+
+Better surface:
+
+  * `open(path)`
+  * `exec(sql)`
+  * `query(sql)`
+  * `close(db)`
+
+The wrapper can hide the C handles behind Osiris values.
+
+That gives the user a simple API while still letting the build pipeline link
+against the native database library underneath.
+
+---------------------------------------------------------------------------
+BUILD PIPELINE MODEL
+---------------------------------------------------------------------------
+
+The right place for C linking is the native build path.
+
+That means `osiris build` should be able to:
+
+  * detect C-backed imports
+  * emit or consume the needed bindings
+  * compile the generated C
+  * link against the requested C libraries
+  * produce a single native executable
+
+That is the cleanest model for Osiris because it keeps the native dependency
+graph explicit and reproducible.
+
+The build should be able to answer:
+
+  * what C libraries are needed
+  * which symbols are imported
+  * which wrappers are in use
+  * which versions or ABI assumptions matter
+
+If the build cannot answer those questions, the import story is too blurry.
+
+---------------------------------------------------------------------------
+MARSHALLING RULES
+---------------------------------------------------------------------------
+
+The most important part of C interop is conversion.
+
+The wrapper should define clear conversions for:
+
+  * `bool`
+  * integers of known width
+  * floats
+  * strings
+  * byte buffers
+  * arrays
+  * structs
+  * opaque handles
+  * error codes
+
+Recommended rules:
+
+  * use exact integer widths when possible
+  * use `f64` for general C floating-point calls unless the API demands
+    otherwise
+  * copy strings unless the API explicitly says the memory is borrowed
+  * keep byte buffers explicit
+  * model opaque pointers as opaque handles, not as random integers
+  * translate error returns into Osiris errors where possible
+
+The binding layer should not guess.
+It should declare the mapping and stick to it.
+
+---------------------------------------------------------------------------
+OWNERSHIP AND LIFETIME
+---------------------------------------------------------------------------
+
+This is where many foreign-function systems become dangerous.
+
+Osiris should be conservative here.
+
+The wrapper should specify:
+
+  * who allocates
+  * who frees
+  * whether the result is borrowed
+  * whether the result must be copied before the call returns
+  * whether the value can be shared across calls
+
+If ownership is unclear, the wrapper should force a copy or hide the pointer
+behind a managed Osiris value.
+
+That is usually the right tradeoff for a language that wants to stay pleasant
+and safe.
+
+---------------------------------------------------------------------------
+ERROR HANDLING
+---------------------------------------------------------------------------
+
+C APIs often signal problems with:
+
+  * return codes
+  * null pointers
+  * out-parameters
+  * errno-style state
+
+Osiris should normalize those into readable errors.
+
+The user should not have to reverse-engineer a failed call by reading a C
+header and a man page every time.
+
+Good wrapper policy:
+
+  * success returns a normal value
+  * failure returns an Osiris error
+  * error messages include context
+  * empty or null results are not silently treated as success
+
+---------------------------------------------------------------------------
+SAFETY NOTES
+---------------------------------------------------------------------------
+
+C is powerful, which means the wrapper needs discipline.
+
+Avoid:
+
+  * exposing raw lifetime hazards everywhere
+  * leaking pointers into user code with no explanation
+  * letting the user accidentally double-free memory
+  * hiding whether data is copied
+  * silently widening or truncating types
+
+The wrapper should make unsafe edges obvious and uncommon.
+
+---------------------------------------------------------------------------
+VERSIONING
+---------------------------------------------------------------------------
+
+C wrappers should be versioned like any other Osiris module.
+
+That means a user should be able to write something like:
+
+  import "c:libm@1" as cmath
+
+or:
+
+  import "c:sqlite3@3" as db
+
+The version selector matters because native APIs do change.
+Versioning makes those changes explicit instead of surprising.
+
+---------------------------------------------------------------------------
+HOW THIS FITS OSIRIS
+---------------------------------------------------------------------------
+
+This model fits Osiris because Osiris already likes:
+
+  * explicit modules
+  * inspectable dependencies
+  * version selectors
+  * deterministic builds
+  * native lowering
+  * strong standard-library wrappers
+
+C interop is not a separate religion.
+It is just another explicit module source.
+
+The module surface should still look like Osiris.
+
+---------------------------------------------------------------------------
+WHAT IT SHOULD NOT BECOME
+---------------------------------------------------------------------------
+
+Osiris should not become:
+
+  * a thin C macro parser
+  * a header translation machine with no judgement
+  * a pointer sandbox where all safety is the user's problem
+  * a runtime that hides native dependencies behind opaque magic
+
+The value is in making native work easier without making the language itself
+uglier.
+
+---------------------------------------------------------------------------
+SHORT ANSWER
+---------------------------------------------------------------------------
+
+Can Osiris import C code?
+
+  * Yes, and this is the most realistic native interop path.
+  * It should happen through explicit wrappers and the build pipeline.
+  * It should be versioned, tested, and Osiris-shaped.
+
+That is the model to aim for.
+
+---------------------------------------------------------------------------
+NEXT STEPS IF THIS BECOMES REAL
+---------------------------------------------------------------------------
+
+If C importing becomes an implementation project, the next documents should be:
+
+  * a C FFI spec
+  * a marshalling spec
+  * an ownership and lifetime spec
+  * a wrapper style guide
+  * a linking/build integration note
+
+Those would make the interop story concrete enough to implement safely.
