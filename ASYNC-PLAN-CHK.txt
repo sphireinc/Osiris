@@ -1,0 +1,129 @@
+OSIRIS CONCURRENCY AND ASYNC CHECKLIST
+=======================================
+
+STRATEGY
+--------
+Keep Osiris synchronous by default. Add explicit structured concurrency for wait-heavy work. Keep compute-heavy code optimized through vectorization, cache locality, thread parallelism, memory layout, and native lowering.
+
+PHASE 1: CORE TASK MODEL
+------------------------
+[x] Define `spawn` as the task-start primitive.
+[x] Define `await` as the task-join primitive.
+[x] Add a task handle type that can be returned, passed around, and awaited.
+[x] Make spawned tasks run on the runtime scheduler instead of the caller stack.
+[x] Add task result propagation through `await`.
+[x] Add task error propagation through `await`.
+[x] Add cooperative cancellation state for tasks.
+[x] Make cancellation visible to long-running loops and suspension points.
+[x] Add runtime scheduler support for basic task submission and wakeup.
+[x] Add a worker pool that can execute tasks across multiple OS threads.
+
+PHASE 2: STRUCTURED PARALLELISM
+-------------------------------
+[x] Add `parallel` for bounded data-parallel execution.
+[x] Preserve result order in `parallel` by default.
+[ ] Add an explicit completion-order mode only if it is needed.
+[x] Add cancellation propagation across grouped tasks.
+[x] Add timeout wrappers for waiting and task execution.
+[x] Add `race` or `select` only if first-complete semantics are actually required.
+[x] Add deterministic debugging mode for concurrent execution.
+[x] Add task tracing or scheduling diagnostics for debugging and regression tests.
+
+PHASE 3: ASYNC I/O SURFACE
+--------------------------
+[x] Keep synchronous `read`, `write`, `readbytes`, `csv`, `jsonparse`, and `lines` as the default I/O surface.
+[x] Add async or task-aware file I/O entry points where concurrency matters.
+[x] Add streaming reader support for large inputs.
+[x] Add streaming writer support for large outputs.
+[ ] Add network I/O primitives for socket-based workloads.
+[x] Add timeout-aware I/O operations.
+[x] Add cancellation-aware I/O operations.
+[ ] Make blocking semantics explicit and predictable in docs and runtime behavior.
+[ ] Decide which I/O calls may suspend a task and document those suspension points.
+
+PHASE 4: RUNTIME AND SCHEDULER
+------------------------------
+[x] Add an async I/O bridge in the runtime.
+[x] Add deadline handling and timeout enforcement.
+[x] Add result propagation for suspended tasks.
+[x] Add error propagation for suspended tasks.
+[x] Keep compute tasks separate from I/O wait tasks.
+[x] Keep cancellation checks separate from numeric hot loops.
+[x] Ensure the scheduler supports bounded parallelism.
+[ ] Ensure the scheduler supports work stealing or equivalent load balancing.
+[ ] Ensure the scheduler can wake suspended tasks efficiently.
+[x] Add a deterministic scheduler mode for tests and debugging.
+
+PHASE 5: COMPILER AND LOWERING
+------------------------------
+[ ] Represent `spawn` and `await` as explicit IR boundaries.
+[ ] Represent suspension points explicitly in the IR.
+[ ] Lower async control flow into resumable state machines only where needed.
+[ ] Keep compute-heavy regions in straight-line or loop-heavy form when they have no suspension points.
+[ ] Emit small runtime helper calls for scheduling, suspension, resume, timeout, and cancellation.
+[ ] Emit direct loops for compute-heavy regions.
+[ ] Emit state machines only around actual suspension points.
+[ ] Keep the C backend as the standard native lowering path.
+[ ] Ensure the C backend remains readable and auditable for concurrency lowering.
+[ ] Compile the emitted C with aggressive optimization flags.
+
+PHASE 6: OPTIMIZATION AND NUMERIC PERFORMANCE
+---------------------------------------------
+[ ] Vectorize elementwise tensor kernels.
+[ ] Improve cache locality for dense tensor and matrix loops.
+[ ] Parallelize large tensor and matrix work across threads.
+[ ] Keep memory layout explicit for dense numeric data.
+[ ] Hoist shape and bounds checks out of hot loops when safe.
+[ ] Fuse adjacent tensor operations when aliasing and purity allow it.
+[ ] Specialize hot functions by shape and scalar kind.
+[ ] Avoid boxed values in numeric hot loops.
+[ ] Reuse scratch buffers when it is safe.
+[ ] Keep generic dispatch out of inner kernels.
+[ ] Avoid needless transposes in optimized numeric code.
+[ ] Keep async overhead out of hot numeric kernels.
+
+PHASE 7: SAFETY AND SEMANTICS
+-----------------------------
+[ ] Define cancellation as cooperative, not violent.
+[ ] Define what happens when a cancelled task is awaited.
+[ ] Define what happens when a timeout expires during I/O.
+[ ] Distinguish timeout errors from normal runtime errors.
+[ ] Define whether I/O calls may block a worker thread or suspend a task.
+[ ] Define which operations are safe points for cancellation.
+[ ] Ensure cancellation does not corrupt runtime state.
+[ ] Ensure task boundaries do not break deterministic programs unexpectedly.
+
+PHASE 8: TESTING AND BENCHMARKS
+-------------------------------
+[x] Add tests for `spawn` and `await`.
+[x] Add tests for cancellation behavior.
+[x] Add tests for timeout behavior.
+[x] Add tests for `parallel` result ordering.
+[x] Add tests for async file I/O.
+[x] Add tests for runtime scheduling and task wakeup.
+[x] Add tests for deterministic debug mode.
+[ ] Add benchmarks for compute-heavy tensor workloads.
+[ ] Add benchmarks for I/O-heavy workloads.
+[ ] Add benchmarks for task creation and join overhead.
+[ ] Add benchmarks for cancellation and timeout overhead.
+[ ] Add benchmarks for C backend lowering of concurrency constructs.
+
+PHASE 9: DOCUMENTATION
+----------------------
+[ ] Document the concurrency model in `LANG.txt`.
+[ ] Document the I/O model in `IO.txt`.
+[ ] Document the async and concurrency plan in `ASYNC-PLAN.txt`.
+[ ] Document the implementation checklist in `ASYNC-PLAN-CHK.txt`.
+[ ] Document the runtime semantics of `spawn`, `await`, `parallel`, `cancel`, and `timeout`.
+[ ] Document which I/O calls are synchronous and which are async-aware.
+[ ] Document how the C backend lowers async constructs.
+[ ] Document the performance model for numeric code versus wait-heavy code.
+
+DEFINITION OF DONE
+------------------
+[ ] Osiris can express structured concurrency without a JS-style event loop.
+[ ] Osiris can overlap I/O effectively while keeping synchronous source semantics readable.
+[ ] Osiris can keep compute-heavy code fast through vectorization, cache locality, parallelism, memory layout, and native lowering.
+[ ] The C backend can lower concurrency constructs cleanly.
+[ ] The runtime can schedule, suspend, resume, cancel, and time out tasks predictably.
+[ ] The docs tell users how to write fast concurrent Osiris code without obscuring the language model.

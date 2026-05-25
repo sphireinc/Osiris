@@ -1,0 +1,252 @@
+PHASE 4: POLLING AND EVENT NOTIFICATION API
+-------------------------------------------
+[x] Add a unified polling API for monitoring multiple I/O resources at once.
+[x] Keep the polling API focused on readiness notification, not a full event loop.
+[x] Support automatic backend selection based on the current platform.
+[x] Support a portable fallback backend for platforms without advanced polling support.
+[ ] Support Linux `epoll` as a high-performance backend.
+[ ] Support BSD/macOS `kqueue` as a high-performance backend.
+[ ] Support Solaris/illumos event ports where available.
+[ ] Support Windows polling through an appropriate native backend.
+[ ] Support POSIX `poll` as the lowest common denominator.
+[ ] Decide whether legacy `select` support is needed as an additional fallback.
+[ ] Document backend performance characteristics and platform limitations.
+[ ] Expose backend availability for diagnostics and testing.
+[ ] Allow explicit backend selection for tests and advanced users.
+[x] Prefer automatic backend selection for normal application code.
+
+PHASE 5: POLL CONTEXT DESIGN
+----------------------------
+[x] Add a poll context object that owns registered watchers.
+[x] Add a `wait` operation that blocks until an event occurs or a timeout expires.
+[x] Support infinite waits.
+[x] Support non-blocking polls that return immediately.
+[x] Support finite timeout-based waits.
+[ ] Decide on timeout units and make them consistent across the language.
+[ ] Normalize timeout overflow or invalid timeout values predictably.
+[ ] Allow limiting the maximum number of returned events.
+[ ] Decide whether `wait` returns watchers, event records, tuples, or callbacks.
+[ ] Ensure `wait` can report read, write, error, and hang-up conditions.
+[ ] Ensure polling behavior is safe when resources are closed during polling.
+[ ] Define whether poll contexts are reusable after errors.
+[ ] Define lifecycle rules for creating, using, and destroying poll contexts.
+[ ] Document whether poll contexts are thread-safe, task-local, or runtime-local.
+
+PHASE 6: POLLABLE HANDLE ABSTRACTION
+------------------------------------
+[x] Add a handle abstraction for resources that can be monitored by the poller.
+[x] Keep descriptor extraction hidden from ordinary user code.
+[x] Allow core/runtime resource types to provide pollable handles.
+[ ] Add poll handles for file or stream resources.
+[ ] Add poll handles for socket resources.
+[ ] Add poll handles for process pipes.
+[ ] Add poll handles for runtime-managed network connections.
+[ ] Add poll handles for TLS-wrapped connections where possible.
+[ ] Add poll handles for HTTP/client transport integrations.
+[ ] Add poll handles for custom native/runtime extensions.
+[ ] Decide whether user-defined types may implement pollable handles directly.
+[ ] If user-defined handles are allowed, define a safe descriptor and validity contract.
+[ ] If user-defined handles are not allowed, provide wrapper types for supported resources.
+[ ] Add validity checks for handles before registration.
+[ ] Add validity checks for handles during watcher modification.
+[ ] Define behavior when a handle becomes invalid while being watched.
+
+PHASE 7: WATCHER MODEL
+----------------------
+[x] Add a watcher object or record representing a registered interest in a handle.
+[x] Allow a watcher to track the handle it is monitoring.
+[x] Allow a watcher to track the events it is watching.
+[x] Allow a watcher to expose the events that were triggered.
+[x] Allow user data to be associated with a watcher.
+[ ] Add a way to modify the watched events for an existing watcher.
+[ ] Add a way to modify watcher-associated user data.
+[ ] Add a way to remove a watcher from its poll context.
+[ ] Define whether removing a watcher is idempotent.
+[ ] Define whether inactive watchers can be inspected after removal.
+[ ] Define whether inactive watchers can ever be reactivated.
+[ ] Prevent duplicate watcher registration for the same handle unless explicitly supported.
+[ ] Decide whether multiple contexts may watch the same handle.
+[ ] Define watcher ownership and cleanup semantics.
+[ ] Ensure watcher removal releases backend-specific registrations.
+
+PHASE 8: EVENT MODEL
+--------------------
+[x] Define a small cross-platform event set.
+[x] Add readable/read-ready events.
+[x] Add writable/write-ready events.
+[x] Add error events.
+[x] Add hang-up or peer-closed events.
+[ ] Decide whether half-close/read-hang-up events are exposed.
+[ ] Decide whether error and hang-up events are always monitored automatically.
+[ ] Decide which events may be requested as input events.
+[ ] Decide which events may only appear as output events.
+[ ] Add helper methods or predicates for checking whether an event was triggered.
+[ ] Define how multiple triggered events are represented.
+[ ] Define how unsupported platform-specific events are handled.
+[ ] Document differences between read readiness, EOF, hang-up, and error.
+[ ] Document whether readiness means an operation will definitely complete without blocking.
+[ ] Document spurious wakeups or stale readiness notifications if they can occur.
+
+PHASE 9: ADVANCED POLLING MODES
+-------------------------------
+[ ] Add one-shot watcher mode where supported.
+[ ] Add edge-triggered mode where supported.
+[ ] Add backend capability detection for edge-triggered mode.
+[ ] Add backend capability detection for one-shot mode.
+[ ] Define fallback behavior when advanced modes are requested but unsupported.
+[ ] Document level-triggered polling as the default behavior.
+[ ] Document edge-triggered polling requirements, especially read/write-until-would-block behavior.
+[ ] Add tests proving edge-triggered watchers do not lose events under normal usage.
+[ ] Add tests proving one-shot watchers deactivate or remove themselves after firing.
+[ ] Decide whether advanced modes are stable public API or expert-only API.
+
+PHASE 10: INTERNAL RUNTIME POLLING API
+--------------------------------------
+[x] Add an internal polling API that the language runtime can use directly.
+[x] Use the same backend abstraction internally and externally where practical.
+[ ] Add internal functions for creating a poll context.
+[ ] Add internal functions for initializing a poll context.
+[ ] Add internal functions for adding a descriptor or handle.
+[ ] Add internal functions for modifying watched events.
+[ ] Add internal functions for removing a descriptor or handle.
+[ ] Add internal functions for waiting with timeout.
+[ ] Add internal functions for retrieving backend errors.
+[ ] Add internal functions for destroying poll contexts.
+[ ] Provide extension/module hooks for registering custom handle types.
+[ ] Keep low-level descriptor access internal unless the language intentionally exposes it.
+[ ] Consolidate ad-hoc runtime polling code onto the shared internal API.
+[ ] Use the internal API for signal handling where appropriate.
+[ ] Use the internal API for timers where appropriate.
+[ ] Use the internal API for server accept loops where appropriate.
+[ ] Use the internal API for async runtime scheduling where appropriate.
+
+PHASE 11: ERROR AND EXCEPTION DESIGN
+------------------------------------
+[x] Define a base I/O error type.
+[x] Define polling-specific errors.
+[ ] Add an error for backend initialization failure.
+[ ] Add an error for unavailable backends.
+[ ] Add an error for invalid handles.
+[ ] Add an error for handles already being watched.
+[ ] Add an error for inactive watchers.
+[ ] Add an error for failed watcher modification.
+[ ] Add an error for failed wait operations.
+[ ] Add portable error codes for system failures.
+[ ] Add portable error codes for invalid arguments.
+[ ] Add portable error codes for permission failures.
+[ ] Add portable error codes for unsupported operations.
+[ ] Add portable error codes for too many watched resources.
+[ ] Add portable error codes for interrupted waits.
+[ ] Add portable error codes for would-block / try-again conditions.
+[ ] Decide whether timeout is an error, an empty result, or a distinct result state.
+[ ] Preserve native OS error details for diagnostics where possible.
+[ ] Keep user-facing error messages stable and language-level, not backend-specific.
+
+PHASE 12: EVENT LOOP BOUNDARY
+-----------------------------
+[x] Decide that polling is lower-level than an event loop.
+[x] Avoid bundling a full event loop into the minimal polling API.
+[x] Allow libraries to build event loops on top of the polling API.
+[ ] Define how timers should integrate with polling.
+[ ] Define how cancellation should interrupt or cooperate with polling.
+[ ] Define how task schedulers can suspend on poll waits.
+[ ] Define how callbacks can be layered over watchers.
+[ ] Define whether the standard library will include a callback event loop helper.
+[ ] Define whether the standard library will include futures/promises/tasks over polling.
+[ ] Document the difference between readiness polling and async execution.
+[ ] Document how framework authors should use the polling API as a backend.
+
+PHASE 13: RESOURCE TYPES AND FUTURE EXTENSIONS
+----------------------------------------------
+[ ] Add socket polling support.
+[ ] Add stream polling support.
+[ ] Add pipe polling support.
+[ ] Add timer handles.
+[ ] Add signal handles.
+[ ] Add process handles.
+[ ] Add child-process exit notification.
+[ ] Add HTTP client integration.
+[ ] Add DNS resolver integration if the runtime supports async DNS.
+[ ] Add file-system notification integration if in scope.
+[ ] Add TLS transport integration.
+[ ] Add database driver integration hooks.
+[ ] Add foreign-function/native-extension handle integration.
+[ ] Keep the public API extensible without breaking existing handle types.
+
+PHASE 14: PERFORMANCE AND SCALABILITY
+-------------------------------------
+[x] Design for thousands of concurrent connections.
+[x] Avoid per-call registration work where persistent watcher registration is available.
+[ ] Benchmark small descriptor sets.
+[ ] Benchmark large descriptor sets.
+[ ] Benchmark many idle connections.
+[ ] Benchmark many active connections.
+[ ] Benchmark add/modify/remove watcher overhead.
+[ ] Benchmark timeout-heavy workloads.
+[ ] Benchmark edge-triggered mode where supported.
+[ ] Compare fallback backend behavior against advanced backends.
+[ ] Document expected complexity for each backend.
+[ ] Avoid O(n) scans where backend support allows scalable dispatch.
+[ ] Avoid unnecessary allocations in hot polling paths.
+[ ] Reuse event buffers where safe.
+[ ] Ensure polling does not starve the task scheduler.
+[ ] Ensure polling does not block unrelated runtime work.
+
+PHASE 15: CROSS-PLATFORM SEMANTICS
+----------------------------------
+[x] Present one portable API across operating systems.
+[x] Hide backend-specific differences unless the caller asks for them.
+[ ] Define the minimum supported backend per operating system.
+[ ] Add backend-specific tests that skip when unavailable.
+[ ] Normalize event names across operating systems.
+[ ] Normalize timeout behavior across operating systems.
+[ ] Normalize interrupted wait behavior across operating systems.
+[ ] Normalize closed-handle behavior across operating systems where possible.
+[ ] Document unavoidable platform differences.
+[ ] Document which features are Linux-only, BSD/macOS-only, Windows-only, or fallback-only.
+[ ] Ensure unsupported features fail clearly instead of silently degrading.
+[ ] Provide a way to inspect selected backend at runtime.
+[ ] Provide a way to inspect supported capabilities at runtime.
+
+PHASE 16: DOCUMENTATION AND EXAMPLES
+------------------------------------
+[ ] Add a basic TCP server example.
+[ ] Add a basic TCP client example.
+[ ] Add a callback-based event loop example.
+[ ] Add a watcher modification example.
+[ ] Add a watcher removal example.
+[ ] Add a timeout example.
+[ ] Add a non-blocking poll example.
+[ ] Add an edge-triggered example.
+[ ] Add a backend introspection example.
+[ ] Add examples showing correct EOF, hang-up, and error handling.
+[ ] Add examples showing cancellation with polling.
+[ ] Add examples showing integration with the language task scheduler.
+[ ] Document what polling is.
+[ ] Document what polling is not.
+[ ] Document when to use polling directly versus higher-level async APIs.
+
+PHASE 17: TESTING AND VALIDATION
+--------------------------------
+[ ] Add unit tests for context creation.
+[ ] Add unit tests for backend selection.
+[ ] Add unit tests for explicit backend selection.
+[ ] Add unit tests for backend unavailable errors.
+[ ] Add unit tests for handle validation.
+[ ] Add unit tests for duplicate handle registration.
+[ ] Add unit tests for watcher modification.
+[ ] Add unit tests for watcher removal.
+[ ] Add unit tests for inactive watcher behavior.
+[ ] Add unit tests for timeout behavior.
+[ ] Add unit tests for non-blocking poll behavior.
+[ ] Add unit tests for read readiness.
+[ ] Add unit tests for write readiness.
+[ ] Add unit tests for error readiness.
+[ ] Add unit tests for hang-up readiness.
+[ ] Add integration tests for TCP server workloads.
+[ ] Add integration tests for TCP client workloads.
+[ ] Add stress tests with thousands of watched handles.
+[ ] Add platform-specific tests for advanced backends.
+[ ] Automatically skip backend-specific tests when unsupported.
+[ ] Add regression tests for resource cleanup and descriptor leaks.
+[ ] Add race/concurrency tests if the language runtime is multi-threaded or task-based.

@@ -626,6 +626,39 @@ func aliasExpr(expr Expr, scope *aliasScope, out *AliasProgram) aliasInfo {
 					_, _ = aliasExpr(n.args[0], scope, out), aliasExpr(n.args[1], scope, out)
 				}
 				return freshAliasInfo("scalar", "special "+name)
+			case "parallel":
+				for _, arg := range n.args {
+					_ = aliasExpr(arg, scope, out)
+				}
+				return freshAliasInfo("list", "special parallel")
+			case "race":
+				for _, arg := range n.args {
+					_ = aliasExpr(arg, scope, out)
+				}
+				if len(n.args) == 0 {
+					return unknownAliasInfo("value")
+				}
+				info := aliasExpr(n.args[0], scope, out)
+				for _, arg := range n.args[1:] {
+					info = joinAliasInfo(info, aliasExpr(arg, scope, out))
+				}
+				return info
+			case "select":
+				for _, arg := range n.args {
+					_ = aliasExpr(arg, scope, out)
+				}
+				return freshAliasInfo("list", "special select")
+			case "timeout":
+				if len(n.args) != 2 {
+					return unknownAliasInfo("value")
+				}
+				_ = aliasExpr(n.args[0], scope, out)
+				return aliasExpr(n.args[1], scope, out)
+			case "spawn", "await", "cancel", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+				for _, arg := range n.args {
+					_ = aliasExpr(arg, scope, out)
+				}
+				return freshAliasInfo("task", "special "+name)
 			}
 		}
 		callee := aliasExpr(n.callee, scope, out)
@@ -656,6 +689,8 @@ func aliasExpr(expr Expr, scope *aliasScope, out *AliasProgram) aliasInfo {
 		handler := aliasExpr(n.handler, catchScope, out)
 		body := aliasExpr(n.body, scope, out)
 		return joinAliasInfo(body, handler)
+	case *propagateExpr:
+		return aliasExpr(n.expr, scope, out)
 	case *matchExpr:
 		subject := aliasExpr(n.subject, scope, out)
 		var outInfo aliasInfo
@@ -817,6 +852,16 @@ func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *Ali
 		return freshAliasInfo("tensor", "builtin "+name), true
 	case "flatten", "shape", "split", "chunks", "range", "bytes", "unpack", "lines", "csv", "readbytes", "qr", "eig", "eigh", "svd":
 		return freshAliasInfo("list", "builtin "+name), true
+	case "openread", "openwrite":
+		return freshAliasInfo("stream", "builtin "+name), true
+	case "readline":
+		return freshAliasInfo("string", "builtin "+name), true
+	case "readchunk":
+		return freshAliasInfo("list", "builtin "+name), true
+	case "writechunk":
+		return freshAliasInfo("scalar", "builtin "+name), true
+	case "flush", "close":
+		return freshAliasInfo("scalar", "builtin "+name), true
 	case "pack", "cat", "join", "hash", "mix", "slug", "upper", "lower", "trim", "replace", "json", "format", "read":
 		return freshAliasInfo("string", "builtin "+name), true
 	case "repeat":
@@ -894,6 +939,8 @@ func aliasInfoFromValue(v Value, origin string) aliasInfo {
 		return freshAliasInfo("function", origin)
 	case kindModule:
 		return freshAliasInfo("module", origin)
+	case kindTask:
+		return freshAliasInfo("task", origin)
 	case kindList:
 		return freshAliasInfo("list", origin)
 	case kindTensor:
@@ -924,6 +971,8 @@ func literalOrigin(v Value) string {
 		return "function literal"
 	case kindModule:
 		return "module literal"
+	case kindTask:
+		return "task literal"
 	case kindQuantity:
 		return "quantity literal"
 	default:

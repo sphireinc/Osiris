@@ -24,6 +24,8 @@ const (
 	kindModInt
 	kindComplex
 	kindError
+	kindResult
+	kindOption
 	kindBigInt
 	kindBigFloat
 	kindInt
@@ -32,6 +34,8 @@ const (
 	kindString
 	kindList
 	kindTensor
+	kindStream
+	kindTask
 	kindFunction
 	kindModule
 )
@@ -82,7 +86,12 @@ type Value struct {
 	list   []Value
 	shape  []int
 	data   []Value
+	stream *streamValue
+	task   *taskValue
+	err    *OsirisError
 	errMsg string
+	res    *resultValue
+	opt    *optionValue
 	fn     *functionValue
 	mod    *moduleValue
 }
@@ -196,7 +205,10 @@ func complexValue(v complex128) Value { return Value{kind: kindComplex, cx: v} }
 //
 // It returns Value so callers can continue with the next stage of the pipeline
 // without re-deriving the same information.
-func errorValue(msg string) Value { return Value{kind: kindError, errMsg: msg} }
+func errorValue(msg string) Value {
+	rec := newOsirisError(ErrorKindUnknown, msg)
+	return Value{kind: kindError, err: rec, errMsg: msg}
+}
 
 // bigintValue handles the bigint value step in the surrounding package and
 // returns Value.
@@ -304,6 +316,20 @@ func tensorValue(shape []int, data []Value) Value {
 	return newTensorValue(shape, data)
 }
 
+// streamValueOf handles the stream value of step in the surrounding package
+// and returns Value.
+//
+// It returns Value so callers can continue with the next stage of the
+// pipeline without re-deriving the same information.
+func streamValueOf(v *streamValue) Value { return Value{kind: kindStream, stream: v} }
+
+// taskValueOf handles the task value of step in the surrounding package and
+// returns Value.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
+func taskValueOf(v *taskValue) Value { return Value{kind: kindTask, task: v} }
+
 // functionValueOf handles the function value of step in the surrounding
 // package and returns Value.
 //
@@ -394,6 +420,10 @@ func (k valueKind) String() string {
 		return "complex"
 	case kindError:
 		return "error"
+	case kindResult:
+		return "result"
+	case kindOption:
+		return "option"
 	case kindBigInt:
 		return "bigint"
 	case kindBigFloat:
@@ -410,6 +440,10 @@ func (k valueKind) String() string {
 		return "list"
 	case kindTensor:
 		return "tensor"
+	case kindStream:
+		return "stream"
+	case kindTask:
+		return "task"
 	case kindFunction:
 		return "function"
 	case kindModule:
@@ -445,6 +479,10 @@ func (v Value) Truthy() bool {
 		return real(v.cx) != 0 || imag(v.cx) != 0
 	case kindError:
 		return false
+	case kindResult:
+		return v.res != nil && v.res.ok && v.res.val.Truthy()
+	case kindOption:
+		return v.opt != nil && v.opt.present
 	case kindBigInt:
 		return v.bi != nil && v.bi.Sign() != 0
 	case kindBigFloat:
@@ -464,6 +502,10 @@ func (v Value) Truthy() bool {
 		return len(v.list) != 0
 	case kindTensor:
 		return len(v.data) != 0
+	case kindStream:
+		return v.stream != nil
+	case kindTask:
+		return v.task != nil
 	case kindFunction, kindModule:
 		return true
 	default:
@@ -568,7 +610,12 @@ func (v Value) AsString() (string, error) {
 	case kindString:
 		return v.str, nil
 	case kindError:
+		if rec := v.errorRecord(); rec != nil {
+			return rec.displayMessage(), nil
+		}
 		return "", errors.New(v.errMsg)
+	case kindResult, kindOption:
+		return v.String(), nil
 	case kindNull:
 		return "", nil
 	case kindBigInt:
@@ -714,6 +761,49 @@ func (v Value) AsModule() (*moduleValue, error) {
 		return nil, fmt.Errorf("expected module, got %s", v.kind)
 	}
 	return v.mod, nil
+}
+
+// AsTask operates on Value values and keeps the value-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *taskValue and an error. Callers should only trust the value when
+// the error is nil.
+func (v Value) AsTask() (*taskValue, error) {
+	if v.kind != kindTask || v.task == nil {
+		return nil, fmt.Errorf("expected task, got %s", v.kind)
+	}
+	return v.task, nil
+}
+
+// AsError operates on Value values and keeps the value-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *OsirisError and an error. Callers should only trust the value
+// when the error is nil.
+func (v Value) AsError() (*OsirisError, error) {
+	if v.kind != kindError {
+		return nil, fmt.Errorf("expected error, got %s", v.Kind())
+	}
+	rec := v.errorRecord()
+	if rec == nil {
+		return nil, fmt.Errorf("expected error, got %s", v.Kind())
+	}
+	return rec, nil
+}
+
+// AsStream operates on Value values and keeps the value-specific behavior
+// attached to the receiver so callers can use the method as the natural entry
+// point for that data structure.
+//
+// It returns *streamValue and an error. Callers should only trust the value
+// when the error is nil.
+func (v Value) AsStream() (*streamValue, error) {
+	if v.kind != kindStream || v.stream == nil {
+		return nil, fmt.Errorf("expected stream, got %s", v.kind)
+	}
+	return v.stream, nil
 }
 
 // Int operates on Value values and keeps the value-specific behavior attached
@@ -1018,7 +1108,50 @@ func (v Value) Equal(other Value) bool {
 	case kindString:
 		return other.kind == kindString && v.str == other.str
 	case kindError:
-		return other.kind == kindError && v.errMsg == other.errMsg
+		if other.kind != kindError {
+			return false
+		}
+		vr := v.errorRecord()
+		or := other.errorRecord()
+		if vr == nil || or == nil {
+			return vr == nil && or == nil
+		}
+		return vr.Equal(or)
+	case kindResult:
+		if other.kind != kindResult {
+			return false
+		}
+		vr := v.resultRecord()
+		or := other.resultRecord()
+		if vr == nil || or == nil {
+			return vr == nil && or == nil
+		}
+		if vr.ok != or.ok {
+			return false
+		}
+		if vr.ok {
+			return vr.val.Equal(or.val)
+		}
+		if vr.err == nil || or.err == nil {
+			return vr.err == nil && or.err == nil
+		}
+		return vr.err.Equal(or.err)
+	case kindOption:
+		if other.kind != kindOption {
+			return false
+		}
+		vr := v.optionRecord()
+		or := other.optionRecord()
+		if vr == nil || or == nil {
+			return vr == nil && or == nil
+		}
+		if vr.present != or.present {
+			return false
+		}
+		if !vr.present {
+			return true
+		}
+		return vr.val.Equal(or.val)
 	case kindBigInt:
 		switch other.kind {
 		case kindBigInt:
@@ -1106,6 +1239,10 @@ func (v Value) Equal(other Value) bool {
 			}
 		}
 		return true
+	case kindStream:
+		return other.kind == kindStream && v.stream != nil && other.stream != nil && v.stream == other.stream
+	case kindTask:
+		return other.kind == kindTask && v.task != nil && other.task != nil && v.task == other.task
 	case kindFunction:
 		return other.kind == kindFunction && v.fn != nil && other.fn != nil && v.fn.name == other.fn.name
 	case kindModule:
@@ -1264,6 +1401,10 @@ func (v Value) Compare(other Value) (int, error) {
 		return 0, fmt.Errorf("ordering is not defined for errors")
 	case kindTensor:
 		return 0, fmt.Errorf("ordering is not defined for tensors")
+	case kindStream:
+		return 0, fmt.Errorf("ordering is not defined for streams")
+	case kindTask:
+		return 0, fmt.Errorf("ordering is not defined for task handles")
 	case kindBigInt:
 		switch other.kind {
 		case kindBigInt:
@@ -1417,7 +1558,27 @@ func (v Value) String() string {
 	case kindComplex:
 		return formatComplex(v.cx)
 	case kindError:
+		if rec := v.errorRecord(); rec != nil {
+			return rec.String()
+		}
 		return "error(" + strconv.Quote(v.errMsg) + ")"
+	case kindResult:
+		if rec := v.resultRecord(); rec != nil {
+			if rec.ok {
+				return "ok(" + rec.val.String() + ")"
+			}
+			if rec.err != nil {
+				return "err(" + rec.err.String() + ")"
+			}
+		}
+		return "result<?>"
+	case kindOption:
+		if rec := v.optionRecord(); rec != nil {
+			if rec.present {
+				return "some(" + rec.val.String() + ")"
+			}
+		}
+		return "none"
 	case kindBigInt:
 		if v.bi == nil {
 			return "0n"
@@ -1446,6 +1607,16 @@ func (v Value) String() string {
 		return b.String()
 	case kindTensor:
 		return formatTensor(v.shape, v.data)
+	case kindStream:
+		if v.stream == nil {
+			return "<stream>"
+		}
+		return v.stream.String()
+	case kindTask:
+		if v.task == nil {
+			return "<task>"
+		}
+		return v.task.String()
 	case kindFunction:
 		if v.fn == nil {
 			return "<function>"
@@ -1519,7 +1690,28 @@ func (v Value) toInterface() any {
 	case kindComplex:
 		return []any{real(v.cx), imag(v.cx)}
 	case kindError:
+		if rec := v.errorRecord(); rec != nil {
+			return rec.publicInterface()
+		}
 		return map[string]any{"error": v.errMsg}
+	case kindResult:
+		if rec := v.resultRecord(); rec != nil {
+			if rec.ok {
+				return map[string]any{"result": map[string]any{"ok": true, "value": rec.val.toInterface()}}
+			}
+			if rec.err != nil {
+				return map[string]any{"result": map[string]any{"ok": false, "error": rec.err.publicInterface()}}
+			}
+		}
+		return map[string]any{"result": nil}
+	case kindOption:
+		if rec := v.optionRecord(); rec != nil {
+			if rec.present {
+				return map[string]any{"option": map[string]any{"present": true, "value": rec.val.toInterface()}}
+			}
+			return map[string]any{"option": map[string]any{"present": false}}
+		}
+		return map[string]any{"option": nil}
 	case kindBigInt:
 		if v.bi == nil {
 			return map[string]any{"bigint": "0"}
@@ -1575,6 +1767,25 @@ func (v Value) toInterface() any {
 		shape := make([]int, len(v.shape))
 		copy(shape, v.shape)
 		return map[string]any{"shape": shape, "data": data}
+	case kindStream:
+		if v.stream == nil {
+			return map[string]any{"stream": nil}
+		}
+		return map[string]any{"stream": v.stream.toInterface()}
+	case kindTask:
+		if v.task == nil {
+			return map[string]any{"task": nil}
+		}
+		id, status, res, err := v.task.snapshot()
+		out := map[string]any{"id": id, "status": status}
+		if status == "done" {
+			if err != nil {
+				out["error"] = err.Error()
+			} else {
+				out["result"] = res.toInterface()
+			}
+		}
+		return map[string]any{"task": out}
 	case kindFunction, kindModule:
 		return v.String()
 	default:
@@ -1680,6 +1891,9 @@ func textify(v Value) string {
 	case kindComplex:
 		return formatComplex(v.cx)
 	case kindError:
+		if rec := v.errorRecord(); rec != nil {
+			return rec.displayMessage()
+		}
 		return v.errMsg
 	case kindBigInt:
 		if v.bi == nil {

@@ -333,6 +333,8 @@ func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 			return body.copy(), nil
 		}
 		return unknownShape(), nil
+	case *propagateExpr:
+		return shapeOfExpr(n.expr, env)
 	case *matchExpr:
 		if _, err := shapeOfExpr(n.subject, env); err != nil {
 			return unknownShape(), err

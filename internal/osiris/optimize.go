@@ -215,6 +215,8 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 		return &blockExpr{stmts: sweepDeadStatements(stmts, tail, pureNames), tail: tail}
 	case *tryExpr:
 		return &tryExpr{body: optimizeExprWithEnvSeen(n.body, env, seen), catchName: n.catchName, handler: optimizeExprWithEnvSeen(n.handler, env, seen)}
+	case *propagateExpr:
+		return &propagateExpr{expr: optimizeExprWithEnvSeen(n.expr, env, seen), Span: n.Span}
 	case *matchExpr:
 		arms := make([]matchArm, len(n.arms))
 		for i, arm := range n.arms {
@@ -382,6 +384,8 @@ func collectRawRefsExprInto(expr Expr, out map[string]struct{}) {
 	case *tryExpr:
 		collectRawRefsExprInto(n.body, out)
 		collectRawRefsExprInto(n.handler, out)
+	case *propagateExpr:
+		collectRawRefsExprInto(n.expr, out)
 	case *matchExpr:
 		collectRawRefsExprInto(n.subject, out)
 		for _, arm := range n.arms {
@@ -543,7 +547,7 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 			}
 		}
 		return isPureExprSeen(n.tail, shadow, pureNames, nil)
-	case *tryExpr, *matchExpr:
+	case *tryExpr, *matchExpr, *propagateExpr:
 		return false
 	default:
 		return false

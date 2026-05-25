@@ -30,6 +30,81 @@ It is not trying to be a general purpose application framework.
 It is trying to be a tight language surface with serious tooling around it.
 
 ---------------------------------------------------------------------------
+ERROR MODEL
+---------------------------------------------------------------------------
+
+Osiris uses structured error values.
+
+  * recoverable failures are values, not hidden strings
+  * errors carry a stable kind/code and a human-readable message
+  * errors may wrap causes, source locations, stack frames, and metadata
+  * errors are immutable records, so they can be copied and passed around
+  * errors can be inspected with `errmeta(err)` and redacted with `redact(err)`
+  * `wrap`, `cause`, `unwrap`, `withmeta`, and `withdebug` add context
+  * `try { ... } catch err { ... }` handles recoverable failures explicitly
+  * the postfix `?` operator propagates a failure out of the current function
+  * `matches(err, kind)` and `is(err, kind)` check wrapped error kinds
+  * errors serialize cleanly and stay comparable by structure
+  * task boundaries and native boundaries normalize host errors into Osiris
+    error records before they escape the runtime
+
+The standard taxonomy intentionally stays small and memorable:
+
+  * InvalidArgument
+  * NotFound
+  * AlreadyExists
+  * PermissionDenied
+  * Unauthenticated
+  * Unavailable
+  * Timeout
+  * Cancelled
+  * Conflict
+  * ResourceExhausted
+  * OutOfMemory
+  * OutOfRange
+  * Unsupported
+  * NotImplemented
+  * ParseError
+  * TypeError
+  * EncodingError
+  * IOError
+  * NetworkError
+  * DatabaseError
+  * InternalError
+  * UnknownError
+
+Osiris also supports standard result and option values:
+
+  * `ok(value)` and `err(error)` for Result values
+  * `some(value)` and `none()` for Option values
+  * `unwrap(value)` to extract a payload
+  * `expect(value, message)` to turn emptiness into a structured failure
+  * `or_else(value, fallback)` to supply a default
+  * `isok`, `iserr`, `issome`, and `isnone` for inspection
+
+The postfix `?` operator is the short propagation form. It keeps the happy
+path short by returning a recoverable failure to the current function
+boundary immediately.
+
+The exception model is intentionally small and explicit:
+
+  * recoverable failures stay as structured error values
+  * fatal faults use `panic`, `trap`, and `assert`
+  * there are no language-level `finally` or `defer` blocks
+  * there are no language-level destructors or finalizers
+  * `try/catch` handles ordinary failures and does not catch fatal faults
+  * structured errors keep their kind, message, cause, stack, and metadata
+    as they cross function, task, and native boundaries
+
+Use `panic`, `trap`, and `assert` for fatal states and invariants that should
+not be recovered from by ordinary `try/catch` handling. Use Result and Option
+for ordinary fallibility and ordinary absence.
+
+Wrapping helpers like `wrap`, `cause`, `unwrap`, `withmeta`, `withdebug`,
+`errmeta`, and `redact` preserve cause chains while letting you attach domain
+context and control what is safe to expose.
+
+---------------------------------------------------------------------------
 WHAT CAN BE DONE WITH IT
 ---------------------------------------------------------------------------
 

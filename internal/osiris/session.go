@@ -42,6 +42,14 @@ func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 		fpMemo:  make(map[fpKey]string),
 		fpBusy:  make(map[fpKey]struct{}),
 		builtin: rt.Builtins,
+		sched: deterministicScheduler{
+			debug: rt != nil && rt.taskDebug,
+			trace: func(ev TaskTraceEvent) {
+				if rt != nil {
+					rt.recordTaskTrace(ev.Kind, ev.TaskID, ev.Status, ev.Detail)
+				}
+			},
+		},
 	}
 	sess.ev = ev
 	return sess
@@ -75,12 +83,15 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 		s.outputs = prevOutputs
 	}()
 	for _, stmt := range prog.Statements {
+		if err := s.checkContext(); err != nil {
+			return nil, err
+		}
 		v, ok, err := s.execStmt(stmt, prog.SourceName, moduleMode, stack)
 		if err != nil {
 			if sig, ok := asFlow(err); ok {
 				return nil, flowError(sig.kind, "top-level")
 			}
-			return nil, err
+			return nil, normalizeError(err, s.sourceName)
 		}
 		if ok {
 			if _, isEmit := stmt.(emitStmt); isEmit {
@@ -91,10 +102,10 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	}
 	if moduleMode {
 		if s.packageName == "" {
-			return nil, fmt.Errorf("module %s is missing a package declaration", prog.SourceName)
+			return nil, normalizeError(fmt.Errorf("module %s is missing a package declaration", prog.SourceName), prog.SourceName)
 		}
 		if len(s.exportOrder) == 0 {
-			return nil, fmt.Errorf("module %s must declare at least one export", prog.SourceName)
+			return nil, normalizeError(fmt.Errorf("module %s must declare at least one export", prog.SourceName), prog.SourceName)
 		}
 	}
 	return outputs, nil
@@ -254,6 +265,9 @@ func (s *Session) declareFunction(cur *scope, name string, params []string, body
 func (s *Session) execWhile(st whileStmt, curScope *scope, baseSource string, stack []string) (*scope, error) {
 	cur := curScope
 	for {
+		if err := s.checkContext(); err != nil {
+			return cur, err
+		}
 		cond, err := s.eval(st.Cond, cur)
 		if err != nil {
 			if sig, ok := asFlow(err); ok {
@@ -303,6 +317,9 @@ func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack 
 		return cur, err
 	}
 	for _, item := range items {
+		if err := s.checkContext(); err != nil {
+			return cur, err
+		}
 		iterScope := &scope{
 			parent: cur,
 			items: map[string]binding{
@@ -351,6 +368,9 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 	case *blockExpr:
 		cur := curScope
 		for _, stmt := range n.stmts {
+			if err := s.checkContext(); err != nil {
+				return nullValue(), cur, err
+			}
 			switch st := stmt.(type) {
 			case letStmt:
 				expr, err := s.expandExpr(st.Expr, cur)
@@ -417,6 +437,18 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 	}
 }
 
+// checkContext operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns an error when the active context has been canceled or expired.
+func (s *Session) checkContext() error {
+	if s == nil || s.ctx == nil {
+		return nil
+	}
+	return s.ctx.Err()
+}
+
 // eval operates on Session values and keeps the session-specific behavior
 // attached to the receiver so callers can use the method as the natural entry
 // point for that data structure.
@@ -425,6 +457,35 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 // error is nil.
 func (s *Session) eval(expr Expr, scope *scope) (Value, error) {
 	return s.ev.eval(expr, scope)
+}
+
+// spawnTask operates on Session values and keeps the session-specific
+// behavior attached to the receiver so callers can use the method as the
+// natural entry point for that data structure.
+//
+// It returns Value so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
+func (s *Session) spawnTask(expr Expr, scope *scope) Value {
+	return s.spawnValueTask(func(ctx context.Context) (Value, error, []Value) {
+		child := NewSession(s.rt, ctx, s.sourceName)
+		child.scope = scope
+		child.packageName = s.packageName
+		child.packageVersion = s.packageVersion
+		child.macros = cloneMacroDefs(s.macros)
+		var outputs []Value
+		child.outputs = &outputs
+		v, err := child.eval(expr, scope)
+		if sig, ok := asFlow(err); ok {
+			if sig.kind == flowReturn {
+				return sig.value, nil, append([]Value(nil), outputs...)
+			}
+			return nullValue(), flowError(sig.kind, "task"), append([]Value(nil), outputs...)
+		}
+		if err != nil {
+			return nullValue(), err, append([]Value(nil), outputs...)
+		}
+		return v, nil, append([]Value(nil), outputs...)
+	})
 }
 
 // moduleValue operates on Session values and keeps the session-specific

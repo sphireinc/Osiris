@@ -491,6 +491,8 @@ func analyzePurityExpr(expr Expr, scope *purityScope, out *PurityProgram) purity
 		catchScope.bindLocal(n.catchName, purityInfo{known: true, pure: true, kind: "error", reason: "catch binding"}, out, false)
 		handler := analyzePurityExpr(n.handler, catchScope, out)
 		return combinePurity("try", body, handler)
+	case *propagateExpr:
+		return analyzePurityExpr(n.expr, scope, out)
 	case *matchExpr:
 		subject := analyzePurityExpr(n.subject, scope, out)
 		arms := make([]purityInfo, 0, len(n.arms))
@@ -549,6 +551,11 @@ func analyzePuritySpecialForm(name string, args []Expr, scope *purityScope, out 
 		left := analyzePurityExpr(args[0], scope, out)
 		right := analyzePurityExpr(args[1], scope, out)
 		return combinePurity(name, left, right)
+	case "spawn", "await", "cancel", "parallel", "timeout", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "task", reason: "structured concurrency"}
 	default:
 		return purityInfo{kind: "unknown", reason: "special form"}
 	}
@@ -583,11 +590,46 @@ func purityBuiltinValueInfo(name string) (purityInfo, bool) {
 func purityBuiltinCall(name string, args []Expr, scope *purityScope, out *PurityProgram) (purityInfo, bool) {
 	var info purityInfo
 	switch name {
-	case "read", "readbytes", "write":
+	case "read":
 		for _, arg := range args {
 			_ = analyzePurityExpr(arg, scope, out)
 		}
 		return purityInfo{known: true, pure: false, kind: "string", reason: "filesystem I/O"}, true
+	case "readbytes":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "list", reason: "filesystem I/O"}, true
+	case "write":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "bool", reason: "filesystem I/O"}, true
+	case "openread", "openwrite":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "stream", reason: "filesystem I/O"}, true
+	case "readline":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "string", reason: "filesystem I/O"}, true
+	case "readchunk":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "list", reason: "filesystem I/O"}, true
+	case "writechunk":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "uint", reason: "filesystem I/O"}, true
+	case "flush", "close":
+		for _, arg := range args {
+			_ = analyzePurityExpr(arg, scope, out)
+		}
+		return purityInfo{known: true, pure: false, kind: "bool", reason: "filesystem I/O"}, true
 	case "setat":
 		if len(args) == 0 {
 			return purityInfo{kind: "unknown", reason: "setat arity"}, true
@@ -793,6 +835,8 @@ func purityKindFromValue(v Value) string {
 		return "list"
 	case kindTensor:
 		return "tensor"
+	case kindTask:
+		return "task"
 	case kindFunction:
 		return "function"
 	case kindModule:

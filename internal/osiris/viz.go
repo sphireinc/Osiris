@@ -193,6 +193,10 @@ func (g *dotGraph) walkExpr(expr Expr) string {
 		g.edge(id, catchID)
 		g.edge(catchID, g.walkExpr(n.handler))
 		return id
+	case *propagateExpr:
+		id := g.node("propagate ?", "fillcolor", "mistyrose")
+		g.edge(id, g.walkExpr(n.expr))
+		return id
 	case *blockExpr:
 		id := g.node("block", "fillcolor", "mintcream")
 		for _, stmt := range n.stmts {

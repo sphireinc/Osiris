@@ -149,6 +149,8 @@ func (p *gpuPlan) walkExpr(expr Expr) {
 	case *tryExpr:
 		p.walkExpr(n.body)
 		p.walkExpr(n.handler)
+	case *propagateExpr:
+		p.walkExpr(n.expr)
 	case *memberExpr:
 		p.walkExpr(n.object)
 	case *listExpr:

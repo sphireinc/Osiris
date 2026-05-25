@@ -13,7 +13,22 @@ type evalTask struct {
 	run func() (Value, error)
 }
 
-type deterministicScheduler struct{}
+// TaskTraceEvent captures one scheduling or task lifecycle observation from a
+// runtime that has task tracing enabled. The trace is intentionally compact so
+// it can be consumed by tests, debug output, or future CLI diagnostics without
+// needing to reconstruct state from multiple subsystems.
+type TaskTraceEvent struct {
+	Seq    uint64
+	Kind   string
+	TaskID string
+	Status string
+	Detail string
+}
+
+type deterministicScheduler struct {
+	debug bool
+	trace func(TaskTraceEvent)
+}
 
 // run operates on deterministicScheduler values and keeps the
 // deterministicscheduler-specific behavior attached to the receiver so callers
@@ -21,7 +36,7 @@ type deterministicScheduler struct{}
 //
 // It returns []Value and an error. Callers should only trust the value when
 // the error is nil.
-func (deterministicScheduler) run(ctx context.Context, tasks []evalTask) ([]Value, error) {
+func (d deterministicScheduler) run(ctx context.Context, tasks []evalTask) ([]Value, error) {
 	if len(tasks) == 0 {
 		return nil, nil
 	}
@@ -37,6 +52,33 @@ func (deterministicScheduler) run(ctx context.Context, tasks []evalTask) ([]Valu
 			return nil, fmt.Errorf("task %s failed: %w", tasks[0].key, err)
 		}
 		return []Value{v}, nil
+	}
+	if d.debug {
+		out := make([]Value, len(tasks))
+		for i := range tasks {
+			if d.trace != nil {
+				d.trace(TaskTraceEvent{Kind: "scheduler.start", TaskID: tasks[i].key, Status: "running", Detail: "deterministic"})
+			}
+			if err := ctx.Err(); err != nil {
+				if d.trace != nil {
+					d.trace(TaskTraceEvent{Kind: "scheduler.cancel", TaskID: tasks[i].key, Status: "canceled", Detail: err.Error()})
+				}
+				return nil, err
+			}
+			v, err := tasks[i].run()
+			if d.trace != nil {
+				if err != nil {
+					d.trace(TaskTraceEvent{Kind: "scheduler.finish", TaskID: tasks[i].key, Status: "error", Detail: err.Error()})
+				} else {
+					d.trace(TaskTraceEvent{Kind: "scheduler.finish", TaskID: tasks[i].key, Status: "done", Detail: v.Kind()})
+				}
+			}
+			if err != nil {
+				return nil, fmt.Errorf("task %s failed: %w", tasks[i].key, err)
+			}
+			out[i] = v
+		}
+		return out, nil
 	}
 
 	workers := runtime.GOMAXPROCS(0)
@@ -64,11 +106,24 @@ func (deterministicScheduler) run(ctx context.Context, tasks []evalTask) ([]Valu
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
+				if d.trace != nil {
+					d.trace(TaskTraceEvent{Kind: "scheduler.start", TaskID: tasks[idx].key, Status: "running", Detail: "worker"})
+				}
 				if err := runCtx.Err(); err != nil {
+					if d.trace != nil {
+						d.trace(TaskTraceEvent{Kind: "scheduler.cancel", TaskID: tasks[idx].key, Status: "canceled", Detail: err.Error()})
+					}
 					results <- result{idx: idx, err: err}
 					continue
 				}
 				val, err := tasks[idx].run()
+				if d.trace != nil {
+					if err != nil {
+						d.trace(TaskTraceEvent{Kind: "scheduler.finish", TaskID: tasks[idx].key, Status: "error", Detail: err.Error()})
+					} else {
+						d.trace(TaskTraceEvent{Kind: "scheduler.finish", TaskID: tasks[idx].key, Status: "done", Detail: val.Kind()})
+					}
+				}
 				results <- result{idx: idx, val: val, err: err}
 				if err != nil {
 					cancel()

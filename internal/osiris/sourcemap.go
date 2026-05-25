@@ -101,6 +101,8 @@ func BuildSourceMap(prog *Program) SourceMap {
 		case *tryExpr:
 			walkExpr(n.body, parent)
 			walkExpr(n.handler, parent)
+		case *propagateExpr:
+			walkExpr(n.expr, parent)
 		case *matchExpr:
 			walkExpr(n.subject, parent)
 			for _, arm := range n.arms {

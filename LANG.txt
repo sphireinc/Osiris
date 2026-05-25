@@ -171,6 +171,156 @@ TRY / CATCH
 Use this when a computation might fail and you want to handle the failure
 inline. The catch binding receives an error value.
 
+ERROR MODEL
+
+Osiris uses structured error records instead of bare strings.
+
+  error(kind, message)
+  wrap(cause, kind, message)
+  cause(err)
+  unwrap(err)
+  withmeta(err, key, value)
+  withdebug(err, key, value)
+  errmeta(err)
+  redact(err)
+
+The base error record is immutable. When you attach more information, Osiris
+returns a new error record instead of mutating the old one.
+
+The public error shape includes:
+
+  * kind/code
+  * message
+  * optional cause
+  * optional source location
+  * optional stack trace
+  * optional operation, resource, retryability, severity, and user message
+  * optional correlation id, component, remediation, and timestamp
+  * optional public metadata
+  * optional debug-only metadata
+
+The standard taxonomy stays deliberately small:
+
+  InvalidArgument
+  NotFound
+  AlreadyExists
+  PermissionDenied
+  Unauthenticated
+  Unavailable
+  Timeout
+  Cancelled
+  Conflict
+  ResourceExhausted
+  OutOfMemory
+  OutOfRange
+  Unsupported
+  NotImplemented
+  ParseError
+  TypeError
+  EncodingError
+  IOError
+  NetworkError
+  DatabaseError
+  InternalError
+  UnknownError
+
+Domain-specific libraries may define their own kinds when they need more
+specific error classification. The rule is to keep the public kind stable and
+machine-readable, not to encode policy in a free-form string.
+
+Use the public members when you want to inspect an error in code:
+
+  emit err.kind
+  emit err.code
+  emit err.message
+  emit err.cause
+  emit err.source
+  emit err.location
+  emit err.stack
+  emit err.metadata
+  emit err.debug
+  emit err.redacted
+
+The public metadata view is stable enough for logs and APIs.
+The debug metadata view is intentionally separate so sensitive data does not
+leak into normal output.
+
+Errors are comparable by structure, serializable through `encode` / `decode`,
+and safe to move across task boundaries because they are cloned and normalized
+at runtime boundaries.
+
+Native and host errors are normalized into Osiris error records before they
+leave the runtime. The source name is preserved when one is available.
+
+Error checking and propagation use a short, explicit surface:
+
+  ?               propagate the current failure to the function boundary
+  try { ... }     evaluate a recoverable block
+  catch name { }  bind the failure and handle it
+  matches(err, k) test an error kind or code without parsing text
+  is(err, k)      alias for matches
+
+The rule is simple: ordinary failure stays recoverable and visible, while the
+happy path stays short and readable.
+
+RESULT AND OPTION VALUES
+
+Osiris also has standard result and option helpers for code that wants a more
+explicit success and absence model.
+
+  ok(value)
+  err(error)
+  some(value)
+  none()
+  isok(value)
+  iserr(value)
+  issome(value)
+  isnone(value)
+  unwrap(value)
+  expect(value, message)
+  or_else(value, fallback)
+
+Use Result when a computation can fail but you still want to carry a value.
+Use Option when a value may or may not exist without that absence being a
+failure.
+
+The postfix `?` operator is the short propagation form. It evaluates the
+expression and, if it produces a recoverable failure, returns that failure to
+the current function boundary immediately. That keeps the happy path short
+without hiding the possibility of failure.
+
+PANICS, TRAPS, AND FATAL ERRORS
+
+  panic(message)
+  trap(message)
+  assert(condition, message)
+
+These are for unrecoverable states and internal invariants. They raise a
+fatal structured error and bypass ordinary try/catch handling. Osiris treats
+recoverable failures as structured values, but fatal faults as process-level
+stop conditions.
+
+There is no separate finally/defer system, and there are no language-level
+destructors or finalizers. Fatal faults are not recoverable across normal
+function boundaries, task boundaries, or native boundaries.
+
+Use errors for expected failure, Option for absence, Result for explicit
+fallibility, and panic/trap/assert for impossible states.
+
+CONTEXT AND WRAPPING
+
+  wrap(cause, kind, message)
+  cause(error)
+  unwrap(error)
+  withmeta(error, key, value)
+  withdebug(error, key, value)
+  errmeta(error)
+  redact(error)
+
+Wrap preserves the original cause chain and adds domain context. Use it when
+you want to annotate a failure with operation names, resource names, retry
+state, or user-facing explanations without losing the original root cause.
+
 EMIT
 
   emit expression

@@ -51,6 +51,7 @@ const (
 	tokenSlash
 	tokenPercent
 	tokenBang
+	tokenQuestion
 	tokenEqual
 	tokenArrow
 	tokenEqualEqual
@@ -176,6 +177,8 @@ func (k tokenKind) String() string {
 		return "%"
 	case tokenBang:
 		return "!"
+	case tokenQuestion:
+		return "?"
 	case tokenEqual:
 		return "="
 	case tokenArrow:
@@ -300,6 +303,9 @@ func (l *lexer) nextToken() (token, error) {
 			return token{kind: tokenBangEqual, text: "!=", line: startLine, col: startCol}, nil
 		}
 		return token{kind: tokenBang, text: "!", line: startLine, col: startCol}, nil
+	case '?':
+		l.advance(width)
+		return token{kind: tokenQuestion, text: "?", line: startLine, col: startCol}, nil
 	case '=':
 		l.advance(width)
 		if l.match(">") {

@@ -1156,6 +1156,8 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		return b.evalExpr(n.tail)
 	case *tryExpr:
 		return "", fmt.Errorf("try expressions are not yet lowered into IR")
+	case *propagateExpr:
+		return b.evalExpr(n.expr)
 	case *matchExpr:
 		return "", fmt.Errorf("match expressions are not yet lowered into IR")
 	default:

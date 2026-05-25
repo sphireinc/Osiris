@@ -288,6 +288,19 @@ type tryExpr struct {
 // effects or through a separate error path when one exists.
 func (tryExpr) exprNode() {}
 
+type propagateExpr struct {
+	expr Expr
+	Span sourceSpan
+}
+
+// exprNode operates on propagateExpr values and keeps the propagateexpr-
+// specific behavior attached to the receiver so callers can use the method as
+// the natural entry point for that data structure.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func (propagateExpr) exprNode() {}
+
 type memberExpr struct {
 	object   Expr
 	name     string
@@ -396,7 +409,11 @@ func (listPattern) patternNode() {}
 // the error is nil.
 func Parse(sourceName, src string) (*Program, error) {
 	p := &parser{sourceName: sourceName, lexer: newLexer(src)}
-	return p.parse()
+	prog, err := p.parse()
+	if err != nil {
+		return nil, normalizeError(err, sourceName)
+	}
+	return prog, nil
 }
 
 type parser struct {
@@ -690,6 +707,9 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 				return nil, err
 			}
 			left = &memberExpr{object: left, name: nameTok.text, NameSpan: spanFromToken(nameTok)}
+		case tokenQuestion:
+			tok := p.next()
+			left = &propagateExpr{expr: left, Span: spanFromToken(tok)}
 		default:
 			return left, nil
 		}
@@ -1018,6 +1038,8 @@ func exprSpan(expr Expr) sourceSpan {
 	case *matchExpr:
 		return n.Span
 	case *tryExpr:
+		return n.Span
+	case *propagateExpr:
 		return n.Span
 	default:
 		return sourceSpan{}

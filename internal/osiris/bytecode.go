@@ -912,18 +912,22 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	sess := NewSession(r, ctx, prog.SourceName)
 	expanded, err := sess.ExpandProgram(prog)
 	if err != nil {
-		return nil, err
+		return nil, normalizeError(err, prog.SourceName)
 	}
 	if err := validateTensorShapes(expanded); err != nil {
-		return nil, err
+		return nil, normalizeError(err, prog.SourceName)
 	}
 	if containsControlFlow(expanded) {
-		return sess.ExecProgram(expanded, false, nil)
+		outputs, err := sess.ExecProgram(expanded, false, nil)
+		if err != nil {
+			return nil, normalizeError(err, prog.SourceName)
+		}
+		return outputs, nil
 	}
 	compiler := newVMCompiler(prog.SourceName)
 	chunk, err := compiler.compileProgram(expanded)
 	if err != nil {
-		return nil, err
+		return nil, normalizeError(err, prog.SourceName)
 	}
 	runner := &vmRunner{
 		rt:     r,
@@ -933,7 +937,7 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 		frame:  &vmFrame{},
 	}
 	if _, err := runner.run(chunk); err != nil {
-		return nil, err
+		return nil, normalizeError(err, prog.SourceName)
 	}
 	return runner.outputs, nil
 }
@@ -992,6 +996,12 @@ func exprContainsControl(expr Expr) bool {
 		}
 		return n.tail != nil && exprContainsControl(n.tail)
 	case *callExpr:
+		if name, ok := specialFormName(n.callee); ok {
+			switch name {
+			case "spawn", "await", "cancel", "parallel", "timeout", "race", "select", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+				return true
+			}
+		}
 		if exprContainsControl(n.callee) {
 			return true
 		}
@@ -1025,6 +1035,8 @@ func exprContainsControl(expr Expr) bool {
 		}
 		return false
 	case *tryExpr:
+		return true
+	case *propagateExpr:
 		return true
 	default:
 		return false

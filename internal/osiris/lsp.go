@@ -683,6 +683,8 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 		child.defs[n.catchName] = catchDef
 		a.defs = append(a.defs, catchDef)
 		return analyzeExpr(a, child, uri, n.handler)
+	case *propagateExpr:
+		return analyzeExpr(a, scope, uri, n.expr)
 	case *blockExpr:
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
 		_, err := analyzeStmtSeq(a, child, uri, n.stmts, true)

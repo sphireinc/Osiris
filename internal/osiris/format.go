@@ -161,6 +161,12 @@ func formatExpr(expr Expr, parentPrec int) string {
 			return "(" + s + ")"
 		}
 		return s
+	case *propagateExpr:
+		s := formatExpr(n.expr, precLowest) + "?"
+		if precLowest < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
 	case *matchExpr:
 		var b strings.Builder
 		if n.keyword == tokenSwitch {

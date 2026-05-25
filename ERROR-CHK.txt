@@ -1,0 +1,396 @@
+PHASE 1: ERROR MODEL
+--------------------
+[x] Decide whether the language uses exceptions, result values, error returns, panics, effects, or a hybrid model.
+[x] Define the difference between recoverable errors and unrecoverable faults.
+[x] Define the difference between programmer errors and runtime/environment errors.
+[x] Define a standard base error type.
+[x] Define whether errors are values, objects, tagged unions, structs, or runtime records.
+[x] Define whether errors are immutable.
+[x] Define whether errors can carry structured metadata.
+[x] Define whether errors can wrap or chain other errors.
+[x] Define whether errors preserve stack traces.
+[x] Define whether errors preserve source locations.
+[x] Define whether errors preserve machine-readable codes.
+[x] Define whether errors preserve human-readable messages.
+[x] Define whether errors are comparable.
+[x] Define whether errors are serializable.
+[x] Define whether errors are safe to cross thread/task boundaries.
+[x] Define whether errors are safe to cross FFI/native boundaries.
+[x] Define whether error types are part of the public API contract.
+
+PHASE 2: STANDARD ERROR TAXONOMY
+--------------------------------
+[x] Add a small standard taxonomy of common error categories.
+[x] Add `InvalidArgument` / bad input errors.
+[x] Add `NotFound` errors.
+[x] Add `AlreadyExists` errors.
+[x] Add `PermissionDenied` errors.
+[x] Add `Unauthenticated` errors.
+[x] Add `Unavailable` errors.
+[x] Add `Timeout` errors.
+[x] Add `Cancelled` errors.
+[x] Add `Conflict` errors.
+[x] Add `ResourceExhausted` errors.
+[x] Add `OutOfMemory` errors.
+[x] Add `OutOfRange` errors.
+[x] Add `Unsupported` / `NotImplemented` errors.
+[x] Add `ParseError` errors.
+[x] Add `TypeError` errors.
+[x] Add `EncodingError` errors.
+[x] Add `IOError` errors.
+[x] Add `NetworkError` errors.
+[x] Add `DatabaseError` errors.
+[x] Add `InternalError` errors.
+[x] Add `UnknownError` as a last-resort fallback.
+[x] Keep the taxonomy small enough that users can remember it.
+[x] Allow domain-specific libraries to define their own error types.
+
+PHASE 3: ERROR VALUES AND METADATA
+----------------------------------
+[x] Allow every error to carry a message.
+[x] Allow every error to carry a machine-readable kind or code.
+[x] Add optional cause/wrapped error support.
+[x] Add optional source location support.
+[x] Add optional stack trace support.
+[x] Add optional operation/context fields.
+[x] Add optional resource name fields.
+[x] Add optional retryability metadata.
+[x] Add optional severity metadata.
+[x] Add optional user-facing message metadata.
+[x] Add optional debug-only metadata.
+[x] Add optional correlation/request ID metadata.
+[x] Add optional timestamp metadata.
+[x] Add optional component/module metadata.
+[x] Add optional remediation/hint metadata.
+[x] Ensure sensitive metadata is never exposed accidentally.
+[x] Provide a standard way to inspect metadata.
+[x] Provide a standard way to redact metadata.
+[x] Provide a standard way to format metadata for logs.
+[x] Provide a standard way to format metadata for users.
+
+PHASE 4: ERROR CHECKING SYNTAX
+------------------------------
+[x] Add concise syntax for checking and propagating recoverable errors.
+[x] Avoid requiring repetitive boilerplate for common error paths.
+[x] Add explicit propagation syntax.
+[x] Add explicit handling syntax.
+[x] Add pattern matching for error kinds or types.
+[ ] Add binding syntax for successful values.
+[ ] Add binding syntax for error values.
+[x] Add guard-style early return support.
+[x] Add try/catch-style handling if the language supports exceptions.
+[x] Add result-unwrapping syntax if the language supports result values.
+[ ] Add exhaustiveness checking for closed error sets.
+[ ] Add compiler warnings for ignored errors.
+[ ] Add compiler errors for ignored must-handle errors.
+[ ] Add syntax for intentionally discarding an error.
+[x] Add syntax for converting one error type into another.
+[x] Add syntax for attaching context while propagating.
+[x] Keep the happy path readable.
+[x] Keep failure paths visible and auditable.
+
+PHASE 5: RESULT AND OPTION TYPES
+--------------------------------
+[x] Add a standard `Result<T, E>` type if the language uses explicit error values.
+[x] Add a standard `Option<T>` / `Maybe<T>` type for absence without failure.
+[x] Clearly distinguish absence from failure.
+[ ] Add helpers for mapping successful values.
+[ ] Add helpers for mapping error values.
+[ ] Add helpers for chaining fallible operations.
+[x] Add helpers for fallback/default values.
+[ ] Add helpers for converting `Option` into `Result`.
+[ ] Add helpers for converting `Result` into `Option`.
+[x] Add helpers for checking success/failure.
+[x] Add helpers for extracting values safely.
+[x] Add helpers for extracting values unsafely with clear naming.
+[x] Add helpers for attaching context to errors.
+[ ] Add helpers for retrying recoverable failures.
+[ ] Add helpers for aggregating multiple errors.
+[ ] Add helpers for collecting many fallible results.
+[ ] Add async/task-aware variants where needed.
+
+PHASE 6: EXCEPTION SYSTEM
+-------------------------
+[x] Decide whether exceptions are recoverable control flow, fatal faults, or both.
+[x] Define base exception types.
+[x] Define checked versus unchecked exception behavior if applicable.
+[x] Define which standard library operations may throw.
+[x] Define whether exceptions can cross async/task boundaries.
+[x] Define whether exceptions can cross thread boundaries.
+[x] Define whether exceptions can cross FFI/native boundaries.
+[x] Define whether stack traces are captured eagerly or lazily.
+[x] Define whether catch blocks match by type, kind, interface, or predicate.
+[x] Define whether finally/defer blocks always run during unwinding.
+[x] Define whether exception filters are supported.
+[x] Define whether multiple exceptions can be suppressed or grouped.
+[x] Define behavior when cleanup code throws during unwinding.
+[x] Define behavior when an exception is thrown from destructors/finalizers.
+[x] Provide a standard way to wrap exceptions with context.
+[x] Provide a standard way to rethrow without losing stack information.
+[x] Avoid using exceptions for ordinary absence or expected branching unless intentionally designed.
+
+PHASE 7: PANICS, TRAPS, AND FATAL ERRORS
+----------------------------------------
+[x] Define a separate mechanism for unrecoverable faults.
+[x] Add panic/trap behavior for impossible states.
+[x] Add panic/trap behavior for assertion failures.
+[x] Add panic/trap behavior for arithmetic overflow if selected by language mode.
+[x] Add panic/trap behavior for out-of-bounds access if selected by language mode.
+[x] Add panic/trap behavior for null/invalid dereference if applicable.
+[x] Define whether panics are recoverable.
+[x] Define whether panic recovery is allowed across thread/task boundaries.
+[x] Define whether panic recovery is allowed across FFI boundaries.
+[x] Define whether panic recovery runs cleanup handlers.
+[x] Define whether panic messages are user-facing or debug-only.
+[x] Define whether panic stack traces are always emitted.
+[x] Define whether panic behavior differs in debug and release builds.
+[x] Define whether fatal errors abort the process immediately.
+[x] Define whether fatal errors flush logs before exit.
+[x] Define whether fatal errors generate crash reports.
+[x] Document when developers should use errors versus panics.
+
+PHASE 8: CONTEXT AND WRAPPING
+-----------------------------
+[x] Allow errors to be wrapped with additional context.
+[x] Preserve the original cause when adding context.
+[x] Add standard `wrap`, `cause`, and `unwrap` operations.
+[x] Add standard `is` / `matches` checks for wrapped errors.
+[ ] Add standard `as` / `cast` checks for wrapped errors.
+[ ] Add support for multiple causes where useful.
+[ ] Add support for error groups from parallel operations.
+[x] Preserve stack/source location across wrapping.
+[x] Avoid losing machine-readable error codes when wrapping.
+[x] Avoid string-parsing as the primary way to classify errors.
+[x] Make context messages useful and operation-specific.
+[x] Define how much context standard library errors should include.
+[x] Define how nested errors are formatted.
+[x] Define how nested errors are logged.
+[x] Define how nested errors are serialized.
+[x] Define how nested errors are redacted.
+
+PHASE 9: COMPILER AND STATIC ANALYSIS
+-------------------------------------
+[x] Detect unused or ignored errors where possible.
+[ ] Add must-handle annotations for fallible APIs.
+[ ] Add compiler warnings for discarded results.
+[ ] Add compiler errors for discarded critical results.
+[ ] Add lint rules for empty catch blocks.
+[ ] Add lint rules for catch-all handlers.
+[ ] Add lint rules for swallowing errors silently.
+[ ] Add lint rules for panic/throw in cleanup paths.
+[ ] Add lint rules for string-matching error messages.
+[ ] Add lint rules for losing wrapped causes.
+[ ] Add lint rules for converting all errors to generic internal errors.
+[ ] Add lint rules for returning user-facing details from internal errors.
+[ ] Add lint rules for retry loops without backoff.
+[ ] Add lint rules for blocking calls without timeout.
+[ ] Add lint rules for cancellation-unaware operations.
+[ ] Add static checks for exhaustive error handling where possible.
+[ ] Add static checks for unreachable error branches where possible.
+[ ] Add IDE support for generated error-handling skeletons.
+
+PHASE 10: STANDARD LIBRARY ERROR BEHAVIOR
+-----------------------------------------
+[x] Make standard library errors consistent across modules.
+[ ] Standardize file-system errors.
+[ ] Standardize network errors.
+[ ] Standardize parsing errors.
+[ ] Standardize encoding/decoding errors.
+[ ] Standardize process execution errors.
+[ ] Standardize concurrency errors.
+[ ] Standardize cancellation errors.
+[ ] Standardize timeout errors.
+[ ] Standardize permission errors.
+[ ] Standardize resource exhaustion errors.
+[ ] Standardize unsupported platform errors.
+[ ] Ensure standard errors expose machine-readable kinds.
+[ ] Ensure standard errors expose human-readable messages.
+[ ] Ensure standard errors expose original system/native error codes when relevant.
+[ ] Ensure standard errors avoid leaking secrets.
+[ ] Ensure standard errors are stable enough for library authors to depend on.
+[ ] Ensure standard library docs list possible errors for each fallible API.
+
+PHASE 11: SYSTEM AND OS ERROR MAPPING
+-------------------------------------
+[ ] Add a portable mapping layer for OS errors.
+[ ] Map file-not-found errors consistently.
+[ ] Map permission-denied errors consistently.
+[ ] Map already-exists errors consistently.
+[ ] Map would-block errors consistently.
+[ ] Map interrupted-operation errors consistently.
+[ ] Map connection-refused errors consistently.
+[ ] Map connection-reset errors consistently.
+[ ] Map broken-pipe errors consistently.
+[ ] Map timed-out errors consistently.
+[ ] Map address-in-use errors consistently.
+[ ] Map address-not-available errors consistently.
+[ ] Map disk-full errors consistently.
+[ ] Map too-many-open-files errors consistently.
+[ ] Preserve native errno / platform code.
+[ ] Preserve native platform message when useful.
+[ ] Avoid making platform-specific errors impossible to inspect.
+[ ] Document unavoidable platform differences.
+
+PHASE 12: ASYNC, TASKS, AND CANCELLATION
+----------------------------------------
+[x] Treat cancellation as a first-class result, not a random generic failure.
+[x] Treat timeout as distinct from cancellation.
+[ ] Define how errors propagate across async tasks.
+[ ] Define how errors propagate from child tasks to parent tasks.
+[ ] Define how task groups aggregate errors.
+[ ] Define whether the first failure cancels sibling tasks.
+[ ] Define whether multiple task failures are preserved.
+[ ] Define whether cancellation has its own error type.
+[ ] Define whether cancellation is catchable.
+[ ] Define whether cancellation is automatically propagated.
+[ ] Define whether cancellation may interrupt cleanup.
+[ ] Define whether timeout wraps cancellation or remains separate.
+[ ] Add structured concurrency error rules if the language supports structured concurrency.
+[ ] Add async-aware stack traces where possible.
+[ ] Add async-aware source locations where possible.
+[ ] Avoid losing task boundary information in error reports.
+
+PHASE 13: VALIDATION AND USER INPUT ERRORS
+------------------------------------------
+[ ] Add a standard validation error type.
+[ ] Allow validation errors to include field/path information.
+[ ] Allow validation errors to include expected constraints.
+[ ] Allow validation errors to include received values when safe.
+[ ] Allow validation errors to include multiple field failures.
+[ ] Allow validation errors to be converted into user-facing messages.
+[ ] Allow validation errors to be converted into machine-readable API responses.
+[ ] Distinguish invalid input from parse failure.
+[ ] Distinguish invalid input from permission failure.
+[ ] Distinguish invalid input from internal failure.
+[ ] Add helpers for building validation errors.
+[ ] Add helpers for aggregating validation errors.
+[ ] Add helpers for redacting sensitive field values.
+[ ] Add localization support for user-facing validation messages if in scope.
+
+PHASE 14: OBSERVABILITY AND LOGGING
+-----------------------------------
+[x] Make errors easy to log without losing structure.
+[ ] Add standard error formatting for humans.
+[ ] Add standard error formatting for machines.
+[ ] Add structured log support for error metadata.
+[ ] Add stack trace capture where appropriate.
+[ ] Add source location capture where appropriate.
+[ ] Add cause-chain formatting.
+[ ] Add correlation ID propagation.
+[ ] Add request ID propagation.
+[ ] Add trace/span integration.
+[ ] Add severity mapping.
+[ ] Add retryability mapping.
+[ ] Add redaction hooks.
+[ ] Add crash-report formatting.
+[ ] Add telemetry-safe error summaries.
+[ ] Avoid logging secrets in messages, causes, metadata, or stack traces.
+[ ] Document logging patterns for expected versus unexpected errors.
+
+PHASE 15: SECURITY AND REDACTION
+--------------------------------
+[x] Assume error messages can leak sensitive information.
+[ ] Separate internal debug messages from external user-facing messages.
+[ ] Add redaction for secrets, tokens, passwords, keys, and credentials.
+[ ] Add redaction for personally identifiable information where required.
+[ ] Add safe serialization mode for API responses.
+[ ] Add unsafe debug serialization mode for local development only.
+[ ] Prevent stack traces from being exposed to end users by default.
+[ ] Prevent raw SQL, headers, environment variables, and file paths from leaking by default.
+[ ] Prevent wrapped internal errors from bypassing redaction.
+[ ] Add tests for redaction behavior.
+[ ] Add lint rules for unsafe error construction.
+[ ] Add documentation for secure error handling.
+[ ] Define production versus development error output modes.
+
+PHASE 16: API AND LIBRARY DESIGN RULES
+--------------------------------------
+[x] Make fallibility visible in API signatures where possible.
+[ ] Require public APIs to document possible errors.
+[ ] Encourage specific error types over generic strings.
+[ ] Encourage stable machine-readable codes.
+[ ] Encourage wrapping lower-level errors with domain context.
+[ ] Encourage preserving causes.
+[ ] Encourage returning typed validation errors.
+[ ] Encourage distinguishing retryable from non-retryable failures.
+[ ] Encourage distinguishing caller error from server/internal error.
+[ ] Avoid exposing implementation-specific errors directly from high-level APIs.
+[ ] Avoid changing public error contracts in minor releases.
+[ ] Avoid making callers parse error strings.
+[ ] Provide conventions for naming error types.
+[ ] Provide conventions for naming error codes.
+[ ] Provide conventions for wrapping errors.
+[ ] Provide conventions for logging errors.
+[ ] Provide conventions for converting internal errors into user-facing responses.
+
+PHASE 17: INTEROPERABILITY AND FFI
+----------------------------------
+[ ] Define how language errors cross native boundaries.
+[ ] Define how native errors become language errors.
+[ ] Define how exceptions interact with C ABI boundaries.
+[ ] Define whether panics may cross FFI boundaries.
+[ ] Define whether stack traces include native frames.
+[ ] Define how OS error codes are preserved.
+[ ] Define how foreign library error codes are preserved.
+[ ] Define ownership rules for error messages returned from native code.
+[ ] Define memory-safety rules for error objects crossing FFI.
+[ ] Define serialization rules for errors crossing process boundaries.
+[ ] Add safe wrappers for common native error conventions.
+[ ] Add tests for FFI error translation.
+[ ] Make FFI failure modes explicit in documentation.
+
+PHASE 18: TESTING SUPPORT
+-------------------------
+[ ] Add assertions for expected error type.
+[ ] Add assertions for expected error kind/code.
+[ ] Add assertions for expected wrapped cause.
+[ ] Add assertions for expected metadata.
+[ ] Add assertions for expected validation field/path.
+[ ] Add assertions for expected panic/trap if supported.
+[ ] Add assertions for expected cancellation.
+[ ] Add assertions for expected timeout.
+[ ] Add helpers for comparing errors without relying on exact message text.
+[ ] Add helpers for snapshotting formatted errors safely.
+[ ] Add fake errors for standard categories.
+[ ] Add fault-injection support for I/O errors.
+[ ] Add fault-injection support for network errors.
+[ ] Add fault-injection support for allocation failures if applicable.
+[ ] Add tests for stack trace preservation.
+[ ] Add tests for cause-chain preservation.
+[ ] Add tests for redaction.
+[ ] Add tests for serialization.
+
+PHASE 19: DOCUMENTATION AND EDUCATION
+-------------------------------------
+[ ] Write an error-handling philosophy guide.
+[ ] Write a recoverable error versus panic guide.
+[ ] Write a result-values versus exceptions guide if both exist.
+[ ] Write a wrapping and context guide.
+[ ] Write a cancellation and timeout guide.
+[ ] Write a validation error guide.
+[ ] Write a secure error messages guide.
+[ ] Write an async error propagation guide.
+[ ] Write a logging and observability guide.
+[ ] Add examples for common file I/O errors.
+[ ] Add examples for common network errors.
+[ ] Add examples for parser errors.
+[ ] Add examples for validation errors.
+[ ] Add examples for retryable errors.
+[ ] Add examples for error aggregation.
+[ ] Add examples for converting internal errors to API responses.
+[ ] Add anti-pattern examples showing what not to do.
+
+PHASE 20: BACKWARD COMPATIBILITY AND EVOLUTION
+----------------------------------------------
+[ ] Define whether adding a new error type is a breaking change.
+[ ] Define whether adding a new error code is a breaking change.
+[ ] Define whether changing an error message is a breaking change.
+[ ] Define whether changing wrapped causes is a breaking change.
+[ ] Define whether changing stack trace formatting is a breaking change.
+[ ] Define whether changing metadata keys is a breaking change.
+[ ] Version public error codes.
+[ ] Keep user-facing messages separate from stable programmatic codes.
+[ ] Add deprecation paths for old error types.
+[ ] Add compatibility shims for renamed errors.
+[ ] Add migration tools for major error model changes.
+[ ] Keep the core error model small enough to evolve safely.

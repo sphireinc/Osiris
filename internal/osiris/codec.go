@@ -298,13 +298,37 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 		}
 		return nil
 	case kindError:
-		if err := buf.WriteByte(0x0a); err != nil {
+		return encodeErrorRecord(buf, v.errorRecord())
+	case kindResult:
+		if err := buf.WriteByte(0x16); err != nil {
 			return err
 		}
-		msg := v.errMsg
-		buf.Write(appendUvarint(nil, uint64(len(msg))))
-		_, err := buf.WriteString(msg)
-		return err
+		rec := v.resultRecord()
+		if rec == nil || !rec.ok {
+			if err := buf.WriteByte(0); err != nil {
+				return err
+			}
+			if rec != nil && rec.err != nil {
+				return encodeErrorRecord(buf, rec.err)
+			}
+			return encodeErrorRecord(buf, newOsirisError(ErrorKindUnknown, ""))
+		}
+		if err := buf.WriteByte(1); err != nil {
+			return err
+		}
+		return encodeInto(buf, rec.val)
+	case kindOption:
+		if err := buf.WriteByte(0x17); err != nil {
+			return err
+		}
+		rec := v.optionRecord()
+		if rec == nil || !rec.present {
+			return buf.WriteByte(0)
+		}
+		if err := buf.WriteByte(1); err != nil {
+			return err
+		}
+		return encodeInto(buf, rec.val)
 	case kindUint:
 		if v.packed {
 			if err := buf.WriteByte(0x11); err != nil {
@@ -392,6 +416,8 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 			}
 		}
 		return nil
+	case kindStream:
+		return fmt.Errorf("stream values cannot be encoded")
 	default:
 		return fmt.Errorf("cannot encode %s", v.kind)
 	}
@@ -678,15 +704,41 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 		}
 		return newTensorValue(shape, data), nil
 	case 0x0a:
-		n, err := cur.uvarint()
+		rec, err := decodeErrorRecord(cur)
 		if err != nil {
 			return nullValue(), err
 		}
-		raw, err := cur.take(int(n))
+		return errorValueFromRecord(rec), nil
+	case 0x16:
+		present, err := cur.byte()
 		if err != nil {
 			return nullValue(), err
 		}
-		return errorValue(string(raw)), nil
+		if present == 0 {
+			rec, err := decodeTaggedErrorRecord(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			return resultErrValue(rec), nil
+		}
+		val, err := decodeFrom(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		return resultOkValue(val), nil
+	case 0x17:
+		present, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		if present == 0 {
+			return optionNoneValue(), nil
+		}
+		val, err := decodeFrom(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		return optionSomeValue(val), nil
 	case 0x04:
 		bitsWidth, err := cur.byte()
 		if err != nil {

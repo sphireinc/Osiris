@@ -10,18 +10,26 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
 
 type Builtin func(args []Value) (Value, error)
 
 type Runtime struct {
-	Builtins   map[string]Builtin
-	Constants  map[string]Value
-	moduleMu   sync.Mutex
-	modules    map[string]Value
-	registryMu sync.Mutex
-	registries map[string]*moduleRegistry
+	Builtins    map[string]Builtin
+	Constants   map[string]Value
+	moduleMu    sync.Mutex
+	modules     map[string]Value
+	registryMu  sync.Mutex
+	registries  map[string]*moduleRegistry
+	taskMu      sync.Mutex
+	taskSeq     uint64
+	traceMu     sync.Mutex
+	traceSeq    uint64
+	taskTrace   []TaskTraceEvent
+	taskTraceOn bool
+	taskDebug   bool
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -40,6 +48,70 @@ func NewRuntime() *Runtime {
 	registerBuiltins(r.Builtins)
 	registerConstants(r.Constants)
 	return r
+}
+
+// SetTaskTrace enables or disables task lifecycle tracing on the runtime.
+// When tracing is enabled, the runtime records task lifecycle events such as
+// spawn, await, cancel, completion, and scheduler dispatch so callers can
+// inspect deterministic execution behavior after a run finishes.
+func (r *Runtime) SetTaskTrace(enabled bool) {
+	if r == nil {
+		return
+	}
+	r.traceMu.Lock()
+	r.taskTraceOn = enabled
+	if !enabled {
+		r.taskTrace = nil
+		r.traceSeq = 0
+	}
+	r.traceMu.Unlock()
+}
+
+// SetTaskDebug enables or disables deterministic debug scheduling on the
+// runtime. When debug scheduling is enabled, structured parallel execution
+// runs in source order on the current goroutine instead of fanning out across
+// the worker pool, which makes concurrent control flow easier to inspect in
+// tests and diagnostics.
+func (r *Runtime) SetTaskDebug(enabled bool) {
+	if r == nil {
+		return
+	}
+	r.traceMu.Lock()
+	r.taskDebug = enabled
+	r.traceMu.Unlock()
+}
+
+// TaskTrace returns a copy of the recorded task lifecycle trace. The trace is
+// ordered by the runtime's internal event sequence and is safe to read after
+// execution has completed.
+func (r *Runtime) TaskTrace() []TaskTraceEvent {
+	if r == nil {
+		return nil
+	}
+	r.traceMu.Lock()
+	defer r.traceMu.Unlock()
+	return append([]TaskTraceEvent(nil), r.taskTrace...)
+}
+
+// recordTaskTrace appends a single task lifecycle event to the runtime trace
+// buffer when task tracing is enabled.
+func (r *Runtime) recordTaskTrace(kind, taskID, status, detail string) {
+	if r == nil {
+		return
+	}
+	r.traceMu.Lock()
+	defer r.traceMu.Unlock()
+	if !r.taskTraceOn {
+		return
+	}
+	r.traceSeq++
+	r.taskTrace = append(r.taskTrace, TaskTraceEvent{
+		Seq:    r.traceSeq,
+		Kind:   kind,
+		TaskID: taskID,
+		Status: status,
+		Detail: detail,
+	})
 }
 
 // Run operates on Runtime values and keeps the runtime-specific behavior
@@ -125,6 +197,9 @@ func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 	}
 	if m, ok := expr.(*matchExpr); ok {
 		return evalMatch(ev, m, scope)
+	}
+	if exprHasTaskEffect(ev, expr, scope, nil) {
+		return computeExpr(ev, expr, scope, "")
 	}
 	key, err := ev.fingerprint(expr, scope)
 	if err != nil {
@@ -376,6 +451,12 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 			return "", err
 		}
 		out = hashParts("try", n.catchName, body, handler)
+	case *propagateExpr:
+		inner, err := ev.fingerprint(n.expr, env)
+		if err != nil {
+			return "", err
+		}
+		out = hashParts("propagate", inner)
 	default:
 		return "", fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -442,13 +523,57 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 		if sig, ok := asFlow(err); ok {
 			return nullValue(), flowError(sig.kind, "try")
 		}
+		if isFatalError(err) {
+			return nullValue(), err
+		}
 		catchScope := &scope{
 			parent: curScope,
 			items: map[string]binding{
-				n.catchName: {expr: &literalExpr{value: errorValue(err.Error())}, env: curScope},
+				n.catchName: {expr: &literalExpr{value: errorValueFromGoError(normalizeError(err, func() string {
+					if ev.session != nil {
+						return ev.session.sourceName
+					}
+					return ""
+				}()))}, env: curScope},
 			},
 		}
 		return ev.eval(n.handler, catchScope)
+	case *propagateExpr:
+		v, err := ev.eval(n.expr, curScope)
+		if err != nil {
+			if _, ok := asFlow(err); ok {
+				return nullValue(), err
+			}
+			rec := errorValueFromGoError(normalizeError(err, func() string {
+				if ev.session != nil {
+					return ev.session.sourceName
+				}
+				return ""
+			}()))
+			if rec.kind == kindError {
+				return nullValue(), newFlow(flowReturn, rec)
+			}
+			return nullValue(), newFlow(flowReturn, errorValueFromRecord(newOsirisError(ErrorKindUnknown, err.Error())))
+		}
+		switch v.kind {
+		case kindResult:
+			if v.res == nil || v.res.ok {
+				return v, nil
+			}
+			return nullValue(), newFlow(flowReturn, errorValueFromRecord(v.res.err))
+		case kindOption:
+			if v.opt == nil || !v.opt.present {
+				return nullValue(), newFlow(flowReturn, errorValueFromRecord(newOsirisError(ErrorKindNotFound, "option is empty")))
+			}
+			return v.opt.val, nil
+		case kindError:
+			if rec := v.errorRecord(); rec != nil {
+				return nullValue(), newFlow(flowReturn, errorValueFromRecord(rec))
+			}
+			return nullValue(), newFlow(flowReturn, errorValue(v.errMsg))
+		default:
+			return v, nil
+		}
 	default:
 		return nullValue(), fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -831,7 +956,7 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		if callee.fn.builtin != nil {
 			return callee.fn.builtin(args)
 		}
-		if callee.fn.body == nil || callee.fn.session == nil {
+		if callee.fn.body == nil {
 			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
 		}
 		if len(args) != len(callee.fn.params) {
@@ -848,7 +973,14 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		for i, name := range callee.fn.params {
 			callScope.items[name] = binding{expr: &literalExpr{value: args[i]}, env: callScope}
 		}
-		v, err := callee.fn.session.eval(callee.fn.body, callScope)
+		sess := ev.session
+		if sess == nil {
+			sess = callee.fn.session
+		}
+		if sess == nil {
+			return nullValue(), fmt.Errorf("function %s is missing an execution session", callee.fn.name)
+		}
+		v, err := sess.eval(callee.fn.body, callScope)
 		if sig, ok := asFlow(err); ok {
 			if sig.kind == flowReturn {
 				return sig.value, nil
@@ -931,10 +1063,26 @@ func specialFormName(expr Expr) (string, bool) {
 		return "", false
 	}
 	switch id.name {
-	case "if", "and", "or":
+	case "if", "and", "or", "spawn", "await", "cancel":
+		return id.name, true
+	case "parallel", "timeout", "race", "select":
+		return id.name, true
+	case "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
 		return id.name, true
 	default:
 		return "", false
+	}
+}
+
+// builtinHasTaskEffect reports whether a builtin name performs observable I/O
+// or otherwise depends on mutable runtime state. This keeps memoization from
+// eliding effects such as file access and streaming reads or writes.
+func builtinHasTaskEffect(name string) bool {
+	switch name {
+	case "read", "readbytes", "write", "openread", "openwrite", "readline", "readchunk", "writechunk", "flush", "close":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -989,8 +1137,509 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 			return nullValue(), err
 		}
 		return boolValue(right.Truthy()), nil
+	case "spawn":
+		if len(args) != 1 {
+			return nullValue(), fmt.Errorf("spawn expects 1 argument")
+		}
+		if ev.session == nil {
+			return nullValue(), fmt.Errorf("spawn requires an active session")
+		}
+		return ev.session.spawnTask(args[0], scope), nil
+	case "await":
+		if len(args) != 1 {
+			return nullValue(), fmt.Errorf("await expects 1 argument")
+		}
+		taskVal, err := ev.eval(args[0], scope)
+		if err != nil {
+			return nullValue(), err
+		}
+		task, err := taskVal.AsTask()
+		if err != nil {
+			return nullValue(), err
+		}
+		return task.await(ev.ctx, ev.session.outputs)
+	case "cancel":
+		if len(args) != 1 {
+			return nullValue(), fmt.Errorf("cancel expects 1 argument")
+		}
+		taskVal, err := ev.eval(args[0], scope)
+		if err != nil {
+			return nullValue(), err
+		}
+		task, err := taskVal.AsTask()
+		if err != nil {
+			return nullValue(), err
+		}
+		return boolValue(task.cancelTask()), nil
+	case "parallel":
+		return evalParallel(ev, args, scope)
+	case "timeout":
+		return evalTimeout(ev, args, scope)
+	case "race":
+		return evalRace(ev, args, scope, false)
+	case "select":
+		return evalRace(ev, args, scope, true)
+	case "read_async":
+		return evalAsyncRead(ev, args, scope)
+	case "readbytes_async":
+		return evalAsyncReadBytes(ev, args, scope)
+	case "write_async":
+		return evalAsyncWrite(ev, args, scope)
+	case "lines_async":
+		return evalAsyncLines(ev, args, scope)
+	case "csv_async":
+		return evalAsyncCSV(ev, args, scope)
+	case "jsonparse_async":
+		return evalAsyncJSONParse(ev, args, scope)
 	default:
 		return nullValue(), fmt.Errorf("unknown special form %q", name)
+	}
+}
+
+// evalParallel handles the eval parallel step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalParallel(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	if ev == nil || ev.session == nil {
+		return nullValue(), fmt.Errorf("parallel requires an active session")
+	}
+	if len(args) == 0 {
+		return listValue(nil), nil
+	}
+	groupCtx, cancel := context.WithCancel(ev.ctx)
+	defer cancel()
+	type branchResult struct {
+		val  Value
+		err  error
+		outs []Value
+	}
+	branches := make([]branchResult, len(args))
+	tasks := make([]evalTask, len(args))
+	for i, expr := range args {
+		i, expr := i, expr
+		tasks[i] = evalTask{
+			key: fmt.Sprintf("%08d", i),
+			run: func() (Value, error) {
+				childCtx, branchCancel := context.WithCancel(groupCtx)
+				defer branchCancel()
+				child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+				child.scope = scope
+				child.packageName = ev.session.packageName
+				child.packageVersion = ev.session.packageVersion
+				child.exportOrder = append([]string(nil), ev.session.exportOrder...)
+				if len(ev.session.exportSet) > 0 {
+					child.exportSet = make(map[string]struct{}, len(ev.session.exportSet))
+					for k := range ev.session.exportSet {
+						child.exportSet[k] = struct{}{}
+					}
+				}
+				child.macros = cloneMacroDefs(ev.session.macros)
+				var outputs []Value
+				child.outputs = &outputs
+				v, err := child.eval(expr, scope)
+				if sig, ok := asFlow(err); ok {
+					if sig.kind == flowReturn {
+						v = sig.value
+						err = nil
+					} else {
+						err = flowError(sig.kind, "parallel")
+					}
+				}
+				branches[i] = branchResult{val: v, err: err, outs: append([]Value(nil), outputs...)}
+				if err != nil {
+					cancel()
+					return nullValue(), err
+				}
+				return v, nil
+			},
+		}
+	}
+	values, err := ev.sched.run(groupCtx, tasks)
+	if err != nil {
+		return nullValue(), err
+	}
+	out := make([]Value, len(values))
+	copy(out, values)
+	if ev.session.outputs != nil {
+		for i := range branches {
+			if len(branches[i].outs) > 0 {
+				*ev.session.outputs = append(*ev.session.outputs, branches[i].outs...)
+			}
+		}
+	}
+	return listValue(out), nil
+}
+
+// evalTimeout handles the eval timeout step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalTimeout(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	if ev == nil || ev.session == nil {
+		return nullValue(), fmt.Errorf("timeout requires an active session")
+	}
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("timeout expects 2 arguments")
+	}
+	durVal, err := ev.eval(args[0], scope)
+	if err != nil {
+		return nullValue(), err
+	}
+	ms, err := durVal.Int()
+	if err != nil {
+		return nullValue(), fmt.Errorf("timeout expects integer milliseconds: %w", err)
+	}
+	if ms < 0 {
+		return nullValue(), fmt.Errorf("timeout expects non-negative milliseconds")
+	}
+	childCtx, cancel := context.WithTimeout(ev.ctx, time.Duration(ms)*time.Millisecond)
+	defer cancel()
+	child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+	child.scope = scope
+	child.packageName = ev.session.packageName
+	child.packageVersion = ev.session.packageVersion
+	child.exportOrder = append([]string(nil), ev.session.exportOrder...)
+	if len(ev.session.exportSet) > 0 {
+		child.exportSet = make(map[string]struct{}, len(ev.session.exportSet))
+		for k := range ev.session.exportSet {
+			child.exportSet[k] = struct{}{}
+		}
+	}
+	child.macros = cloneMacroDefs(ev.session.macros)
+	var outputs []Value
+	child.outputs = &outputs
+	v, err := child.eval(args[1], scope)
+	if sig, ok := asFlow(err); ok {
+		if sig.kind == flowReturn {
+			return sig.value, nil
+		}
+		return nullValue(), flowError(sig.kind, "timeout")
+	}
+	if err != nil {
+		if childCtx.Err() == context.DeadlineExceeded {
+			return nullValue(), fmt.Errorf("timeout after %dms", ms)
+		}
+		return nullValue(), err
+	}
+	if ev.session.outputs != nil && len(outputs) > 0 {
+		*ev.session.outputs = append(*ev.session.outputs, outputs...)
+	}
+	return v, nil
+}
+
+// evalAsyncRead handles the eval async read step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncRead(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "read_async", func(values []Value) (Value, error) { return readValue(values) })
+}
+
+// evalAsyncReadBytes handles the eval async read bytes step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncReadBytes(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "readbytes_async", func(values []Value) (Value, error) { return readBytesValue(values) })
+}
+
+// evalAsyncWrite handles the eval async write step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncWrite(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "write_async", func(values []Value) (Value, error) { return writeValue(values) })
+}
+
+// evalAsyncLines handles the eval async lines step in the surrounding package
+// and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncLines(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "lines_async", func(values []Value) (Value, error) { return linesValue(values) })
+}
+
+// evalAsyncCSV handles the eval async csv step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncCSV(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "csv_async", func(values []Value) (Value, error) { return csvValue(values) })
+}
+
+// evalAsyncJSONParse handles the eval async jsonparse step in the surrounding
+// package and returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncJSONParse(ev *evaluator, args []Expr, scope *scope) (Value, error) {
+	return evalAsyncIO(ev, args, scope, "jsonparse_async", func(values []Value) (Value, error) { return jsonParseValue(values) })
+}
+
+// evalRace handles the eval race/select step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value, error) {
+	if ev == nil || ev.session == nil {
+		return nullValue(), fmt.Errorf("race/select requires an active session")
+	}
+	if len(args) == 0 {
+		return nullValue(), fmt.Errorf("race/select expects at least 1 argument")
+	}
+	if ev.rt != nil && ev.rt.taskDebug {
+		for i, arg := range args {
+			child := NewSession(ev.rt, ev.ctx, ev.session.sourceName)
+			child.scope = scope
+			child.packageName = ev.session.packageName
+			child.packageVersion = ev.session.packageVersion
+			child.exportOrder = append([]string(nil), ev.session.exportOrder...)
+			if len(ev.session.exportSet) > 0 {
+				child.exportSet = make(map[string]struct{}, len(ev.session.exportSet))
+				for k := range ev.session.exportSet {
+					child.exportSet[k] = struct{}{}
+				}
+			}
+			child.macros = cloneMacroDefs(ev.session.macros)
+			var outputs []Value
+			child.outputs = &outputs
+			v, err := child.eval(arg, scope)
+			if sig, ok := asFlow(err); ok {
+				if sig.kind == flowReturn {
+					v = sig.value
+					err = nil
+				} else {
+					err = flowError(sig.kind, "race/select")
+				}
+			}
+			if err != nil {
+				return nullValue(), err
+			}
+			if ev.session.outputs != nil && len(outputs) > 0 {
+				*ev.session.outputs = append(*ev.session.outputs, outputs...)
+			}
+			if selectMode {
+				return listValue([]Value{uintValue(uint64(i), 64), v}), nil
+			}
+			return v, nil
+		}
+	}
+	groupCtx, cancel := context.WithCancel(ev.ctx)
+	defer cancel()
+	type raceResult struct {
+		idx  int
+		val  Value
+		err  error
+		outs []Value
+	}
+	results := make(chan raceResult, len(args))
+	var wg sync.WaitGroup
+	for i, expr := range args {
+		i, expr := i, expr
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			childCtx, branchCancel := context.WithCancel(groupCtx)
+			defer branchCancel()
+			child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+			child.scope = scope
+			child.packageName = ev.session.packageName
+			child.packageVersion = ev.session.packageVersion
+			child.exportOrder = append([]string(nil), ev.session.exportOrder...)
+			if len(ev.session.exportSet) > 0 {
+				child.exportSet = make(map[string]struct{}, len(ev.session.exportSet))
+				for k := range ev.session.exportSet {
+					child.exportSet[k] = struct{}{}
+				}
+			}
+			child.macros = cloneMacroDefs(ev.session.macros)
+			var outputs []Value
+			child.outputs = &outputs
+			v, err := child.eval(expr, scope)
+			if sig, ok := asFlow(err); ok {
+				if sig.kind == flowReturn {
+					v = sig.value
+					err = nil
+				} else {
+					err = flowError(sig.kind, "race/select")
+				}
+			}
+			if err != nil {
+				select {
+				case results <- raceResult{idx: i, err: err, outs: append([]Value(nil), outputs...)}:
+				case <-groupCtx.Done():
+				}
+				cancel()
+				return
+			}
+			select {
+			case results <- raceResult{idx: i, val: v, outs: append([]Value(nil), outputs...)}:
+			case <-groupCtx.Done():
+			}
+		}()
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+	res, ok := <-results
+	if !ok {
+		return nullValue(), fmt.Errorf("race/select produced no result")
+	}
+	cancel()
+	if res.err != nil {
+		return nullValue(), res.err
+	}
+	if ev.session.outputs != nil && len(res.outs) > 0 {
+		*ev.session.outputs = append(*ev.session.outputs, res.outs...)
+	}
+	if selectMode {
+		return listValue([]Value{uintValue(uint64(res.idx), 64), res.val}), nil
+	}
+	return res.val, nil
+}
+
+// evalAsyncIO handles the eval async io step in the surrounding package and
+// returns Value, error.
+//
+// It returns Value and an error. Callers should only trust the value when the
+// error is nil.
+func evalAsyncIO(ev *evaluator, args []Expr, scope *scope, op string, run func([]Value) (Value, error)) (Value, error) {
+	if ev == nil || ev.session == nil {
+		return nullValue(), fmt.Errorf("%s requires an active session", op)
+	}
+	values, err := evalMany(ev, args, scope)
+	if err != nil {
+		return nullValue(), err
+	}
+	return ev.session.spawnValueTask(func(ctx context.Context) (Value, error, []Value) {
+		if err := ctx.Err(); err != nil {
+			return nullValue(), err, nil
+		}
+		v, err := run(values)
+		return v, err, nil
+	}), nil
+}
+
+// exprHasTaskEffect handles the expr has task effect step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
+func exprHasTaskEffect(ev *evaluator, expr Expr, scope *scope, seen map[*functionValue]struct{}) bool {
+	switch n := expr.(type) {
+	case *callExpr:
+		if name, ok := specialFormName(n.callee); ok {
+			switch name {
+			case "spawn", "await", "cancel", "parallel", "timeout", "race", "select", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+				return true
+			}
+		}
+		if id, ok := n.callee.(*identExpr); ok && builtinHasTaskEffect(id.name) {
+			return true
+		}
+		if id, ok := n.callee.(*identExpr); ok && ev != nil && scope != nil {
+			if b, ok := scope.lookup(id.name); ok {
+				if lit, ok := b.expr.(*literalExpr); ok && lit != nil && lit.value.kind == kindFunction && lit.value.fn != nil && lit.value.fn.body != nil {
+					if seen == nil {
+						seen = make(map[*functionValue]struct{})
+					}
+					if _, ok := seen[lit.value.fn]; ok {
+						return false
+					}
+					nextSeen := make(map[*functionValue]struct{}, len(seen)+1)
+					for fn := range seen {
+						nextSeen[fn] = struct{}{}
+					}
+					nextSeen[lit.value.fn] = struct{}{}
+					if exprHasTaskEffect(ev, lit.value.fn.body, lit.value.fn.closure, nextSeen) {
+						return true
+					}
+				}
+			}
+		}
+		if exprHasTaskEffect(ev, n.callee, scope, seen) {
+			return true
+		}
+		for _, arg := range n.args {
+			if exprHasTaskEffect(ev, arg, scope, seen) {
+				return true
+			}
+		}
+		return false
+	case *blockExpr:
+		for _, stmt := range n.stmts {
+			if stmtHasTaskEffect(ev, stmt, scope, seen) {
+				return true
+			}
+		}
+		return n.tail != nil && exprHasTaskEffect(ev, n.tail, scope, seen)
+	case *memberExpr:
+		return exprHasTaskEffect(ev, n.object, scope, seen)
+	case *unaryExpr:
+		return exprHasTaskEffect(ev, n.expr, scope, seen)
+	case *binaryExpr:
+		return exprHasTaskEffect(ev, n.left, scope, seen) || exprHasTaskEffect(ev, n.right, scope, seen)
+	case *listExpr:
+		for _, item := range n.items {
+			if exprHasTaskEffect(ev, item, scope, seen) {
+				return true
+			}
+		}
+		return false
+	case *matchExpr:
+		if exprHasTaskEffect(ev, n.subject, scope, seen) {
+			return true
+		}
+		for _, arm := range n.arms {
+			if exprHasTaskEffect(ev, arm.body, scope, seen) {
+				return true
+			}
+		}
+		return false
+	case *tryExpr:
+		return exprHasTaskEffect(ev, n.body, scope, seen) || exprHasTaskEffect(ev, n.handler, scope, seen)
+	case *propagateExpr:
+		return exprHasTaskEffect(ev, n.expr, scope, seen)
+	default:
+		return false
+	}
+}
+
+// stmtHasTaskEffect handles the stmt has task effect step in the surrounding
+// package and returns bool.
+//
+// It returns bool so callers can continue with the next stage of the pipeline
+// without re-deriving the same information.
+func stmtHasTaskEffect(ev *evaluator, stmt Stmt, scope *scope, seen map[*functionValue]struct{}) bool {
+	switch st := stmt.(type) {
+	case letStmt:
+		return exprHasTaskEffect(ev, st.Expr, scope, seen)
+	case emitStmt:
+		return exprHasTaskEffect(ev, st.Expr, scope, seen)
+	case macroStmt:
+		return exprHasTaskEffect(ev, st.Body, scope, seen)
+	case funcStmt:
+		return exprHasTaskEffect(ev, st.Body, scope, seen)
+	case whileStmt:
+		return exprHasTaskEffect(ev, st.Cond, scope, seen) || exprHasTaskEffect(ev, st.Body, scope, seen)
+	case forStmt:
+		return exprHasTaskEffect(ev, st.Iter, scope, seen) || exprHasTaskEffect(ev, st.Body, scope, seen)
+	case returnStmt:
+		return st.Expr != nil && exprHasTaskEffect(ev, st.Expr, scope, seen)
+	case breakStmt, continueStmt, importStmt, packageStmt, exportStmt:
+		return false
+	default:
+		return false
 	}
 }
 
@@ -1000,6 +1649,12 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
+	if obj.kind == kindError {
+		if v, ok := obj.errorRecord().member(name); ok {
+			return v, nil
+		}
+		return nullValue(), fmt.Errorf("error values do not have member %q", name)
+	}
 	mod, err := obj.AsModule()
 	if err != nil {
 		return nullValue(), fmt.Errorf("cannot access member %q on %s", name, obj.Kind())
@@ -1680,6 +2335,36 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["lines"] = func(args []Value) (Value, error) { return linesValue(args) }
 	dst["csv"] = func(args []Value) (Value, error) { return csvValue(args) }
 	dst["jsonparse"] = func(args []Value) (Value, error) { return jsonParseValue(args) }
+	dst["openread"] = func(args []Value) (Value, error) { return openReadStreamValue(args) }
+	dst["openwrite"] = func(args []Value) (Value, error) { return openWriteStreamValue(args) }
+	dst["readline"] = func(args []Value) (Value, error) { return readLineValue(args) }
+	dst["readchunk"] = func(args []Value) (Value, error) { return readChunkValue(args) }
+	dst["writechunk"] = func(args []Value) (Value, error) { return writeChunkValue(args) }
+	dst["flush"] = func(args []Value) (Value, error) { return flushStreamValue(args) }
+	dst["close"] = func(args []Value) (Value, error) { return closeStreamValue(args) }
+	dst["error"] = func(args []Value) (Value, error) { return errorBuiltin(args) }
+	dst["wrap"] = func(args []Value) (Value, error) { return wrapErrorBuiltin(args) }
+	dst["cause"] = func(args []Value) (Value, error) { return causeErrorBuiltin(args) }
+	dst["unwrap"] = func(args []Value) (Value, error) { return unwrapResultBuiltin(args) }
+	dst["withmeta"] = func(args []Value) (Value, error) { return withMetaBuiltin(args) }
+	dst["withdebug"] = func(args []Value) (Value, error) { return withDebugMetaBuiltin(args) }
+	dst["errmeta"] = func(args []Value) (Value, error) { return errMetaBuiltin(args) }
+	dst["redact"] = func(args []Value) (Value, error) { return redactErrorBuiltin(args) }
+	dst["ok"] = func(args []Value) (Value, error) { return okBuiltin(args) }
+	dst["err"] = func(args []Value) (Value, error) { return errBuiltin(args) }
+	dst["some"] = func(args []Value) (Value, error) { return someBuiltin(args) }
+	dst["none"] = func(args []Value) (Value, error) { return noneBuiltin(args) }
+	dst["isok"] = func(args []Value) (Value, error) { return isOkBuiltin(args) }
+	dst["iserr"] = func(args []Value) (Value, error) { return isErrBuiltin(args) }
+	dst["issome"] = func(args []Value) (Value, error) { return isSomeBuiltin(args) }
+	dst["isnone"] = func(args []Value) (Value, error) { return isNoneBuiltin(args) }
+	dst["expect"] = func(args []Value) (Value, error) { return expectBuiltin(args) }
+	dst["or_else"] = func(args []Value) (Value, error) { return orElseBuiltin(args) }
+	dst["panic"] = func(args []Value) (Value, error) { return panicBuiltin(args) }
+	dst["trap"] = func(args []Value) (Value, error) { return trapBuiltin(args) }
+	dst["assert"] = func(args []Value) (Value, error) { return assertBuiltin(args) }
+	dst["matches"] = func(args []Value) (Value, error) { return matchesErrorBuiltin(args) }
+	dst["is"] = func(args []Value) (Value, error) { return isErrorBuiltin(args) }
 }
 
 // hashValue handles the hash value step in the surrounding package and returns

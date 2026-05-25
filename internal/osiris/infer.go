@@ -417,6 +417,42 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 				return inferJoinType(thenInfo, elseInfo)
 			case "and", "or":
 				return inferTypeInfo{known: true, kind: "bool"}
+			case "spawn", "await", "cancel", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+				return inferTypeInfo{known: true, kind: "task"}
+			case "race":
+				var joined inferTypeInfo
+				for i, arg := range n.args {
+					info := inferExpr(arg, scope, out)
+					if i == 0 {
+						joined = info
+						continue
+					}
+					joined = inferJoinType(joined, info)
+				}
+				return joined
+			case "select":
+				return inferTypeInfo{known: true, kind: "list", shape: []int{2}}
+			case "parallel":
+				if len(n.args) == 0 {
+					return inferTypeInfo{known: true, kind: "list", shape: []int{0}}
+				}
+				var sub inferTypeInfo
+				for i, arg := range n.args {
+					info := inferExpr(arg, scope, out)
+					if i == 0 {
+						sub = info
+						continue
+					}
+					sub = inferJoinType(sub, info)
+				}
+				_ = sub
+				return inferTypeInfo{known: true, kind: "list", shape: []int{len(n.args)}}
+			case "timeout":
+				if len(n.args) != 2 {
+					return inferTypeInfo{kind: "unknown"}
+				}
+				_ = inferExpr(n.args[0], scope, out)
+				return inferExpr(n.args[1], scope, out)
 			}
 		}
 		if name, ok := calledShapeName(n.callee); ok {
@@ -459,6 +495,8 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 		body := inferExpr(n.body, scope, out)
 		handler := inferExpr(n.handler, scope.childForBlock(), out)
 		return inferJoinType(body, handler)
+	case *propagateExpr:
+		return inferExpr(n.expr, scope, out)
 	case *matchExpr:
 		_ = inferExpr(n.subject, scope, out)
 		var outInfo inferTypeInfo
@@ -581,6 +619,16 @@ func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 		return inferTypeInfo{known: true, kind: "bigfloat"}, true
 	case "shape":
 		return inferTypeInfo{known: true, kind: "list", shape: []int{1}}, true
+	case "openread", "openwrite":
+		return inferTypeInfo{known: true, kind: "stream"}, true
+	case "readline":
+		return inferTypeInfo{known: true, kind: "string"}, true
+	case "readchunk":
+		return inferTypeInfo{known: true, kind: "list"}, true
+	case "writechunk":
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
+	case "flush", "close":
+		return inferTypeInfo{known: true, kind: "bool"}, true
 	case "vector", "vec", "tensor", "matrix", "reshape", "transpose", "flatten", "view", "clone", "dot", "matmul":
 		return inferTypeInfo{known: true, kind: "tensor"}, true
 	default:

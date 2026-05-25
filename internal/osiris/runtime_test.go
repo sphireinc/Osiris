@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -70,6 +71,177 @@ emit if(true, "yes", "no")
 		if got := out[i].String(); got != want[i] {
 			t.Fatalf("output[%d] = %s, want %s", i, got, want[i])
 		}
+	}
+}
+
+// TestStructuredErrorModel exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestStructuredErrorModel(t *testing.T) {
+	prog, err := Parse("<test>", `
+let base = error(InvalidArgument, "bad input")
+let base = withmeta(base, "request_id", "abc-123")
+let base = withdebug(base, "secret", "token")
+let wrapped = wrap(base, Unavailable, "while loading dataset")
+emit wrapped
+emit wrapped.kind
+emit wrapped.code
+emit wrapped.message
+emit wrapped.operation
+emit wrapped.resource
+emit wrapped.retryable
+emit wrapped.severity
+emit wrapped.cause.kind
+emit wrapped.cause.metadata
+emit wrapped.cause.debug
+emit wrapped.redacted
+emit errmeta(wrapped)
+emit decode(encode(wrapped))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 14; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got := out[0].String(); !strings.Contains(got, `error[unavailable]("while loading dataset")`) || !strings.Contains(got, `error[invalid_argument]("bad input")`) {
+		t.Fatalf("wrapped summary = %s, want wrapped cause chain", got)
+	}
+	wantStrings := []string{
+		`"unavailable"`,
+		`"unavailable"`,
+		`"while loading dataset"`,
+		`null`,
+		`null`,
+		`null`,
+		`"error"`,
+		`"invalid_argument"`,
+		`[["request_id", "abc-123"]]`,
+		`[["secret", "token"]]`,
+	}
+	for i, want := range wantStrings {
+		if got := out[i+1].String(); got != want {
+			t.Fatalf("output[%d] = %s, want %s", i+1, got, want)
+		}
+	}
+	if got := out[11].String(); strings.Contains(got, "token") {
+		t.Fatalf("redacted output leaked debug metadata: %s", got)
+	}
+	if !out[0].Equal(out[13]) {
+		t.Fatalf("codec round-trip changed structured error: %s vs %s", out[0].String(), out[13].String())
+	}
+}
+
+// TestTryCatchPreservesStructuredErrors exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestTryCatchPreservesStructuredErrors(t *testing.T) {
+	prog, err := Parse("<test>", `
+emit try {
+  read("/definitely/not-found-osiris.txt")
+} catch err {
+  [err.kind, err.code, err.message, err.source]
+}
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 1; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got := out[0].String(); !strings.Contains(got, `"not_found"`) || !strings.Contains(got, `/definitely/not-found-osiris.txt`) || !strings.Contains(got, `"<test>"`) {
+		t.Fatalf("output = %s, want structured error capture", got)
+	}
+}
+
+// TestResultAndOptionHelpers exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestResultAndOptionHelpers(t *testing.T) {
+	prog, err := Parse("<test>", `
+emit isok(ok(41))
+emit iserr(err(error(InvalidArgument, "bad input")))
+emit issome(some(41))
+emit isnone(none())
+emit unwrap(ok(7))
+emit unwrap(some(8))
+emit or_else(none(), 99)
+emit decode(encode(ok(123)))
+emit decode(encode(some(456)))
+emit try { expect(none(), "missing value") } catch err { err.kind }
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	want := []string{
+		"true",
+		"true",
+		"true",
+		"true",
+		"7u64",
+		"8u64",
+		"99u64",
+		"ok(123u64)",
+		"some(456u64)",
+		`"not_found"`,
+	}
+	if got, wantLen := len(out), len(want); got != wantLen {
+		t.Fatalf("len(out) = %d, want %d", got, wantLen)
+	}
+	for i := range want {
+		if got := out[i].String(); got != want[i] {
+			t.Fatalf("output[%d] = %s, want %s", i, got, want[i])
+		}
+	}
+}
+
+// TestPropagateAndFatalErrors exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestPropagateAndFatalErrors(t *testing.T) {
+	prog, err := Parse("<test>", `
+func load() => read("/definitely/not-found-osiris.txt")?
+emit load()
+emit try { panic("boom") } catch err { "caught" }
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err == nil {
+		t.Fatalf("run succeeded unexpectedly: %#v", out)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "boom") && !strings.Contains(msg, "not_found") {
+		t.Fatalf("unexpected fatal/propagation error: %v", err)
 	}
 }
 
@@ -1566,6 +1738,264 @@ emit loopcontinue([1, 2, 3])
 	}
 	if got, want := vmOut[1].String(), "9u64"; got != want {
 		t.Fatalf("vm output[1] = %s, want %s", got, want)
+	}
+}
+
+// TestTaskSpawnAwaitAndCancel exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestTaskSpawnAwaitAndCancel(t *testing.T) {
+	prog, err := Parse("<test>", `
+let task = spawn({
+	let x = 5
+	x + 7
+})
+emit await(task)
+emit cancel(task)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 2; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), "12u64"; got != want {
+		t.Fatalf("output[0] = %s, want %s", got, want)
+	}
+	if got, want := out[1].String(), "false"; got != want {
+		t.Fatalf("output[1] = %s, want %s", got, want)
+	}
+	vmOut, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("vm run failed: %v", err)
+	}
+	if got, want := len(vmOut), 2; got != want {
+		t.Fatalf("vm len(out) = %d, want %d", got, want)
+	}
+	if got, want := vmOut[0].String(), "12u64"; got != want {
+		t.Fatalf("vm output[0] = %s, want %s", got, want)
+	}
+	if got, want := vmOut[1].String(), "false"; got != want {
+		t.Fatalf("vm output[1] = %s, want %s", got, want)
+	}
+}
+
+// TestTaskCancellationStopsLoops exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestTaskCancellationStopsLoops(t *testing.T) {
+	prog, err := Parse("<test>", `
+let task = spawn({
+	let i = 0
+	while true {
+		let i = i + 1
+	}
+	i
+})
+emit cancel(task)
+emit await(task)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	_, err = rt.Run(context.Background(), prog)
+	if err == nil {
+		t.Fatalf("run succeeded, want cancellation error")
+	}
+	if !strings.Contains(err.Error(), "context canceled") && !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("error = %v, want cancellation-related error", err)
+	}
+}
+
+// TestParallelAndTimeout exercises the behavior described by its body and
+// locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestParallelAndTimeout(t *testing.T) {
+	prog, err := Parse("<test>", `
+emit parallel(1, 2, 3)
+emit timeout(0, {
+	while true {
+		let keep = 1
+	}
+	99
+})
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err == nil {
+		t.Fatalf("run succeeded, want timeout error")
+	}
+	if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("error = %v, want timeout-related error", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("len(out) = %d, want 0 after timeout failure", len(out))
+	}
+}
+
+// TestAsyncIOWrappers exercises the behavior described by its body and locks
+// in the observable language, runtime, or CLI semantics that the surrounding
+// package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestAsyncIOWrappers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "async.txt")
+	prog, err := Parse("<test>", `
+let path = `+strconv.Quote(path)+`
+emit await(write_async(path, "alpha\nbeta"))
+emit await(read_async(path))
+emit await(readbytes_async(path))
+emit await(lines_async("a\nb"))
+emit await(csv_async("a,b\n1,2"))
+emit await(jsonparse_async("{\"x\":1}"))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 6; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), "true"; got != want {
+		t.Fatalf("output[0] = %s, want %s", got, want)
+	}
+	if got, want := out[1].String(), `"alpha\nbeta"`; got != want {
+		t.Fatalf("output[1] = %s, want %s", got, want)
+	}
+	if got, want := out[2].String(), "[97u8, 108u8, 112u8, 104u8, 97u8, 10u8, 98u8, 101u8, 116u8, 97u8]"; got != want {
+		t.Fatalf("output[2] = %s, want %s", got, want)
+	}
+	if got, want := out[3].String(), `["a", "b"]`; got != want {
+		t.Fatalf("output[3] = %s, want %s", got, want)
+	}
+	if got, want := out[4].String(), `[["a", "b"], ["1", "2"]]`; got != want {
+		t.Fatalf("output[4] = %s, want %s", got, want)
+	}
+	if got, want := out[5].String(), `[["x", 1u64]]`; got != want {
+		t.Fatalf("output[5] = %s, want %s", got, want)
+	}
+}
+
+// TestRaceSelectAndStreamingIO exercises the behavior described by its body
+// and locks in the observable language, runtime, or CLI semantics that the
+// surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestRaceSelectAndStreamingIO(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stream.txt")
+	prog, err := Parse("<test>", `
+let out = openwrite(`+strconv.Quote(path)+`)
+emit writechunk(out, "alpha\n")
+emit writechunk(out, "beta\n")
+emit flush(out)
+emit close(out)
+let inp = openread(`+strconv.Quote(path)+`)
+emit readline(inp)
+emit readline(inp)
+emit readline(inp)
+emit close(inp)
+emit race(1, 2, 3)
+emit select(4, 5, 6)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	rt.SetTaskDebug(true)
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 10; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	want := []string{
+		"6u64",
+		"5u64",
+		"true",
+		"true",
+		`"alpha"`,
+		`"beta"`,
+		"null",
+		"true",
+		"1u64",
+		"[0u64, 4u64]",
+	}
+	for i := range want {
+		if got := out[i].String(); got != want[i] {
+			t.Fatalf("output[%d] = %s, want %s", i, got, want[i])
+		}
+	}
+}
+
+// TestTaskTraceAndDeterministicDebugMode exercises the behavior described by
+// its body and locks in the observable language, runtime, or CLI semantics
+// that the surrounding package depends on.
+//
+// It does not return a value. Success or failure is communicated through side
+// effects or through a separate error path when one exists.
+func TestTaskTraceAndDeterministicDebugMode(t *testing.T) {
+	prog, err := Parse("<test>", `
+emit parallel(1, 2, 3)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	rt.SetTaskTrace(true)
+	rt.SetTaskDebug(true)
+	out, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	if got, want := len(out), 1; got != want {
+		t.Fatalf("len(out) = %d, want %d", got, want)
+	}
+	if got, want := out[0].String(), `[1u64, 2u64, 3u64]`; got != want {
+		t.Fatalf("output = %s, want %s", got, want)
+	}
+	trace := rt.TaskTrace()
+	if got, want := len(trace), 6; got != want {
+		t.Fatalf("len(trace) = %d, want %d", got, want)
+	}
+	want := []TaskTraceEvent{
+		{Kind: "scheduler.start", TaskID: "00000000", Status: "running", Detail: "deterministic"},
+		{Kind: "scheduler.finish", TaskID: "00000000", Status: "done", Detail: "uint"},
+		{Kind: "scheduler.start", TaskID: "00000001", Status: "running", Detail: "deterministic"},
+		{Kind: "scheduler.finish", TaskID: "00000001", Status: "done", Detail: "uint"},
+		{Kind: "scheduler.start", TaskID: "00000002", Status: "running", Detail: "deterministic"},
+		{Kind: "scheduler.finish", TaskID: "00000002", Status: "done", Detail: "uint"},
+	}
+	for i := range want {
+		if trace[i].Kind != want[i].Kind || trace[i].TaskID != want[i].TaskID || trace[i].Status != want[i].Status || trace[i].Detail != want[i].Detail {
+			t.Fatalf("trace[%d] = %#v, want %#v", i, trace[i], want[i])
+		}
 	}
 }
 

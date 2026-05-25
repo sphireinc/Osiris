@@ -1,9 +1,29 @@
 const docs = window.OSIRIS_MANUAL;
 const app = document.getElementById("app");
 const nav = document.getElementById("nav");
-const search = document.getElementById("search");
+const pageId = document.body.dataset.page || "index";
 
-document.title = docs.title;
+const PAGE_DEFS = [
+  { id: "index", label: "Home", href: "index.html", kind: "landing", title: "Osiris Reference" },
+  { id: "semantics", label: "Language semantics", href: "semantics.html", kind: "section", target: "semantics", title: "Language semantics" },
+  { id: "errors", label: "Error model", href: "errors.html", kind: "section", target: "errors", title: "Error model" },
+  { id: "native", label: "Native interop", href: "native.html", kind: "section", target: "native", title: "Native interop" },
+  { id: "core", label: "Core language constructs", href: "core.html", kind: "group", target: "core", title: "Core language constructs" },
+  { id: "text", label: "std/text", href: "text.html", kind: "group", target: "text", title: "std/text" },
+  { id: "math", label: "std/math", href: "math.html", kind: "group", target: "math", title: "std/math" },
+  { id: "arrays", label: "Array constructors", href: "arrays.html", kind: "group", target: "arrays", title: "Array constructors and range generators" },
+  { id: "tensor", label: "Tensor and linear algebra", href: "tensor.html", kind: "group", target: "tensor", title: "Tensor, matrix, and linear algebra" },
+  { id: "stats", label: "Reductions and statistics", href: "stats.html", kind: "group", target: "stats", title: "Reductions and statistics" },
+  { id: "io", label: "I/O", href: "io.html", kind: "group", target: "io", title: "I/O helpers" },
+  { id: "data", label: "Data", href: "data.html", kind: "group", target: "data", title: "Data helpers" },
+  { id: "crypto", label: "std/crypto", href: "crypto.html", kind: "group", target: "crypto", title: "std/crypto" },
+  { id: "list", label: "std/list", href: "list.html", kind: "group", target: "list", title: "std/list" },
+  { id: "types", label: "Types", href: "types.html", kind: "types", target: "types", title: "Types" }
+];
+
+const currentPage = PAGE_DEFS.find((page) => page.id === pageId) || PAGE_DEFS[0];
+
+document.title = currentPage.id === "index" ? docs.title : `${currentPage.title} - ${docs.title}`;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -63,17 +83,17 @@ function renderItem(item, groupId) {
     ...(item.members || [])
   ].join(" ").toLowerCase();
 
-  const head = el("div", "section-heading");
+  const layout = el("div", "ref-layout");
   const left = document.createElement("div");
   const name = document.createElement("h4");
   name.textContent = item.name;
   const sig = el("code", "signature", item.syntax);
-  left.append(name, sig);
   const ret = el("div", "group-meta", `returns ${item.returns}`);
-  head.append(left, ret);
+  left.append(name, sig, ret);
 
   const summary = document.createElement("p");
   summary.textContent = item.summary;
+  const body = el("div", "ref-body");
 
   const dl = document.createElement("dl");
   const addRow = (term, value) => {
@@ -89,6 +109,12 @@ function renderItem(item, groupId) {
         ul.append(li);
       });
       dd.append(ul);
+    } else if (term === "Example") {
+      const pre = document.createElement("pre");
+      const code = document.createElement("code");
+      code.textContent = value;
+      pre.append(code);
+      dd.append(pre);
     } else {
       dd.textContent = value;
     }
@@ -99,7 +125,9 @@ function renderItem(item, groupId) {
   addRow("Members", item.members ? item.members.join(", ") : null);
   addRow("Example", item.example);
 
-  card.append(head, summary, dl);
+  body.append(summary, dl);
+  layout.append(left, body);
+  card.append(layout);
   return card;
 }
 
@@ -132,11 +160,11 @@ function renderNav() {
   const groups = [
     {
       title: "Manual chapters",
-      items: docs.sections.map((section) => ({ href: `#${section.id}`, label: section.title }))
+      items: PAGE_DEFS.filter((page) => page.kind === "landing" || page.kind === "section")
     },
     {
       title: "Function reference",
-      items: docs.groups.map((group) => ({ href: `#${group.id}`, label: group.title }))
+      items: PAGE_DEFS.filter((page) => page.kind === "group")
     }
   ];
 
@@ -150,6 +178,7 @@ function renderNav() {
       const a = document.createElement("a");
       a.href = item.href;
       a.textContent = item.label;
+      if (item.id === currentPage.id) a.classList.add("active");
       li.append(a);
       list.append(li);
     });
@@ -158,119 +187,100 @@ function renderNav() {
   });
 }
 
-function renderPage() {
-  app.innerHTML = "";
-
+function renderLanding() {
   const hero = el("section", "section");
-  hero.id = "manual";
+  hero.id = "overview";
   hero.innerHTML = `
     <div class="section-heading">
       <div>
-        <div class="eyebrow">Manual index</div>
+        <div class="eyebrow">Reference index</div>
         <h2>${docs.title}</h2>
         <p class="section-note">${docs.subtitle}</p>
       </div>
     </div>
   `;
 
-  const quickGrid = el("div", "section-grid");
-  [
-    { title: "Language semantics", text: "Statements, expressions, scope, modules, exactness, and control flow." },
-    { title: "Function reference", text: "All current built-in modules and callable helpers grouped by purpose." },
-    { title: "Native interop", text: "Design notes for host-backed Go modules and C-library import paths." },
-    { title: "Static hosting", text: "This site is ready for GitHub Pages under docs/ with no build step." }
-  ].forEach((card) => {
-    const mini = el("article", "mini-card");
-    mini.innerHTML = `<h3>${card.title}</h3><p>${card.text}</p>`;
-    quickGrid.append(mini);
-  });
-  hero.append(quickGrid);
+  hero.append(el("p", "section-note", "Use the navigation on the left to open a dedicated page for each manual section. The site is split by chapter so each topic has its own URL and its own reference page."));
   app.append(hero);
 
-  docs.sections.forEach((section) => app.append(renderSection(section)));
-
-  const functionsSection = el("section", "section");
-  functionsSection.id = "functions";
-  functionsSection.innerHTML = `
+  const links = el("section", "section");
+  links.innerHTML = `
     <div class="section-heading">
       <div>
-        <div class="eyebrow">Reference</div>
-        <h2>Function reference</h2>
-        <p class="section-note">The groups below document the current callable surface of the language: core constructs, std modules, data helpers, numeric families, tensor work, reductions, and lightweight collection utilities.</p>
+        <div class="eyebrow">Pages</div>
+        <h2>Manual pages</h2>
+        <p class="section-note">Each section is rendered as its own page instead of a single long scroll.</p>
       </div>
     </div>
   `;
-  app.append(functionsSection);
-
-  docs.groups.forEach((group) => app.append(renderGroup(group)));
-
-  const guide = el("section", "section");
-  guide.id = "guide";
-  guide.innerHTML = `
-    <div class="section-heading">
-      <div>
-        <div class="eyebrow">Editorial policy</div>
-        <h2>What belongs in the docs</h2>
-        <p class="section-note">The docs should describe language semantics, user-facing functions, standard modules, native interop, and practical examples. They should not drift into internal implementation chatter unless that implementation detail changes language behavior.</p>
-      </div>
-    </div>
-    <div class="section-grid">
-      <article class="mini-card"><h3>Include</h3><ul><li>syntax</li><li>function signatures</li><li>return values</li><li>errors and edge cases</li><li>examples that can be run</li><li>module/version behavior</li></ul></article>
-      <article class="mini-card"><h3>Exclude</h3><ul><li>commit history</li><li>CI noise</li><li>temporary artifacts</li><li>internal implementation details that do not affect users</li><li>generated files unless they are intentionally part of the manual</li></ul></article>
-    </div>
-  `;
-  app.append(guide);
-
-  const native = el("section", "section");
-  native.id = "interop";
-  native.innerHTML = `
-    <div class="section-heading">
-      <div>
-        <div class="eyebrow">Interop</div>
-        <h2>Importing Go and C code</h2>
-        <p class="section-note">Go-backed std modules are explicit host modules. C-backed imports should be treated as build-linked native dependencies with clear wrappers and ownership rules.</p>
-      </div>
-    </div>
-    <div class="section-grid">
-      <article class="mini-card"><h3>Go wrappers</h3><p>Use wrapped host modules for Go code. Keep the Osiris surface small, versioned, and Osiris-shaped.</p></article>
-      <article class="mini-card"><h3>C libraries</h3><p>Use explicit C wrappers for stable ABI-style integration. Let the native build path link them deliberately.</p></article>
-    </div>
-  `;
-  app.append(native);
+  const grid = el("div", "section-grid");
+  PAGE_DEFS.filter((page) => page.id !== "index").forEach((page) => {
+    const card = el("article", "mini-card");
+    const h = document.createElement("h3");
+    const a = document.createElement("a");
+    a.href = page.href;
+    a.textContent = page.label;
+    h.append(a);
+    const p = document.createElement("p");
+    const section = docs.sections.find((entry) => entry.id === page.target);
+    const group = docs.groups.find((entry) => entry.id === page.target);
+    p.textContent = section?.summary || group?.summary || "";
+    card.append(h, p);
+    grid.append(card);
+  });
+  links.append(grid);
+  app.append(links);
 }
 
-function filterCards() {
-  const q = search.value.trim().toLowerCase();
-  const cards = Array.from(document.querySelectorAll(".ref-card"));
-  let visible = 0;
-  cards.forEach((card) => {
-    const match = !q || card.dataset.search.includes(q);
-    card.classList.toggle("is-hidden", !match);
-    if (match) visible += 1;
-  });
+function renderPage() {
+  app.innerHTML = "";
 
-  document.querySelectorAll(".group").forEach((group) => {
-    const anyVisible = Array.from(group.querySelectorAll(".ref-card")).some((card) => !card.classList.contains("is-hidden"));
-    group.classList.toggle("is-hidden", q && !anyVisible);
-  });
+  if (currentPage.kind === "landing") {
+    renderLanding();
+    return;
+  }
 
-  const manualCards = Array.from(document.querySelectorAll(".mini-card"));
-  manualCards.forEach((card) => {
-    const text = card.textContent.toLowerCase();
-    const match = !q || text.includes(q);
-    if (card.closest(".section")?.id !== "manual") {
-      card.classList.toggle("is-hidden", !match && q);
-    }
-  });
+  if (currentPage.kind === "section") {
+    const section = docs.sections.find((entry) => entry.id === currentPage.target);
+    if (section) app.append(renderSection(section));
+    return;
+  }
 
-  const existing = document.getElementById("result-count");
-  if (existing) existing.remove();
-  const badge = el("div", "group-meta", q ? `${visible} matching reference entries` : `${cards.length} reference entries`);
-  badge.id = "result-count";
-  search.parentElement.append(badge);
+  if (currentPage.kind === "group") {
+    const group = docs.groups.find((entry) => entry.id === currentPage.target);
+    if (group) app.append(renderGroup(group));
+    return;
+  }
+
+  if (currentPage.kind === "types") {
+    const section = el("section", "section");
+    section.innerHTML = `
+      <div class="section-heading">
+        <div>
+          <div class="eyebrow">Type reference</div>
+          <h2>Types</h2>
+          <p class="section-note">This page lists the user-facing types available in Osiris, including the default numeric model, exact math forms, fixed-width integer families, tensor and matrix types, and the specialized scientific types used by the compiler and runtime.</p>
+        </div>
+      </div>
+    `;
+    const grid = el("div", "section-grid");
+    docs.types.forEach((group) => {
+      const card = el("article", "mini-card");
+      const h = document.createElement("h3");
+      h.textContent = group.name;
+      const p = document.createElement("p");
+      p.textContent = group.summary;
+      card.append(h, p);
+      if (group.members && group.members.length) {
+        const members = el("div", "group-meta", group.members.join(", "));
+        card.append(members);
+      }
+      grid.append(card);
+    });
+    section.append(grid);
+    app.append(section);
+  }
 }
 
 renderNav();
 renderPage();
-search.addEventListener("input", filterCards);
-filterCards();

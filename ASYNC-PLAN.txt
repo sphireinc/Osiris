@@ -1,0 +1,294 @@
+OSIRIS CONCURRENCY AND ASYNC PLAN
+==================================
+
+GOAL
+----
+Make Osiris fast for both computation-heavy and I/O-heavy workloads without turning the language into an event-loop-driven system.
+
+The language should stay synchronous by default. When concurrency is needed, it should be explicit, structured, and easy for the compiler and runtime to reason about.
+
+The target model is closer to Go than to JavaScript:
+- lightweight tasks
+- explicit `spawn` and `await`
+- structured cancellation
+- bounded parallelism
+- runtime scheduling
+- async I/O hidden behind a clean language surface
+
+NON-GOALS
+---------
+- No JavaScript-style single event loop as the user-facing programming model.
+- No callback soup.
+- No promise-only API surface that leaks scheduler details into ordinary code.
+- No requirement that all language execution be async.
+- No attempt to force async onto numeric code that is better served by vectorization, cache locality, and native lowering.
+
+DESIGN DECISION
+---------------
+Osiris will treat concurrency as a language feature layered on top of ordinary synchronous semantics.
+
+That means:
+- normal expressions still evaluate in source order unless a construct says otherwise
+- compute-heavy code remains straightforward and optimizable
+- concurrency is opt-in
+- I/O can be suspended and resumed by the runtime
+- the compiler can lower asynchronous constructs into explicit state machines when it needs to
+
+The core idea is that concurrency should make the runtime better, not make the source code harder to read.
+
+PERFORMANCE MODEL
+-----------------
+There are two distinct performance paths:
+
+1. Compute throughput
+- vectorization
+- cache locality
+- thread parallelism
+- memory layout
+- lowering to good native code
+
+2. Wait hiding
+- spawn / await
+- parallel task scheduling
+- cancellation
+- timeouts
+- async file and network I/O
+
+Osiris should optimize both, but they are solved differently.
+
+COMPUTE PATH
+------------
+The compute path is for math-heavy code: tensors, matrices, big integers, exact arithmetic, and tight loops.
+
+Required optimizations:
+- vectorization of elementwise tensor kernels
+- cache-aware iteration order
+- parallel chunking for large arrays and matrices
+- contiguous memory layouts for dense tensors and matrices
+- hoisting of shape and bounds checks where shape is known
+- fusion of adjacent tensor operations when the optimizer can prove safety
+- specialization of hot functions by shape and scalar kind
+- native lowering that avoids boxed values in hot loops
+
+The compiler should prefer:
+- contiguous inner loops
+- row-major or otherwise explicit layout rules
+- loop unrolling when profitable
+- SIMD-friendly kernels
+- reuse of scratch buffers
+
+It should avoid:
+- repeated allocation in hot loops
+- needless transposes
+- generic dispatch in inner kernels
+- shape checks inside tight loops when they can be hoisted
+
+CONCURRENCY MODEL
+-----------------
+Osiris should expose structured concurrency with a small, explicit surface.
+
+The planned primitives are:
+- `spawn` to start a task
+- `await` to wait for a task result
+- `parallel` to run a bounded set of independent work units
+- `cancel` to request cooperative cancellation
+- `timeout` to bound waiting
+- `race` or `select` only when first-complete semantics are actually needed
+
+The runtime underneath should use:
+- a task scheduler
+- a worker pool
+- work stealing or equivalent load balancing
+- blocking-aware task suspension
+- host-backed I/O polling where available
+
+The important property is that a task should be cheap to create and cheap to wait on, but not invisible.
+
+SEMANTICS
+---------
+1. `spawn`
+- Starts a new task.
+- Returns a task handle or future-like value.
+- The spawned computation may run on another worker thread.
+- The parent continues immediately.
+
+2. `await`
+- Suspends the current task until the target task completes.
+- Returns the task result or propagates the task error.
+- If the task was cancelled, `await` should observe cancellation in a predictable way.
+
+3. `parallel`
+- Runs a bounded collection of independent work units.
+- Preserves result order unless the API explicitly opts into completion order.
+- Should default to a practical worker limit instead of unlimited fan-out.
+
+4. `cancel`
+- Requests cooperative cancellation.
+- Cancellation should be visible to long-running loops, I/O operations, and explicit suspension points.
+- Cancellation must not corrupt memory or leave partially committed runtime state in an invalid form.
+
+5. `timeout`
+- Wraps waiting or I/O with a deadline.
+- On expiration, it should cancel or detach the underlying work according to the API contract.
+- Timeout should be explicit, not implicit.
+
+6. Async I/O
+- File and network operations may suspend the current task.
+- The source code should still read synchronously at the call site.
+- The runtime decides whether the operation blocks a worker thread, uses a poller, or routes through a platform async mechanism.
+
+I/O MODEL
+---------
+Current Osiris I/O is synchronous and host-backed. That should remain the default surface.
+
+The async plan should extend it, not replace it.
+
+Planned I/O behavior:
+- file reads and writes remain simple at the language level
+- async variants are added only when concurrency matters
+- buffered streaming APIs may be introduced for larger files and network sockets
+- the runtime should make blocking semantics clear and predictable
+
+The practical design is:
+- synchronous `read`, `write`, `readbytes` for small and medium workloads
+- async or task-aware variants for pipelines, servers, and bulk transfer
+- streaming readers and writers for large data movement
+
+BACKEND LOWERING
+----------------
+The C backend should remain the standard native path.
+
+The lowering strategy should be:
+
+1. Source-level concurrency
+- `spawn` and `await` are represented in the IR as explicit task boundaries.
+- The compiler identifies suspension points.
+
+2. IR lowering
+- Convert async control flow into resumable state machines where needed.
+- Preserve explicit task handles and join points.
+- Keep compute-heavy code in straight-line or loop-heavy form when no suspension occurs.
+
+3. C emission
+- Emit small runtime helper calls for task scheduling, suspension, resume, timeout, and cancellation.
+- Emit direct loops for compute-heavy regions.
+- Emit async state machines only around actual suspension points.
+
+4. Native compilation
+- Compile the emitted C with the system compiler using aggressive optimization flags.
+- Let the C compiler optimize the synchronous compute regions.
+- Keep the runtime helpers small and focused so the compiler can inline or optimize them when appropriate.
+
+The C backend should not fake concurrency in source code. It should lower concurrency constructs into explicit runtime calls and state transitions that are easy to audit.
+
+RUNTIME STRUCTURE
+-----------------
+The runtime should provide:
+- a scheduler
+- worker threads
+- a task queue
+- an async I/O bridge
+- cancellation tokens or equivalent state
+- deadline handling
+- result propagation
+- error propagation
+
+The scheduler should support:
+- bounded parallelism
+- task wakeup
+- cooperative suspension
+- task stealing or equivalent fairness
+- deterministic modes for debugging when needed
+
+The runtime should also separate:
+- compute tasks
+- I/O wait tasks
+- cancellation checks
+- timeout enforcement
+
+This separation matters because numeric kernels should not pay the full cost of async I/O machinery when they do not use it.
+
+OPTIMIZATION GUIDELINES
+-----------------------
+To keep performance near C-class code, the compiler should try to prove:
+- a loop body is free of suspension points
+- a tensor kernel is shape-stable
+- a matrix operation has contiguous storage
+- an operation is pure and can be folded or fused
+- a task boundary is unnecessary inside a hot numeric loop
+- a value can be kept unboxed in a local region
+
+Where possible, the compiler should:
+- keep compute and concurrency separate
+- keep async overhead out of hot numeric kernels
+- lower tensor-heavy code to tight loops with explicit strides
+- use alias analysis to avoid unnecessary copies
+- reuse buffers when it is safe
+
+ERROR AND CANCELLATION RULES
+----------------------------
+- Cancellation should be cooperative, not violent.
+- A cancelled task should stop at well-defined suspension or check points.
+- I/O operations should surface timeout and cancellation clearly.
+- Errors from awaited tasks should propagate in a controlled way.
+- A timeout should be distinguishable from a normal runtime error.
+
+NUMERIC WORKLOAD RULE
+---------------------
+Do not use async as a substitute for numeric optimization.
+
+For math-heavy code, performance should come from:
+- vectorization
+- cache locality
+- thread parallelism
+- memory layout
+- lowering to good native code
+
+Async only helps when the workload is waiting on the world, not when it is consuming the CPU.
+
+IMPLEMENTATION PHASES
+---------------------
+Phase 1
+- define `spawn` and `await`
+- add task handles
+- add a scheduler and worker pool
+- make cancellation visible in task state
+
+Phase 2
+- add `parallel` for data-parallel work
+- add timeout wrappers
+- add structured cancellation propagation
+- add deterministic debug mode for concurrency traces
+
+Phase 3
+- add async file I/O
+- add streaming readers and writers
+- add network I/O primitives
+- add poller-backed runtime support where the platform allows it
+
+Phase 4
+- lower async control flow cleanly through the C backend
+- ensure synchronous compute code still emits tight native loops
+- benchmark compute-heavy and I/O-heavy workloads separately
+
+Phase 5
+- add compiler-guided fusion and task elimination where safe
+- tighten alias analysis and shape analysis around async boundaries
+- add performance diagnostics for task creation, suspension, and wakeup
+
+ACCEPTANCE CRITERIA
+-------------------
+The concurrency model is successful if:
+- normal Osiris programs remain easy to read and reason about
+- compute-heavy programs stay fast
+- I/O-heavy programs can scale across tasks without manual event-loop code
+- cancellation and timeouts are predictable
+- the C backend can lower the model cleanly
+- the language stays deterministic by default unless explicitly told otherwise
+
+FINAL RULE
+----------
+If a feature makes the language more concurrent but less understandable, it is not acceptable.
+
+If a feature makes the language more understandable and the runtime can optimize it well, it belongs in Osiris.
+

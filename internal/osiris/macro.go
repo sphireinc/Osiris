@@ -101,6 +101,8 @@ func cloneExpr(expr Expr) Expr {
 		return &blockExpr{stmts: stmts, tail: tail}
 	case *tryExpr:
 		return &tryExpr{body: cloneExpr(n.body), catchName: n.catchName, handler: cloneExpr(n.handler)}
+	case *propagateExpr:
+		return &propagateExpr{expr: cloneExpr(n.expr), Span: n.Span}
 	default:
 		return expr
 	}
@@ -447,6 +449,12 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 			return nil, err
 		}
 		return &tryExpr{body: body, catchName: n.catchName, handler: handler}, nil
+	case *propagateExpr:
+		expr, err := e.expandExpr(n.expr, env, defs, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &propagateExpr{expr: expr, Span: n.Span}, nil
 	default:
 		return nil, fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -636,6 +644,12 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 			return nil, err
 		}
 		return &tryExpr{body: body, catchName: n.catchName, handler: handler}, nil
+	case *propagateExpr:
+		expr, err := e.expandTemplateExpr(n.expr, env, defs, params, args, renames, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &propagateExpr{expr: expr, Span: n.Span}, nil
 	default:
 		return nil, fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
