@@ -1985,6 +1985,7 @@ func registerBuiltins(dst map[string]Builtin) {
 			return nullValue(), fmt.Errorf("take expects a string, list, or tensor")
 		}
 	}
+	dst["slice"] = func(args []Value) (Value, error) { return sliceValue(args) }
 	dst["range"] = func(args []Value) (Value, error) {
 		if len(args) != 1 {
 			return nullValue(), fmt.Errorf("range expects 1 argument")

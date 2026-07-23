@@ -1383,6 +1383,53 @@ func takeValue(args []Value) (Value, error) {
 	}
 }
 
+// sliceValue returns an owned half-open slice of a tensor axis.
+func sliceValue(args []Value) (Value, error) {
+	if len(args) != 3 && len(args) != 4 {
+		return nullValue(), fmt.Errorf("slice expects 3 or 4 arguments")
+	}
+	if args[0].kind != kindTensor || len(args[0].shape) == 0 {
+		return nullValue(), fmt.Errorf("slice expects a tensor with a leading dimension")
+	}
+	start, err := args[1].Int()
+	if err != nil || start < 0 {
+		return nullValue(), fmt.Errorf("slice start must be a non-negative integer")
+	}
+	end, err := args[2].Int()
+	if err != nil || end < 0 {
+		return nullValue(), fmt.Errorf("slice end must be a non-negative integer")
+	}
+	if start > end {
+		return nullValue(), fmt.Errorf("slice end must not precede start")
+	}
+	axis := 0
+	if len(args) == 4 {
+		axis, err = args[3].Int()
+		if err != nil || axis < 0 || axis >= len(args[0].shape) {
+			return nullValue(), fmt.Errorf("slice axis out of range")
+		}
+	}
+	limit := args[0].shape[axis]
+	if start > limit {
+		start = limit
+	}
+	if end > limit {
+		end = limit
+	}
+	outerSize := tensorShapeProduct(args[0].shape[:axis])
+	innerSize := tensorShapeProduct(args[0].shape[axis+1:])
+	spanSize := end - start
+	shape := append([]int(nil), args[0].shape...)
+	shape[axis] = spanSize
+	data := make([]Value, outerSize*spanSize*innerSize)
+	for outer := 0; outer < outerSize; outer++ {
+		sourceStart := (outer*limit + start) * innerSize
+		destinationStart := outer * spanSize * innerSize
+		copy(data[destinationStart:], args[0].data[sourceStart:sourceStart+spanSize*innerSize])
+	}
+	return newTensorValue(shape, data), nil
+}
+
 // sumValue handles the sum value step in the surrounding package and returns
 // Value, error.
 //

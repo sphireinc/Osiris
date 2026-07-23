@@ -2,16 +2,30 @@ package osiris
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
 type CArtifact struct {
 	Source string
+}
+
+// CCompileManifest describes an addressable native executable artifact. Cache
+// keys include every input that can affect machine code generation.
+type CCompileManifest struct {
+	Key              string   `json:"key"`
+	SourceSHA256     string   `json:"source_sha256"`
+	Compiler         string   `json:"compiler"`
+	CompilerIdentity string   `json:"compiler_identity"`
+	Flags            []string `json:"flags"`
+	Target           string   `json:"target"`
+	CacheHit         bool     `json:"-"`
 }
 
 // CompileC compiles the c into the requested backend artifact so the caller
@@ -24,50 +38,15 @@ func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, erro
 	if rt == nil {
 		rt = NewRuntime()
 	}
-	sess := NewSession(rt, ctx, prog.SourceName)
-	outputs, err := sess.ExecProgram(prog, false, nil)
+	ir, err := rt.BuildIR(ctx, prog)
 	if err != nil {
 		return nil, err
 	}
-	rendered := make([]string, len(outputs))
-	for i, v := range outputs {
-		rendered[i] = v.String()
+	source, err := emitCIR(ir)
+	if err != nil {
+		return nil, err
 	}
-	return &CArtifact{Source: buildCSnapshot(prog.SourceName, rendered)}, nil
-}
-
-// buildCSnapshot handles the build csnapshot step in the surrounding package
-// and returns string.
-//
-// It returns string so callers can continue with the next stage of the
-// pipeline without re-deriving the same information.
-func buildCSnapshot(sourceName string, outputs []string) string {
-	var b strings.Builder
-	b.WriteString("#include <stdio.h>\n\n")
-	b.WriteString("// Osiris C snapshot from ")
-	b.WriteString(strings.ReplaceAll(strings.TrimSpace(sourceName), "\n", " "))
-	b.WriteByte('\n')
-	b.WriteString("static const char *osiris_outputs[] = {\n")
-	if len(outputs) == 0 {
-		b.WriteString("  \"\",\n")
-	} else {
-		for _, out := range outputs {
-			b.WriteString("  \"")
-			b.WriteString(cEscapeString(out))
-			b.WriteString("\",\n")
-		}
-	}
-	b.WriteString("};\n")
-	b.WriteString("static const int osiris_output_count = ")
-	b.WriteString(strconv.Itoa(len(outputs)))
-	b.WriteString(";\n\n")
-	b.WriteString("int main(void) {\n")
-	b.WriteString("  for (int i = 0; i < osiris_output_count; ++i) {\n")
-	b.WriteString("    puts(osiris_outputs[i]);\n")
-	b.WriteString("  }\n")
-	b.WriteString("  return 0;\n")
-	b.WriteString("}\n")
-	return b.String()
+	return &CArtifact{Source: source}, nil
 }
 
 // cEscapeString handles the c escape string step in the surrounding package
@@ -115,6 +94,78 @@ func CompileCObject(ctx context.Context, source string, outputPath string) error
 // It returns an error when the operation cannot complete cleanly.
 func CompileCExecutable(ctx context.Context, source string, outputPath string) error {
 	return compileCArtifact(ctx, source, outputPath, false)
+}
+
+// CompileCExecutableCached compiles source into outputPath, reusing a
+// content-addressed executable in cacheDir when the generated C, compiler, and
+// compilation flags are identical. cacheDir is explicit so builds stay
+// reproducible and callers control cache lifetime.
+func CompileCExecutableCached(ctx context.Context, source, outputPath, cacheDir string) (*CCompileManifest, error) {
+	compiler := os.Getenv("CC")
+	if compiler == "" {
+		compiler = "cc"
+	}
+	compilerPath, err := exec.LookPath(compiler)
+	if err != nil {
+		return nil, fmt.Errorf("%s not found: %w", compiler, err)
+	}
+	identityOut, err := exec.CommandContext(ctx, compilerPath, "--version").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("identify C compiler %s: %w", compilerPath, err)
+	}
+	flags := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG", "-flto", "-lm"}
+	sourceHash := sha256.Sum256([]byte(source))
+	keyInput := strings.Join([]string{hex.EncodeToString(sourceHash[:]), compilerPath, string(identityOut), strings.Join(flags, "\x00"), "executable"}, "\x00")
+	keyHash := sha256.Sum256([]byte(keyInput))
+	manifest := &CCompileManifest{
+		Key:              hex.EncodeToString(keyHash[:]),
+		SourceSHA256:     hex.EncodeToString(sourceHash[:]),
+		Compiler:         compilerPath,
+		CompilerIdentity: strings.TrimSpace(string(identityOut)),
+		Flags:            flags,
+		Target:           "executable",
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, err
+	}
+	cachePath := filepath.Join(cacheDir, manifest.Key)
+	if info, err := os.Stat(cachePath); err == nil && !info.IsDir() {
+		if err := copyExecutable(cachePath, outputPath); err != nil {
+			return nil, err
+		}
+		manifest.CacheHit = true
+		return manifest, nil
+	}
+	tempPath := cachePath + ".tmp"
+	if err := compileCArtifact(ctx, source, tempPath, false); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tempPath, cachePath); err != nil {
+		_ = os.Remove(tempPath)
+		return nil, err
+	}
+	encoded, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(cachePath+".json", append(encoded, '\n'), 0o644); err != nil {
+		return nil, err
+	}
+	if err := copyExecutable(cachePath, outputPath); err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+func copyExecutable(sourcePath, outputPath string) error {
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(outputPath, data, 0o755); err != nil {
+		return err
+	}
+	return os.Chmod(outputPath, 0o755)
 }
 
 // compileCArtifact handles the compile cartifact step in the surrounding

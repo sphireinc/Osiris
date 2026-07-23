@@ -1,3 +1,11 @@
+NATIVE COMPILER REQUIREMENT
+---------------------------
+Before completing compiler analysis, FFI, task-boundary, or OS-error items,
+define and implement the generated-C error ABI from
+`../002-native-value-abi.md`. Errors crossing native calls must preserve Osiris
+kind, cause, source, and safe metadata without depending on Go interpreter
+values.
+
 PHASE 1: ERROR MODEL
 --------------------
 [x] Decide whether the language uses exceptions, result values, error returns, panics, effects, or a hybrid model.

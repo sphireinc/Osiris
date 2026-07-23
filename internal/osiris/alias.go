@@ -877,6 +877,8 @@ func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *Ali
 			return unknownAliasInfo("value"), true
 		}
 		return freshLikeInfo(args[0], "builtin "+name), true
+	case "slice":
+		return freshAliasInfo("tensor", "builtin "+name), true
 	case "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "cumsum", "cumprod":
 		if len(args) == 0 {
 			return unknownAliasInfo("value"), true

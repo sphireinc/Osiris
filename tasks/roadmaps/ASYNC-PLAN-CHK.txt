@@ -5,6 +5,13 @@ STRATEGY
 --------
 Keep Osiris synchronous by default. Add explicit structured concurrency for wait-heavy work. Keep compute-heavy code optimized through vectorization, cache locality, thread parallelism, memory layout, and native lowering.
 
+NATIVE COMPILER REQUIREMENT
+---------------------------
+Complete `../001-c-backend-real-lowering.md` and
+`../002-native-value-abi.md` before treating Phase 5 or Phase 6 as complete.
+Async IR boundaries, state machines, runtime helpers, and compute kernels must
+lower into the generated C executable; interpreter-only support is insufficient.
+
 PHASE 1: CORE TASK MODEL
 ------------------------
 [x] Define `spawn` as the task-start primitive.

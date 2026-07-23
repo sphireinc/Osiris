@@ -39,6 +39,7 @@ emit if(base > 0, add1(i), 0)
 		"if.join",
 		"emit",
 		"fn add1.fn0(x) captures [base]",
+		"return add1.fn0.t0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("IR output missing %q\n--- got ---\n%s", want, got)

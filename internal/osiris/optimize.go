@@ -797,6 +797,8 @@ func pureBuiltinByName(name string) (Builtin, bool) {
 		return lenValue, true
 	case "take":
 		return takeValue, true
+	case "slice":
+		return sliceValue, true
 	case "range":
 		return rangeValue, true
 	case "sum":

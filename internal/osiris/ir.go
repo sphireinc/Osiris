@@ -806,11 +806,12 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		child.locals[param] = struct{}{}
 	}
 
-	if _, err := child.evalExpr(st.Body); err != nil {
+	result, err := child.evalExpr(st.Body)
+	if err != nil {
 		return false, err
 	}
 	if !child.terminated() {
-		child.emitTerm(&irReturn{})
+		child.emitTerm(&irReturn{Value: result, HasValue: true})
 	}
 	fn.Blocks = append(fn.Blocks, child.state.blocks...)
 	if len(child.fn.Captures) > 0 {

@@ -1,0 +1,1506 @@
+package osiris
+
+import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// emitCIR emits the initial executable subset of the native backend. It uses a
+// small tagged runtime so control flow can be lowered before scalar
+// specialization replaces values in hot paths.
+func emitCIR(prog *IRProgram) (string, error) {
+	if prog == nil || len(prog.Functions) == 0 || prog.Functions[0].Name != "main" {
+		return "", fmt.Errorf("native C backend requires a top-level main function")
+	}
+	functions := make(map[string]*IRFunction)
+	functionNames := make(map[string]string)
+	for index, candidate := range prog.Functions[1:] {
+		functions[candidate.Name] = candidate
+		functionNames[candidate.Name] = fmt.Sprintf("osiris_fn_%d", index)
+	}
+	var b strings.Builder
+	b.WriteString(cRuntimePrelude())
+	for _, fn := range prog.Functions[1:] {
+		fmt.Fprintf(&b, "\nstatic OValue %s(", functionNames[fn.Name])
+		for i := range fn.Params {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "OValue p%d", i)
+		}
+		for i := range fn.Captures {
+			if len(fn.Params) > 0 || i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "OValue c%d", i)
+		}
+		b.WriteString(");\n")
+		fmt.Fprintf(&b, "static OValue %s_closure(const OValue *args, size_t argc, const OValue *captures, size_t capture_count);\n", functionNames[fn.Name])
+	}
+	b.WriteString("\n// Osiris native C lowering from ")
+	b.WriteString(strings.ReplaceAll(strings.TrimSpace(prog.SourceName), "\n", " "))
+	b.WriteByte('\n')
+	for _, fn := range prog.Functions[1:] {
+		if err := emitCFunction(&b, fn, false, functions, functionNames); err != nil {
+			return "", err
+		}
+	}
+	for _, fn := range prog.Functions[1:] {
+		emitCClosureWrapper(&b, fn, functionNames[fn.Name])
+	}
+	b.WriteString("int main(void) {\n")
+	if specialized, err := emitCScalarMain(&b, prog.Functions[0], functions); err != nil {
+		return "", err
+	} else if !specialized {
+		fmt.Fprintf(&b, "  // Osiris native fallback: %s\n", nativeScalarFallbackReason(prog.Functions[0]))
+		if err := emitCFunctionBody(&b, prog.Functions[0], true, functions, functionNames); err != nil {
+			return "", err
+		}
+	}
+	b.WriteString("}\n")
+	return b.String(), nil
+}
+
+func nativeScalarFallbackReason(fn *IRFunction) string {
+	if fn == nil {
+		return "missing main function"
+	}
+	for _, block := range fn.Blocks {
+		for _, in := range block.Instrs {
+			switch in.Op {
+			case "list":
+				return "list values require the tagged ABI"
+			case "makefunc", "call":
+				return "function or builtin call requires the tagged ABI"
+			case "builtin", "global", "import", "member":
+				return "dynamic lookup requires the tagged ABI"
+			case "const", "copy", "unary", "binary", "emit":
+			default:
+				return fmt.Sprintf("IR operation %q requires the tagged ABI", in.Op)
+			}
+		}
+	}
+	return "dynamic scalar types require the tagged ABI"
+}
+
+func emitCFunction(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string) error {
+	fmt.Fprintf(b, "\nstatic OValue %s(", functionNames[fn.Name])
+	for i := range fn.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "OValue p%d", i)
+	}
+	for i := range fn.Captures {
+		if len(fn.Params) > 0 || i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "OValue c%d", i)
+	}
+	b.WriteString(") {\n")
+	if err := emitCFunctionBody(b, fn, main, functions, functionNames); err != nil {
+		return err
+	}
+	b.WriteString("}\n")
+	return nil
+}
+
+func emitCFunctionBody(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string) error {
+	vars := map[string]string{}
+	names := make([]string, 0)
+	for i, param := range fn.Params {
+		vars[fmt.Sprintf("%s.%s.0", fn.Name, param)] = fmt.Sprintf("p%d", i)
+	}
+	for i, capture := range fn.CaptureValues {
+		vars[capture] = fmt.Sprintf("c%d", i)
+	}
+	add := func(name string) {
+		if name != "" {
+			if _, ok := vars[name]; !ok {
+				vars[name] = fmt.Sprintf("v%d", len(names))
+				names = append(names, name)
+			}
+		}
+	}
+	bindings := make(map[string]*IRFunction)
+	closureArgs := make(map[string][]string)
+	builtins := make(map[string]string)
+	modules := make(map[string]string)
+	for _, block := range fn.Blocks {
+		for _, p := range block.Params {
+			add(p)
+		}
+		for _, in := range block.Instrs {
+			add(in.Dest)
+			for _, arg := range in.Args {
+				add(arg)
+			}
+			if in.Op == "makefunc" {
+				bindings[in.Dest] = functions[in.Text]
+				closureArgs[in.Dest] = append([]string(nil), in.Args...)
+			}
+			if in.Op == "builtin" {
+				builtins[in.Dest] = in.Text
+			}
+			if in.Op == "import" {
+				path, err := strconv.Unquote(in.Text)
+				if err == nil {
+					modules[in.Dest] = path
+				}
+			}
+			if in.Op == "copy" && len(in.Args) == 1 {
+				if path, ok := modules[in.Args[0]]; ok {
+					modules[in.Dest] = path
+				}
+			}
+			if in.Op == "member" && len(in.Args) == 1 && modules[in.Args[0]] == "std/math" {
+				builtins[in.Dest] = in.Text
+			}
+		}
+		switch term := block.Term.(type) {
+		case *irJump:
+			for _, arg := range term.Args {
+				add(arg)
+			}
+		case *irBranch:
+			add(term.Cond)
+			for _, arg := range term.TrueArgs {
+				add(arg)
+			}
+			for _, arg := range term.FalseArgs {
+				add(arg)
+			}
+		case *irReturn:
+			add(term.Value)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool { return vars[names[i]] < vars[names[j]] })
+	for _, name := range names {
+		fmt.Fprintf(b, "  OValue %s = onull();\n", vars[name])
+	}
+	for _, block := range fn.Blocks {
+		fmt.Fprintf(b, "%s:\n", cLabel(block.Name))
+		for _, in := range block.Instrs {
+			if err := emitCInstr(b, in, vars, bindings, closureArgs, builtins, functionNames); err != nil {
+				return err
+			}
+		}
+		if err := emitCTerm(b, block.Term, fn.Blocks, vars, main); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func emitCClosureWrapper(b *strings.Builder, fn *IRFunction, name string) {
+	fmt.Fprintf(b, "\nstatic OValue %s_closure(const OValue *args, size_t argc, const OValue *captures, size_t capture_count) {\n", name)
+	fmt.Fprintf(b, "  if (argc != %d || capture_count != %d) return ofail(\"closure call arity mismatch\");\n", len(fn.Params), len(fn.Captures))
+	fmt.Fprintf(b, "  return %s(", name)
+	for i := range fn.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "args[%d]", i)
+	}
+	for i := range fn.Captures {
+		if len(fn.Params) > 0 || i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(b, "captures[%d]", i)
+	}
+	b.WriteString(");\n}\n")
+}
+
+func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings map[string]*IRFunction, closureArgs map[string][]string, builtins map[string]string, functionNames map[string]string) error {
+	name := func(v string) (string, error) {
+		n, ok := vars[v]
+		if !ok {
+			return "", fmt.Errorf("native C backend: unknown value %q", v)
+		}
+		return n, nil
+	}
+	switch in.Op {
+	case "const":
+		v, err := cLiteral(in.Value)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], v)
+	case "copy":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: copy expects one argument")
+		}
+		v, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], v)
+	case "binary":
+		if len(in.Args) != 2 {
+			return fmt.Errorf("native C backend: binary expects two arguments")
+		}
+		a, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		c, err := name(in.Args[1])
+		if err != nil {
+			return err
+		}
+		helper, ok := map[string]string{
+			"+": "oadd", "-": "osub", "*": "omul", "/": "odiv",
+			"%": "omod", "&": "oband", "|": "obor", "^": "obxor",
+			"<<": "oshiftl", ">>": "oshiftr", "<": "olt", "<=": "ole",
+			">": "ogt", ">=": "oge", "==": "oequal", "!=": "onotequal",
+		}[in.Text]
+		if !ok {
+			return fmt.Errorf("native C backend: unsupported binary operator %q", in.Text)
+		}
+		fmt.Fprintf(b, "  %s = %s(%s, %s);\n", vars[in.Dest], helper, a, c)
+	case "unary":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: unary expects one argument")
+		}
+		a, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = ounary(%q, %s);\n", vars[in.Dest], in.Text, a)
+	case "emit":
+		for _, arg := range in.Args {
+			a, err := name(arg)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(b, "  oprint(%s);\n", a)
+		}
+	case "makefunc":
+		wrapper, ok := functionNames[in.Text]
+		if !ok {
+			return fmt.Errorf("native C backend: unknown function %q", in.Text)
+		}
+		if len(in.Args) == 0 {
+			fmt.Fprintf(b, "  %s = oclosure(%s_closure, NULL, 0);\n", vars[in.Dest], wrapper)
+			return nil
+		}
+		fmt.Fprintf(b, "  %s = oclosure(%s_closure, (OValue[]){", vars[in.Dest], wrapper)
+		for i, arg := range in.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(arg)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "import":
+		// Static stdlib imports and members are resolved while scanning the IR
+		// block. Their values are represented by the builtin map at call sites.
+		return nil
+	case "member":
+		switch builtins[in.Dest] {
+		case "pi":
+			fmt.Fprintf(b, "  %s = ofloat(0x1.921fb54442d18p+1);\n", vars[in.Dest])
+		case "tau":
+			fmt.Fprintf(b, "  %s = ofloat(0x1.921fb54442d18p+2);\n", vars[in.Dest])
+		}
+		return nil
+	case "builtin":
+		return nil
+	case "undef":
+		fmt.Fprintf(b, "  %s = onull();\n", vars[in.Dest])
+		return nil
+	case "list":
+		if len(in.Args) == 0 {
+			fmt.Fprintf(b, "  %s = olist(NULL, 0);\n", vars[in.Dest])
+			return nil
+		}
+		b.WriteString("  ")
+		fmt.Fprintf(b, "%s = olist((OValue[]){", vars[in.Dest])
+		for i, arg := range in.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(arg)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "call":
+		fn := bindings[in.Text]
+		builtin := builtins[in.Text]
+		if builtin == "" {
+			builtin = in.Text
+		}
+		if fn == nil && (builtin == "abs" || builtin == "uint" || builtin == "byte" || builtin == "u8" || builtin == "u16" || builtin == "u32" || builtin == "u64" || builtin == "i8" || builtin == "i16" || builtin == "i32" || builtin == "i64" || builtin == "f32" || builtin == "f64" || builtin == "sqrt" || builtin == "exp" || builtin == "log" || builtin == "log10" || builtin == "log2" || builtin == "sin" || builtin == "cos" || builtin == "tan" || builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" || builtin == "expm1" || builtin == "log1p" || builtin == "cbrt" || builtin == "erf" || builtin == "erfc" || builtin == "gamma" || builtin == "lgamma" || builtin == "floor" || builtin == "ceil" || builtin == "round" || builtin == "hypot" || builtin == "min" || builtin == "max" || builtin == "clamp" || builtin == "vector" || builtin == "vec" || builtin == "zeros" || builtin == "ones" || builtin == "full" || builtin == "identity" || builtin == "eye" || builtin == "arange" || builtin == "linspace" || builtin == "logspace" || builtin == "len" || builtin == "take" || builtin == "slice" || builtin == "at" || builtin == "setat" || builtin == "tensor" || builtin == "matrix" || builtin == "reshape" || builtin == "transpose" || builtin == "matmul" || builtin == "trace" || builtin == "det" || builtin == "solve" || builtin == "inv" || builtin == "cholesky" || builtin == "shape" || builtin == "flatten" || builtin == "sum" || builtin == "product" || builtin == "dot" || builtin == "norm") {
+			expected := 1
+			if builtin == "at" || builtin == "take" || builtin == "dot" || builtin == "reshape" || builtin == "matmul" || builtin == "solve" {
+				expected = 2
+			}
+			if builtin == "slice" {
+				expected = 3
+			}
+			if builtin == "clamp" {
+				expected = 3
+			}
+			if builtin == "setat" {
+				expected = 3
+			}
+			if builtin == "matrix" {
+				expected = 1
+			}
+			if builtin == "log" && len(in.Args) == 2 {
+				expected = 2
+			}
+			if len(in.Args) != expected {
+				if builtin == "hypot" && len(in.Args) >= 2 {
+					// hypot is intentionally variadic.
+				} else if builtin == "vector" || builtin == "vec" {
+					// vector construction accepts zero or more values.
+				} else if (builtin == "zeros" || builtin == "ones") && len(in.Args) >= 1 {
+					// Fill constructors accept one shape list or one or more dimensions.
+				} else if builtin == "full" && len(in.Args) >= 2 {
+					// full accepts one shape list or one or more dimensions plus fill.
+				} else if (builtin == "identity" || builtin == "eye") && (len(in.Args) == 1 || len(in.Args) == 2) {
+					// identity constructors accept a square size or rows and columns.
+				} else if builtin == "tensor" && (len(in.Args) == 1 || len(in.Args) == 2) {
+					// tensor accepts nested data, optionally preceded by a shape.
+				} else if builtin == "matrix" && len(in.Args) >= 1 && len(in.Args) <= 3 {
+					// matrix accepts nested data, shape/data, or rows/columns/data.
+				} else if builtin == "arange" && len(in.Args) >= 1 && len(in.Args) <= 3 {
+					// arange accepts stop, start/stop, or start/stop/step.
+				} else if (builtin == "min" || builtin == "max") && len(in.Args) >= 1 {
+					// min and max are variadic numeric folds.
+				} else if builtin == "linspace" && (len(in.Args) == 2 || len(in.Args) == 3) {
+					// linspace accepts start/stop with an optional count.
+				} else if builtin == "logspace" && (len(in.Args) == 3 || len(in.Args) == 4) {
+					// logspace accepts start/stop/count with an optional base.
+				} else if builtin == "slice" && len(in.Args) == 4 {
+					// slice accepts an optional axis after start and end.
+				} else {
+					return fmt.Errorf("native C backend: %s expects %d argument(s)", builtin, expected)
+				}
+			}
+			if builtin == "hypot" {
+				fmt.Fprintf(b, "  %s = ohypot((OValue[]){", vars[in.Dest])
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			if builtin == "min" || builtin == "max" {
+				fmt.Fprintf(b, "  %s = ominmax((OValue[]){", vars[in.Dest])
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d, %d);\n", len(in.Args), map[string]int{"min": 0, "max": 1}[builtin])
+				return nil
+			}
+			if builtin == "zeros" || builtin == "ones" || builtin == "full" {
+				helper := map[string]string{"zeros": "ozeros", "ones": "oones", "full": "ofull"}[builtin]
+				fmt.Fprintf(b, "  %s = %s((OValue[]){", vars[in.Dest], helper)
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			if builtin == "identity" || builtin == "eye" {
+				fmt.Fprintf(b, "  %s = oidentity((OValue[]){", vars[in.Dest])
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			if builtin == "slice" && len(in.Args) == 4 {
+				fmt.Fprintf(b, "  %s = osliceaxis(%s, %s, %s, %s);\n", vars[in.Dest], vars[in.Args[0]], vars[in.Args[1]], vars[in.Args[2]], vars[in.Args[3]])
+				return nil
+			}
+			if builtin == "tensor" || builtin == "matrix" {
+				helper := map[string]string{"tensor": "otensorcall", "matrix": "omatrixcall"}[builtin]
+				fmt.Fprintf(b, "  %s = %s((OValue[]){", vars[in.Dest], helper)
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			if builtin == "vector" || builtin == "vec" {
+				if len(in.Args) == 0 {
+					fmt.Fprintf(b, "  %s = ovector(NULL, 0);\n", vars[in.Dest])
+					return nil
+				}
+				fmt.Fprintf(b, "  %s = ovector((OValue[]){", vars[in.Dest])
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			if builtin == "arange" || builtin == "linspace" || builtin == "logspace" {
+				helper := map[string]string{"arange": "oarange", "linspace": "olinspace", "logspace": "ologspace"}[builtin]
+				fmt.Fprintf(b, "  %s = %s((OValue[]){", vars[in.Dest], helper)
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			}
+			helper := map[string]string{"abs": "oabs", "uint": "ouintcast", "byte": "obytecast", "u8": "ou8cast", "u16": "ou16cast", "u32": "ou32cast", "u64": "ou64cast", "i8": "oi8cast", "i16": "oi16cast", "i32": "oi32cast", "i64": "oi64cast", "f32": "of32cast", "f64": "of64cast", "sqrt": "osqrt", "exp": "oexp", "log": "olog", "log10": "olog10", "log2": "olog2", "sin": "osin", "cos": "ocos", "tan": "otan", "asin": "oasin", "acos": "oacos", "atan": "oatan", "sinh": "osinh", "cosh": "ocosh", "tanh": "otanh", "asinh": "oasinh", "acosh": "oacosh", "atanh": "oatanh", "expm1": "oexpm1", "log1p": "olog1p", "cbrt": "ocbrt", "erf": "oerf", "erfc": "oerfc", "gamma": "ogamma", "lgamma": "olgamma", "floor": "ofloor", "ceil": "oceil", "round": "oround", "clamp": "oclamp", "len": "olen", "take": "otake", "slice": "oslice", "at": "oat", "setat": "osetat", "reshape": "oreshape", "transpose": "otranspose", "matmul": "omatmul", "trace": "otrace", "det": "odet", "solve": "osolve", "inv": "oinv", "cholesky": "ocholesky", "shape": "oshape", "flatten": "oflatten", "sum": "otensorsum", "product": "otensorproduct", "dot": "otensordot", "norm": "otensornorm"}[builtin]
+			if builtin == "log" && len(in.Args) == 2 {
+				helper = "ologbase"
+			}
+			fmt.Fprintf(b, "  %s = %s(", vars[in.Dest], helper)
+			for i, arg := range in.Args {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(vars[arg])
+			}
+			b.WriteString(");\n")
+			return nil
+		}
+		if fn == nil && builtins[in.Text] != "" {
+			return fmt.Errorf("native C backend: builtin %q is not supported yet", builtins[in.Text])
+		}
+		if fn == nil {
+			callee, err := name(in.Text)
+			if err != nil {
+				return fmt.Errorf("native C backend: unsupported call %q", in.Text)
+			}
+			if len(in.Args) == 0 {
+				fmt.Fprintf(b, "  %s = ocall(%s, NULL, 0);\n", vars[in.Dest], callee)
+				return nil
+			}
+			fmt.Fprintf(b, "  %s = ocall(%s, (OValue[]){", vars[in.Dest], callee)
+			for i, arg := range in.Args {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				v, err := name(arg)
+				if err != nil {
+					return err
+				}
+				b.WriteString(v)
+			}
+			fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+			return nil
+		}
+		if len(fn.Params) != len(in.Args) {
+			return fmt.Errorf("native C backend: call %q has %d argument(s), want %d", in.Text, len(in.Args), len(fn.Params))
+		}
+		fmt.Fprintf(b, "  %s = %s(", vars[in.Dest], functionNames[fn.Name])
+		for i, arg := range in.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(vars[arg])
+		}
+		for i, capture := range closureArgs[in.Text] {
+			if len(in.Args) > 0 || i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(capture)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		b.WriteString(");\n")
+		return nil
+	default:
+		return fmt.Errorf("native C backend: unsupported IR operation %q", in.Op)
+	}
+	return nil
+}
+
+func emitCTerm(b *strings.Builder, term IRTerminator, blocks []*IRBlock, vars map[string]string, main bool) error {
+	lookup := func(label string) *IRBlock {
+		for _, block := range blocks {
+			if block.Name == label {
+				return block
+			}
+		}
+		return nil
+	}
+	jump := func(label string, args []string) error {
+		target := lookup(label)
+		if target == nil || len(target.Params) != len(args) {
+			return fmt.Errorf("native C backend: invalid jump to %q", label)
+		}
+		for i, arg := range args {
+			fmt.Fprintf(b, "  %s = %s;\n", vars[target.Params[i]], vars[arg])
+		}
+		fmt.Fprintf(b, "  goto %s;\n", cLabel(label))
+		return nil
+	}
+	switch t := term.(type) {
+	case *irJump:
+		return jump(t.Target, t.Args)
+	case *irBranch:
+		fmt.Fprintf(b, "  if (otruthy(%s)) {\n", vars[t.Cond])
+		if err := jump(t.TrueTarget, t.TrueArgs); err != nil {
+			return err
+		}
+		b.WriteString("  } else {\n")
+		if err := jump(t.FalseTarget, t.FalseArgs); err != nil {
+			return err
+		}
+		b.WriteString("  }\n")
+	case *irReturn:
+		if main {
+			b.WriteString("  return 0;\n")
+		} else if t.HasValue {
+			fmt.Fprintf(b, "  return %s;\n", vars[t.Value])
+		} else {
+			b.WriteString("  return onull();\n")
+		}
+	default:
+		return fmt.Errorf("native C backend: unsupported terminator %T", term)
+	}
+	return nil
+}
+
+func cLabel(s string) string { return "block_" + strings.NewReplacer(".", "_", "-", "_").Replace(s) }
+
+func cLiteral(v Value) (string, error) {
+	switch v.kind {
+	case kindNull:
+		return "onull()", nil
+	case kindBool:
+		return fmt.Sprintf("obool(%d)", map[bool]int{false: 0, true: 1}[v.boo]), nil
+	case kindUint:
+		if v.ub != nil || v.ubits > 64 {
+			return "", fmt.Errorf("native C backend: wide unsigned literals are not supported")
+		}
+		return fmt.Sprintf("ouintbits(%duLL, %d)", v.u, nativeUintWidth(v)), nil
+	case kindInt:
+		if v.i == nil || !v.i.IsInt64() {
+			return "", fmt.Errorf("native C backend: wide signed literals are not supported")
+		}
+		return fmt.Sprintf("ointbits(%dLL, %d)", v.i.Int64(), nativeIntWidth(v)), nil
+	case kindNumber:
+		if v.fbits != 0 {
+			return fmt.Sprintf("ofloatbits(%.17g, %d)", v.num, v.fbits), nil
+		}
+		return fmt.Sprintf("ofloat(%.17g)", v.num), nil
+	case kindString:
+		return "ostring(\"" + cEscapeString(v.str) + "\")", nil
+	default:
+		return "", fmt.Errorf("native C backend: unsupported literal kind %s", v.Kind())
+	}
+}
+
+func nativeUintWidth(v Value) uint16 {
+	if v.bits == 0 {
+		return 64
+	}
+	return uint16(v.bits)
+}
+
+func nativeIntWidth(v Value) uint16 {
+	if v.ibits == 0 {
+		return 64
+	}
+	return v.ibits
+}
+
+// nativeScalarKind is the closed, allocation-free subset which can be emitted
+// directly as C locals. Values outside this subset intentionally use the
+// tagged ABI until their ownership and error rules are implemented.
+type nativeScalarKind uint8
+
+const (
+	nativeScalarUnknown nativeScalarKind = iota
+	nativeScalarBool
+	nativeScalarUint
+	nativeScalarInt
+	nativeScalarFloat
+	nativeScalarF32
+	nativeScalarF64
+)
+
+func nativeScalarValueKind(v Value) nativeScalarKind {
+	switch v.kind {
+	case kindBool:
+		return nativeScalarBool
+	case kindUint:
+		if v.ub == nil && v.ubits <= 64 && nativeUintWidth(v) == 64 {
+			return nativeScalarUint
+		}
+	case kindInt:
+		if v.i != nil && v.i.IsInt64() && nativeIntWidth(v) == 64 {
+			return nativeScalarInt
+		}
+	case kindNumber:
+		switch v.fbits {
+		case 0:
+			return nativeScalarFloat
+		case 32:
+			return nativeScalarF32
+		case 64:
+			return nativeScalarF64
+		}
+	}
+	return nativeScalarUnknown
+}
+
+func nativeScalarIsFloat(kind nativeScalarKind) bool {
+	return kind == nativeScalarFloat || kind == nativeScalarF32 || kind == nativeScalarF64
+}
+
+func nativeScalarFloatResult(a, b nativeScalarKind) nativeScalarKind {
+	if a == nativeScalarFloat || b == nativeScalarFloat {
+		return nativeScalarFloat
+	}
+	if a == nativeScalarF64 || b == nativeScalarF64 {
+		return nativeScalarF64
+	}
+	if a == nativeScalarF32 || b == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	return nativeScalarUnknown
+}
+
+func nativeScalarComparable(a, b nativeScalarKind) bool {
+	if a == b {
+		return true
+	}
+	return nativeScalarIsFloat(a) && nativeScalarIsFloat(b)
+}
+
+func nativeScalarResultKind(op string, a, b nativeScalarKind) nativeScalarKind {
+	switch op {
+	case "==", "!=", "<", "<=", ">", ">=":
+		if nativeScalarComparable(a, b) {
+			return nativeScalarBool
+		}
+	case "+", "*":
+		if nativeScalarIsFloat(a) || nativeScalarIsFloat(b) {
+			return nativeScalarFloatResult(a, b)
+		}
+		if a == nativeScalarUint && b == nativeScalarUint {
+			return nativeScalarUint
+		}
+	case "-":
+		if nativeScalarIsFloat(a) || nativeScalarIsFloat(b) {
+			return nativeScalarFloatResult(a, b)
+		}
+		if a == nativeScalarInt && b == nativeScalarInt {
+			return nativeScalarInt
+		}
+	// Division and remainder retain the tagged path until the direct emitter
+	// has the same recoverable zero-divisor contract as the native ABI.
+	case "&", "|", "^", "<<", ">>":
+		if a == nativeScalarUint && b == nativeScalarUint {
+			return nativeScalarUint
+		}
+	}
+	return nativeScalarUnknown
+}
+
+func nativeScalarLiteral(v Value) (string, bool) {
+	switch nativeScalarValueKind(v) {
+	case nativeScalarBool:
+		if v.boo {
+			return "1", true
+		}
+		return "0", true
+	case nativeScalarUint:
+		return fmt.Sprintf("%duLL", v.u), true
+	case nativeScalarInt:
+		return fmt.Sprintf("%dLL", v.i.Int64()), true
+	case nativeScalarFloat:
+		return fmt.Sprintf("%.17g", v.num), true
+	case nativeScalarF32:
+		return fmt.Sprintf("%.17gf", v.num), true
+	case nativeScalarF64:
+		return fmt.Sprintf("%.17g", v.num), true
+	default:
+		return "", false
+	}
+}
+
+func nativeScalarCType(kind nativeScalarKind) string {
+	switch kind {
+	case nativeScalarBool:
+		return "int"
+	case nativeScalarUint:
+		return "uint64_t"
+	case nativeScalarInt:
+		return "int64_t"
+	case nativeScalarFloat, nativeScalarF64:
+		return "double"
+	case nativeScalarF32:
+		return "float"
+	default:
+		return ""
+	}
+}
+
+type scalarInlinePlan struct {
+	fn    *IRFunction
+	kinds map[string]nativeScalarKind
+	ret   string
+}
+
+type scalarTernaryPlan struct {
+	fn        *IRFunction
+	kinds     map[string]nativeScalarKind
+	entry     *IRBlock
+	then      *IRBlock
+	otherwise *IRBlock
+	cond      string
+	thenVal   string
+	elseVal   string
+}
+
+// scalarInlinePlanFor recognizes non-capturing, straight-line scalar helpers.
+// Control flow and nested calls remain on the general native function ABI.
+func scalarInlinePlanFor(fn *IRFunction, args []nativeScalarKind) *scalarInlinePlan {
+	if fn == nil || len(fn.Captures) != 0 || len(fn.Params) != len(args) || len(fn.Blocks) != 1 {
+		return nil
+	}
+	block := fn.Blocks[0]
+	ret, ok := block.Term.(*irReturn)
+	if !ok || !ret.HasValue {
+		return nil
+	}
+	kinds := make(map[string]nativeScalarKind, len(args)+len(block.Instrs))
+	for i, param := range fn.Params {
+		kinds[fmt.Sprintf("%s.%s.0", fn.Name, param)] = args[i]
+	}
+	for _, in := range block.Instrs {
+		var kind nativeScalarKind
+		switch in.Op {
+		case "const":
+			kind = nativeScalarValueKind(in.Value)
+		case "copy":
+			if len(in.Args) != 1 {
+				return nil
+			}
+			kind = kinds[in.Args[0]]
+		case "unary":
+			if len(in.Args) != 1 {
+				return nil
+			}
+			if in.Text == "!" {
+				kind = nativeScalarBool
+			} else if in.Text == "-" {
+				if nativeScalarIsFloat(kinds[in.Args[0]]) || kinds[in.Args[0]] == nativeScalarInt {
+					kind = kinds[in.Args[0]]
+				}
+			}
+		case "binary":
+			if len(in.Args) != 2 {
+				return nil
+			}
+			kind = nativeScalarResultKind(in.Text, kinds[in.Args[0]], kinds[in.Args[1]])
+		default:
+			return nil
+		}
+		if in.Dest == "" || kind == nativeScalarUnknown {
+			return nil
+		}
+		kinds[in.Dest] = kind
+	}
+	if kinds[ret.Value] == nativeScalarUnknown {
+		return nil
+	}
+	return &scalarInlinePlan{fn: fn, kinds: kinds, ret: ret.Value}
+}
+
+func scalarInlineCallKind(fn *IRFunction, args []nativeScalarKind) nativeScalarKind {
+	plan := scalarInlinePlanFor(fn, args)
+	if plan != nil {
+		return plan.kinds[plan.ret]
+	}
+	planIf := scalarTernaryPlanFor(fn, args)
+	if planIf == nil {
+		return nativeScalarUnknown
+	}
+	return planIf.kinds[planIf.thenVal]
+}
+
+func scalarTernaryPlanFor(fn *IRFunction, args []nativeScalarKind) *scalarTernaryPlan {
+	if fn == nil || len(fn.Captures) != 0 || len(fn.Params) != len(args) || len(fn.Blocks) != 4 {
+		return nil
+	}
+	entry, thenBlock, elseBlock, join := fn.Blocks[0], fn.Blocks[1], fn.Blocks[2], fn.Blocks[3]
+	branch, ok := entry.Term.(*irBranch)
+	if !ok || branch.TrueTarget != thenBlock.Name || branch.FalseTarget != elseBlock.Name || len(branch.TrueArgs) != 0 || len(branch.FalseArgs) != 0 || len(thenBlock.Params) != 0 || len(elseBlock.Params) != 0 || len(join.Params) != 1 {
+		return nil
+	}
+	thenJump, ok := thenBlock.Term.(*irJump)
+	if !ok || thenJump.Target != join.Name || len(thenJump.Args) != 1 {
+		return nil
+	}
+	elseJump, ok := elseBlock.Term.(*irJump)
+	if !ok || elseJump.Target != join.Name || len(elseJump.Args) != 1 {
+		return nil
+	}
+	ret, ok := join.Term.(*irReturn)
+	if !ok || !ret.HasValue || ret.Value != join.Params[0] || len(join.Instrs) != 0 {
+		return nil
+	}
+	kinds := make(map[string]nativeScalarKind, len(args)+len(entry.Instrs)+len(thenBlock.Instrs)+len(elseBlock.Instrs))
+	for i, param := range fn.Params {
+		kinds[fmt.Sprintf("%s.%s.0", fn.Name, param)] = args[i]
+	}
+	infer := func(instrs []IRInstr) bool {
+		for _, in := range instrs {
+			var kind nativeScalarKind
+			switch in.Op {
+			case "const":
+				kind = nativeScalarValueKind(in.Value)
+			case "copy":
+				if len(in.Args) != 1 {
+					return false
+				}
+				kind = kinds[in.Args[0]]
+			case "unary":
+				if len(in.Args) != 1 {
+					return false
+				}
+				if in.Text == "!" {
+					kind = nativeScalarBool
+				} else if in.Text == "-" && (nativeScalarIsFloat(kinds[in.Args[0]]) || kinds[in.Args[0]] == nativeScalarInt) {
+					kind = kinds[in.Args[0]]
+				}
+			case "binary":
+				if len(in.Args) != 2 {
+					return false
+				}
+				kind = nativeScalarResultKind(in.Text, kinds[in.Args[0]], kinds[in.Args[1]])
+			default:
+				return false
+			}
+			if in.Dest == "" || kind == nativeScalarUnknown {
+				return false
+			}
+			kinds[in.Dest] = kind
+		}
+		return true
+	}
+	if !infer(entry.Instrs) || kinds[branch.Cond] != nativeScalarBool {
+		return nil
+	}
+	entryKinds := make(map[string]nativeScalarKind, len(kinds))
+	for name, kind := range kinds {
+		entryKinds[name] = kind
+	}
+	if !infer(thenBlock.Instrs) {
+		return nil
+	}
+	thenKind := kinds[thenJump.Args[0]]
+	for name := range kinds {
+		if _, ok := entryKinds[name]; !ok {
+			delete(kinds, name)
+		}
+	}
+	if !infer(elseBlock.Instrs) {
+		return nil
+	}
+	elseKind := kinds[elseJump.Args[0]]
+	if thenKind == nativeScalarUnknown || thenKind != elseKind {
+		return nil
+	}
+	// Re-run the then branch after restoring the complete map so both branch
+	// value kinds remain available to the emitter.
+	if !infer(thenBlock.Instrs) {
+		return nil
+	}
+	return &scalarTernaryPlan{fn: fn, kinds: kinds, entry: entry, then: thenBlock, otherwise: elseBlock, cond: branch.Cond, thenVal: thenJump.Args[0], elseVal: elseJump.Args[0]}
+}
+
+func emitScalarBinary(b *strings.Builder, dest, op, left, right string, kind nativeScalarKind) {
+	switch {
+	case op == "+" && kind == nativeScalarUint:
+		fmt.Fprintf(b, "  if (__builtin_add_overflow(%s, %s, &%s)) return onativefail(\"unsigned addition overflow\");\n", left, right, dest)
+	case op == "*" && kind == nativeScalarUint:
+		fmt.Fprintf(b, "  if (__builtin_mul_overflow(%s, %s, &%s)) return onativefail(\"unsigned multiplication overflow\");\n", left, right, dest)
+	case op == "-" && kind == nativeScalarInt:
+		fmt.Fprintf(b, "  if (__builtin_sub_overflow(%s, %s, &%s)) return onativefail(\"signed subtraction overflow\");\n", left, right, dest)
+	case (op == "<<" || op == ">>") && kind == nativeScalarUint:
+		fmt.Fprintf(b, "  if (%s >= 64) return onativefail(\"shift count exceeds u64 width\");\n", right)
+		fmt.Fprintf(b, "  %s = %s %s %s;\n", dest, left, op, right)
+	default:
+		fmt.Fprintf(b, "  %s = %s %s %s;\n", dest, left, op, right)
+	}
+}
+
+func emitScalarInlineInstrs(b *strings.Builder, instrs []IRInstr, kinds map[string]nativeScalarKind, values map[string]string, counter *int) bool {
+	for _, in := range instrs {
+		local := fmt.Sprintf("inl%d", *counter)
+		*counter++
+		fmt.Fprintf(b, "    %s %s = 0;\n", nativeScalarCType(kinds[in.Dest]), local)
+		switch in.Op {
+		case "const":
+			literal, ok := nativeScalarLiteral(in.Value)
+			if !ok {
+				return false
+			}
+			fmt.Fprintf(b, "    %s = %s;\n", local, literal)
+		case "copy":
+			fmt.Fprintf(b, "    %s = %s;\n", local, values[in.Args[0]])
+		case "unary":
+			if in.Text == "-" && kinds[in.Dest] == nativeScalarInt {
+				fmt.Fprintf(b, "    if (__builtin_sub_overflow((int64_t)0, %s, &%s)) return onativefail(\"signed negation overflow\");\n", values[in.Args[0]], local)
+			} else {
+				fmt.Fprintf(b, "    %s = %s%s;\n", local, in.Text, values[in.Args[0]])
+			}
+		case "binary":
+			emitScalarBinary(b, local, in.Text, values[in.Args[0]], values[in.Args[1]], kinds[in.Dest])
+		default:
+			return false
+		}
+		values[in.Dest] = local
+	}
+	return true
+}
+
+// emitCScalarMain emits a proven scalar-only main CFG without OValue locals or
+// generic helper calls. It is deliberately all-or-nothing: uncertainty falls
+// back to the tagged ABI rather than guessing at language semantics.
+func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*IRFunction) (bool, error) {
+	if fn == nil || len(fn.Params) != 0 {
+		return false, nil
+	}
+	blocks := make(map[string]*IRBlock, len(fn.Blocks))
+	uses := make(map[string]bool)
+	bindings := make(map[string]*IRFunction)
+	for _, block := range fn.Blocks {
+		blocks[block.Name] = block
+		for _, in := range block.Instrs {
+			if in.Op == "makefunc" {
+				bindings[in.Dest] = functions[in.Text]
+			}
+			for _, arg := range in.Args {
+				uses[arg] = true
+			}
+		}
+		switch term := block.Term.(type) {
+		case *irJump:
+			for _, arg := range term.Args {
+				uses[arg] = true
+			}
+		case *irBranch:
+			uses[term.Cond] = true
+			for _, arg := range term.TrueArgs {
+				uses[arg] = true
+			}
+			for _, arg := range term.FalseArgs {
+				uses[arg] = true
+			}
+		case *irReturn:
+			uses[term.Value] = term.HasValue
+		}
+	}
+	kinds := make(map[string]nativeScalarKind)
+	set := func(name string, kind nativeScalarKind) (bool, bool) {
+		if name == "" || kind == nativeScalarUnknown {
+			return false, true
+		}
+		current := kinds[name]
+		if current == nativeScalarUnknown {
+			kinds[name] = kind
+			return true, true
+		}
+		return false, current == kind
+	}
+	propagate := func(target string, args []string) (bool, bool) {
+		block := blocks[target]
+		if block == nil || len(block.Params) != len(args) {
+			return false, false
+		}
+		changed := false
+		for i, arg := range args {
+			c, ok := set(block.Params[i], kinds[arg])
+			if !ok {
+				return false, false
+			}
+			changed = changed || c
+		}
+		return changed, true
+	}
+	for pass := 0; pass < len(fn.Blocks)*8+8; pass++ {
+		changed := false
+		for _, block := range fn.Blocks {
+			for _, in := range block.Instrs {
+				var kind nativeScalarKind
+				switch in.Op {
+				case "const":
+					kind = nativeScalarValueKind(in.Value)
+				case "copy":
+					if len(in.Args) != 1 {
+						return false, nil
+					}
+					kind = kinds[in.Args[0]]
+				case "unary":
+					if len(in.Args) != 1 {
+						return false, nil
+					}
+					if in.Text == "!" {
+						kind = nativeScalarBool
+					} else if in.Text == "-" {
+						if nativeScalarIsFloat(kinds[in.Args[0]]) {
+							kind = kinds[in.Args[0]]
+						} else if kinds[in.Args[0]] == nativeScalarInt {
+							kind = nativeScalarInt
+						}
+					}
+				case "binary":
+					if len(in.Args) != 2 {
+						return false, nil
+					}
+					kind = nativeScalarResultKind(in.Text, kinds[in.Args[0]], kinds[in.Args[1]])
+				case "makefunc":
+					if bindings[in.Dest] == nil {
+						return false, nil
+					}
+					continue
+				case "call":
+					args := make([]nativeScalarKind, len(in.Args))
+					for i, arg := range in.Args {
+						args[i] = kinds[arg]
+					}
+					kind = scalarInlineCallKind(bindings[in.Text], args)
+				case "emit":
+					continue
+				default:
+					return false, nil
+				}
+				if in.Dest == "" {
+					return false, nil
+				}
+				if kind == nativeScalarUnknown {
+					if !uses[in.Dest] {
+						continue
+					}
+					continue
+				}
+				c, ok := set(in.Dest, kind)
+				if !ok {
+					return false, nil
+				}
+				changed = changed || c
+			}
+			switch term := block.Term.(type) {
+			case *irJump:
+				c, ok := propagate(term.Target, term.Args)
+				if !ok {
+					return false, nil
+				}
+				changed = changed || c
+			case *irBranch:
+				if kinds[term.Cond] != nativeScalarBool {
+					return false, nil
+				}
+				c, ok := propagate(term.TrueTarget, term.TrueArgs)
+				if !ok {
+					return false, nil
+				}
+				changed = changed || c
+				c, ok = propagate(term.FalseTarget, term.FalseArgs)
+				if !ok {
+					return false, nil
+				}
+				changed = changed || c
+			case *irReturn, nil:
+			default:
+				return false, nil
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	for _, block := range fn.Blocks {
+		for _, param := range block.Params {
+			if kinds[param] == nativeScalarUnknown {
+				return false, nil
+			}
+		}
+		for _, in := range block.Instrs {
+			switch in.Op {
+			case "const", "copy", "unary", "binary", "call":
+				if kinds[in.Dest] == nativeScalarUnknown && uses[in.Dest] {
+					return false, nil
+				}
+			case "makefunc":
+				if bindings[in.Dest] == nil {
+					return false, nil
+				}
+			case "emit":
+				for _, arg := range in.Args {
+					if kinds[arg] == nativeScalarUnknown {
+						return false, nil
+					}
+				}
+			default:
+				return false, nil
+			}
+		}
+	}
+	names := make([]string, 0, len(kinds))
+	initializers := make(map[string]string)
+	for _, block := range fn.Blocks {
+		for _, in := range block.Instrs {
+			if in.Op != "const" || kinds[in.Dest] == nativeScalarUnknown {
+				continue
+			}
+			literal, ok := nativeScalarLiteral(in.Value)
+			if !ok {
+				return false, nil
+			}
+			initializers[in.Dest] = literal
+		}
+	}
+	for name, kind := range kinds {
+		if kind == nativeScalarUnknown {
+			return false, nil
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	vars := make(map[string]string, len(names))
+	for i, name := range names {
+		vars[name] = fmt.Sprintf("s%d", i)
+		initial := "0"
+		if literal, ok := initializers[name]; ok {
+			initial = literal
+		}
+		fmt.Fprintf(b, "  %s %s = %s;\n", nativeScalarCType(kinds[name]), vars[name], initial)
+	}
+	value := func(name string) (string, bool) {
+		v, ok := vars[name]
+		return v, ok
+	}
+	emitPrint := func(name string) bool {
+		v, ok := value(name)
+		if !ok {
+			return false
+		}
+		switch kinds[name] {
+		case nativeScalarBool:
+			fmt.Fprintf(b, "  puts(%s ? \"true\" : \"false\");\n", v)
+		case nativeScalarUint:
+			fmt.Fprintf(b, "  printf(\"%%lluu64\\n\", (unsigned long long)%s);\n", v)
+		case nativeScalarInt:
+			fmt.Fprintf(b, "  printf(\"%%lldi64\\n\", (long long)%s);\n", v)
+		case nativeScalarFloat:
+			fmt.Fprintf(b, "  printf(\"%%.17g\\n\", %s);\n", v)
+		case nativeScalarF32:
+			fmt.Fprintf(b, "  printf(\"%%.17gf32\\n\", (double)%s);\n", v)
+		case nativeScalarF64:
+			fmt.Fprintf(b, "  printf(\"%%.17gf64\\n\", %s);\n", v)
+		default:
+			return false
+		}
+		return true
+	}
+	jump := func(target string, args []string) bool {
+		block := blocks[target]
+		if block == nil || len(block.Params) != len(args) {
+			return false
+		}
+		for i, arg := range args {
+			if kinds[block.Params[i]] != kinds[arg] {
+				return false
+			}
+			fmt.Fprintf(b, "  %s = %s;\n", vars[block.Params[i]], vars[arg])
+		}
+		fmt.Fprintf(b, "  goto %s;\n", cLabel(target))
+		return true
+	}
+	inlineCounter := 0
+	for _, block := range fn.Blocks {
+		fmt.Fprintf(b, "%s:\n", cLabel(block.Name))
+		for _, in := range block.Instrs {
+			switch in.Op {
+			case "const":
+				if kinds[in.Dest] == nativeScalarUnknown && !uses[in.Dest] {
+					continue
+				}
+				// Pure scalar constants were initialized at function entry. This
+				// hoists loop-header constants out of every iteration.
+			case "copy":
+				fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], vars[in.Args[0]])
+			case "unary":
+				if in.Text == "-" && kinds[in.Dest] == nativeScalarInt {
+					fmt.Fprintf(b, "  if (__builtin_sub_overflow((int64_t)0, %s, &%s)) return onativefail(\"signed negation overflow\");\n", vars[in.Args[0]], vars[in.Dest])
+				} else {
+					fmt.Fprintf(b, "  %s = %s%s;\n", vars[in.Dest], in.Text, vars[in.Args[0]])
+				}
+			case "binary":
+				left, right := vars[in.Args[0]], vars[in.Args[1]]
+				emitScalarBinary(b, vars[in.Dest], in.Text, left, right, kinds[in.Dest])
+			case "makefunc":
+				// The recognized direct call is inlined below; no closure object is needed.
+			case "call":
+				callee := bindings[in.Text]
+				argKinds := make([]nativeScalarKind, len(in.Args))
+				for i, arg := range in.Args {
+					argKinds[i] = kinds[arg]
+				}
+				plan := scalarInlinePlanFor(callee, argKinds)
+				values := map[string]string{}
+				for i, param := range callee.Params {
+					values[fmt.Sprintf("%s.%s.0", callee.Name, param)] = vars[in.Args[i]]
+				}
+				b.WriteString("  {\n")
+				if plan != nil {
+					if !emitScalarInlineInstrs(b, callee.Blocks[0].Instrs, plan.kinds, values, &inlineCounter) {
+						return false, nil
+					}
+					fmt.Fprintf(b, "    %s = %s;\n", vars[in.Dest], values[plan.ret])
+				} else if ternary := scalarTernaryPlanFor(callee, argKinds); ternary != nil {
+					if !emitScalarInlineInstrs(b, ternary.entry.Instrs, ternary.kinds, values, &inlineCounter) {
+						return false, nil
+					}
+					thenValues := make(map[string]string, len(values))
+					elseValues := make(map[string]string, len(values))
+					for name, value := range values {
+						thenValues[name] = value
+						elseValues[name] = value
+					}
+					fmt.Fprintf(b, "    if (%s) {\n", values[ternary.cond])
+					if !emitScalarInlineInstrs(b, ternary.then.Instrs, ternary.kinds, thenValues, &inlineCounter) {
+						return false, nil
+					}
+					fmt.Fprintf(b, "      %s = %s;\n", vars[in.Dest], thenValues[ternary.thenVal])
+					b.WriteString("    } else {\n")
+					if !emitScalarInlineInstrs(b, ternary.otherwise.Instrs, ternary.kinds, elseValues, &inlineCounter) {
+						return false, nil
+					}
+					fmt.Fprintf(b, "      %s = %s;\n", vars[in.Dest], elseValues[ternary.elseVal])
+					b.WriteString("    }\n")
+				} else {
+					return false, nil
+				}
+				b.WriteString("  }\n")
+			case "emit":
+				for _, arg := range in.Args {
+					if !emitPrint(arg) {
+						return false, nil
+					}
+				}
+			}
+		}
+		switch term := block.Term.(type) {
+		case *irJump:
+			if !jump(term.Target, term.Args) {
+				return false, nil
+			}
+		case *irBranch:
+			fmt.Fprintf(b, "  if (%s) {\n", vars[term.Cond])
+			if !jump(term.TrueTarget, term.TrueArgs) {
+				return false, nil
+			}
+			b.WriteString("  } else {\n")
+			if !jump(term.FalseTarget, term.FalseArgs) {
+				return false, nil
+			}
+			b.WriteString("  }\n")
+		case *irReturn, nil:
+			b.WriteString("  return 0;\n")
+		default:
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func cRuntimePrelude() string {
+	return `#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <stdlib.h>
+#include <math.h>
+
+typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_STRING, O_LIST, O_TENSOR, O_CLOSURE } OKind;
+typedef struct OValue OValue;
+typedef OValue (*OCall)(const OValue *args, size_t argc, const OValue *captures, size_t capture_count);
+typedef struct { const char *data; size_t len; } OString;
+typedef struct { OValue *items; size_t len; } OList;
+typedef struct { double *data; size_t len; size_t *shape; size_t rank; } OTensor;
+typedef struct { OCall call; OValue *captures; size_t capture_count; } OClosure;
+typedef struct OAlloc { void *ptr; struct OAlloc *next; } OAlloc;
+struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OString s; OList list; OTensor tensor; OClosure closure; } as; };
+static OValue ofail(const char *message);
+static int onum(OValue x, double *out);
+static int oshapeargs(const OValue *args, size_t argc, size_t **out_shape, size_t *out_rank, size_t *out_len);
+static OAlloc *oallocs = NULL;
+static void ofreeallocs(void) { while(oallocs) { OAlloc *next=oallocs->next; free(oallocs->ptr); free(oallocs); oallocs=next; } }
+static OValue onull(void) { return (OValue){O_NULL,0,{.u=0}}; }
+static OValue obool(int x) { return (OValue){O_BOOL,0,{.b=!!x}}; }
+static uint64_t omask(uint16_t bits) { return bits>=64?UINT64_MAX:((UINT64_C(1)<<bits)-1); }
+static OValue ouintbits(uint64_t x, uint16_t bits) { if(bits==0||bits>64) bits=64; return (OValue){O_UINT,bits,{.u=x&omask(bits)}}; }
+static OValue ointbits(int64_t x, uint16_t bits) { if(bits==0||bits>64) bits=64; uint64_t raw=(uint64_t)x&omask(bits); if(bits<64&&(raw&(UINT64_C(1)<<(bits-1)))) raw|=~omask(bits); return (OValue){O_INT,bits,{.i=(int64_t)raw}}; }
+static OValue ouint(uint64_t x) { return ouintbits(x,64); }
+static OValue oint(int64_t x) { return ointbits(x,64); }
+static OValue ofloat(double x) { return (OValue){O_FLOAT,0,{.f=x}}; }
+static OValue ofloatbits(double x, uint16_t bits) { if(bits==32) x=(double)(float)x; return (OValue){O_FLOAT,bits,{.f=x}}; }
+static OValue ostring(const char *x) { return (OValue){O_STRING,0,{.s={x,strlen(x)}}}; }
+static OValue ostringview(const char *data, size_t len) { return (OValue){O_STRING,0,{.s={data,len}}}; }
+static OValue oconcat(OValue a, OValue b) { if(a.kind!=O_STRING||b.kind!=O_STRING) return ofail("string concatenation expects strings"); if(a.as.s.len>SIZE_MAX-b.as.s.len-1) return ofail("string concatenation is too large"); size_t n=a.as.s.len+b.as.s.len; char *data=(char *)malloc(n+1); OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!data||!node) { free(data); free(node); return ofail("out of memory"); } memcpy(data,a.as.s.data,a.as.s.len); memcpy(data+a.as.s.len,b.as.s.data,b.as.s.len); data[n]=0; node->ptr=data; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return (OValue){O_STRING,0,{.s={data,n}}}; }
+static OValue olist(const OValue *items, size_t len) { if(len==0) return (OValue){O_LIST,0,{.list={NULL,0}}}; if(len>SIZE_MAX/sizeof(OValue)) return ofail("list is too large"); OValue *data=(OValue *)malloc(len*sizeof(OValue)); OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!data||!node) { free(data); free(node); return ofail("out of memory"); } memcpy(data,items,len*sizeof(OValue)); node->ptr=data; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return (OValue){O_LIST,0,{.list={data,len}}}; }
+static OValue oclosure(OCall call, const OValue *captures, size_t capture_count) { if(!call) return ofail("invalid closure"); if(capture_count==0) return (OValue){O_CLOSURE,0,{.closure={call,NULL,0}}}; if(capture_count>SIZE_MAX/sizeof(OValue)) return ofail("closure captures are too large"); OValue *data=(OValue *)malloc(capture_count*sizeof(OValue)); OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!data||!node) { free(data); free(node); return ofail("out of memory"); } memcpy(data,captures,capture_count*sizeof(OValue)); node->ptr=data; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return (OValue){O_CLOSURE,0,{.closure={call,data,capture_count}}}; }
+static OValue ocall(OValue fn, const OValue *args, size_t argc) { if(fn.kind!=O_CLOSURE||!fn.as.closure.call) return ofail("value is not callable"); return fn.as.closure.call(args,argc,fn.as.closure.captures,fn.as.closure.capture_count); }
+static int otrack(void *ptr) { if(!ptr) return 1; OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!node) return 0; node->ptr=ptr; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return 1; }
+static OValue otensordata(double *data, size_t n, const size_t *shape, size_t rank) { size_t *dims=rank?(size_t *)malloc(rank*sizeof(size_t)):NULL; if(rank&&!dims) { free(data); return ofail("out of memory"); } if(rank) memcpy(dims,shape,rank*sizeof(size_t)); if(!otrack(data)||!otrack(dims)) return ofail("out of memory"); return (OValue){O_TENSOR,0,{.tensor={data,n,dims,rank}}}; }
+typedef struct { size_t *shape; size_t rank; double *data; size_t len; } OTensorParts;
+static void ofreeparts(OTensorParts part) { free(part.shape); free(part.data); }
+static int oinfer_tensor(OValue x, OTensorParts *out) { memset(out,0,sizeof(*out)); if(x.kind==O_TENSOR) { out->rank=x.as.tensor.rank; out->len=x.as.tensor.len; out->shape=out->rank?(size_t *)malloc(out->rank*sizeof(size_t)):NULL; out->data=out->len?(double *)malloc(out->len*sizeof(double)):NULL; if((out->rank&&!out->shape)||(out->len&&!out->data)) { ofreeparts(*out); return 0; } if(out->rank) memcpy(out->shape,x.as.tensor.shape,out->rank*sizeof(size_t)); if(out->len) memcpy(out->data,x.as.tensor.data,out->len*sizeof(double)); return 1; } if(x.kind!=O_LIST) { double value; if(!onum(x,&value)) return 0; out->data=(double *)malloc(sizeof(double)); if(!out->data) return 0; out->data[0]=value; out->len=1; return 1; } if(x.as.list.len==0) { out->shape=(size_t *)malloc(sizeof(size_t)); if(!out->shape) return 0; out->shape[0]=0; out->rank=1; return 1; } OTensorParts first; if(!oinfer_tensor(x.as.list.items[0],&first)) return 0; size_t total=first.len; double *data=first.data; first.data=NULL; for(size_t i=1;i<x.as.list.len;i++) { OTensorParts child; if(!oinfer_tensor(x.as.list.items[i],&child)) { free(data); ofreeparts(first); return 0; } if(child.rank!=first.rank||memcmp(child.shape,first.shape,first.rank*sizeof(size_t))) { ofreeparts(child); free(data); ofreeparts(first); return 0; } if(child.len>SIZE_MAX-total) { ofreeparts(child); free(data); ofreeparts(first); return 0; } double *grown=(double *)realloc(data,(total+child.len)*sizeof(double)); if(child.len&&!grown) { ofreeparts(child); free(data); ofreeparts(first); return 0; } data=grown; if(child.len) memcpy(data+total,child.data,child.len*sizeof(double)); total+=child.len; ofreeparts(child); } size_t *shape=(size_t *)malloc((first.rank+1)*sizeof(size_t)); if(!shape) { free(data); ofreeparts(first); return 0; } shape[0]=x.as.list.len; if(first.rank) memcpy(shape+1,first.shape,first.rank*sizeof(size_t)); free(first.shape); out->shape=shape; out->rank=first.rank+1; out->data=data; out->len=total; return 1; }
+static OValue otensor(OValue x) { OTensorParts part; if(!oinfer_tensor(x,&part)) return ofail("tensor expects rectangular numeric data"); OValue out=otensordata(part.data,part.len,part.shape,part.rank); free(part.shape); return out; }
+static OValue otensorwithshape(OValue shape_arg, OValue data_arg) { size_t *shape,n,rank; if(!oshapeargs(&shape_arg,1,&shape,&rank,&n)) return ofail("tensor shape must contain non-negative integer dimensions"); OTensorParts part; if(!oinfer_tensor(data_arg,&part)) { free(shape); return ofail("tensor expects rectangular numeric data"); } if(part.len!=n) { free(shape); ofreeparts(part); return ofail("tensor shape does not match data"); } OValue out=otensordata(part.data,part.len,shape,rank); free(shape); free(part.shape); return out; }
+static OValue otensorcall(const OValue *args, size_t argc) { if(argc==1) return otensor(args[0]); if(argc==2) return otensorwithshape(args[0],args[1]); return ofail("tensor expects 1 or 2 arguments"); }
+static OValue omatrixcall(const OValue *args, size_t argc) { if(argc<=2) return otensorcall(args,argc); if(argc!=3) return ofail("matrix expects 1, 2, or 3 arguments"); OValue shape=olist(args,2); return otensorwithshape(shape,args[2]); }
+static int odimension(OValue x, size_t *out) { double n; if(!onum(x,&n)||n<0||n>(double)SIZE_MAX||floor(n)!=n) return 0; *out=(size_t)n; return 1; }
+static int oshapeargs(const OValue *args, size_t argc, size_t **out_shape, size_t *out_rank, size_t *out_len) { if(argc==0) return 0; const OValue *values=args; size_t count=argc; if(argc==1&&args[0].kind==O_LIST) { values=args[0].as.list.items; count=args[0].as.list.len; } if(count==0||count>SIZE_MAX/sizeof(size_t)) return 0; size_t *shape=(size_t *)malloc(count*sizeof(size_t)), total=1; if(!shape) return 0; for(size_t i=0;i<count;i++) { if(!odimension(values[i],&shape[i])|| (shape[i]&&total>SIZE_MAX/shape[i])) { free(shape); return 0; } total*=shape[i]; } *out_shape=shape; *out_rank=count; *out_len=total; return 1; }
+static OValue otensorfill(const OValue *shape_args, size_t argc, double fill) { size_t *shape,n,rank; if(!oshapeargs(shape_args,argc,&shape,&rank,&n)) return ofail("tensor dimensions must be non-negative integers"); if(n>SIZE_MAX/sizeof(double)) { free(shape); return ofail("tensor is too large"); } double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) { free(shape); return ofail("out of memory"); } for(size_t i=0;i<n;i++) data[i]=fill; OValue out=otensordata(data,n,shape,rank); free(shape); return out; }
+static OValue ozeros(const OValue *args, size_t argc) { return otensorfill(args,argc,0); }
+static OValue oones(const OValue *args, size_t argc) { return otensorfill(args,argc,1); }
+static OValue ofull(const OValue *args, size_t argc) { double fill; if(argc<2||!onum(args[argc-1],&fill)) return ofail("full expects dimensions and a numeric fill value"); return otensorfill(args,argc-1,fill); }
+static OValue oidentity(const OValue *args, size_t argc) { if(argc!=1&&argc!=2) return ofail("identity expects 1 or 2 arguments"); size_t rows,cols; if(!odimension(args[0],&rows)) return ofail("identity size must be non-negative"); cols=rows; if(argc==2&&!odimension(args[1],&cols)) return ofail("identity size must be non-negative"); if(rows&&cols>SIZE_MAX/rows) return ofail("tensor is too large"); size_t n=rows*cols; double *data=n?(double *)calloc(n,sizeof(double)):NULL; if(n&&!data) return ofail("out of memory"); size_t diagonal=rows<cols?rows:cols; for(size_t i=0;i<diagonal;i++) data[i*cols+i]=1; size_t shape[2]={rows,cols}; return otensordata(data,n,shape,2); }
+static int ocount(OValue x, size_t *out) { double n; if(!onum(x,&n)||n<0||n>(double)SIZE_MAX||floor(n)!=n) return 0; *out=(size_t)n; return 1; }
+static OValue oreshape(OValue tensor, OValue shape_arg) { if(tensor.kind!=O_TENSOR) return ofail("reshape expects a tensor"); size_t *shape,n,rank; if(!oshapeargs(&shape_arg,1,&shape,&rank,&n)) return ofail("reshape expects non-negative integer dimensions"); if(n!=tensor.as.tensor.len) { free(shape); return ofail("tensor shape does not match data"); } double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) { free(shape); return ofail("out of memory"); } if(n) memcpy(data,tensor.as.tensor.data,n*sizeof(double)); OValue out=otensordata(data,n,shape,rank); free(shape); return out; }
+static OValue otranspose(OValue tensor) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank!=2) return ofail("transpose expects a 2D matrix"); size_t rows=tensor.as.tensor.shape[0], cols=tensor.as.tensor.shape[1], n=tensor.as.tensor.len; double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) return ofail("out of memory"); for(size_t row=0;row<rows;row++) for(size_t col=0;col<cols;col++) data[col*rows+row]=tensor.as.tensor.data[row*cols+col]; size_t shape[2]={cols,rows}; return otensordata(data,n,shape,2); }
+static OValue omatmul(OValue left, OValue right) { if(left.kind!=O_TENSOR||right.kind!=O_TENSOR||left.as.tensor.rank!=2||right.as.tensor.rank!=2) return ofail("matmul expects 2D matrices"); size_t rows=left.as.tensor.shape[0], mid=left.as.tensor.shape[1], right_rows=right.as.tensor.shape[0], cols=right.as.tensor.shape[1]; if(mid!=right_rows) return ofail("matmul shape mismatch"); if(rows&&cols>SIZE_MAX/rows) return ofail("tensor is too large"); size_t n=rows*cols; double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) return ofail("out of memory"); for(size_t row=0;row<rows;row++) for(size_t col=0;col<cols;col++) { double total=0; for(size_t k=0;k<mid;k++) total+=left.as.tensor.data[row*mid+k]*right.as.tensor.data[k*cols+col]; data[row*cols+col]=total; } size_t shape[2]={rows,cols}; return otensordata(data,n,shape,2); }
+static OValue otrace(OValue tensor) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank!=2) return ofail("trace expects a matrix"); size_t rows=tensor.as.tensor.shape[0],cols=tensor.as.tensor.shape[1],limit=rows<cols?rows:cols; double total=0; for(size_t i=0;i<limit;i++) total+=tensor.as.tensor.data[i*cols+i]; return ofloat(total); }
+static OValue odet(OValue tensor) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank!=2||tensor.as.tensor.shape[0]!=tensor.as.tensor.shape[1]) return ofail("det expects a square matrix"); size_t n=tensor.as.tensor.shape[0]; if(n==0) return ofloat(1); if(n>SIZE_MAX/n||n*n>SIZE_MAX/sizeof(double)) return ofail("matrix is too large"); double *data=(double *)malloc(n*n*sizeof(double)); if(!data) return ofail("out of memory"); memcpy(data,tensor.as.tensor.data,n*n*sizeof(double)); double sign=1,det=1; for(size_t i=0;i<n;i++) { size_t pivot=i; double max_abs=fabs(data[i*n+i]); for(size_t row=i+1;row<n;row++) { double cur=fabs(data[row*n+i]); if(cur>max_abs) { max_abs=cur; pivot=row; } } if(max_abs==0) { free(data); return ofloat(0); } if(pivot!=i) { for(size_t col=0;col<n;col++) { double tmp=data[i*n+col]; data[i*n+col]=data[pivot*n+col]; data[pivot*n+col]=tmp; } sign=-sign; } double piv=data[i*n+i]; det*=piv; for(size_t row=i+1;row<n;row++) { double factor=data[row*n+i]/piv; for(size_t col=i;col<n;col++) data[row*n+col]-=factor*data[i*n+col]; } } free(data); return ofloat(sign*det); }
+static OValue osolve(OValue matrix, OValue rhs) { if(matrix.kind!=O_TENSOR||matrix.as.tensor.rank!=2||matrix.as.tensor.shape[0]!=matrix.as.tensor.shape[1]) return ofail("solve expects a square matrix"); if(rhs.kind!=O_TENSOR) return ofail("solve rhs must be a vector or matrix"); size_t n=matrix.as.tensor.shape[0],m; if(rhs.as.tensor.rank==1) { if(rhs.as.tensor.shape[0]!=n) return ofail("solve dimension mismatch"); m=1; } else if(rhs.as.tensor.rank==2) { if(rhs.as.tensor.shape[0]!=n) return ofail("solve dimension mismatch"); m=rhs.as.tensor.shape[1]; } else return ofail("solve rhs must be a vector or matrix"); if(n==0) return ofail("solve expects a non-empty matrix"); if(m>SIZE_MAX-n||n>(SIZE_MAX/(n+m))||n*(n+m)>SIZE_MAX/sizeof(double)) return ofail("matrix is too large"); size_t width=n+m; double *aug=(double *)malloc(n*width*sizeof(double)); if(!aug) return ofail("out of memory"); for(size_t row=0;row<n;row++) { memcpy(aug+row*width,matrix.as.tensor.data+row*n,n*sizeof(double)); for(size_t col=0;col<m;col++) aug[row*width+n+col]=rhs.as.tensor.data[row*m+col]; } for(size_t i=0;i<n;i++) { size_t pivot=i; double max_abs=fabs(aug[i*width+i]); for(size_t row=i+1;row<n;row++) { double cur=fabs(aug[row*width+i]); if(cur>max_abs) { max_abs=cur; pivot=row; } } if(max_abs==0) { free(aug); return ofail("solve matrix is singular"); } if(pivot!=i) for(size_t col=0;col<width;col++) { double tmp=aug[i*width+col]; aug[i*width+col]=aug[pivot*width+col]; aug[pivot*width+col]=tmp; } double piv=aug[i*width+i]; for(size_t col=i;col<width;col++) aug[i*width+col]/=piv; for(size_t row=0;row<n;row++) { if(row==i) continue; double factor=aug[row*width+i]; for(size_t col=i;col<width;col++) aug[row*width+col]-=factor*aug[i*width+col]; } } if(n&&m>SIZE_MAX/n) { free(aug); return ofail("matrix is too large"); } size_t count=n*m; double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) { free(aug); return ofail("out of memory"); } for(size_t row=0;row<n;row++) if(m) memcpy(data+row*m,aug+row*width+n,m*sizeof(double)); free(aug); if(m==1) { size_t shape[1]={n}; return otensordata(data,count,shape,1); } size_t shape[2]={n,m}; return otensordata(data,count,shape,2); }
+static OValue oinv(OValue matrix) { if(matrix.kind!=O_TENSOR||matrix.as.tensor.rank!=2||matrix.as.tensor.shape[0]!=matrix.as.tensor.shape[1]) return ofail("inv expects a square matrix"); size_t n=matrix.as.tensor.shape[0]; if(n==0) return ofail("inv expects a non-empty matrix"); if(n>SIZE_MAX/n) return ofail("matrix is too large"); size_t count=n*n; double *data=(double *)calloc(count,sizeof(double)); if(!data) return ofail("out of memory"); for(size_t i=0;i<n;i++) data[i*n+i]=1; size_t shape[2]={n,n}; OValue rhs=otensordata(data,count,shape,2); return osolve(matrix,rhs); }
+static OValue ocholesky(OValue matrix) { if(matrix.kind!=O_TENSOR||matrix.as.tensor.rank!=2||matrix.as.tensor.shape[0]!=matrix.as.tensor.shape[1]) return ofail("cholesky expects a square matrix"); size_t n=matrix.as.tensor.shape[0]; if(n&&n>SIZE_MAX/n) return ofail("matrix is too large"); size_t count=n*n; double *data=count?(double *)calloc(count,sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); for(size_t i=0;i<n;i++) for(size_t j=0;j<=i;j++) { double sum=matrix.as.tensor.data[i*n+j]; for(size_t k=0;k<j;k++) sum-=data[i*n+k]*data[j*n+k]; if(i==j) { if(sum<=0) { free(data); return ofail("cholesky expects positive definite matrix"); } data[i*n+j]=sqrt(sum); } else data[i*n+j]=sum/data[j*n+j]; } size_t shape[2]={n,n}; return otensordata(data,count,shape,2); }
+static OValue oarange(const OValue *args, size_t argc) { double start=0,stop=0,step=1; if(argc<1||argc>3) return ofail("arange expects 1, 2, or 3 arguments"); if(!onum(args[0],&start)) return ofail("arange expects numeric arguments"); if(argc==1) { stop=start; start=0; } else if(!onum(args[1],&stop)) return ofail("arange expects numeric arguments"); if(argc==3&&!onum(args[2],&step)) return ofail("arange expects numeric arguments"); if(step==0) return ofail("arange step must not be zero"); size_t n=0,cap=0; double *data=NULL; for(double x=start; step>0?x<stop:x>stop; x+=step) { if(n>1000000) { free(data); return ofail("arange generated too many elements"); } if(n==cap) { size_t next=cap?cap*2:16; if(next>SIZE_MAX/sizeof(double)) { free(data); return ofail("tensor is too large"); } double *grown=(double *)realloc(data,next*sizeof(double)); if(!grown) { free(data); return ofail("out of memory"); } data=grown; cap=next; } data[n++]=x; } size_t shape[1]={n}; return otensordata(data,n,shape,1); }
+static OValue olinearspace(const OValue *args, size_t argc, int logarithmic) { if(argc<(logarithmic?3:2)||argc>(logarithmic?4:3)) return ofail(logarithmic?"logspace expects 3 or 4 arguments":"linspace expects 2 or 3 arguments"); double start,stop,base=10; size_t count=logarithmic?0:50; if(!onum(args[0],&start)||!onum(args[1],&stop)) return ofail(logarithmic?"logspace expects numeric arguments":"linspace expects numeric arguments"); if(logarithmic) { if(!ocount(args[2],&count)) return ofail("logspace count must be a non-negative integer"); if(argc==4&&!onum(args[3],&base)) return ofail("logspace base must be numeric"); } else if(argc==3&&!ocount(args[2],&count)) return ofail("linspace count must be a non-negative integer"); if(count>SIZE_MAX/sizeof(double)) return ofail("tensor is too large"); double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); if(count==1) data[0]=logarithmic?pow(base,start):start; else if(count>1) { double step=(stop-start)/(double)(count-1); for(size_t i=0;i<count;i++) { double x=start+(double)i*step; data[i]=logarithmic?pow(base,x):x; } } size_t shape[1]={count}; return otensordata(data,count,shape,1); }
+static OValue olinspace(const OValue *args, size_t argc) { return olinearspace(args,argc,0); }
+static OValue ologspace(const OValue *args, size_t argc) { return olinearspace(args,argc,1); }
+static uint16_t ofloatwidthmany(const OValue *values, size_t count) { uint16_t bits=0; int explicit=0,def=0; for(size_t i=0;i<count;i++) { if(values[i].kind==O_FLOAT&&values[i].fbits) { explicit=1; if(values[i].fbits>bits) bits=values[i].fbits; } else def=1; } return explicit&&def&&bits<64?64:bits; }
+static OValue ominmax(const OValue *values, size_t count, int want_max) { if(count==0) return ofail("expected at least 1 argument"); double best; if(!onum(values[0],&best)) return ofail("min/max expects numeric arguments"); for(size_t i=1;i<count;i++) { double next; if(!onum(values[i],&next)) return ofail("min/max expects numeric arguments"); if((want_max&&next>best)||(!want_max&&next<best)) best=next; } return ofloatbits(best,ofloatwidthmany(values,count)); }
+static OValue oclamp(OValue value, OValue low, OValue high) { double x,lo,hi; if(!onum(value,&x)||!onum(low,&lo)||!onum(high,&hi)) return ofail("clamp expects numeric arguments"); if(x<lo) x=lo; else if(x>hi) x=hi; OValue values[3]={value,low,high}; return ofloatbits(x,ofloatwidthmany(values,3)); }
+static int otruthy(OValue x) { switch(x.kind) { case O_BOOL:return x.as.b; case O_UINT:return x.as.u!=0; case O_INT:return x.as.i!=0; case O_FLOAT:return x.as.f!=0; case O_STRING:return x.as.s.len!=0; case O_LIST:return x.as.list.len!=0; case O_TENSOR:return x.as.tensor.len!=0; case O_CLOSURE:return 1; default:return 0; } }
+static int onum(OValue x, double *out) { switch(x.kind) { case O_FLOAT:*out=x.as.f; return 1; case O_INT:*out=(double)x.as.i; return 1; case O_UINT:*out=(double)x.as.u; return 1; case O_BOOL:*out=(double)x.as.b; return 1; default:return 0; } }
+static OValue ofail(const char *message) { fprintf(stderr, "osiris native error: %s\n", message); return onull(); }
+static int onativefail(const char *message) { fprintf(stderr, "osiris native error: %s\n", message); return 1; }
+static int otensorsameshape(OTensor a, OTensor b) { return a.rank==b.rank&&!memcmp(a.shape,b.shape,a.rank*sizeof(size_t)); }
+static int otensorbroadcastshape(OTensor a, OTensor b, size_t **out_shape, size_t *out_rank, size_t *out_len) { size_t rank=a.rank>b.rank?a.rank:b.rank, total=1; size_t *shape=rank?(size_t *)malloc(rank*sizeof(size_t)):NULL; if(rank&&!shape) return 0; for(size_t axis=0;axis<rank;axis++) { size_t adim=1,bdim=1; if(axis>=rank-a.rank) adim=a.shape[axis-(rank-a.rank)]; if(axis>=rank-b.rank) bdim=b.shape[axis-(rank-b.rank)]; if(adim!=bdim&&adim!=1&&bdim!=1) { free(shape); return 0; } shape[axis]=adim>bdim?adim:bdim; if(shape[axis]&&total>SIZE_MAX/shape[axis]) { free(shape); return 0; } total*=shape[axis]; } *out_shape=shape; *out_rank=rank; *out_len=total; return 1; }
+static OValue otensorbin(const char *op, OValue a, OValue b) { if(a.kind!=O_TENSOR||b.kind!=O_TENSOR) return ofail("tensor operation expects tensors"); size_t *shape,rank,n; if(!otensorbroadcastshape(a.as.tensor,b.as.tensor,&shape,&rank,&n)) return ofail("tensor shape mismatch"); size_t *astrides=a.as.tensor.rank?(size_t *)malloc(a.as.tensor.rank*sizeof(size_t)):NULL, *bstrides=b.as.tensor.rank?(size_t *)malloc(b.as.tensor.rank*sizeof(size_t)):NULL; if((a.as.tensor.rank&&!astrides)||(b.as.tensor.rank&&!bstrides)) { free(shape); free(astrides); free(bstrides); return ofail("out of memory"); } size_t stride=1; for(size_t i=a.as.tensor.rank;i>0;i--) { astrides[i-1]=stride; stride*=a.as.tensor.shape[i-1]; } stride=1; for(size_t i=b.as.tensor.rank;i>0;i--) { bstrides[i-1]=stride; stride*=b.as.tensor.shape[i-1]; } double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) { free(shape); free(astrides); free(bstrides); return ofail("out of memory"); } for(size_t output=0;output<n;output++) { size_t rest=output, ai=0,bi=0; for(size_t axis=rank;axis>0;axis--) { size_t at=axis-1, coord=rest%shape[at]; rest/=shape[at]; if(at>=rank-a.as.tensor.rank) { size_t input=at-(rank-a.as.tensor.rank); if(a.as.tensor.shape[input]!=1) ai+=coord*astrides[input]; } if(at>=rank-b.as.tensor.rank) { size_t input=at-(rank-b.as.tensor.rank); if(b.as.tensor.shape[input]!=1) bi+=coord*bstrides[input]; } } double x=a.as.tensor.data[ai],y=b.as.tensor.data[bi]; if(!strcmp(op,"+")) data[output]=x+y; else if(!strcmp(op,"-")) data[output]=x-y; else if(!strcmp(op,"*")) data[output]=x*y; else if(!strcmp(op,"/")) { if(y==0) { free(shape); free(astrides); free(bstrides); free(data); return ofail("division by zero"); } data[output]=x/y; } else { free(shape); free(astrides); free(bstrides); free(data); return ofail("unsupported tensor operation"); } } free(astrides); free(bstrides); OValue out=otensordata(data,n,shape,rank); free(shape); return out; }
+static OValue otensorscalar(const char *op, OValue tensor, OValue scalar, int scalar_left) { if(tensor.kind!=O_TENSOR) return ofail("tensor operation expects a tensor"); double s; if(!onum(scalar,&s)) return ofail("tensor scalar must be numeric"); size_t n=tensor.as.tensor.len; double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) return ofail("out of memory"); if(!strcmp(op,"+")) { for(size_t i=0;i<n;i++) data[i]=tensor.as.tensor.data[i]+s; } else if(!strcmp(op,"-")) { if(scalar_left) { for(size_t i=0;i<n;i++) data[i]=s-tensor.as.tensor.data[i]; } else { for(size_t i=0;i<n;i++) data[i]=tensor.as.tensor.data[i]-s; } } else if(!strcmp(op,"*")) { for(size_t i=0;i<n;i++) data[i]=tensor.as.tensor.data[i]*s; } else if(!strcmp(op,"/")) { if(scalar_left) { for(size_t i=0;i<n;i++) { double x=tensor.as.tensor.data[i]; if(x==0) { free(data); return ofail("division by zero"); } data[i]=s/x; } } else { if(s==0) { free(data); return ofail("division by zero"); } for(size_t i=0;i<n;i++) data[i]=tensor.as.tensor.data[i]/s; } } else { free(data); return ofail("unsupported tensor operation"); } return otensordata(data,n,tensor.as.tensor.shape,tensor.as.tensor.rank); }
+static int oeq(OValue a, OValue b) { if(a.kind==O_STRING&&b.kind==O_STRING) return a.as.s.len==b.as.s.len&&!memcmp(a.as.s.data,b.as.s.data,a.as.s.len); if(a.kind==O_LIST&&b.kind==O_LIST) { if(a.as.list.len!=b.as.list.len) return 0; for(size_t i=0;i<a.as.list.len;i++) if(!oeq(a.as.list.items[i],b.as.list.items[i])) return 0; return 1; } if(a.kind==O_TENSOR&&b.kind==O_TENSOR) { if(!otensorsameshape(a.as.tensor,b.as.tensor)) return 0; for(size_t i=0;i<a.as.tensor.len;i++) if(a.as.tensor.data[i]!=b.as.tensor.data[i]) return 0; return 1; } if(a.kind==O_NULL||b.kind==O_NULL) return a.kind==b.kind; if(a.kind==O_BOOL&&b.kind==O_BOOL) return a.as.b==b.as.b; double x,y; return onum(a,&x)&&onum(b,&y)&&x==y; }
+static uint16_t ofloatwidth(OValue a, OValue b) { return a.kind==O_FLOAT&&a.fbits!=0?a.fbits:(b.kind==O_FLOAT?b.fbits:0); }
+static uint16_t ointwidth(OValue a, OValue b, int shift) { uint16_t width=a.fbits?a.fbits:64; if(!shift&&b.fbits>width) width=b.fbits; return width; }
+static OValue obin(const char *op, OValue a, OValue b) { if(!strcmp(op,"==")) return obool(oeq(a,b)); if(!strcmp(op,"!=")) return obool(!oeq(a,b)); if(!strcmp(op,"+")&&a.kind==O_STRING&&b.kind==O_STRING) return oconcat(a,b); if((!strcmp(op,"+")||!strcmp(op,"-")||!strcmp(op,"*")||!strcmp(op,"/"))&&a.kind==O_TENSOR&&b.kind==O_TENSOR) return otensorbin(op,a,b); if((!strcmp(op,"+")||!strcmp(op,"-")||!strcmp(op,"*")||!strcmp(op,"/"))&&a.kind==O_TENSOR) return otensorscalar(op,a,b,0); if((!strcmp(op,"+")||!strcmp(op,"-")||!strcmp(op,"*")||!strcmp(op,"/"))&&b.kind==O_TENSOR) return otensorscalar(op,b,a,1); if(a.kind==O_UINT&&b.kind==O_UINT) { uint16_t width=ointwidth(a,b,0); if(!strcmp(op,"+")) return ouintbits(a.as.u+b.as.u,width); if(!strcmp(op,"-")) return ouintbits(a.as.u-b.as.u,width); if(!strcmp(op,"*")) return ouintbits(a.as.u*b.as.u,width); if(!strcmp(op,"/")&&b.as.u!=0&&a.as.u%b.as.u==0) return ouintbits(a.as.u/b.as.u,width); } if(a.kind==O_INT&&b.kind==O_INT) { uint16_t width=ointwidth(a,b,0); uint64_t x=(uint64_t)a.as.i,y=(uint64_t)b.as.i; if(!strcmp(op,"+")) return ointbits((int64_t)(x+y),width); if(!strcmp(op,"-")) return ointbits((int64_t)(x-y),width); if(!strcmp(op,"*")) return ointbits((int64_t)(x*y),width); if(!strcmp(op,"/")&&b.as.i!=0&&a.as.i%b.as.i==0) return ointbits(a.as.i/b.as.i,width); } double x,y; if(!onum(a,&x)||!onum(b,&y)) return ofail("numeric operator expects numeric values"); uint16_t w=ofloatwidth(a,b); if(!strcmp(op,"+")) return (a.kind==O_FLOAT||b.kind==O_FLOAT)?ofloatbits(x+y,w):ofail("mixed integer addition requires bigint lowering"); if(!strcmp(op,"-")) return (a.kind==O_FLOAT||b.kind==O_FLOAT)?ofloatbits(x-y,w):ofail("mixed integer subtraction requires bigint lowering"); if(!strcmp(op,"*")) return (a.kind==O_FLOAT||b.kind==O_FLOAT)?ofloatbits(x*y,w):ofail("mixed integer multiplication requires bigint lowering"); if(!strcmp(op,"/")) return y==0?ofail("division by zero"):ofloatbits(x/y,w); if(!strcmp(op,"<")) return obool(x<y); if(!strcmp(op,"<=")) return obool(x<=y); if(!strcmp(op,">")) return obool(x>y); if(!strcmp(op,">=")) return obool(x>=y); return onull(); }
+static OValue obit(const char *op, OValue a, OValue b) { if(a.kind==O_UINT&&b.kind==O_UINT) { uint16_t width=ointwidth(a,b,!strcmp(op,"<<")||!strcmp(op,">>")); uint64_t x=a.as.u,y=b.as.u; if(!strcmp(op,"%")) return y==0?ofail("remainder by zero"):ouintbits(x%y,width); if(!strcmp(op,"&")) return ouintbits(x&y,width); if(!strcmp(op,"|")) return ouintbits(x|y,width); if(!strcmp(op,"^")) return ouintbits(x^y,width); if(!strcmp(op,"<<")) return ouintbits(x<<(y%64),width); if(!strcmp(op,">>")) return ouintbits(x>>(y%64),width); } if(a.kind==O_INT&&b.kind==O_INT) { uint16_t width=ointwidth(a,b,!strcmp(op,"<<")||!strcmp(op,">>")); int64_t x=a.as.i,y=b.as.i; if(!strcmp(op,"%")) return y==0?ofail("remainder by zero"):ointbits(x%y,width); if(!strcmp(op,"&")) return ointbits(x&y,width); if(!strcmp(op,"|")) return ointbits(x|y,width); if(!strcmp(op,"^")) return ointbits(x^y,width); if(!strcmp(op,"<<")) return ointbits(x<<((uint64_t)y%64),width); if(!strcmp(op,">>")) return ointbits(x>>((uint64_t)y%64),width); } return ofail("mixed integer bitwise operations require bigint lowering"); }
+static OValue oadd(OValue a, OValue b) { return obin("+",a,b); }
+static OValue osub(OValue a, OValue b) { return obin("-",a,b); }
+static OValue omul(OValue a, OValue b) { return obin("*",a,b); }
+static OValue odiv(OValue a, OValue b) { return obin("/",a,b); }
+static OValue omod(OValue a, OValue b) { return obit("%",a,b); }
+static OValue oband(OValue a, OValue b) { return obit("&",a,b); }
+static OValue obor(OValue a, OValue b) { return obit("|",a,b); }
+static OValue obxor(OValue a, OValue b) { return obit("^",a,b); }
+static OValue oshiftl(OValue a, OValue b) { return obit("<<",a,b); }
+static OValue oshiftr(OValue a, OValue b) { return obit(">>",a,b); }
+static OValue olt(OValue a, OValue b) { return obin("<",a,b); }
+static OValue ole(OValue a, OValue b) { return obin("<=",a,b); }
+static OValue ogt(OValue a, OValue b) { return obin(">",a,b); }
+static OValue oge(OValue a, OValue b) { return obin(">=",a,b); }
+static OValue oequal(OValue a, OValue b) { return obin("==",a,b); }
+static OValue onotequal(OValue a, OValue b) { return obin("!=",a,b); }
+static OValue ounary(const char *op, OValue x) { double n; if(!strcmp(op,"!")) return obool(!otruthy(x)); if(!strcmp(op,"-")) { if(x.kind==O_INT) return ointbits((int64_t)(UINT64_C(0)-(uint64_t)x.as.i),x.fbits); if(!onum(x,&n)) return ofail("unary - expects a numeric value"); return x.kind==O_FLOAT?ofloatbits(-x.as.f,x.fbits):oint(-(int64_t)n); } return x; }
+static OValue oabs(OValue x) { if(x.kind==O_FLOAT) return ofloatbits(x.as.f<0?-x.as.f:x.as.f,x.fbits); if(x.kind==O_INT) return ointbits(x.as.i<0?-x.as.i:x.as.i,x.fbits); return x; }
+static OValue ouintcast(OValue x) { double n; return onum(x,&n)?ouintbits((uint64_t)n,64):ofail("uint expects a numeric value"); }
+static OValue ouintwidthcast(OValue x, uint16_t bits, const char *name) { double n; return onum(x,&n)?ouintbits((uint64_t)n,bits):ofail(name); }
+static OValue ointwidthcast(OValue x, uint16_t bits, const char *name) { double n; return onum(x,&n)?ointbits((int64_t)n,bits):ofail(name); }
+static OValue obytecast(OValue x) { return ouintwidthcast(x,8,"byte expects a numeric value"); }
+static OValue ou8cast(OValue x) { return ouintwidthcast(x,8,"u8 expects a numeric value"); }
+static OValue ou16cast(OValue x) { return ouintwidthcast(x,16,"u16 expects a numeric value"); }
+static OValue ou32cast(OValue x) { return ouintwidthcast(x,32,"u32 expects a numeric value"); }
+static OValue ou64cast(OValue x) { return ouintwidthcast(x,64,"u64 expects a numeric value"); }
+static OValue oi8cast(OValue x) { return ointwidthcast(x,8,"i8 expects a numeric value"); }
+static OValue oi16cast(OValue x) { return ointwidthcast(x,16,"i16 expects a numeric value"); }
+static OValue oi32cast(OValue x) { return ointwidthcast(x,32,"i32 expects a numeric value"); }
+static OValue oi64cast(OValue x) { return ointwidthcast(x,64,"i64 expects a numeric value"); }
+static OValue of32cast(OValue x) { double n; return onum(x,&n)?ofloatbits((double)(float)n,32):ofail("f32 expects a numeric value"); }
+static OValue of64cast(OValue x) { double n; return onum(x,&n)?ofloatbits(n,64):ofail("f64 expects a numeric value"); }
+static OValue omath1(OValue x, double (*fn)(double), const char *name) { double n; if(!onum(x,&n)) return ofail(name); return ofloatbits(fn(n),x.kind==O_FLOAT?x.fbits:0); }
+static OValue omath1checked(OValue x, double (*fn)(double), const char *name) { double n; if(!onum(x,&n)) return ofail(name); double out=fn(n); return (isnan(out)||isinf(out))?ofail(name):ofloatbits(out,x.kind==O_FLOAT?x.fbits:0); }
+static OValue osqrt(OValue x) { double n; if(!onum(x,&n)) return ofail("sqrt expects a numeric value"); return n<0?ofail("sqrt domain error"):ofloatbits(sqrt(n),x.kind==O_FLOAT?x.fbits:0); }
+static OValue oexp(OValue x) { double n; if(!onum(x,&n)) return ofail("exp expects a numeric value"); double out=exp(n); return (isnan(out)||isinf(out))?ofail("exp overflow"):ofloatbits(out,x.kind==O_FLOAT?x.fbits:0); }
+static OValue olog(OValue x) { double n; if(!onum(x,&n)) return ofail("log expects a numeric value"); return n<=0?ofail("log domain error"):ofloatbits(log(n),x.kind==O_FLOAT?x.fbits:0); }
+static OValue ologbase(OValue x, OValue base) { double n,b; if(!onum(x,&n)||!onum(base,&b)) return ofail("log expects numeric values"); return n<=0||b<=0||b==1?ofail("log domain error"):ofloatbits(log(n)/log(b),ofloatwidth(x,base)); }
+static OValue olog10(OValue x) { double n; if(!onum(x,&n)) return ofail("log10 expects a numeric value"); return n<=0?ofail("log10 domain error"):ofloatbits(log10(n),x.kind==O_FLOAT?x.fbits:0); }
+static OValue olog2(OValue x) { double n; if(!onum(x,&n)) return ofail("log2 expects a numeric value"); return n<=0?ofail("log2 domain error"):ofloatbits(log2(n),x.kind==O_FLOAT?x.fbits:0); }
+static OValue osin(OValue x) { return omath1(x,sin,"sin expects a numeric value"); }
+static OValue ocos(OValue x) { return omath1(x,cos,"cos expects a numeric value"); }
+static OValue otan(OValue x) { return omath1(x,tan,"tan expects a numeric value"); }
+static OValue oasin(OValue x) { return omath1checked(x,asin,"asin domain error"); }
+static OValue oacos(OValue x) { return omath1checked(x,acos,"acos domain error"); }
+static OValue oatan(OValue x) { return omath1(x,atan,"atan expects a numeric value"); }
+static OValue osinh(OValue x) { return omath1(x,sinh,"sinh expects a numeric value"); }
+static OValue ocosh(OValue x) { return omath1(x,cosh,"cosh expects a numeric value"); }
+static OValue otanh(OValue x) { return omath1(x,tanh,"tanh expects a numeric value"); }
+static OValue oasinh(OValue x) { return omath1(x,asinh,"asinh expects a numeric value"); }
+static OValue oacosh(OValue x) { return omath1checked(x,acosh,"acosh domain error"); }
+static OValue oatanh(OValue x) { return omath1checked(x,atanh,"atanh domain error"); }
+static OValue oexpm1(OValue x) { return omath1(x,expm1,"expm1 expects a numeric value"); }
+static OValue olog1p(OValue x) { return omath1(x,log1p,"log1p expects a numeric value"); }
+static OValue ocbrt(OValue x) { return omath1(x,cbrt,"cbrt expects a numeric value"); }
+static OValue oerf(OValue x) { return omath1(x,erf,"erf expects a numeric value"); }
+static OValue oerfc(OValue x) { return omath1(x,erfc,"erfc expects a numeric value"); }
+static OValue ogamma(OValue x) { return omath1(x,tgamma,"gamma expects a numeric value"); }
+static OValue olgamma(OValue x) { return omath1(x,lgamma,"lgamma expects a numeric value"); }
+static OValue ofloor(OValue x) { return omath1(x,floor,"floor expects a numeric value"); }
+static OValue oceil(OValue x) { return omath1(x,ceil,"ceil expects a numeric value"); }
+static OValue oround(OValue x) { return omath1(x,round,"round expects a numeric value"); }
+static OValue ohypot(const OValue *values, size_t count) { if(count<2) return ofail("hypot expects at least 2 arguments"); double total=0; uint16_t bits=0; for(size_t i=0;i<count;i++) { double n; if(!onum(values[i],&n)) return ofail("hypot expects numeric values"); total+=n*n; if(values[i].kind==O_FLOAT&&values[i].fbits>bits) bits=values[i].fbits; } return ofloatbits(sqrt(total),bits); }
+static OValue ovector(const OValue *values, size_t count) { if(count==0) return otensor((OValue){O_LIST,0,{.list={NULL,0}}}); if(count==1) { if(values[0].kind==O_TENSOR) return values[0]; if(values[0].kind==O_LIST) return otensor(values[0]); } return otensor(olist(values,count)); }
+static OValue olen(OValue x) { if(x.kind==O_LIST) return ofloat((double)x.as.list.len); if(x.kind==O_TENSOR) return ofloat((double)x.as.tensor.len); if(x.kind!=O_STRING) return ofail("len expects a string, list, or tensor"); uint64_t n=0; const unsigned char *p=(const unsigned char *)x.as.s.data, *end=p+x.as.s.len; for(;p<end;p++) if((*p&0xc0)!=0x80) n++; return ofloat((double)n); }
+static OValue oat(OValue x, OValue index) { if(x.kind==O_TENSOR&&index.kind==O_LIST) { size_t count=index.as.list.len; if(count==0||count>x.as.tensor.rank) return ofail("tensor coordinate rank does not match tensor rank"); size_t offset=0,stride=1; for(size_t axis=x.as.tensor.rank;axis>count;axis--) stride*=x.as.tensor.shape[axis-1]; size_t block=stride; for(size_t axis=count;axis>0;axis--) { size_t at=axis-1, coordinate; if(!odimension(index.as.list.items[at],&coordinate)||coordinate>=x.as.tensor.shape[at]) return ofail("tensor coordinate out of range"); offset+=coordinate*stride; stride*=x.as.tensor.shape[at]; } if(count==x.as.tensor.rank) return ofloat(x.as.tensor.data[offset]); double *data=block?(double *)malloc(block*sizeof(double)):NULL; if(block&&!data) return ofail("out of memory"); if(block) memcpy(data,x.as.tensor.data+offset,block*sizeof(double)); return otensordata(data,block,x.as.tensor.shape+count,x.as.tensor.rank-count); } double n; if(!onum(index,&n)||n<0||n>=(double)UINT64_MAX||(double)(uint64_t)n!=n) return ofail("index must be a non-negative integer"); uint64_t i=(uint64_t)n; if(x.kind==O_LIST) return i<x.as.list.len?x.as.list.items[i]:ofail("list index out of range"); if(x.kind==O_TENSOR) return i<x.as.tensor.len?ofloat(x.as.tensor.data[i]):ofail("tensor index out of range"); if(x.kind==O_STRING) { size_t offset=0; uint64_t rune=0; while(offset<x.as.s.len) { size_t width=1; unsigned char lead=(unsigned char)x.as.s.data[offset]; if((lead&0x80)==0) width=1; else if((lead&0xe0)==0xc0&&offset+2<=x.as.s.len) width=2; else if((lead&0xf0)==0xe0&&offset+3<=x.as.s.len) width=3; else if((lead&0xf8)==0xf0&&offset+4<=x.as.s.len) width=4; if(rune==i) return ostringview(x.as.s.data+offset,width); offset+=width; rune++; } return ofail("at index out of range"); } return ofail("at expects a string, list, or tensor"); }
+static OValue osetat(OValue tensor, OValue index, OValue value) { if(tensor.kind!=O_TENSOR) return ofail("native setat expects a tensor"); size_t offset,block=1,coordinate_rank=tensor.as.tensor.rank; if(index.kind==O_LIST) { coordinate_rank=index.as.list.len; if(coordinate_rank==0||coordinate_rank>tensor.as.tensor.rank) return ofail("tensor coordinate rank does not match tensor rank"); size_t stride=1; for(size_t axis=tensor.as.tensor.rank;axis>coordinate_rank;axis--) stride*=tensor.as.tensor.shape[axis-1]; block=stride; offset=0; for(size_t axis=coordinate_rank;axis>0;axis--) { size_t at=axis-1, coordinate; if(!odimension(index.as.list.items[at],&coordinate)||coordinate>=tensor.as.tensor.shape[at]) return ofail("tensor coordinate out of range"); offset+=coordinate*stride; stride*=tensor.as.tensor.shape[at]; } } else { if(!odimension(index,&offset)||offset>=tensor.as.tensor.len) return ofail("setat index out of range"); } size_t n=tensor.as.tensor.len; double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) return ofail("out of memory"); if(n) memcpy(data,tensor.as.tensor.data,n*sizeof(double)); if(index.kind==O_LIST&&coordinate_rank<tensor.as.tensor.rank) { if(value.kind!=O_TENSOR||value.as.tensor.rank!=tensor.as.tensor.rank-coordinate_rank) { free(data); return ofail("tensor replacement shape does not match coordinate slice"); } for(size_t i=0;i<value.as.tensor.rank;i++) if(value.as.tensor.shape[i]!=tensor.as.tensor.shape[coordinate_rank+i]) { free(data); return ofail("tensor replacement shape does not match coordinate slice"); } if(block) memcpy(data+offset,value.as.tensor.data,block*sizeof(double)); } else { double replacement; if(!onum(value,&replacement)) { free(data); return ofail("tensor replacement must be numeric"); } data[offset]=replacement; } return otensordata(data,n,tensor.as.tensor.shape,tensor.as.tensor.rank); }
+static OValue otake(OValue tensor, OValue count_arg) { if(tensor.kind!=O_TENSOR) return ofail("native take expects a tensor"); size_t count; if(!odimension(count_arg,&count)) return ofail("take count must be non-negative"); if(count>tensor.as.tensor.len) count=tensor.as.tensor.len; double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); if(count) memcpy(data,tensor.as.tensor.data,count*sizeof(double)); size_t shape[1]={count}; return otensordata(data,count,shape,1); }
+static OValue oslice(OValue tensor, OValue start_arg, OValue end_arg) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank==0) return ofail("slice expects a tensor with a leading dimension"); size_t start,end; if(!odimension(start_arg,&start)) return ofail("slice start must be a non-negative integer"); if(!odimension(end_arg,&end)) return ofail("slice end must be a non-negative integer"); if(start>end) return ofail("slice end must not precede start"); size_t limit=tensor.as.tensor.shape[0]; if(start>limit) start=limit; if(end>limit) end=limit; size_t block=1; for(size_t axis=tensor.as.tensor.rank;axis>1;axis--) block*=tensor.as.tensor.shape[axis-1]; size_t count=(end-start)*block; double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); if(count) memcpy(data,tensor.as.tensor.data+start*block,count*sizeof(double)); size_t *shape=(size_t *)malloc(tensor.as.tensor.rank*sizeof(size_t)); if(!shape) { free(data); return ofail("out of memory"); } memcpy(shape,tensor.as.tensor.shape,tensor.as.tensor.rank*sizeof(size_t)); shape[0]=end-start; OValue out=otensordata(data,count,shape,tensor.as.tensor.rank); free(shape); return out; }
+static OValue osliceaxis(OValue tensor, OValue start_arg, OValue end_arg, OValue axis_arg) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank==0) return ofail("slice expects a tensor with a leading dimension"); size_t start,end,axis; if(!odimension(start_arg,&start)) return ofail("slice start must be a non-negative integer"); if(!odimension(end_arg,&end)) return ofail("slice end must be a non-negative integer"); if(!odimension(axis_arg,&axis)||axis>=tensor.as.tensor.rank) return ofail("slice axis out of range"); if(start>end) return ofail("slice end must not precede start"); size_t limit=tensor.as.tensor.shape[axis]; if(start>limit) start=limit; if(end>limit) end=limit; size_t outer=1,inner=1; for(size_t i=0;i<axis;i++) outer*=tensor.as.tensor.shape[i]; for(size_t i=axis+1;i<tensor.as.tensor.rank;i++) inner*=tensor.as.tensor.shape[i]; size_t span=end-start,count=outer*span*inner; double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); for(size_t group=0;group<outer;group++) { size_t source=(group*limit+start)*inner,destination=group*span*inner; if(span&&inner) memcpy(data+destination,tensor.as.tensor.data+source,span*inner*sizeof(double)); } size_t *shape=(size_t *)malloc(tensor.as.tensor.rank*sizeof(size_t)); if(!shape) { free(data); return ofail("out of memory"); } memcpy(shape,tensor.as.tensor.shape,tensor.as.tensor.rank*sizeof(size_t)); shape[axis]=span; OValue out=otensordata(data,count,shape,tensor.as.tensor.rank); free(shape); return out; }
+static OValue oshape(OValue x) { if(x.kind!=O_TENSOR) return ofail("shape expects a tensor"); size_t n=x.as.tensor.rank; OValue *dims=n?(OValue *)malloc(n*sizeof(OValue)):NULL; if(n&&!dims) return ofail("out of memory"); for(size_t i=0;i<n;i++) dims[i]=ouint((uint64_t)x.as.tensor.shape[i]); OValue out=olist(dims,n); free(dims); return out; }
+static OValue oflatten(OValue x) { if(x.kind!=O_TENSOR) return ofail("flatten expects a tensor"); size_t n=x.as.tensor.len; OValue *items=n?(OValue *)malloc(n*sizeof(OValue)):NULL; if(n&&!items) return ofail("out of memory"); for(size_t i=0;i<n;i++) items[i]=ofloat(x.as.tensor.data[i]); OValue out=olist(items,n); free(items); return out; }
+static OValue otensorsum(OValue x) { if(x.kind!=O_TENSOR) return ofail("sum expects a tensor"); double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]; return ofloat(total); }
+static OValue otensorproduct(OValue x) { if(x.kind!=O_TENSOR) return ofail("product expects a tensor"); double total=1; for(size_t i=0;i<x.as.tensor.len;i++) total*=x.as.tensor.data[i]; return ofloat(total); }
+static OValue otensordot(OValue a, OValue b) { if(a.kind!=O_TENSOR||b.kind!=O_TENSOR) return ofail("dot expects tensors"); if(a.as.tensor.len!=b.as.tensor.len) return ofail("dot expects tensors with the same length"); double total=0; for(size_t i=0;i<a.as.tensor.len;i++) total+=a.as.tensor.data[i]*b.as.tensor.data[i]; return ofloat(total); }
+static OValue otensornorm(OValue x) { if(x.kind!=O_TENSOR) return ofail("norm expects a tensor"); double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]*x.as.tensor.data[i]; return ofloat(sqrt(total)); }
+static void oprintfloat(double x) { if(isnan(x)) { fputs("NaN",stdout); return; } if(isinf(x)) { fputs(signbit(x)?"-Inf":"+Inf",stdout); return; } if(trunc(x)==x&&x>=-9223372036854775808.0&&x<=9223372036854775807.0) { printf("%lld",(long long)x); return; } char text[64], *end=NULL; for(int precision=1;precision<=17;precision++) { snprintf(text,sizeof(text),"%.*g",precision,x); double roundtrip=strtod(text,&end); if(end&&*end==0&&roundtrip==x&&!(x==0&&signbit(roundtrip)!=signbit(x))) { fputs(text,stdout); return; } } printf("%.17g",x); }
+static void oprintvalue(OValue x) { switch(x.kind) { case O_NULL: fputs("null",stdout); break; case O_BOOL: fputs(x.as.b?"true":"false",stdout); break; case O_UINT: printf("%lluu%u",(unsigned long long)x.as.u,(unsigned)(x.fbits?x.fbits:64)); break; case O_INT: printf("%lldi%u",(long long)x.as.i,(unsigned)(x.fbits?x.fbits:64)); break; case O_FLOAT: oprintfloat(x.as.f); if(x.fbits) printf("f%u",(unsigned)x.fbits); break; case O_STRING: printf("\"%.*s\"",(int)x.as.s.len,x.as.s.data); break; case O_LIST: putchar('['); for(size_t i=0;i<x.as.list.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.list.items[i]); } putchar(']'); break; case O_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.tensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.tensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.tensor.len;i++) { if(i) fputs(", ",stdout); oprintfloat(x.as.tensor.data[i]); } fputs("])",stdout); break; case O_CLOSURE: fputs("<function>",stdout); break; } }
+static void oprint(OValue x) { oprintvalue(x); putchar('\n'); }
+`
+}

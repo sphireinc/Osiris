@@ -552,7 +552,9 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 	fs := flag.NewFlagSet("c", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var outputPath string
+	var cacheDir string
 	fs.StringVar(&outputPath, "o", "", "output path")
+	fs.StringVar(&cacheDir, "cache-dir", "", "content-addressed executable cache directory")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -589,6 +591,10 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 	case cBackendExecutable:
 		if outputPath == "" {
 			return fmt.Errorf("-o is required for executable output")
+		}
+		if cacheDir != "" {
+			_, err := osiris.CompileCExecutableCached(ctx, artifact.Source, outputPath, cacheDir)
+			return err
 		}
 		return osiris.CompileCExecutable(ctx, artifact.Source, outputPath)
 	default:

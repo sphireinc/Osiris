@@ -1,3 +1,10 @@
+NATIVE COMPILER REQUIREMENT
+---------------------------
+Polling is not a prerequisite for the first native compiler subset. When it is
+implemented, its context, handles, waits, errors, and scheduler integration
+must be callable from the generated-C runtime defined by
+`../002-native-value-abi.md`; Go-only polling does not complete these items.
+
 PHASE 4: POLLING AND EVENT NOTIFICATION API
 -------------------------------------------
 [x] Add a unified polling API for monitoring multiple I/O resources at once.

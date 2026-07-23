@@ -1,0 +1,27 @@
+Osiris is a deterministic, math-friendly programming language built for
+clear programs that can grow into fast native software. It combines an
+approachable scripting style with strong numeric tools, structured errors,
+modules, tasks, and an ahead-of-time compilation path.
+
+Programs can be explored through the interpreter or VM during development,
+then compiled through Osiris IR to optimized portable C and a native
+executable. The language is designed to keep ordinary code readable while
+making loops, numeric work, and future tensor kernels practical targets for
+native performance.
+
+Elevator pitch
+--------------
+
+Osiris is a clean, deterministic language for people who want the ease of a
+scripting language and the performance path of compiled systems software.
+Write expressive math and general-purpose programs; start them instantly,
+then compile the same language to native code when speed matters.
+
+Current direction
+-----------------
+
+Osiris is evolving into a general ahead-of-time compiled language. Its first
+native backend lowers typed IR to portable C and relies on the platform C
+compiler for high-quality machine code. The native subset is expanding with
+parity tests; unsupported features must report clear diagnostics rather than
+silently falling back to compile-time execution.

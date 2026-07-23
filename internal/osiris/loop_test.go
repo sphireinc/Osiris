@@ -42,3 +42,26 @@ func sweep(xs) {
 		}
 	}
 }
+
+func TestLoopInductionAnalysis(t *testing.T) {
+	prog, err := Parse("<test>", `
+let i = 0
+while i < 8 {
+  let i = i + 2
+}
+emit i
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	lp, err := NewRuntime().BuildLoopProgram(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("loop analysis failed: %v", err)
+	}
+	got := FormatLoopProgram(lp)
+	for _, want := range []string{"canonical", "induction=", "step=2", "bound="} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("induction report missing %q\n%s", want, got)
+		}
+	}
+}

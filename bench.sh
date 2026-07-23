@@ -1,94 +1,120 @@
 #!/bin/sh
+# Benchmark interpreter, VM, and precompiled native execution for the same
+# verified Osiris program. This measures execution only; compilation is shown
+# separately and is never included in the native runtime samples.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$ROOT"
 
-CC=${CC:-cc}
-GOCACHE=${GOCACHE:-/private/tmp/osiris-gocache}
-GOMODCACHE=${GOMODCACHE:-/private/tmp/osiris-gomodcache}
-
+RUNS=${RUNS:-7}
+WARMUP=${WARMUP:-1}
+BENCH_ITERS=${BENCH_ITERS:-1000}
+GOCACHE=${GOCACHE:-/private/tmp/osiris-bench-gocache}
+GOMODCACHE=${GOMODCACHE:-/private/tmp/osiris-bench-gomodcache}
 WORKDIR=${WORKDIR:-$(mktemp -d "${TMPDIR:-/tmp}/osiris-bench.XXXXXX")}
+OSIRIS_BIN=${OSIRIS_BIN:-"$WORKDIR/osiris"}
+WORKLOAD=${WORKLOAD:-benchmarks/native-loop.osr}
+NATIVE_BIN=${NATIVE_BIN:-"$WORKDIR/native-loop"}
+
+case $RUNS in ''|*[!0-9]*) echo "RUNS must be a positive integer" >&2; exit 2;; esac
+case $WARMUP in ''|*[!0-9]*) echo "WARMUP must be a non-negative integer" >&2; exit 2;; esac
+case $BENCH_ITERS in ''|*[!0-9]*) echo "BENCH_ITERS must be a positive integer" >&2; exit 2;; esac
+if [ "$RUNS" -eq 0 ] || [ "$BENCH_ITERS" -eq 0 ]; then
+  echo "RUNS and BENCH_ITERS must be positive integers" >&2
+  exit 2
+fi
 
 cleanup() {
   status=$?
   trap - EXIT INT TERM HUP
   if [ "${BENCH_KEEP:-0}" = "1" ]; then
-    printf 'bench scratch retained at %s\n' "$WORKDIR" >&2
-    exit "$status"
+    printf 'Benchmark scratch retained at %s\n' "$WORKDIR" >&2
+  else
+    rm -rf "$WORKDIR"
   fi
-  rm -rf "$WORKDIR"
   exit "$status"
 }
 trap cleanup EXIT INT TERM HUP
 
-OSIRIS_BIN=${OSIRIS_BIN:-"$WORKDIR/osiris"}
+now() { perl -MTime::HiRes=time -e 'printf "%.9f", time'; }
+elapsed_ms() { awk -v start="$1" -v end="$2" 'BEGIN { printf "%.3f", (end-start)*1000 }'; }
 
-PHYSICS_OSR=${PHYSICS_OSR:-examples/physics.osr}
-PHYSICS_OPT=${PHYSICS_OPT:-"$WORKDIR/physics.opt.osr"}
-PHYSICS_C=${PHYSICS_C:-"$WORKDIR/physics.osiris.c"}
-PHYSICS_OBJ=${PHYSICS_OBJ:-"$WORKDIR/physics.osiris.o"}
-PHYSICS_NATIVE=${PHYSICS_NATIVE:-"$WORKDIR/physics.osiris-native"}
-PHYSICS_C_BIN=${PHYSICS_C_BIN:-"$WORKDIR/physics.osiris-c"}
-PHYSICS_WAT=${PHYSICS_WAT:-"$WORKDIR/physics.osiris.wat"}
-PHYSICS_WASM=${PHYSICS_WASM:-"$WORKDIR/physics.osiris.wasm"}
-PHYSICS_GPU=${PHYSICS_GPU:-"$WORKDIR/physics.osiris.cl"}
-PHYSICS_GPU_JSON=${PHYSICS_GPU_JSON:-"$WORKDIR/physics.osiris.json"}
-PHYSICS_C_HUMAN=${PHYSICS_C_HUMAN:-"$WORKDIR/physics-c"}
+printf '\n'
+printf '  OSIRIS EXECUTION BENCHMARK\n'
+printf '  ==========================\n\n'
+printf '  workload : %s\n' "$WORKLOAD"
+printf '  iterations per run : %s\n' "$BENCH_ITERS"
+printf '  measured runs : %s (after %s warm-up run%s)\n\n' "$RUNS" "$WARMUP" "$( [ "$WARMUP" -eq 1 ] || printf s )"
 
-TENSOR_OSR=${TENSOR_OSR:-examples/tensor.osr}
-TENSOR_OPT=${TENSOR_OPT:-"$WORKDIR/tensor.opt.osr"}
-TENSOR_C=${TENSOR_C:-"$WORKDIR/tensor.osiris.c"}
-TENSOR_OBJ=${TENSOR_OBJ:-"$WORKDIR/tensor.osiris.o"}
-TENSOR_NATIVE=${TENSOR_NATIVE:-"$WORKDIR/tensor.osiris-native"}
-TENSOR_C_BIN=${TENSOR_C_BIN:-"$WORKDIR/tensor.osiris-c"}
-TENSOR_WAT=${TENSOR_WAT:-"$WORKDIR/tensor.osiris.wat"}
-TENSOR_WASM=${TENSOR_WASM:-"$WORKDIR/tensor.osiris.wasm"}
-TENSOR_GPU=${TENSOR_GPU:-"$WORKDIR/tensor.osiris.cl"}
-TENSOR_GPU_JSON=${TENSOR_GPU_JSON:-"$WORKDIR/tensor.osiris.json"}
-
-bench() {
-  label=$1
-  shift
-  printf '\n== %s ==\n' "$label"
-  /usr/bin/time -p "$@"
-}
-
-echo "[1/4] building osiris"
+printf '  [1/4] Building benchmark runner...\n'
 GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" go build -o "$OSIRIS_BIN" ./cmd/osiris
 
-echo "[2/4] optimizing workloads"
-GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" opt "$PHYSICS_OSR" > "$PHYSICS_OPT"
-GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" opt "$TENSOR_OSR" > "$TENSOR_OPT"
+SOURCE="$WORKDIR/workload.osr"
+sed "s/1000000/$BENCH_ITERS/" "$WORKLOAD" > "$SOURCE"
 
-echo "[3/4] building native and artifact outputs"
-bench "physics build (standard native)" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" build -o "$PHYSICS_NATIVE" "$PHYSICS_OPT"
-bench "physics raw c emit" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" c -o "$PHYSICS_C" "$PHYSICS_OPT"
-bench "physics object file" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" obj -o "$PHYSICS_OBJ" "$PHYSICS_OPT"
-bench "physics wasm wat" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" wasm -o "$PHYSICS_WAT" "$PHYSICS_OPT"
-bench "physics wasm binary" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" wasm -binary -o "$PHYSICS_WASM" "$PHYSICS_OPT"
-bench "physics gpu source" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" gpu -o "$PHYSICS_GPU" "$PHYSICS_OPT"
-bench "physics gpu plan" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" gpu -json -o "$PHYSICS_GPU_JSON" "$PHYSICS_OPT"
-bench "physics cc -O3 generated c" "$CC" -O3 -march=native -flto -DNDEBUG "$PHYSICS_C" -lm -o "$PHYSICS_C_BIN"
-bench "physics cc -O3 handwritten c" "$CC" -O3 -march=native -flto -DNDEBUG examples/physics.c -lm -o "$PHYSICS_C_HUMAN"
+printf '  [2/4] Compiling native executable...\n'
+build_start=$(now)
+"$OSIRIS_BIN" build -o "$NATIVE_BIN" "$SOURCE"
+build_end=$(now)
+build_ms=$(elapsed_ms "$build_start" "$build_end")
 
-bench "tensor build (standard native)" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" build -o "$TENSOR_NATIVE" "$TENSOR_OPT"
-bench "tensor raw c emit" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" c -o "$TENSOR_C" "$TENSOR_OPT"
-bench "tensor object file" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" obj -o "$TENSOR_OBJ" "$TENSOR_OPT"
-bench "tensor wasm wat" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" wasm -o "$TENSOR_WAT" "$TENSOR_OPT"
-bench "tensor wasm binary" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" wasm -binary -o "$TENSOR_WASM" "$TENSOR_OPT"
-bench "tensor gpu source" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" gpu -o "$TENSOR_GPU" "$TENSOR_OPT"
-bench "tensor gpu plan" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" gpu -json -o "$TENSOR_GPU_JSON" "$TENSOR_OPT"
-bench "tensor cc -O3 generated c" "$CC" -O3 -march=native -flto -DNDEBUG "$TENSOR_C" -lm -o "$TENSOR_C_BIN"
+printf '  [3/4] Verifying matching results...\n'
+interpreter_output=$("$OSIRIS_BIN" run "$SOURCE")
+vm_output=$("$OSIRIS_BIN" vm "$SOURCE")
+native_output=$("$NATIVE_BIN")
+if [ "$interpreter_output" != "$vm_output" ] || [ "$interpreter_output" != "$native_output" ]; then
+  echo 'Benchmark aborted: interpreter, VM, and native outputs differ.' >&2
+  printf '%s\n' "  interpreter: $interpreter_output" >&2
+  printf '%s\n' "  vm         : $vm_output" >&2
+  printf '%s\n' "  native     : $native_output" >&2
+  exit 1
+fi
+printf '  checksum : %s\n' "$native_output"
 
-echo "[4/4] running execution benchmarks"
-bench "physics interpreter" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" run "$PHYSICS_OPT"
-bench "physics vm" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" vm "$PHYSICS_OPT"
-bench "physics build executable" "$PHYSICS_NATIVE"
-bench "physics generated c executable" "$PHYSICS_C_BIN"
-bench "physics handwritten c executable" "$PHYSICS_C_HUMAN"
+measure() {
+  name=$1
+  shift
+  warm=0
+  while [ "$warm" -lt "$WARMUP" ]; do
+    "$@" >/dev/null
+    warm=$((warm + 1))
+  done
+  sample=0
+  total=0
+  best=
+  worst=0
+  while [ "$sample" -lt "$RUNS" ]; do
+    start=$(now)
+    "$@" >/dev/null
+    end=$(now)
+    ms=$(elapsed_ms "$start" "$end")
+    total=$(awk -v total="$total" -v ms="$ms" 'BEGIN { printf "%.6f", total + ms }')
+    if [ -z "$best" ] || awk -v ms="$ms" -v best="$best" 'BEGIN { exit !(ms < best) }'; then best=$ms; fi
+    if awk -v ms="$ms" -v worst="$worst" 'BEGIN { exit !(ms > worst) }'; then worst=$ms; fi
+    sample=$((sample + 1))
+  done
+  average=$(awk -v total="$total" -v runs="$RUNS" 'BEGIN { printf "%.3f", total / runs }')
+  printf '%-16s| %11sms | %11sms | %11sms\n' "$name" "$average" "$best" "$worst"
+  if [ "$name" = native ]; then native_average=$average; fi
+  if [ "$name" = interpreter ]; then interpreter_average=$average; fi
+  if [ "$name" = vm ]; then vm_average=$average; fi
+}
 
-bench "tensor interpreter" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" run "$TENSOR_OPT"
-bench "tensor vm" env GOCACHE="$GOCACHE" GOMODCACHE="$GOMODCACHE" "$OSIRIS_BIN" vm "$TENSOR_OPT"
-bench "tensor build executable" "$TENSOR_NATIVE"
-bench "tensor generated c executable" "$TENSOR_C_BIN"
+printf '  [4/4] Measuring execution...\n\n'
+printf '  %-16s| %14s | %14s | %14s\n' 'path' 'average' 'best' 'worst'
+printf '  %s\n' '----------------+----------------+----------------+----------------'
+measure interpreter "$OSIRIS_BIN" run "$SOURCE"
+measure vm "$OSIRIS_BIN" vm "$SOURCE"
+measure native "$NATIVE_BIN"
+
+native_speedup=$(awk -v base="$interpreter_average" -v native="$native_average" 'BEGIN { printf "%.2f", base / native }')
+vm_speedup=$(awk -v base="$interpreter_average" -v vm="$vm_average" 'BEGIN { printf "%.2f", base / vm }')
+printf '\n'
+printf '  Native compile time : %s ms (reported separately)\n' "$build_ms"
+printf '  VM speedup          : %sx vs interpreter\n' "$vm_speedup"
+printf '  Native speedup      : %sx vs interpreter\n' "$native_speedup"
+printf '\n'
+printf '  All paths produced the same checksum. Timings include process startup;\n'
+printf '  interpreter and VM runs include parsing, while native runs are precompiled.\n'
+printf '  Tune with RUNS=15 BENCH_ITERS=5000 ./bench.sh\n\n'

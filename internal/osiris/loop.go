@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"context"
+	"strconv"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ type LoopShape struct {
 	Len       string
 	Index     string
 	Canonical bool
+	Induction string
+	Bound     string
+	Step      int64
+	Proven    bool
 }
 
 // String operates on LoopProgram values and keeps the loopprogram-specific
@@ -94,6 +99,14 @@ func FormatLoopProgram(prog *LoopProgram) string {
 			if loop.Canonical {
 				b.WriteString(" canonical")
 			}
+			if loop.Proven {
+				b.WriteString(" induction=")
+				b.WriteString(loop.Induction)
+				b.WriteString(" step=")
+				b.WriteString(strconv.FormatInt(loop.Step, 10))
+				b.WriteString(" bound=")
+				b.WriteString(loop.Bound)
+			}
 			b.WriteByte('\n')
 		}
 	}
@@ -130,7 +143,7 @@ func analyzeLoopProgram(ir *IRProgram) *LoopProgram {
 	for _, fn := range ir.Functions {
 		lfn := &LoopFunction{Name: fn.Name}
 		for _, block := range fn.Blocks {
-			shape, ok := canonicalLoopShape(block)
+			shape, ok := canonicalLoopShape(fn, block)
 			if ok {
 				lfn.Loops = append(lfn.Loops, shape)
 			}
@@ -145,7 +158,7 @@ func analyzeLoopProgram(ir *IRProgram) *LoopProgram {
 //
 // It returns *LoopShape, bool so callers can continue with the next stage of
 // the pipeline without re-deriving the same information.
-func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
+func canonicalLoopShape(fn *IRFunction, block *IRBlock) (*LoopShape, bool) {
 	if block == nil {
 		return nil, false
 	}
@@ -157,7 +170,7 @@ func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
 		if !strings.Contains(branch.TrueTarget, ".body") || !strings.Contains(branch.FalseTarget, ".exit") {
 			return nil, false
 		}
-		return &LoopShape{
+		shape := &LoopShape{
 			Kind:      "while",
 			Header:    block.Name,
 			Body:      branch.TrueTarget,
@@ -165,7 +178,9 @@ func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
 			Carry:     append([]string(nil), block.Params...),
 			Cond:      branch.Cond,
 			Canonical: true,
-		}, true
+		}
+		proveWhileInduction(fn, shape, block)
+		return shape, true
 	}
 	if isCanonicalForHeader(block.Name) && len(block.Params) >= 4 {
 		if !strings.Contains(branch.TrueTarget, ".body") || !strings.Contains(branch.FalseTarget, ".exit") {
@@ -186,6 +201,106 @@ func canonicalLoopShape(block *IRBlock) (*LoopShape, bool) {
 		}, true
 	}
 	return nil, false
+}
+
+func proveWhileInduction(fn *IRFunction, shape *LoopShape, header *IRBlock) {
+	if fn == nil || shape == nil || header == nil || shape.Kind != "while" {
+		return
+	}
+	branch, ok := header.Term.(*irBranch)
+	if !ok {
+		return
+	}
+	var compare IRInstr
+	found := false
+	for _, in := range header.Instrs {
+		if in.Dest == branch.Cond && in.Op == "binary" && (in.Text == "<" || in.Text == "<=") && len(in.Args) == 2 {
+			compare = in
+			found = true
+			break
+		}
+	}
+	if !found {
+		return
+	}
+	index := -1
+	for i, param := range header.Params {
+		if param == compare.Args[0] {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return
+	}
+	var body *IRBlock
+	for _, candidate := range fn.Blocks {
+		if candidate.Name == shape.Body {
+			body = candidate
+			break
+		}
+	}
+	if body == nil || index >= len(body.Params) {
+		return
+	}
+	jump, ok := body.Term.(*irJump)
+	if !ok || jump.Target != header.Name || index >= len(jump.Args) {
+		return
+	}
+	defs := make(map[string]IRInstr, len(body.Instrs))
+	for _, in := range body.Instrs {
+		defs[in.Dest] = in
+	}
+	back := jump.Args[index]
+	for {
+		copy, ok := defs[back]
+		if !ok || copy.Op != "copy" || len(copy.Args) != 1 {
+			break
+		}
+		back = copy.Args[0]
+	}
+	update, ok := defs[back]
+	if !ok || update.Op != "binary" || update.Text != "+" || len(update.Args) != 2 {
+		return
+	}
+	var stepValue Value
+	if update.Args[0] == body.Params[index] {
+		stepDef, ok := defs[update.Args[1]]
+		if !ok || stepDef.Op != "const" {
+			return
+		}
+		stepValue = stepDef.Value
+	} else if update.Args[1] == body.Params[index] {
+		stepDef, ok := defs[update.Args[0]]
+		if !ok || stepDef.Op != "const" {
+			return
+		}
+		stepValue = stepDef.Value
+	} else {
+		return
+	}
+	step, ok := nativeLoopStep(stepValue)
+	if !ok || step <= 0 {
+		return
+	}
+	shape.Induction = header.Params[index]
+	shape.Bound = compare.Args[1]
+	shape.Step = step
+	shape.Proven = true
+}
+
+func nativeLoopStep(value Value) (int64, bool) {
+	switch value.kind {
+	case kindUint:
+		if value.ub == nil && value.u <= uint64(^uint64(0)>>1) {
+			return int64(value.u), true
+		}
+	case kindInt:
+		if value.i != nil && value.i.IsInt64() {
+			return value.i.Int64(), true
+		}
+	}
+	return 0, false
 }
 
 // isCanonicalWhileHeader handles the is canonical while header step in the

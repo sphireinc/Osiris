@@ -2401,13 +2401,13 @@ emit 7 + 3
 	}
 }
 
-// TestCBackendSnapshot exercises the behavior described by its body and locks
+// TestCBackendLowering exercises the behavior described by its body and locks
 // in the observable language, runtime, or CLI semantics that the surrounding
 // package depends on.
 //
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
-func TestCBackendSnapshot(t *testing.T) {
+func TestCBackendLowering(t *testing.T) {
 	prog, err := Parse("<test>", `
 emit "osiris"
 emit 7 + 3
@@ -2419,11 +2419,132 @@ emit 7 + 3
 	if err != nil {
 		t.Fatalf("compile c failed: %v", err)
 	}
-	if !strings.Contains(artifact.Source, "Osiris C snapshot") || !strings.Contains(artifact.Source, "osiris_outputs") {
+	if !strings.Contains(artifact.Source, "Osiris native C lowering") || !strings.Contains(artifact.Source, "= oadd(") {
 		t.Fatalf("unexpected c source:\n%s", artifact.Source)
 	}
-	if !strings.Contains(artifact.Source, `puts(osiris_outputs[i]);`) {
-		t.Fatalf("c source missing puts loop:\n%s", artifact.Source)
+	if strings.Contains(artifact.Source, "osiris_outputs") {
+		t.Fatalf("c source still contains snapshot output table:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendDeterministicSource(t *testing.T) {
+	prog, err := Parse("<test>", `
+func twice_after_one(x) {
+  let y = x + 1
+  return y * 2
+}
+let values = [1, 2, 3]
+let tensor_values = tensor([1.0, 2.0, 3.0])
+emit twice_after_one(4)
+emit len(values)
+emit tensor_values + tensor_values
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	first, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("first compile failed: %v", err)
+	}
+	second, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("second compile failed: %v", err)
+	}
+	if first.Source != second.Source {
+		t.Fatalf("generated C is not deterministic\n--- first ---\n%s\n--- second ---\n%s", first.Source, second.Source)
+	}
+	if strings.Contains(first.Source, "osiris_outputs") || !strings.Contains(first.Source, "Osiris native C lowering") {
+		t.Fatalf("generated C does not describe real native lowering:\n%s", first.Source)
+	}
+}
+
+func TestCBackendReportsTaggedFallbackReason(t *testing.T) {
+	prog, err := Parse("<test>", `
+let values = [1, 2]
+emit len(values)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if !strings.Contains(artifact.Source, "Osiris native fallback: list values require the tagged ABI") {
+		t.Fatalf("generated C did not report its tagged fallback:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendRejectsUnsupportedIROperation(t *testing.T) {
+	prog, err := Parse("<test>", "emit Meter")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	_, err = CompileC(context.Background(), NewRuntime(), prog)
+	if err == nil || !strings.Contains(err.Error(), `unsupported IR operation "global"`) {
+		t.Fatalf("CompileC error = %v, want unsupported global IR diagnostic", err)
+	}
+}
+
+func FuzzCBackendSource(f *testing.F) {
+	for _, source := range []string{
+		"emit 1 + 2",
+		"let values = [1, 2]; emit len(values)",
+		"func add(a, b) => a + b\nemit add(2, 3)",
+		"emit tensor([1.0, 2.0]) + tensor([3.0, 4.0])",
+	} {
+		f.Add(source)
+	}
+	f.Fuzz(func(t *testing.T, source string) {
+		if len(source) > 16<<10 {
+			t.Skip()
+		}
+		prog, err := Parse("<fuzz>", source)
+		if err != nil {
+			return
+		}
+		artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+		if err != nil {
+			return
+		}
+		if artifact == nil || artifact.Source == "" {
+			t.Fatal("successful C compile returned no source")
+		}
+		if strings.Contains(artifact.Source, "osiris_outputs") {
+			t.Fatalf("C backend regressed to a snapshot output table:\n%s", artifact.Source)
+		}
+	})
+}
+
+func BenchmarkCBackendUnboxedScalarLoop(b *testing.B) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		b.Skip("cc not available")
+	}
+	prog, err := Parse("<benchmark>", `
+let i = 0
+let total = 0
+while i < 1000000 {
+  let total = total + i
+  let i = i + 1
+}
+emit total
+`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		b.Fatal(err)
+	}
+	exePath := filepath.Join(b.TempDir(), "loop")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := exec.Command(exePath).Run(); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -2470,6 +2591,1446 @@ emit 7 + 3
 	}
 	if got, want := string(out), "\"osiris\"\n10u64\n"; got != want {
 		t.Fatalf("executable output = %q, want %q", got, want)
+	}
+}
+
+func TestCBackendExecutableCache(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 7 + 3")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "cache")
+	firstPath := filepath.Join(dir, "first")
+	first, err := CompileCExecutableCached(context.Background(), artifact.Source, firstPath, cacheDir)
+	if err != nil {
+		t.Fatalf("first cached compile failed: %v", err)
+	}
+	if first.CacheHit || first.Key == "" || first.SourceSHA256 == "" {
+		t.Fatalf("first cache manifest = %#v, want a miss with identity", first)
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, first.Key+".json")); err != nil {
+		t.Fatalf("cache manifest missing: %v", err)
+	}
+	secondPath := filepath.Join(dir, "second")
+	second, err := CompileCExecutableCached(context.Background(), artifact.Source, secondPath, cacheDir)
+	if err != nil {
+		t.Fatalf("second cached compile failed: %v", err)
+	}
+	if !second.CacheHit || second.Key != first.Key {
+		t.Fatalf("second cache manifest = %#v, want hit for %s", second, first.Key)
+	}
+	out, err := exec.Command(secondPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("cached executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "10u64\n"; got != want {
+		t.Fatalf("cached executable output = %q, want %q", got, want)
+	}
+}
+
+func TestCBackendControlFlowParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let n = 0
+while n < 3 { let n = n + 1 }
+emit if(n == 3, n, 0)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "control-flow")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedScalarLoop(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let n = 0
+let total = 0
+while n < 100 {
+  let total = total + n
+  let n = n + 1
+}
+emit total
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 {
+		t.Fatalf("generated C has no main:\n%s", artifact.Source)
+	}
+	mainSource := artifact.Source[mainAt:]
+	if !strings.Contains(mainSource, "uint64_t s") || strings.Contains(mainSource, "OValue s") || strings.Contains(mainSource, "oadd(") {
+		t.Fatalf("scalar loop did not use unboxed lowering:\n%s", mainSource)
+	}
+	headerAt := strings.Index(mainSource, "block_main_while_header")
+	bodyAt := strings.Index(mainSource, "block_main_while_body")
+	if headerAt < 0 || bodyAt < headerAt || strings.Contains(mainSource[headerAt:bodyAt], "100uLL") {
+		t.Fatalf("loop-invariant bound was not hoisted from the loop header:\n%s", mainSource)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-loop")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "4950u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatWidthParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1.25f32 + 2.5f32\nemit 1.25f64 + 2.5f64")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "OValue s") {
+		t.Fatalf("float program did not use unboxed lowering:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-floats")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedUintOverflowIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 18446744073709551615 + 1")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-overflow")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: unsigned addition overflow") {
+		t.Fatalf("native overflow result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedShiftRangeIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1 << 64")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-shift-range")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: shift count exceeds u64 width") {
+		t.Fatalf("native shift result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendDirectFunctionParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+func add(a, b) => a + b
+emit add(2, 3)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "OValue s") || strings.Contains(artifact.Source[mainAt:], "osiris_fn_") {
+		t.Fatalf("direct scalar call was not inlined into the unboxed main:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "direct-function")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "5u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendDirectClosureParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let offset = 3
+func plus_offset(x) => x + offset
+emit plus_offset(4)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "direct-closure")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "7u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendIndirectFunctionValueParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let offset = 3
+func identity(f) => f
+func add(x) => x + offset
+let f = identity(add)
+emit f(4)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "indirect-function")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "7u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendDirectFunctionLocalsParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+func twice_after_one(x) {
+  let y = x + 1
+  return y * 2
+}
+
+emit twice_after_one(4)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "OValue s") || strings.Contains(artifact.Source[mainAt:], "osiris_fn_") {
+		t.Fatalf("straight-line scalar function was not inlined into the unboxed main:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "direct-function-locals")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "10u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendFunctionBranchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `func floor_at_two(n) => if(n > 2, n, 2)
+emit floor_at_two(1)
+emit floor_at_two(5)`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "OValue s") || strings.Contains(artifact.Source[mainAt:], "osiris_fn_") {
+		t.Fatalf("branching scalar function was not inlined into the unboxed main:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "function-branch")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "2u64\n5u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendFunctionLoopParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `func count_to(n) {
+  let i = 0
+  while i < n { let i = i + 1 }
+  return i
+}
+
+emit count_to(4)`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "function-loop")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "4u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendBitwiseParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit (13 & 7) | (2 << 3)\nemit 17 % 5")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "bitwise")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "21u64\n2u64\n"; got != want {
+		t.Fatalf("native output = %q, want %q", got, want)
+	}
+}
+
+func TestCBackendZeroDivisionIsDefined(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1 / 0\nemit 1 % 0")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "zero-division")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); !strings.Contains(got, "osiris native error: division by zero") || !strings.Contains(got, "osiris native error: remainder by zero") {
+		t.Fatalf("native zero diagnostics = %q", got)
+	}
+}
+
+func TestCBackendAbsBuiltinParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit abs(-7)\nemit abs(-2.5f64)")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "abs")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "7i64\n2.5f64\n"; got != want {
+		t.Fatalf("native output = %q, want %q", got, want)
+	}
+}
+
+func TestCBackendScalarCastAndStringLenParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit uint(7.0f64)\nemit f32(1.25)\nemit f64(2)\nemit len(\"h\u00e9llo \U0001f680\")")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "scalar-casts-len")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnicodeStringAtParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let greeting = "héllo 🚀"
+emit at(greeting, 1)
+emit at(greeting, 6)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unicode-string-at")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendFixedWidthIntegerParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit 255u8
+emit u8(260)
+emit u16(65537)
+emit u32(4294967297)
+emit i8(255)
+emit i16(65535)
+emit i32(4294967295)
+emit i64(7)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "fixed-width-integers")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendFixedWidthIntegerArithmeticParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit 250u8 + 10u8
+emit 1u8 + 1u16
+emit 2u8 * 130u8
+emit 7u8 & 3u8
+emit 1u8 << 2
+emit 1i16 + 2i16
+emit 2i8 * 70i8
+emit 7i16 % 3i16
+emit 8i16 / 2i16
+emit -5i16
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "fixed-width-arithmetic")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathImportParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.abs(i8(-7))
+emit math.u8(260)
+emit math.f32(1.25)
+emit math.pi
+emit math.tau
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if strings.Contains(artifact.Source, " = ocall(") {
+		t.Fatalf("static math import lowered through an indirect call:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-import")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendReportsUnsupportedStaticMathMember(t *testing.T) {
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.pow(2, 3)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	_, err = CompileC(context.Background(), NewRuntime(), prog)
+	if err == nil || !strings.Contains(err.Error(), `builtin "pow" is not supported yet`) {
+		t.Fatalf("CompileC error = %v, want unsupported static builtin diagnostic", err)
+	}
+}
+
+func TestCBackendStaticMathScalarParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+let m = math
+	emit math.sqrt(4.0f64)
+	emit m.log(100.0f64, 10.0f64)
+emit math.log2(8.0f64)
+emit math.log10(1000.0f64)
+emit math.hypot(3.0f64, 4.0f64)
+emit math.sin(0.0f64)
+emit math.asin(0.0f64)
+emit math.acos(1.0f64)
+emit math.atan(0.0f64)
+emit math.sinh(0.0f64)
+emit math.cosh(0.0f64)
+emit math.tanh(0.0f64)
+emit math.asinh(0.0f64)
+emit math.acosh(1.0f64)
+emit math.atanh(0.0f64)
+emit math.expm1(0.0f64)
+emit math.log1p(0.0f64)
+emit math.cbrt(8.0f64)
+emit math.erf(0.0f64)
+emit math.erfc(0.0f64)
+emit math.gamma(1.0f64)
+emit math.lgamma(1.0f64)
+emit math.floor(2.9f32)
+emit math.ceil(2.1f32)
+emit math.round(2.5f64)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-scalar")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathVectorParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.vec()
+emit math.vector([1.0, 2.0, 3.0])
+emit math.vec(4.0, 5.0)
+let original = tensor([6.0, 7.0])
+emit math.vector(original)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-vector")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathFillTensorParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.zeros(3)
+emit math.ones([2])
+emit math.full(2, 3.5)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-fill-tensor")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathMultidimensionalFillTensorParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+let zeroes = math.zeros(2, 3)
+let filled = math.full([2, 3], 1.5)
+emit zeroes
+emit math.shape(zeroes)
+emit filled + 2.0
+emit math.shape(filled)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-multidimensional-fill-tensor")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendNestedTensorAndMatrixParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+let nested = math.tensor([[1.0, 2.0], [3.0, 4.0]])
+let shaped = math.tensor([2, 2], [5.0, 6.0, 7.0, 8.0])
+let matrix = math.matrix(2, 2, [9.0, 10.0, 11.0, 12.0])
+let reshaped = math.reshape(matrix, [4, 1])
+let transposed = math.transpose(math.matrix(2, 3, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
+let product = math.matmul(math.matrix(2, 3, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), math.matrix(3, 2, [7.0, 8.0, 9.0, 10.0, 11.0, 12.0]))
+let broadcast = math.zeros(2, 1) + math.ones(1, 3)
+let changed = setat(matrix, [1, 0], 42.0)
+let rowChanged = setat(matrix, [1], math.tensor([42.0, 43.0]))
+let row = at(matrix, [1])
+let prefix = take(matrix, 3)
+let window = slice(math.matrix(3, 2, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), 1, 8)
+let columns = slice(math.matrix(2, 3, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]), 1, 3, 1)
+let identity = math.eye(2, 3)
+let square = math.matrix(3, 3, [2.0, 1.0, 3.0, 0.0, -1.0, 4.0, 5.0, 2.0, 0.0])
+let system = math.matrix(2, 2, [4.0, 7.0, 2.0, 6.0])
+let positive = math.matrix(2, 2, [4.0, 2.0, 2.0, 3.0])
+emit nested
+emit math.shape(nested)
+emit shaped + nested
+emit math.shape(matrix)
+emit matrix
+emit at(matrix, [1, 0])
+emit row
+emit math.shape(row)
+emit prefix
+emit math.shape(prefix)
+emit window
+emit math.shape(window)
+emit columns
+emit math.shape(columns)
+emit math.trace(square)
+emit math.det(square)
+emit math.solve(system, math.vector(1.0, 0.0))
+emit math.solve(system, math.identity(2))
+emit math.inv(system)
+emit math.cholesky(positive)
+emit identity
+emit math.shape(identity)
+emit changed
+emit rowChanged
+emit matrix
+emit reshaped
+emit math.shape(reshaped)
+emit transposed
+emit math.shape(transposed)
+emit product
+emit math.shape(product)
+emit broadcast
+emit math.shape(broadcast)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "nested-tensor-and-matrix")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathRangeTensorParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.arange(4)
+emit math.arange(1, 5, 1.5)
+emit math.arange(5, 1, -1.5)
+emit math.linspace(2, 6, 3)
+emit math.linspace(4, 8)
+emit math.logspace(0, 2, 3)
+emit math.logspace(0, 2, 3, 2)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-range-tensor")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStaticMathExtremaParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.min(3, -2, 4.5)
+emit math.max(3, -2, 4.5)
+emit math.clamp(-2, 0, 10)
+emit math.clamp(12, 0, 10)
+emit math.clamp(4, 0, 10)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "static-math-extrema")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendStringConcatenationParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "let greeting = \"h\u00e9\" + \"llo \U0001f680\"\nemit greeting\nemit greeting == \"h\u00e9llo \U0001f680\"\nemit len(greeting)")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "string-concat")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendListLiteralParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "let values = [1, 2, 3]\nemit values\nemit len(values)\nemit values == [1, 2, 3]\nemit values == [1, 2]")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "list-literal")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendListIndexAndForParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let values = [2, 3, 5]
+emit at(values, 1)
+let total = 0
+for value in values { let total = total + value }
+emit total
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "list-for")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendContiguousTensorKernelParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let left = tensor([1.0, 2.0, 3.0])
+let right = tensor([4.0, 5.0, 6.0])
+let sum = left + right
+emit sum
+emit at(sum, 2)
+emit len(sum)
+emit sum == tensor([5.0, 7.0, 9.0])
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if !strings.Contains(artifact.Source, "otensorbroadcastshape") || !strings.Contains(artifact.Source, "for(size_t output=0;output<n;output++)") {
+		t.Fatalf("generated C did not contain the direct broadcast tensor-add kernel:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-kernel")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendTensorShapeMismatchIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit tensor([1.0, 2.0]) + tensor([1.0, 2.0, 3.0])")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-shape-mismatch")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "osiris native error: tensor shape mismatch") {
+		t.Fatalf("native shape-mismatch output = %q\n--- C ---\n%s", out, artifact.Source)
+	}
+}
+
+func TestCBackendTensorScalarKernelParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let values = tensor([1.0, 2.0, 4.0])
+emit values + 2
+emit 10 - values
+emit values * 3
+emit 16 / values
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if !strings.Contains(artifact.Source, "otensorscalar") {
+		t.Fatalf("generated C did not contain the tensor-scalar kernel:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-scalar-kernel")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendTensorShapeAndFlattenParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let values = tensor([1.0, 2.5, 4.0])
+emit shape(values)
+emit flatten(values)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-shape-flatten")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendTensorReductionsParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit sum(tensor([1.5, 2.0, 3.5]))
+emit product(tensor([1.5, 2.0, 3.5]))
+emit sum(tensor([]))
+emit product(tensor([]))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-reductions")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendTensorDotParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit dot(tensor([1.5, 2.0, 3.5]), tensor([2.0, 4.0, 1.0]))
+emit dot(tensor([]), tensor([]))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-dot")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendTensorNormParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit norm(tensor([3.0, 4.0]))
+emit norm(tensor([]))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "tensor-norm")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
 	}
 }
 

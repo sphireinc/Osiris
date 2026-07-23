@@ -16,13 +16,13 @@ function widthFamily(prefix, widths, label, summary) {
 
 window.OSIRIS_MANUAL = {
   title: "Osiris Reference",
-  subtitle: "Language semantics, built-in functions, modules, and native interop.",
+  subtitle: "Language semantics, built-in functions, modules, I/O, and native integration design.",
   sections: [
     {
       id: "overview",
       eyebrow: "Preface",
       title: "What Osiris is",
-      summary: "Osiris is a deterministic, inspectable language for exact math, text transforms, data pipelines, module loading, and native code generation.",
+      summary: "Osiris is a deterministic, inspectable language for exact math, text transforms, data pipelines, and module loading.",
       paragraphs: [
         "Osiris keeps the core language small while giving the runtime enough structure to understand modules, exports, numeric exactness, tensors, and the build pipeline.",
         "The language is designed to be readable, testable, and useful for math-heavy work without turning every program into a framework.",
@@ -42,8 +42,8 @@ window.OSIRIS_MANUAL = {
           text: "if, while, for, match, switch, try/catch, return, break, and continue make the core language expressive without hiding the flow of computation."
         },
         {
-          title: "Native path",
-          text: "The standard performance path is build-time lowering through C and native compilation, while interpreter and VM flows remain available."
+          title: "Native build",
+          text: "Osiris is moving to a general C backend: the executable will run lowered program logic at runtime. The current snapshot build is temporary."
         }
       ]
     },
@@ -56,7 +56,7 @@ window.OSIRIS_MANUAL = {
         "A file is normally a list of statements separated by newlines or semicolons. The usual shape is package, export, import, macro, let, and emit, but that order is a convention rather than a law.",
         "Values are inspected through the runtime rather than hidden behind magic. The runtime preserves exactness, width metadata, tensor shape, module identity, and other structural information wherever it can.",
         "Imports are alias-based and version-aware. File modules, std modules, and local module graphs are resolved explicitly, and the loader records manifests for repeatable builds.",
-        "The language is synchronous. Statements execute in source order, emit appends values to the output stream in the order they are produced, and file I/O calls such as read, readbytes, write, csv, jsonparse, and lines block the current execution until the host finishes the operation."
+        "Ordinary expressions execute in source order and emit appends values in production order. Tasks make concurrency explicit through spawn, await, parallel, cancel, and timeout; file and data helpers remain deliberately visible host operations."
       ],
       cards: [
         {
@@ -85,7 +85,7 @@ window.OSIRIS_MANUAL = {
         },
         {
           title: "Blocking I/O",
-          text: "I/O is currently synchronous and host-backed. read, write, readbytes, csv, jsonparse, and lines all run as blocking operations on the current thread of execution."
+          text: "I/O is host-backed and explicit. Use read, write, readbytes, csv, jsonparse, lines, and stream handles for visible file/data flow; task-aware behavior is documented with each API."
         },
         {
           title: "Memory management",
@@ -94,6 +94,31 @@ window.OSIRIS_MANUAL = {
         {
           title: "Garbage collection",
           text: "There is no user-facing garbage collector to tune. Lifetime is governed by the host runtime's collector and the shape of the current evaluation graph, so programmers focus on data flow instead of manual reclamation."
+        }
+      ]
+    },
+    {
+      id: "guide",
+      eyebrow: "Guide",
+      title: "Writing Osiris programs",
+      summary: "Write programs as explicit, deterministic pipelines: input, named transforms, and output.",
+      paragraphs: [
+        "Source files normally use the .osr extension. Statements are separated by newlines or semicolons; both // and # introduce line comments.",
+        "The readable default order is package, export, import, macro, let, and emit. It is a convention, not a restriction: use functions for named repeated work, loops for iteration, and match or switch for shape-driven branches.",
+        "Keep module surfaces narrow, name intermediate transforms, distinguish text from bytes, and leave output visible. Good Osiris code should be easy to trace when read later."
+      ],
+      cards: [
+        {
+          title: "Program shape",
+          text: "Put package metadata and exports first when a file is importable; use alias-based imports and finish with a visible emit when practical."
+        },
+        {
+          title: "Data flow",
+          text: "Prefer read -> transform -> write. Use bytes and fixed-width conversions for binary work instead of treating strings as hidden numbers."
+        },
+        {
+          title: "Tools",
+          text: "Use fmt, run, vm, trace, debug, infer, ir, ssa, cfg, and deps to make program behavior and compiler analysis inspectable."
         }
       ]
     },
@@ -146,11 +171,12 @@ window.OSIRIS_MANUAL = {
       id: "native",
       eyebrow: "Chapter",
       title: "Native interop and build flow",
-      summary: "Osiris builds through a native pipeline and can expose host-backed modules explicitly instead of pretending every foreign package is a dynamic script import.",
+      summary: "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; FFI remains future work.",
       paragraphs: [
-        "The native build path lowers Osiris to C and then compiles that C with the system compiler, which keeps performance and portability practical.",
-        "C libraries are the natural first native interop target because their ABI model is stable enough for explicit wrappers and build-time linking.",
-        "Go-backed std modules already fit the same wrapper pattern: the host exposes a module, and Osiris imports that module by name."
+        "The current native build path is a temporary snapshot implementation: it evaluates an Osiris program and emits C that prints captured outputs. The target pipeline lowers AST/IR into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation.",
+        "C is the first backend because it is inspectable, portable, and lets mature toolchains handle instruction selection, register allocation, linking, and target-specific optimization. Native parity and measured performance are required before claims of C-level speed.",
+        "C libraries are the proposed first native interop target because their ABI model can support explicit wrappers and build-time linking. No public FFI exists yet.",
+        "Go-backed std modules already use a host-wrapper pattern: Osiris imports a named module supplied by the Go runtime, not arbitrary Go source at runtime."
       ],
       cards: [
         {
@@ -1293,7 +1319,7 @@ window.OSIRIS_MANUAL = {
           returns: "scalar",
           summary: "Read the diagonal trace of a matrix.",
           details: [
-            "trace sums the entries on the main diagonal of a square matrix.",
+            "trace sums the entries on the main diagonal of a matrix; rectangular matrices use their shorter dimension.",
             "It is a standard diagnostic in linear algebra and is often used in invariants, projections, and matrix summaries."
           ],
           example: "emit trace(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1348,7 +1374,7 @@ window.OSIRIS_MANUAL = {
           returns: "tensor",
           summary: "Compute a Cholesky factorization.",
           details: [
-            "cholesky factors a symmetric positive-definite matrix into a lower-triangular factor and its transpose.",
+            "cholesky computes the lower-triangular factor from the matrix's lower triangle and requires every diagonal pivot to stay positive.",
             "It is a preferred decomposition for covariance systems, optimization, and fast structured solves."
           ],
           example: "emit cholesky(matrix(2, 2, [4, 2, 2, 3]))"
@@ -1530,7 +1556,7 @@ window.OSIRIS_MANUAL = {
     {
       id: "io",
       title: "I/O helpers",
-      summary: "File access and structured input helpers for deterministic data pipelines.",
+      summary: "Explicit file, stream, and structured-input helpers for deterministic data pipelines.",
       items: [
         {
           name: "read",
@@ -1579,6 +1605,38 @@ window.OSIRIS_MANUAL = {
           summary: "Parse JSON into native Osiris values.",
           details: ["JSON numbers are preserved with exactness where possible."],
           example: "emit jsonparse(readbytes(\"input.json\"))"
+        },
+        {
+          name: "openread",
+          syntax: "openread(path)",
+          returns: "readable stream handle",
+          summary: "Open a file for explicit line or chunk reading.",
+          details: ["Use readline or readchunk, then close the handle when processing is complete."],
+          example: "let input = openread(\"input.txt\")\nemit readline(input)\nclose(input)"
+        },
+        {
+          name: "openwrite",
+          syntax: "openwrite(path)",
+          returns: "writable stream handle",
+          summary: "Open a file for buffered, explicit streaming writes.",
+          details: ["Use writechunk, flush when required, and close the handle when processing is complete."],
+          example: "let out = openwrite(\"out.txt\")\nwritechunk(out, \"hello\\n\")\nclose(out)"
+        },
+        {
+          name: "readline / readchunk",
+          syntax: "readline(handle) / readchunk(handle, size)",
+          returns: "text or bytes",
+          summary: "Read the next line or up to a requested byte count from a stream.",
+          details: ["These helpers allow large inputs to be processed without first loading the whole file."],
+          example: "let chunk = readchunk(input, 4096)"
+        },
+        {
+          name: "writechunk / flush / close",
+          syntax: "writechunk(handle, data) / flush(handle) / close(handle)",
+          returns: "success value",
+          summary: "Write to, flush, and release an explicit stream handle.",
+          details: ["Handles are ordinary values; lifetime and failure handling remain visible in source."],
+          example: "writechunk(out, bytes(0x4f, 0x53, 0x52))\nflush(out)\nclose(out)"
         }
       ]
     },
@@ -1720,6 +1778,17 @@ window.OSIRIS_MANUAL = {
           summary: "Take the first N values from a collection.",
           details: ["Useful for slices, previews, and bounded sampling."],
           example: "emit take([1, 2, 3, 4], 2)"
+        },
+        {
+          name: "slice",
+          syntax: "slice(tensor, start, end[, axis])",
+          returns: "tensor",
+          summary: "Copy a half-open range from a tensor's leading axis.",
+          details: [
+            "Without axis, slice uses the leading axis; axis selects any zero-based tensor axis.",
+            "The result preserves its other dimensions and owns its data. Bounds are non-negative; endpoints above the selected dimension are clamped, while end before start is an error."
+          ],
+          example: "emit slice(matrix(2, 3, [1, 2, 3, 4, 5, 6]), 1, 3, 1)"
         },
         {
           name: "sum",

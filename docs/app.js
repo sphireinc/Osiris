@@ -6,6 +6,7 @@ const pageId = document.body.dataset.page || "index";
 const PAGE_DEFS = [
   { id: "index", label: "Home", href: "index.html", kind: "landing", title: "Osiris Reference" },
   { id: "semantics", label: "Language semantics", href: "semantics.html", kind: "section", target: "semantics", title: "Language semantics" },
+  { id: "guide", label: "Writing programs", href: "guide.html", kind: "section", target: "guide", title: "Writing Osiris programs" },
   { id: "errors", label: "Error model", href: "errors.html", kind: "section", target: "errors", title: "Error model" },
   { id: "native", label: "Native interop", href: "native.html", kind: "section", target: "native", title: "Native interop" },
   { id: "core", label: "Core language constructs", href: "core.html", kind: "group", target: "core", title: "Core language constructs" },

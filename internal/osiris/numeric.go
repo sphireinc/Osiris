@@ -2079,6 +2079,32 @@ func atValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("at expects 2 arguments")
 	}
+	if args[0].kind == kindTensor && args[1].kind == kindList {
+		coordinateRank := len(args[1].list)
+		if coordinateRank == 0 || coordinateRank > len(args[0].shape) {
+			return nullValue(), fmt.Errorf("tensor coordinate rank does not match tensor rank")
+		}
+		offset := 0
+		stride := 1
+		for axis := len(args[0].shape) - 1; axis >= coordinateRank; axis-- {
+			stride *= args[0].shape[axis]
+		}
+		blockLen := stride
+		for axis := coordinateRank - 1; axis >= 0; axis-- {
+			coordinate, err := args[1].list[axis].Int()
+			if err != nil || coordinate < 0 || coordinate >= args[0].shape[axis] {
+				return nullValue(), fmt.Errorf("tensor coordinate out of range")
+			}
+			offset += coordinate * stride
+			stride *= args[0].shape[axis]
+		}
+		if coordinateRank == len(args[0].shape) {
+			return args[0].data[offset], nil
+		}
+		nextShape := append([]int(nil), args[0].shape[coordinateRank:]...)
+		nextData := append([]Value(nil), args[0].data[offset:offset+blockLen]...)
+		return newTensorValue(nextShape, nextData), nil
+	}
 	idx, err := args[1].Int()
 	if err != nil {
 		return nullValue(), err
@@ -2116,6 +2142,40 @@ func atValue(args []Value) (Value, error) {
 func setAtValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("setat expects 3 arguments")
+	}
+	if args[0].kind == kindTensor && args[1].kind == kindList {
+		coordinateRank := len(args[1].list)
+		if coordinateRank == 0 || coordinateRank > len(args[0].shape) {
+			return nullValue(), fmt.Errorf("tensor coordinate rank does not match tensor rank")
+		}
+		offset := 0
+		stride := 1
+		for axis := len(args[0].shape) - 1; axis >= coordinateRank; axis-- {
+			stride *= args[0].shape[axis]
+		}
+		blockLen := stride
+		for axis := coordinateRank - 1; axis >= 0; axis-- {
+			coordinate, err := args[1].list[axis].Int()
+			if err != nil || coordinate < 0 || coordinate >= args[0].shape[axis] {
+				return nullValue(), fmt.Errorf("tensor coordinate out of range")
+			}
+			offset += coordinate * stride
+			stride *= args[0].shape[axis]
+		}
+		next := append([]Value(nil), args[0].data...)
+		if coordinateRank < len(args[0].shape) {
+			if args[2].kind != kindTensor || !equalIntSlices(args[2].shape, args[0].shape[coordinateRank:]) {
+				return nullValue(), fmt.Errorf("tensor replacement shape does not match coordinate slice")
+			}
+			copy(next[offset:offset+blockLen], args[2].data)
+			return newTensorValue(args[0].shape, next), nil
+		}
+		number, err := args[2].AsNumber()
+		if err != nil {
+			return nullValue(), err
+		}
+		next[offset] = numberValue(number)
+		return newTensorValue(args[0].shape, next), nil
 	}
 	idx, err := args[1].Int()
 	if err != nil {

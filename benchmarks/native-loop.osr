@@ -1,0 +1,12 @@
+# Native-lowering benchmark: a scalar loop with a data-dependent accumulator.
+# It intentionally emits one checksum so every execution path can be verified
+# before timing. BENCH_ITERS may replace the literal when bench.sh prepares its
+# temporary workload.
+
+let i = 0
+let total = 0
+while i < 1000 {
+  let total = total + i
+  let i = i + 1
+}
+emit total

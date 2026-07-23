@@ -853,7 +853,7 @@ func purityKindFromValue(v Value) string {
 // pipeline without re-deriving the same information.
 func builtinPurityKind(name string) string {
 	switch name {
-	case "tensor", "matrix", "vector", "vec", "reshape", "transpose", "flatten", "shape", "dot", "matmul", "clone", "view", "zeros", "ones", "full", "eye", "identity", "arange", "linspace", "logspace", "squeeze", "expand_dims", "concat", "stack", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "tile", "outer", "inv", "solve", "cholesky":
+	case "tensor", "matrix", "vector", "vec", "reshape", "transpose", "flatten", "shape", "dot", "matmul", "clone", "view", "zeros", "ones", "full", "eye", "identity", "arange", "linspace", "logspace", "slice", "squeeze", "expand_dims", "concat", "stack", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "tile", "outer", "inv", "solve", "cholesky":
 		return "tensor"
 	case "split", "chunks", "bytes", "pack", "unpack", "lines", "csv", "jsonparse", "range", "take", "qr", "eig", "eigh", "svd":
 		return "list"
