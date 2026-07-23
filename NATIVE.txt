@@ -1,0 +1,81 @@
+OSIRIS NATIVE COMPILATION
+==========================
+
+Osiris can compile a supported subset of .osr programs into real native
+executables.
+
+The path is:
+
+    .osr source
+      -> parser, IR, and optimization passes implemented in Go
+      -> generated C plus a small Osiris native runtime
+      -> the system C compiler
+      -> a machine-native executable
+
+Go is the implementation language of the compiler and its build driver. The
+generated executable does not embed the Go interpreter or evaluate the program
+while compiling. Program logic runs after compilation as C compiled to machine
+code.
+
+WHY C
+-----
+
+The first production backend deliberately targets portable C. System C
+compilers already provide instruction selection, register allocation,
+vectorization, linking, and broad platform support. This lets Osiris focus on
+correct lowering, its ABI, and strong numerical kernels while still aiming at
+C-level performance for supported code.
+
+The C backend is a compiler backend, not a snapshot generator. It may not
+replace unsupported source with output computed by the interpreter.
+
+CURRENT NATIVE COVERAGE
+-----------------------
+
+The native path currently includes:
+
+  - bindings, branches, loops, direct functions, lexical captures, closures,
+    and indirect closure calls;
+  - scalar bool, integer, f32, and f64 operations, with unboxed scalar hot
+    paths when inference proves their types;
+  - strings, lists, printing, Unicode code-point indexing, and selected
+    static std/math operations;
+  - contiguous rank-aware f64 tensors: construction, broadcasting, indexing,
+    copy-on-write updates, reshape, flattening, and arbitrary-axis slicing;
+  - matrix kernels: outer product, transpose, matmul, trace, determinant,
+    solve, inverse, cholesky, and QR factorization.
+
+The executable contains a small C runtime for tagged dynamic values and the
+supported standard-library operations. It is standalone for the supported
+subset: it does not require the Go runtime to execute.
+
+CURRENT BOUNDARY
+----------------
+
+Osiris is not yet a universal native compiler for every language feature.
+Unsupported IR operations and standard-library calls are compile-time
+diagnostics; they must not silently fall back to the interpreter or to
+compile-time execution.
+
+Examples of work that still needs an explicit native ABI or lowering include
+many dynamic modules, host/FFI calls, bytes, structured errors, tasks, I/O,
+non-f64 tensor element types, and heavier numerical decompositions such as
+eigenvalue and SVD routines. Those decompositions need an explicitly selected
+numerical-library provider; native `eigh` and `svd` use one when linked, while
+general `eig` remains blocked on complex tensors. See
+docs/design/NATIVE-LINALG-ABI.md.
+The design for that prerequisite is docs/design/NATIVE-COMPLEX-ABI.md.
+
+BUILDING
+--------
+
+The CLI's build path generates C and invokes the configured system C compiler.
+It can use a content-addressed executable cache when given a cache directory.
+The emitted C is intentionally inspectable for debugging and optimization work.
+
+The long-form architecture and ABI details live in:
+
+    docs/design/NATIVE-COMPILER.md
+    docs/design/NATIVE-ABI.md
+    docs/design/NATIVE-LINALG-ABI.md
+    docs/design/NATIVE-COMPLEX-ABI.md

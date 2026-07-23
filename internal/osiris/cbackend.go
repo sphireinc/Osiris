@@ -16,16 +16,22 @@ type CArtifact struct {
 	Source string
 }
 
+// CCompileOptions selects optional native link-time facilities.
+type CCompileOptions struct {
+	LinalgProviderSource string
+}
+
 // CCompileManifest describes an addressable native executable artifact. Cache
 // keys include every input that can affect machine code generation.
 type CCompileManifest struct {
-	Key              string   `json:"key"`
-	SourceSHA256     string   `json:"source_sha256"`
-	Compiler         string   `json:"compiler"`
-	CompilerIdentity string   `json:"compiler_identity"`
-	Flags            []string `json:"flags"`
-	Target           string   `json:"target"`
-	CacheHit         bool     `json:"-"`
+	Key                  string   `json:"key"`
+	SourceSHA256         string   `json:"source_sha256"`
+	Compiler             string   `json:"compiler"`
+	CompilerIdentity     string   `json:"compiler_identity"`
+	Flags                []string `json:"flags"`
+	LinalgProviderSHA256 string   `json:"linalg_provider_sha256,omitempty"`
+	Target               string   `json:"target"`
+	CacheHit             bool     `json:"-"`
 }
 
 // CompileC compiles the c into the requested backend artifact so the caller
@@ -35,6 +41,11 @@ type CCompileManifest struct {
 // It returns *CArtifact and an error. Callers should only trust the value when
 // the error is nil.
 func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, error) {
+	return CompileCWithOptions(ctx, rt, prog, CCompileOptions{})
+}
+
+// CompileCWithOptions lowers a program with explicit native backend options.
+func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, options CCompileOptions) (*CArtifact, error) {
 	if rt == nil {
 		rt = NewRuntime()
 	}
@@ -42,7 +53,7 @@ func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, erro
 	if err != nil {
 		return nil, err
 	}
-	source, err := emitCIR(ir)
+	source, err := emitCIRWithOptions(ir, options)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +95,7 @@ func cEscapeString(s string) string {
 //
 // It returns an error when the operation cannot complete cleanly.
 func CompileCObject(ctx context.Context, source string, outputPath string) error {
-	return compileCArtifact(ctx, source, outputPath, true)
+	return compileCArtifact(ctx, source, outputPath, true, CCompileOptions{})
 }
 
 // CompileCExecutable compiles the cexecutable into the requested backend
@@ -93,7 +104,12 @@ func CompileCObject(ctx context.Context, source string, outputPath string) error
 //
 // It returns an error when the operation cannot complete cleanly.
 func CompileCExecutable(ctx context.Context, source string, outputPath string) error {
-	return compileCArtifact(ctx, source, outputPath, false)
+	return CompileCExecutableWithOptions(ctx, source, outputPath, CCompileOptions{})
+}
+
+// CompileCExecutableWithOptions compiles generated C and optional provider C.
+func CompileCExecutableWithOptions(ctx context.Context, source, outputPath string, options CCompileOptions) error {
+	return compileCArtifact(ctx, source, outputPath, false, options)
 }
 
 // CompileCExecutableCached compiles source into outputPath, reusing a
@@ -101,6 +117,10 @@ func CompileCExecutable(ctx context.Context, source string, outputPath string) e
 // compilation flags are identical. cacheDir is explicit so builds stay
 // reproducible and callers control cache lifetime.
 func CompileCExecutableCached(ctx context.Context, source, outputPath, cacheDir string) (*CCompileManifest, error) {
+	return CompileCExecutableCachedWithOptions(ctx, source, outputPath, cacheDir, CCompileOptions{})
+}
+
+func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath, cacheDir string, options CCompileOptions) (*CCompileManifest, error) {
 	compiler := os.Getenv("CC")
 	if compiler == "" {
 		compiler = "cc"
@@ -115,15 +135,25 @@ func CompileCExecutableCached(ctx context.Context, source, outputPath, cacheDir 
 	}
 	flags := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG", "-flto", "-lm"}
 	sourceHash := sha256.Sum256([]byte(source))
-	keyInput := strings.Join([]string{hex.EncodeToString(sourceHash[:]), compilerPath, string(identityOut), strings.Join(flags, "\x00"), "executable"}, "\x00")
+	providerHash := ""
+	if options.LinalgProviderSource != "" {
+		data, err := os.ReadFile(options.LinalgProviderSource)
+		if err != nil {
+			return nil, fmt.Errorf("native numerical provider %q: %w", options.LinalgProviderSource, err)
+		}
+		hash := sha256.Sum256(data)
+		providerHash = hex.EncodeToString(hash[:])
+	}
+	keyInput := strings.Join([]string{hex.EncodeToString(sourceHash[:]), providerHash, compilerPath, string(identityOut), strings.Join(flags, "\x00"), "executable"}, "\x00")
 	keyHash := sha256.Sum256([]byte(keyInput))
 	manifest := &CCompileManifest{
-		Key:              hex.EncodeToString(keyHash[:]),
-		SourceSHA256:     hex.EncodeToString(sourceHash[:]),
-		Compiler:         compilerPath,
-		CompilerIdentity: strings.TrimSpace(string(identityOut)),
-		Flags:            flags,
-		Target:           "executable",
+		Key:                  hex.EncodeToString(keyHash[:]),
+		SourceSHA256:         hex.EncodeToString(sourceHash[:]),
+		LinalgProviderSHA256: providerHash,
+		Compiler:             compilerPath,
+		CompilerIdentity:     strings.TrimSpace(string(identityOut)),
+		Flags:                flags,
+		Target:               "executable",
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, err
@@ -137,7 +167,7 @@ func CompileCExecutableCached(ctx context.Context, source, outputPath, cacheDir 
 		return manifest, nil
 	}
 	tempPath := cachePath + ".tmp"
-	if err := compileCArtifact(ctx, source, tempPath, false); err != nil {
+	if err := compileCArtifact(ctx, source, tempPath, false, options); err != nil {
 		return nil, err
 	}
 	if err := os.Rename(tempPath, cachePath); err != nil {
@@ -172,7 +202,7 @@ func copyExecutable(sourcePath, outputPath string) error {
 // package and returns error.
 //
 // It returns an error when the operation cannot complete cleanly.
-func compileCArtifact(ctx context.Context, source, outputPath string, object bool) error {
+func compileCArtifact(ctx context.Context, source, outputPath string, object bool, options CCompileOptions) error {
 	compiler := os.Getenv("CC")
 	if compiler == "" {
 		compiler = "cc"
@@ -196,6 +226,12 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 		args = append(args, "-c", srcPath, "-o", outputPath)
 	} else {
 		args = append(args, "-flto", srcPath, "-o", outputPath)
+		if options.LinalgProviderSource != "" {
+			if _, err := os.Stat(options.LinalgProviderSource); err != nil {
+				return fmt.Errorf("native numerical provider %q: %w", options.LinalgProviderSource, err)
+			}
+			args = append(args, options.LinalgProviderSource)
+		}
 	}
 	cmd := exec.CommandContext(ctx, compiler, args...)
 	if !object {

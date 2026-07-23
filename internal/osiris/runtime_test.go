@@ -3480,6 +3480,110 @@ emit math.shape(filled)
 	}
 }
 
+func TestCBackendNumericalProviderDiagnostics(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "eigh",
+			src:  "import \"std/math\" as math\nemit math.eigh(math.identity(2))",
+			want: "eigh requires a configured native numerical provider",
+		},
+		{
+			name: "svd",
+			src:  "import \"std/math\" as math\nemit math.svd(math.identity(2))",
+			want: "svd requires a configured native numerical provider",
+		},
+		{
+			name: "eig",
+			src:  "import \"std/math\" as math\nemit math.eig(math.identity(2))",
+			want: "eig requires a native complex tensor ABI",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			prog, err := Parse("<test>", test.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileC(context.Background(), NewRuntime(), prog)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("CompileC error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCBackendEighProviderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.eigh(math.matrix(2, 2, [2.0, 0.0, 0.0, 3.0]))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerPath := filepath.Join("testdata", "linalg_provider_diagonal.c")
+	artifact, err := CompileCWithOptions(context.Background(), rt, prog, CCompileOptions{LinalgProviderSource: providerPath})
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "eigh-provider")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, CCompileOptions{LinalgProviderSource: providerPath}); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), wantValues[0].String()+"\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendSVDProviderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.svd(math.matrix(2, 2, [3.0, 0.0, 0.0, 2.0]))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerPath := filepath.Join("testdata", "linalg_provider_diagonal.c")
+	artifact, err := CompileCWithOptions(context.Background(), rt, prog, CCompileOptions{LinalgProviderSource: providerPath})
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "svd-provider")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, CCompileOptions{LinalgProviderSource: providerPath}); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), wantValues[0].String()+"\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
 func TestCBackendNestedTensorAndMatrixParity(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -3503,6 +3607,8 @@ let identity = math.eye(2, 3)
 let square = math.matrix(3, 3, [2.0, 1.0, 3.0, 0.0, -1.0, 4.0, 5.0, 2.0, 0.0])
 let system = math.matrix(2, 2, [4.0, 7.0, 2.0, 6.0])
 let positive = math.matrix(2, 2, [4.0, 2.0, 2.0, 3.0])
+let qrInput = math.matrix(3, 2, [1.0, 0.0, 0.0, 1.0, 1.0, 1.0])
+let outer = math.outer(math.matrix(1, 2, [2.0, 3.0]), math.vector(4.0, 5.0))
 emit nested
 emit math.shape(nested)
 emit shaped + nested
@@ -3523,6 +3629,8 @@ emit math.solve(system, math.vector(1.0, 0.0))
 emit math.solve(system, math.identity(2))
 emit math.inv(system)
 emit math.cholesky(positive)
+emit math.qr(qrInput)
+emit outer
 emit identity
 emit math.shape(identity)
 emit changed

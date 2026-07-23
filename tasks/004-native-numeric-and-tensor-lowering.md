@@ -47,4 +47,10 @@ lower to direct f64 reduction kernels, with determinant using partial pivoting.
 Rank-two `solve` and `inv` now lower through partial-pivot Gauss-Jordan
 elimination for non-empty square f64 matrices and tensor vector/matrix RHSs.
 Rank-two `cholesky` now lowers to an interpreter-matched lower-triangular f64
-kernel with positive-pivot validation.
+kernel with positive-pivot validation. Rank-two `qr` now lowers to the
+interpreter-matched classical Gram-Schmidt kernel and returns owned `[Q, R]`
+tensors. `outer` now lowers for f64 tensors of any rank after flattening both
+operands into a direct rank-two product kernel. The remaining `eigh` and `svd`
+work is implemented through the optional versioned numerical-provider ABI in
+`docs/design/NATIVE-LINALG-ABI.md`; native `eig` remains blocked on a real
+complex scalar and tensor ABI specified in `docs/design/NATIVE-COMPLEX-ABI.md`.

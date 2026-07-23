@@ -553,8 +553,10 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 	fs.SetOutput(io.Discard)
 	var outputPath string
 	var cacheDir string
+	var linalgProvider string
 	fs.StringVar(&outputPath, "o", "", "output path")
 	fs.StringVar(&cacheDir, "cache-dir", "", "content-addressed executable cache directory")
+	fs.StringVar(&linalgProvider, "linalg-provider", "", "C source implementing the Osiris numerical-provider ABI")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -572,7 +574,8 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 		return err
 	}
 	rt := osiris.NewRuntime()
-	artifact, err := osiris.CompileC(ctx, rt, prog)
+	options := osiris.CCompileOptions{LinalgProviderSource: linalgProvider}
+	artifact, err := osiris.CompileCWithOptions(ctx, rt, prog, options)
 	if err != nil {
 		return err
 	}
@@ -593,10 +596,10 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 			return fmt.Errorf("-o is required for executable output")
 		}
 		if cacheDir != "" {
-			_, err := osiris.CompileCExecutableCached(ctx, artifact.Source, outputPath, cacheDir)
+			_, err := osiris.CompileCExecutableCachedWithOptions(ctx, artifact.Source, outputPath, cacheDir, options)
 			return err
 		}
-		return osiris.CompileCExecutable(ctx, artifact.Source, outputPath)
+		return osiris.CompileCExecutableWithOptions(ctx, artifact.Source, outputPath, options)
 	default:
 		return fmt.Errorf("unsupported C backend mode")
 	}

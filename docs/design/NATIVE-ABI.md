@@ -116,6 +116,8 @@ validate non-negative dimensions and use a direct diagonal-fill kernel.
 `transpose(matrix)` and `matmul(left, right)` lower for rank-two f64 tensors.
 They validate rank and compatible inner dimensions, then use direct contiguous
 copy and triple-loop kernels respectively.
+`outer(left, right)` lowers for f64 tensors of any rank by flattening each
+operand and constructing the corresponding owned rank-two product tensor.
 `trace(matrix)` lowers for rank-two f64 tensors and sums the shared diagonal of
 a rectangular or square matrix. `det(matrix)` lowers for square rank-two f64
 tensors through the interpreter-matched partial-pivot elimination algorithm;
@@ -129,6 +131,10 @@ path against an identity RHS.
 current interpreter by reading the lower triangle directly and requiring every
 computed diagonal pivot to be positive; it returns an owned lower-triangular
 factor and does not independently enforce symmetry.
+`qr(matrix)` lowers for rank-two f64 tensors through the interpreter-matched
+classical Gram-Schmidt algorithm. It returns an owned list `[Q, R]`, where `Q`
+has the input's shape and `R` is square on the input column count; dependent
+columns remain zero rather than causing an error.
 
 `std/math.arange`, `std/math.linspace`, and `std/math.logspace` also lower to
 the one-dimensional f64 ABI. Their optional arguments and default counts match

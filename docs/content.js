@@ -1360,7 +1360,7 @@ window.OSIRIS_MANUAL = {
         {
           name: "qr",
           syntax: "qr(matrix)",
-          returns: "tensor",
+          returns: "[Q, R] tensors",
           summary: "Compute a QR factorization.",
           details: [
             "qr factors a matrix into orthogonal and triangular components.",
@@ -1382,7 +1382,7 @@ window.OSIRIS_MANUAL = {
         {
           name: "eig",
           syntax: "eig(matrix)",
-          returns: "tensor",
+          returns: "[values, vectors] tensors",
           summary: "Compute an eigenvalue decomposition.",
           details: [
             "eig computes the eigenstructure of a matrix, returning values that describe how the matrix scales its eigenvectors.",
@@ -1393,7 +1393,7 @@ window.OSIRIS_MANUAL = {
         {
           name: "eigh",
           syntax: "eigh(matrix)",
-          returns: "tensor",
+          returns: "[values, vectors] tensors",
           summary: "Compute an eigenvalue decomposition for symmetric matrices.",
           details: [
             "eigh is the symmetric or Hermitian-specialized eigen decomposition path.",
@@ -1404,7 +1404,7 @@ window.OSIRIS_MANUAL = {
         {
           name: "svd",
           syntax: "svd(matrix)",
-          returns: "tensor",
+          returns: "[U, singular_values, VT] tensors",
           summary: "Compute a singular value decomposition.",
           details: [
             "svd decomposes a matrix into orthogonal factors and singular values that measure the strength of its principal directions.",
