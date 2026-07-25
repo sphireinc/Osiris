@@ -10,19 +10,93 @@ import (
 
 type optimizeEnv map[string]Expr
 
+// OptimizationPassReport records one deterministic optimizer stage. Before and
+// after are formatted Osiris source so reports are useful to both people and
+// tools without exposing unstable Go AST internals.
+type OptimizationPassReport struct {
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	Reason           string `json:"reason,omitempty"`
+	Before           string `json:"before"`
+	After            string `json:"after"`
+	BeforeStatements int    `json:"before_statements"`
+	AfterStatements  int    `json:"after_statements"`
+}
+
+// OptimizationReport is the stable, machine-readable account of an optimizer
+// run. Passes always appear in pipeline order. A pass reported as
+// "not_implemented" is deliberately absent rather than silently speculative.
+type OptimizationReport struct {
+	Version         int                      `json:"version"`
+	SourceName      string                   `json:"source_name"`
+	OptimizedSource string                   `json:"optimized_source"`
+	Passes          []OptimizationPassReport `json:"passes"`
+}
+
 // OptimizeProgram handles the optimize program step in the surrounding package
 // and returns *Program.
 //
 // It returns *Program so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func OptimizeProgram(prog *Program) *Program {
+	optimized, _ := OptimizeProgramWithReport(prog)
+	return optimized
+}
+
+// OptimizeProgramWithReport applies the conservative source optimizer and
+// reports every available and intentionally unavailable optimization stage.
+// It is the reporting entry point; OptimizeProgram preserves the compact API
+// used by the compiler pipeline.
+func OptimizeProgramWithReport(prog *Program) (*Program, OptimizationReport) {
 	if prog == nil {
-		return nil
+		return nil, OptimizationReport{Version: 1}
 	}
+	report := OptimizationReport{Version: 1, SourceName: prog.SourceName}
+	before := prog
 	stmts, _, pureNames := optimizeStmtSequence(prog.Statements, nil)
-	return &Program{
+	simplified := &Program{
 		SourceName: prog.SourceName,
-		Statements: sweepDeadStatements(stmts, nil, pureNames),
+		Statements: stmts,
+	}
+	report.Passes = append(report.Passes, optimizationPassReport(
+		"simplify-and-propagate", "applied", "", before, simplified,
+	))
+	optimized := &Program{
+		SourceName: prog.SourceName,
+		Statements: sweepDeadStatements(simplified.Statements, nil, pureNames),
+	}
+	report.Passes = append(report.Passes, optimizationPassReport(
+		"dead-statement-elimination", "applied", "", simplified, optimized,
+	))
+	for _, unavailable := range []struct{ name, reason string }{
+		{"loop-invariant-code-motion", "the source optimizer does not prove loop invariance across effects or aliases"},
+		{"bounds-check-elimination", "the source optimizer has no range proof for index, shape, and mutation semantics"},
+		{"loop-unrolling", "the source optimizer has no profitability model or bounded-trip-count proof"},
+		{"scalarization", "the source optimizer has no aggregate escape or alias analysis"},
+	} {
+		report.Passes = append(report.Passes, optimizationPassReport(
+			unavailable.name, "not_implemented", unavailable.reason, optimized, optimized,
+		))
+	}
+	report.OptimizedSource = FormatProgram(optimized)
+	return optimized, report
+}
+
+func optimizationPassReport(name, status, reason string, before, after *Program) OptimizationPassReport {
+	beforeSource := FormatProgram(before)
+	afterSource := FormatProgram(after)
+	if status == "applied" && beforeSource == afterSource {
+		status = "no_change"
+		reason = "no eligible transformation was proven safe"
+	}
+	return OptimizationPassReport{
+		Name:             name,
+		Status:           status,
+		Reason:           reason,
+		Before:           beforeSource,
+		After:            afterSource,
+		BeforeStatements: len(before.Statements),
+		AfterStatements:  len(after.Statements),
 	}
 }
 
@@ -220,7 +294,7 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 	case *matchExpr:
 		arms := make([]matchArm, len(n.arms))
 		for i, arm := range n.arms {
-			arms[i] = matchArm{pattern: arm.pattern, body: optimizeExprWithEnvSeen(arm.body, env, seen)}
+			arms[i] = matchArm{pattern: arm.pattern, guard: optimizeExprWithEnvSeen(arm.guard, env, seen), body: optimizeExprWithEnvSeen(arm.body, env, seen), isDefault: arm.isDefault}
 		}
 		return &matchExpr{subject: optimizeExprWithEnvSeen(n.subject, env, seen), arms: arms, keyword: n.keyword}
 	default:
@@ -895,6 +969,8 @@ func pureBuiltinByName(name string) (Builtin, bool) {
 		return builtinReal, true
 	case "imag":
 		return builtinImag, true
+	case "conjugate":
+		return conjugateValue, true
 	case "magnitude", "abs":
 		return builtinMagnitude, true
 	case "pow":

@@ -1,0 +1,2 @@
+import "std/math" as math
+emit math.sqrt(math.clamp(144, 0, 200))

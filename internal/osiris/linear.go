@@ -3,6 +3,7 @@ package osiris
 import (
 	"fmt"
 	"math"
+	"math/cmplx"
 	"sort"
 )
 
@@ -62,6 +63,48 @@ func matrixValues(v Value) ([]int, [][]float64, error) {
 	return shape, mat, nil
 }
 
+// complexMatrixValues converts a rank-two tensor into a dense complex matrix.
+// Real numeric elements are promoted with a zero imaginary component.
+func complexMatrixValues(v Value) ([]int, [][]complex128, error) {
+	shape, data, err := inferTensor(v)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(shape) != 2 || len(data) != shape[0]*shape[1] {
+		return nil, nil, fmt.Errorf("expected a matrix")
+	}
+	mat := make([][]complex128, shape[0])
+	for row := range mat {
+		mat[row] = make([]complex128, shape[1])
+		for col := range mat[row] {
+			cell := data[row*shape[1]+col]
+			if cell.kind == kindComplex {
+				mat[row][col] = cell.cx
+				continue
+			}
+			n, err := cell.AsNumber()
+			if err != nil {
+				return nil, nil, err
+			}
+			mat[row][col] = complex(n, 0)
+		}
+	}
+	return shape, mat, nil
+}
+
+func matrixContainsComplex(v Value) (bool, error) {
+	_, data, err := inferTensor(v)
+	if err != nil {
+		return false, err
+	}
+	for _, cell := range data {
+		if cell.kind == kindComplex {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // vectorValues handles the vector values step in the surrounding package and
 // returns []float64, error.
 //
@@ -107,18 +150,35 @@ func outerValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("outer expects 2 arguments")
 	}
-	left, err := vectorValues(args[0])
+	_, left, err := inferTensor(args[0])
 	if err != nil {
 		return nullValue(), err
 	}
-	right, err := vectorValues(args[1])
+	_, right, err := inferTensor(args[1])
 	if err != nil {
 		return nullValue(), err
 	}
 	out := make([]Value, 0, len(left)*len(right))
+	complexResult := false
+	for _, value := range append(append([]Value(nil), left...), right...) {
+		complexResult = complexResult || value.kind == kindComplex
+	}
 	for _, ln := range left {
 		for _, rn := range right {
-			out = append(out, numberValue(ln*rn))
+			leftNumber, err := complexFromValue(ln)
+			if err != nil {
+				return nullValue(), err
+			}
+			rightNumber, err := complexFromValue(rn)
+			if err != nil {
+				return nullValue(), err
+			}
+			product := leftNumber * rightNumber
+			if complexResult {
+				out = append(out, complexValue(product))
+			} else {
+				out = append(out, numberValue(real(product)))
+			}
 		}
 	}
 	return tensorFromShapeAndData([]int{len(left), len(right)}, out)
@@ -132,6 +192,28 @@ func outerValue(args []Value) (Value, error) {
 func traceValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("trace expects 1 argument")
+	}
+	containsComplex, err := matrixContainsComplex(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if containsComplex {
+		shape, mat, err := complexMatrixValues(args[0])
+		if err != nil {
+			return nullValue(), err
+		}
+		if len(shape) != 2 {
+			return nullValue(), fmt.Errorf("trace expects a matrix")
+		}
+		limit := shape[0]
+		if shape[1] < limit {
+			limit = shape[1]
+		}
+		total := complex(0, 0)
+		for i := 0; i < limit; i++ {
+			total += mat[i][i]
+		}
+		return complexValue(total), nil
 	}
 	shape, mat, err := matrixValues(args[0])
 	if err != nil {
@@ -160,6 +242,54 @@ func traceValue(args []Value) (Value, error) {
 func detValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("det expects 1 argument")
+	}
+	containsComplex, err := matrixContainsComplex(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if containsComplex {
+		shape, mat, err := complexMatrixValues(args[0])
+		if err != nil {
+			return nullValue(), err
+		}
+		if len(shape) != 2 || shape[0] != shape[1] {
+			return nullValue(), fmt.Errorf("det expects a square matrix")
+		}
+		n := shape[0]
+		if n == 0 {
+			return complexValue(1), nil
+		}
+		a := make([][]complex128, n)
+		for i := range mat {
+			a[i] = append([]complex128(nil), mat[i]...)
+		}
+		det := complex(1, 0)
+		for i := 0; i < n; i++ {
+			pivot := i
+			maxAbs := cmplx.Abs(a[i][i])
+			for row := i + 1; row < n; row++ {
+				if current := cmplx.Abs(a[row][i]); current > maxAbs {
+					maxAbs = current
+					pivot = row
+				}
+			}
+			if maxAbs == 0 {
+				return complexValue(0), nil
+			}
+			if pivot != i {
+				a[i], a[pivot] = a[pivot], a[i]
+				det = -det
+			}
+			piv := a[i][i]
+			det *= piv
+			for row := i + 1; row < n; row++ {
+				factor := a[row][i] / piv
+				for col := i; col < n; col++ {
+					a[row][col] -= factor * a[i][col]
+				}
+			}
+		}
+		return complexValue(det), nil
 	}
 	shape, mat, err := matrixValues(args[0])
 	if err != nil {
@@ -214,6 +344,17 @@ func detValue(args []Value) (Value, error) {
 func solveValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("solve expects 2 arguments")
+	}
+	complexMatrix, err := matrixContainsComplex(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	complexRHS, err := matrixContainsComplex(args[1])
+	if err != nil {
+		return nullValue(), err
+	}
+	if complexMatrix || complexRHS {
+		return complexSolveValue(args)
 	}
 	ashape, a, err := matrixValues(args[0])
 	if err != nil {
@@ -308,6 +449,90 @@ func solveValue(args []Value) (Value, error) {
 	return tensorFromShapeAndData([]int{n, m}, out)
 }
 
+func complexSolveValue(args []Value) (Value, error) {
+	ashape, a, err := complexMatrixValues(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if len(ashape) != 2 || ashape[0] != ashape[1] {
+		return nullValue(), fmt.Errorf("solve expects a square matrix")
+	}
+	rhsShape, rhsData, err := inferTensor(args[1])
+	if err != nil {
+		return nullValue(), err
+	}
+	n := len(a)
+	m := 1
+	switch len(rhsShape) {
+	case 0, 1:
+		if len(rhsData) != n {
+			return nullValue(), fmt.Errorf("solve dimension mismatch")
+		}
+	case 2:
+		if rhsShape[0] != n {
+			return nullValue(), fmt.Errorf("solve dimension mismatch")
+		}
+		m = rhsShape[1]
+	default:
+		return nullValue(), fmt.Errorf("solve rhs must be a vector or matrix")
+	}
+	aug := make([][]complex128, n)
+	for row := 0; row < n; row++ {
+		aug[row] = make([]complex128, n+m)
+		copy(aug[row], a[row])
+		for col := 0; col < m; col++ {
+			index := row
+			if len(rhsShape) == 2 {
+				index = row*m + col
+			}
+			value, err := complexFromValue(rhsData[index])
+			if err != nil {
+				return nullValue(), err
+			}
+			aug[row][n+col] = value
+		}
+	}
+	for i := 0; i < n; i++ {
+		pivot := i
+		maxAbs := cmplx.Abs(aug[i][i])
+		for row := i + 1; row < n; row++ {
+			if current := cmplx.Abs(aug[row][i]); current > maxAbs {
+				maxAbs = current
+				pivot = row
+			}
+		}
+		if maxAbs == 0 {
+			return nullValue(), fmt.Errorf("solve matrix is singular")
+		}
+		if pivot != i {
+			aug[i], aug[pivot] = aug[pivot], aug[i]
+		}
+		piv := aug[i][i]
+		for col := i; col < n+m; col++ {
+			aug[i][col] /= piv
+		}
+		for row := 0; row < n; row++ {
+			if row == i {
+				continue
+			}
+			factor := aug[row][i]
+			for col := i; col < n+m; col++ {
+				aug[row][col] -= factor * aug[i][col]
+			}
+		}
+	}
+	out := make([]Value, 0, n*m)
+	for row := 0; row < n; row++ {
+		for col := 0; col < m; col++ {
+			out = append(out, complexValue(aug[row][n+col]))
+		}
+	}
+	if m == 1 {
+		return tensorFromShapeAndData([]int{n}, out)
+	}
+	return tensorFromShapeAndData([]int{n, m}, out)
+}
+
 // invValue handles the inv value step in the surrounding package and returns
 // Value, error.
 //
@@ -317,7 +542,7 @@ func invValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("inv expects 1 argument")
 	}
-	shape, mat, err := matrixValues(args[0])
+	shape, _, err := inferTensor(args[0])
 	if err != nil {
 		return nullValue(), err
 	}
@@ -335,7 +560,6 @@ func invValue(args []Value) (Value, error) {
 			}
 		}
 	}
-	_ = mat
 	return solveValue([]Value{args[0], newTensorValue([]int{n, n}, eye)})
 }
 
@@ -347,6 +571,13 @@ func invValue(args []Value) (Value, error) {
 func qrValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("qr expects 1 argument")
+	}
+	complexMatrix, err := matrixContainsComplex(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if complexMatrix {
+		return complexQRValue(args[0])
 	}
 	shape, a, err := matrixValues(args[0])
 	if err != nil {
@@ -408,6 +639,74 @@ func qrValue(args []Value) (Value, error) {
 	return listValue([]Value{qv, rv}), nil
 }
 
+func complexQRValue(input Value) (Value, error) {
+	shape, a, err := complexMatrixValues(input)
+	if err != nil {
+		return nullValue(), err
+	}
+	if len(shape) != 2 {
+		return nullValue(), fmt.Errorf("qr expects a matrix")
+	}
+	rows, cols := shape[0], shape[1]
+	q := make([][]complex128, rows)
+	for row := range q {
+		q[row] = make([]complex128, cols)
+	}
+	r := make([][]complex128, cols)
+	for row := range r {
+		r[row] = make([]complex128, cols)
+	}
+	for column := 0; column < cols; column++ {
+		v := make([]complex128, rows)
+		for row := range v {
+			v[row] = a[row][column]
+		}
+		for prior := 0; prior < column; prior++ {
+			var projection complex128
+			for row := 0; row < rows; row++ {
+				projection += cmplx.Conj(q[row][prior]) * a[row][column]
+			}
+			r[prior][column] = projection
+			for row := 0; row < rows; row++ {
+				v[row] -= projection * q[row][prior]
+			}
+		}
+		normSquared := 0.0
+		for _, value := range v {
+			normSquared += real(value)*real(value) + imag(value)*imag(value)
+		}
+		norm := math.Sqrt(normSquared)
+		if norm == 0 {
+			continue
+		}
+		r[column][column] = complex(norm, 0)
+		for row := 0; row < rows; row++ {
+			q[row][column] = v[row] / complex(norm, 0)
+		}
+	}
+	qdata := make([]Value, 0, rows*cols)
+	for row := range q {
+		for _, value := range q[row] {
+			qdata = append(qdata, complexValue(value))
+		}
+	}
+	rdata := make([]Value, 0, cols*cols)
+	for row := range r {
+		for _, value := range r[row] {
+			rdata = append(rdata, complexValue(value))
+		}
+	}
+	qvalue, err := tensorFromShapeAndData([]int{rows, cols}, qdata)
+	if err != nil {
+		return nullValue(), err
+	}
+	rvalue, err := tensorFromShapeAndData([]int{cols, cols}, rdata)
+	if err != nil {
+		return nullValue(), err
+	}
+	return listValue([]Value{qvalue, rvalue}), nil
+}
+
 // choleskyValue handles the cholesky value step in the surrounding package and
 // returns Value, error.
 //
@@ -416,6 +715,13 @@ func qrValue(args []Value) (Value, error) {
 func choleskyValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("cholesky expects 1 argument")
+	}
+	complexMatrix, err := matrixContainsComplex(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if complexMatrix {
+		return complexCholeskyValue(args[0])
 	}
 	shape, a, err := matrixValues(args[0])
 	if err != nil {
@@ -446,6 +752,54 @@ func choleskyValue(args []Value) (Value, error) {
 		}
 	}
 	return floatMatrixValue(l)
+}
+
+func complexCholeskyValue(input Value) (Value, error) {
+	shape, a, err := complexMatrixValues(input)
+	if err != nil {
+		return nullValue(), err
+	}
+	if len(shape) != 2 || shape[0] != shape[1] {
+		return nullValue(), fmt.Errorf("cholesky expects a square matrix")
+	}
+	n := shape[0]
+	for row := 0; row < n; row++ {
+		for col := row + 1; col < n; col++ {
+			if cmplx.Abs(a[row][col]-cmplx.Conj(a[col][row])) > 1e-12 {
+				return nullValue(), fmt.Errorf("cholesky expects a Hermitian matrix")
+			}
+		}
+		if math.Abs(imag(a[row][row])) > 1e-12 {
+			return nullValue(), fmt.Errorf("cholesky expects a Hermitian matrix")
+		}
+	}
+	l := make([][]complex128, n)
+	for row := range l {
+		l[row] = make([]complex128, n)
+	}
+	for row := 0; row < n; row++ {
+		for col := 0; col <= row; col++ {
+			sum := a[row][col]
+			for prior := 0; prior < col; prior++ {
+				sum -= l[row][prior] * cmplx.Conj(l[col][prior])
+			}
+			if row == col {
+				if math.Abs(imag(sum)) > 1e-10 || real(sum) <= 0 {
+					return nullValue(), fmt.Errorf("cholesky expects positive definite matrix")
+				}
+				l[row][col] = complex(math.Sqrt(real(sum)), 0)
+			} else {
+				l[row][col] = sum / l[col][col]
+			}
+		}
+	}
+	data := make([]Value, 0, n*n)
+	for row := range l {
+		for _, value := range l[row] {
+			data = append(data, complexValue(value))
+		}
+	}
+	return tensorFromShapeAndData([]int{n, n}, data)
 }
 
 // cloneFloatMatrix handles the clone float matrix step in the surrounding
@@ -742,13 +1096,19 @@ func eigValue(args []Value) (Value, error) {
 	}
 	valVals := make([]Value, len(vals))
 	for i := range vals {
-		valVals[i] = numberValue(vals[i])
+		valVals[i] = complexValue(complex(vals[i], 0))
 	}
 	valTensor, err := tensorFromShapeAndData([]int{len(vals)}, valVals)
 	if err != nil {
 		return nullValue(), err
 	}
-	vv, err := floatMatrixValue(vecs)
+	vecVals := make([]Value, 0, len(vecs)*len(vecs))
+	for _, row := range vecs {
+		for _, value := range row {
+			vecVals = append(vecVals, complexValue(complex(value, 0)))
+		}
+	}
+	vv, err := tensorFromShapeAndData([]int{len(vecs), len(vecs)}, vecVals)
 	if err != nil {
 		return nullValue(), err
 	}

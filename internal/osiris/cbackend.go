@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -19,11 +20,16 @@ type CArtifact struct {
 // CCompileOptions selects optional native link-time facilities.
 type CCompileOptions struct {
 	LinalgProviderSource string
+	// LinalgProviderFlags are explicit linker arguments for an external system
+	// numerical library, such as "-framework", "Accelerate" on macOS or
+	// "-llapack", "-lblas" on systems that provide LAPACK separately.
+	LinalgProviderFlags []string
 }
 
 // CCompileManifest describes an addressable native executable artifact. Cache
 // keys include every input that can affect machine code generation.
 type CCompileManifest struct {
+	FormatVersion        int      `json:"format_version"`
 	Key                  string   `json:"key"`
 	SourceSHA256         string   `json:"source_sha256"`
 	Compiler             string   `json:"compiler"`
@@ -33,6 +39,8 @@ type CCompileManifest struct {
 	Target               string   `json:"target"`
 	CacheHit             bool     `json:"-"`
 }
+
+const cCompileManifestVersion = 1
 
 // CompileC compiles the c into the requested backend artifact so the caller
 // can execute or inspect the program without keeping the source interpreter in
@@ -134,6 +142,7 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 		return nil, fmt.Errorf("identify C compiler %s: %w", compilerPath, err)
 	}
 	flags := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG", "-flto", "-lm"}
+	flags = append(flags, options.LinalgProviderFlags...)
 	sourceHash := sha256.Sum256([]byte(source))
 	providerHash := ""
 	if options.LinalgProviderSource != "" {
@@ -144,22 +153,27 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 		hash := sha256.Sum256(data)
 		providerHash = hex.EncodeToString(hash[:])
 	}
-	keyInput := strings.Join([]string{hex.EncodeToString(sourceHash[:]), providerHash, compilerPath, string(identityOut), strings.Join(flags, "\x00"), "executable"}, "\x00")
+	target := "native-executable/" + runtime.GOOS + "/" + runtime.GOARCH
+	keyInput := strings.Join([]string{fmt.Sprintf("c-cache-v%d", cCompileManifestVersion), hex.EncodeToString(sourceHash[:]), providerHash, compilerPath, string(identityOut), strings.Join(flags, "\x00"), target}, "\x00")
 	keyHash := sha256.Sum256([]byte(keyInput))
 	manifest := &CCompileManifest{
+		FormatVersion:        cCompileManifestVersion,
 		Key:                  hex.EncodeToString(keyHash[:]),
 		SourceSHA256:         hex.EncodeToString(sourceHash[:]),
 		LinalgProviderSHA256: providerHash,
 		Compiler:             compilerPath,
 		CompilerIdentity:     strings.TrimSpace(string(identityOut)),
 		Flags:                flags,
-		Target:               "executable",
+		Target:               target,
 	}
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, err
 	}
 	cachePath := filepath.Join(cacheDir, manifest.Key)
 	if info, err := os.Stat(cachePath); err == nil && !info.IsDir() {
+		if err := validateCCompileManifest(cachePath+".json", manifest); err != nil {
+			return nil, err
+		}
 		if err := copyExecutable(cachePath, outputPath); err != nil {
 			return nil, err
 		}
@@ -187,6 +201,24 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 	return manifest, nil
 }
 
+func validateCCompileManifest(path string, expected *CCompileManifest) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("native executable cache manifest %q: %w", path, err)
+	}
+	var got CCompileManifest
+	if err := json.Unmarshal(data, &got); err != nil {
+		return fmt.Errorf("native executable cache manifest %q is corrupt: %w", path, err)
+	}
+	if got.FormatVersion != cCompileManifestVersion {
+		return fmt.Errorf("native executable cache manifest %q has unsupported format version %d (expected %d)", path, got.FormatVersion, cCompileManifestVersion)
+	}
+	if got.Key != expected.Key || got.SourceSHA256 != expected.SourceSHA256 || got.LinalgProviderSHA256 != expected.LinalgProviderSHA256 || got.Compiler != expected.Compiler || got.CompilerIdentity != expected.CompilerIdentity || got.Target != expected.Target || strings.Join(got.Flags, "\x00") != strings.Join(expected.Flags, "\x00") {
+		return fmt.Errorf("native executable cache manifest %q does not match current semantic build inputs", path)
+	}
+	return nil
+}
+
 func copyExecutable(sourcePath, outputPath string) error {
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -210,7 +242,7 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 	if _, err := exec.LookPath(compiler); err != nil {
 		return fmt.Errorf("%s not found: %w", compiler, err)
 	}
-	dir, err := os.MkdirTemp("", "osiris-c-*")
+	dir, err := newNativeTempDir()
 	if err != nil {
 		return err
 	}
@@ -222,6 +254,9 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 	}
 
 	args := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG"}
+	if os.Getenv("OSIRIS_C_SANITIZERS") == "1" {
+		args = append(args, "-O1", "-g", "-fno-omit-frame-pointer", "-fsanitize=address,undefined")
+	}
 	if object {
 		args = append(args, "-c", srcPath, "-o", outputPath)
 	} else {
@@ -232,13 +267,24 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 			}
 			args = append(args, options.LinalgProviderSource)
 		}
+		args = append(args, options.LinalgProviderFlags...)
 	}
 	cmd := exec.CommandContext(ctx, compiler, args...)
 	if !object {
 		cmd.Args = append(cmd.Args, "-lm")
 	}
+	if os.Getenv("OSIRIS_C_SANITIZERS") == "1" {
+		args = append(args, "-fsanitize=address,undefined")
+	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s failed: %w\n%s", compiler, err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+// newNativeTempDir creates compiler scratch space with the operating system's
+// private temporary-directory mode (0700 on Unix). It is factored for the
+// security contract and its permission regression test.
+func newNativeTempDir() (string, error) {
+	return os.MkdirTemp("", "osiris-c-*")
 }

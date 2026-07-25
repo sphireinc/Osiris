@@ -1,0 +1,4 @@
+import "std/math" as math
+let a = math.ones(32, 32)
+let b = math.full(32, 32, 2)
+emit sum(a * b)

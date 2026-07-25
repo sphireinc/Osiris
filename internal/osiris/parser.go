@@ -186,6 +186,23 @@ type exportStmt struct {
 // effects or through a separate error path when one exists.
 func (exportStmt) stmtNode() {}
 
+type enumStmt struct {
+	Name     string
+	Cases    []enumCase
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+type enumCase struct {
+	Name   string
+	Params []string
+	Span   sourceSpan
+}
+
+func (c enumCase) Arity() int { return len(c.Params) }
+
+func (enumStmt) stmtNode() {}
+
 type Expr interface {
 	exprNode()
 }
@@ -345,8 +362,10 @@ type matchExpr struct {
 func (matchExpr) exprNode() {}
 
 type matchArm struct {
-	pattern Pattern
-	body    Expr
+	pattern   Pattern
+	guard     Expr
+	body      Expr
+	isDefault bool
 }
 
 type Pattern interface {
@@ -375,6 +394,56 @@ type bindPattern struct {
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func (bindPattern) patternNode() {}
+
+// enumPattern names a zero-payload case of a nominal enum.  It deliberately
+// carries names rather than a runtime value so a match remains independent of
+// evaluation order and can be lowered by every execution engine.
+type enumPattern struct {
+	typeName string
+	caseName string
+	items    []Pattern
+	Span     sourceSpan
+}
+
+func (enumPattern) patternNode() {}
+
+type orPattern struct {
+	alternatives []Pattern
+	Span         sourceSpan
+}
+
+func (orPattern) patternNode() {}
+
+type andPattern struct {
+	left  Pattern
+	right Pattern
+	Span  sourceSpan
+}
+
+func (andPattern) patternNode() {}
+
+type notPattern struct {
+	inner Pattern
+	Span  sourceSpan
+}
+
+func (notPattern) patternNode() {}
+
+type typePattern struct {
+	typeName string
+	binding  string
+	Span     sourceSpan
+}
+
+func (typePattern) patternNode() {}
+
+type relationalPattern struct {
+	op    tokenKind
+	value Value
+	Span  sourceSpan
+}
+
+func (relationalPattern) patternNode() {}
 
 type literalPattern struct {
 	value Value
@@ -633,6 +702,47 @@ func (p *parser) parseStmt() (Stmt, error) {
 			spans = append(spans, spanFromToken(tok))
 		}
 		return exportStmt{Names: names, Span: spanCover(spanFromToken(start), spans[len(spans)-1]), NameSpans: spans}, nil
+	case tokenEnum:
+		start := p.next()
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(tokenLBrace); err != nil {
+			return nil, err
+		}
+		var cases []enumCase
+		seen := make(map[string]struct{})
+		for p.peek().kind != tokenRBrace {
+			caseTok, err := p.expect(tokenIdent)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := seen[caseTok.text]; exists {
+				return nil, p.errorf(caseTok, "enum %q declares case %q more than once", name.text, caseTok.text)
+			}
+			seen[caseTok.text] = struct{}{}
+			item := enumCase{Name: caseTok.text, Span: spanFromToken(caseTok)}
+			if p.match(tokenLParen) && !p.match(tokenRParen) {
+				params, err := p.parseNameListAllowEmpty()
+				if err != nil {
+					return nil, err
+				}
+				item.Params = params
+			}
+			cases = append(cases, item)
+			if !p.match(tokenComma) {
+				break
+			}
+		}
+		end, err := p.expect(tokenRBrace)
+		if err != nil {
+			return nil, err
+		}
+		if len(cases) == 0 {
+			return nil, p.errorf(name, "enum %q must declare at least one case", name.text)
+		}
+		return enumStmt{Name: name.text, Cases: cases, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
 	case tokenImport:
 		start := p.next()
 		pathTok, err := p.expect(tokenString)
@@ -648,7 +758,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
 	default:
-		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, or import")
+		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, enum, or import")
 	}
 }
 
@@ -706,7 +816,7 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &memberExpr{object: left, name: nameTok.text, NameSpan: spanFromToken(nameTok)}
+			left = &memberExpr{object: left, name: nameTok.text, Span: spanCover(exprSpan(left), spanFromToken(nameTok)), NameSpan: spanFromToken(nameTok)}
 		case tokenQuestion:
 			tok := p.next()
 			left = &propagateExpr{expr: left, Span: spanFromToken(tok)}
@@ -971,7 +1081,8 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 // It returns Expr and an error. Callers should only trust the value when the
 // error is nil.
 func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
-	if _, err := p.expect(keyword); err != nil {
+	start, err := p.expect(keyword)
+	if err != nil {
 		return nil, err
 	}
 	subject, err := p.parseExpr(0)
@@ -982,13 +1093,38 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 		return nil, err
 	}
 	var arms []matchArm
+	var end token
+	seenDefault := false
 	for {
-		if p.match(tokenRBrace) {
+		if p.peek().kind == tokenRBrace {
+			end = p.next()
 			break
 		}
-		pat, err := p.parsePattern()
-		if err != nil {
-			return nil, err
+		var (
+			pat       Pattern
+			isDefault bool
+		)
+		if p.peek().kind == tokenIdent && p.peek().text == "default" {
+			p.next()
+			pat = wildcardPattern{}
+			isDefault = true
+		} else {
+			var err error
+			pat, err = p.parsePattern()
+			if err != nil {
+				return nil, err
+			}
+		}
+		var guard Expr
+		if p.peek().kind == tokenIdent && p.peek().text == "when" {
+			p.next()
+			guard, err = p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			if isDefault {
+				return nil, p.errorf(p.peek(), "default match arm cannot have a guard")
+			}
 		}
 		if _, err := p.expect(tokenArrow); err != nil {
 			return nil, err
@@ -997,11 +1133,16 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		arms = append(arms, matchArm{pattern: pat, body: body})
+		arms = append(arms, matchArm{pattern: pat, guard: guard, body: body, isDefault: isDefault})
+		if seenDefault {
+			return nil, p.errorf(p.peek(), "default match arm must be last")
+		}
+		seenDefault = isDefault
 		if p.match(tokenComma) || p.match(tokenSemicolon) {
 			continue
 		}
-		if p.match(tokenRBrace) {
+		if p.peek().kind == tokenRBrace {
+			end = p.next()
 			break
 		}
 		return nil, p.errorf(p.peek(), "expected , ; or } after match arm")
@@ -1009,7 +1150,7 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	if len(arms) == 0 {
 		return nil, p.errorf(p.peek(), "match requires at least one arm")
 	}
-	return &matchExpr{subject: subject, arms: arms, keyword: keyword}, nil
+	return &matchExpr{subject: subject, arms: arms, keyword: keyword, Span: spanFromTokens(start, end)}, nil
 }
 
 // exprSpan handles the expr span step in the surrounding package and returns
@@ -1053,14 +1194,95 @@ func exprSpan(expr Expr) sourceSpan {
 // It returns Pattern and an error. Callers should only trust the value when
 // the error is nil.
 func (p *parser) parsePattern() (Pattern, error) {
+	first, err := p.parsePatternConjunction()
+	if err != nil {
+		return nil, err
+	}
+	alternatives := []Pattern{first}
+	for p.match(tokenPipe) {
+		next, err := p.parsePatternConjunction()
+		if err != nil {
+			return nil, err
+		}
+		alternatives = append(alternatives, next)
+	}
+	if len(alternatives) == 1 {
+		return first, nil
+	}
+	return orPattern{alternatives: alternatives, Span: patternSpan(first)}, nil
+}
+
+func (p *parser) parsePatternConjunction() (Pattern, error) {
+	left, err := p.parsePatternAtom()
+	if err != nil {
+		return nil, err
+	}
+	for p.peek().kind == tokenIdent && p.peek().text == "and" {
+		p.next()
+		right, err := p.parsePatternAtom()
+		if err != nil {
+			return nil, err
+		}
+		left = andPattern{left: left, right: right, Span: patternSpan(left)}
+	}
+	return left, nil
+}
+
+func (p *parser) parsePatternAtom() (Pattern, error) {
 	tok := p.peek()
 	switch tok.kind {
 	case tokenIdent:
 		p.next()
+		if tok.text == "not" {
+			inner, err := p.parsePatternAtom()
+			if err != nil {
+				return nil, err
+			}
+			return notPattern{inner: inner, Span: spanFromToken(tok)}, nil
+		}
 		if tok.text == "_" {
 			return wildcardPattern{}, nil
 		}
+		if p.match(tokenDot) {
+			caseTok, err := p.expect(tokenIdent)
+			if err != nil {
+				return nil, err
+			}
+			item := enumPattern{typeName: tok.text, caseName: caseTok.text, Span: spanFromTokens(tok, caseTok)}
+			if p.match(tokenLParen) && !p.match(tokenRParen) {
+				for {
+					child, err := p.parsePattern()
+					if err != nil {
+						return nil, err
+					}
+					item.items = append(item.items, child)
+					if p.match(tokenComma) {
+						continue
+					}
+					if _, err := p.expect(tokenRParen); err != nil {
+						return nil, err
+					}
+					break
+				}
+			}
+			return item, nil
+		}
+		if p.peek().kind == tokenIdent && p.peek().text != "when" && p.peek().text != "and" {
+			binding := p.next()
+			return typePattern{typeName: tok.text, binding: binding.text, Span: spanFromTokens(tok, binding)}, nil
+		}
 		return bindPattern{name: tok.text, Span: spanFromToken(tok)}, nil
+	case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual:
+		op := p.next()
+		literal, err := p.parsePatternAtom()
+		if err != nil {
+			return nil, err
+		}
+		value, ok := literal.(literalPattern)
+		if !ok {
+			return nil, p.errorf(op, "relational patterns require a literal value")
+		}
+		return relationalPattern{op: op.kind, value: value.value, Span: spanFromToken(op)}, nil
 	case tokenNumber:
 		p.next()
 		v, err := parseNumericLiteral(tok.text)
@@ -1112,6 +1334,31 @@ func (p *parser) parsePattern() (Pattern, error) {
 		return pat, nil
 	default:
 		return nil, p.errorf(tok, "expected pattern")
+	}
+}
+
+func patternSpan(pattern Pattern) sourceSpan {
+	switch p := pattern.(type) {
+	case bindPattern:
+		return p.Span
+	case enumPattern:
+		return p.Span
+	case literalPattern:
+		return p.Span
+	case listPattern:
+		return p.Span
+	case orPattern:
+		return p.Span
+	case andPattern:
+		return p.Span
+	case notPattern:
+		return p.Span
+	case typePattern:
+		return p.Span
+	case relationalPattern:
+		return p.Span
+	default:
+		return sourceSpan{}
 	}
 }
 

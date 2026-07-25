@@ -1,0 +1,3 @@
+import "std/math" as math
+emit math.sqrt(81)
+emit math.clamp(12, 0, 10)

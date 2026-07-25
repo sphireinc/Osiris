@@ -28,6 +28,7 @@ const (
 	tokenContinue
 	tokenPackage
 	tokenExport
+	tokenEnum
 	tokenImport
 	tokenMatch
 	tokenSwitch
@@ -131,6 +132,8 @@ func (k tokenKind) String() string {
 		return "package"
 	case tokenExport:
 		return "export"
+	case tokenEnum:
+		return "enum"
 	case tokenImport:
 		return "import"
 	case tokenMatch:
@@ -435,6 +438,8 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenPackage, text: text, line: startLine, col: startCol}, nil
 	case "export":
 		return token{kind: tokenExport, text: text, line: startLine, col: startCol}, nil
+	case "enum":
+		return token{kind: tokenEnum, text: text, line: startLine, col: startCol}, nil
 	case "import":
 		return token{kind: tokenImport, text: text, line: startLine, col: startCol}, nil
 	case "match":

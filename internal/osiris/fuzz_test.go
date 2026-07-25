@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -36,6 +37,30 @@ func FuzzFormatRoundTrip(f *testing.F) {
 	})
 }
 
+// FuzzSourceMapAndErrorsNoPanic keeps source-map construction and structured
+// parse-error normalization safe for malformed editor input.
+func FuzzSourceMapAndErrorsNoPanic(f *testing.F) {
+	for _, seed := range []string{`emit 1`, `let =`, `emit match [1, 2] { [a, b] => a + b }`} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		if len(src) > 4096 {
+			t.Skip()
+		}
+		prog, err := Parse("<fuzz-map>", src)
+		if err != nil {
+			_, marshalErr := json.Marshal(errorValueFromGoError(normalizeError(err, "<fuzz-map>")))
+			if marshalErr != nil {
+				t.Fatalf("marshal normalized parse error: %v", marshalErr)
+			}
+			return
+		}
+		if _, err := json.Marshal(BuildSourceMap(prog)); err != nil {
+			t.Fatalf("marshal source map: %v", err)
+		}
+	})
+}
+
 // FuzzEvalNoPanic feeds randomized inputs into the target parser, formatter,
 // or evaluator path so that malformed or surprising inputs are caught before
 // they can become runtime panics.
@@ -58,5 +83,41 @@ func FuzzEvalNoPanic(f *testing.F) {
 		}
 		rt := NewRuntime()
 		_, _ = rt.Run(context.Background(), prog)
+	})
+}
+
+// FuzzInterpreterVMParity exercises a deliberately bounded expression subset.
+// Prefixing with emit prevents generated input from introducing statement-level
+// loops/tasks while still covering parser, evaluator, and bytecode behavior.
+func FuzzInterpreterVMParity(f *testing.F) {
+	for _, seed := range []string{
+		`1 + 2 * 3`,
+		`u8(255) + u8(1)`,
+		`if(3 > 2, "yes", "no")`,
+		`decode(encode([1u8, 2u16, "go"]))`,
+		`match [1, 2] { [a, b] => a + b; _ => 0 }`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, expr string) {
+		if len(expr) > 1024 {
+			t.Skip()
+		}
+		prog, err := Parse("<fuzz-vm>", "emit "+expr)
+		if err != nil {
+			return
+		}
+		rt := NewRuntime()
+		interpreter, interpreterErr := rt.Run(context.Background(), prog)
+		vm, vmErr := rt.RunVM(context.Background(), prog)
+		if (interpreterErr == nil) != (vmErr == nil) {
+			t.Fatalf("interpreter error %v does not match VM error %v for %q", interpreterErr, vmErr, expr)
+		}
+		if interpreterErr != nil {
+			return
+		}
+		if got, want := valuesOutput(vm), valuesOutput(interpreter); got != want {
+			t.Fatalf("VM output %q, want %q for %q", got, want, expr)
+		}
 	})
 }

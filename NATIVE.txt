@@ -38,6 +38,10 @@ The native path currently includes:
     and indirect closure calls;
   - scalar bool, integer, f32, and f64 operations, with unboxed scalar hot
     paths when inference proves their types;
+  - tagged f64 complex scalars: construction, arithmetic, equality,
+    `real`/`imag`/`conjugate`/`magnitude`/`abs`, truthiness, and canonical
+    rendering; owned complex tensors support primitive shape, indexing,
+    mutation, slicing, broadcast arithmetic, and conjugation;
   - strings, lists, printing, Unicode code-point indexing, and selected
     static std/math operations;
   - contiguous rank-aware f64 tensors: construction, broadcasting, indexing,

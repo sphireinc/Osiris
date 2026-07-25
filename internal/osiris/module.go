@@ -287,8 +287,12 @@ func stdlibModule(name, selector string) (Value, error) {
 			"gamma":        functionValueOf("std/math.gamma", gammaValue),
 			"lgamma":       functionValueOf("std/math.lgamma", lgammaValue),
 			"complex":      functionValueOf("std/math.complex", func(args []Value) (Value, error) { return builtinComplex(args) }),
+			"dual":         functionValueOf("std/math.dual", dualValueFromArgs),
+			"primal":       functionValueOf("std/math.primal", primalValue),
+			"tangent":      functionValueOf("std/math.tangent", tangentValue),
 			"real":         functionValueOf("std/math.real", func(args []Value) (Value, error) { return builtinReal(args) }),
 			"imag":         functionValueOf("std/math.imag", func(args []Value) (Value, error) { return builtinImag(args) }),
+			"conjugate":    functionValueOf("std/math.conjugate", func(args []Value) (Value, error) { return conjugateValue(args) }),
 			"magnitude":    functionValueOf("std/math.magnitude", func(args []Value) (Value, error) { return builtinMagnitude(args) }),
 			"exp":          functionValueOf("std/math.exp", func(args []Value) (Value, error) { return builtinExp(args) }),
 			"pow":          functionValueOf("std/math.pow", func(args []Value) (Value, error) { return builtinPow(args) }),
@@ -376,9 +380,19 @@ func stdlibModule(name, selector string) (Value, error) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
 		return makeModule(name, version, map[string]Value{
-			"hash":  functionValueOf("std/crypto.hash", func(args []Value) (Value, error) { return builtinHash(args) }),
-			"mix":   functionValueOf("std/crypto.mix", func(args []Value) (Value, error) { return builtinMix(args) }),
-			"noise": functionValueOf("std/crypto.noise", func(args []Value) (Value, error) { return builtinNoise(args) }),
+			"hash":   functionValueOf("std/crypto.hash", func(args []Value) (Value, error) { return builtinHash(args) }),
+			"mix":    functionValueOf("std/crypto.mix", func(args []Value) (Value, error) { return builtinMix(args) }),
+			"noise":  functionValueOf("std/crypto.noise", func(args []Value) (Value, error) { return builtinNoise(args) }),
+			"random": functionValueOf("std/crypto.random", seededRandomValue),
+		}), nil
+	case "std/signal":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, map[string]Value{
+			"hann":     functionValueOf("std/signal.hann", hannValue),
+			"convolve": functionValueOf("std/signal.convolve", convolveValue),
 		}), nil
 	case "std/list":
 		version := "1.0.0"
@@ -1443,15 +1457,20 @@ func sumValue(args []Value) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
-	var total float64
+	complexResult := false
+	var total complex128
 	for _, item := range items {
-		n, err := item.AsNumber()
+		n, err := complexFromValue(item)
 		if err != nil {
 			return nullValue(), err
 		}
 		total += n
+		complexResult = complexResult || item.kind == kindComplex
 	}
-	return floatResultValue(total, items...), nil
+	if complexResult {
+		return complexValue(total), nil
+	}
+	return floatResultValue(real(total), items...), nil
 }
 
 // productValue handles the product value step in the surrounding package and
@@ -1467,15 +1486,20 @@ func productValue(args []Value) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
-	total := 1.0
+	complexResult := false
+	total := complex(1, 0)
 	for _, item := range items {
-		n, err := item.AsNumber()
+		n, err := complexFromValue(item)
 		if err != nil {
 			return nullValue(), err
 		}
 		total *= n
+		complexResult = complexResult || item.kind == kindComplex
 	}
-	return floatResultValue(total, items...), nil
+	if complexResult {
+		return complexValue(total), nil
+	}
+	return floatResultValue(real(total), items...), nil
 }
 
 // absValue handles the abs value step in the surrounding package and returns
@@ -1759,11 +1783,11 @@ func normValue(args []Value) (Value, error) {
 	}
 	var total float64
 	for _, arg := range values {
-		n, err := arg.AsNumber()
+		n, err := complexFromValue(arg)
 		if err != nil {
 			return nullValue(), err
 		}
-		total += n * n
+		total += real(n)*real(n) + imag(n)*imag(n)
 	}
 	return floatResultValue(math.Sqrt(total), args...), nil
 }
@@ -1899,6 +1923,29 @@ func noiseValue(args []Value) Value {
 		acc = bitsRotate(acc, 27) ^ (acc << 7)
 	}
 	return stringValue(fmt.Sprintf("%016x", acc))
+}
+
+// seededRandomValue maps an explicit seed and optional counter to one stable
+// IEEE-754 value in [0, 1). It has no mutable process state, so evaluation
+// order and scheduler choice cannot affect the sequence.
+func seededRandomValue(args []Value) (Value, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nullValue(), fmt.Errorf("random expects a seed and optional counter")
+	}
+	state := hashBytes([]byte(args[0].String()))
+	if len(args) == 2 {
+		counter, err := args[1].AsNumber()
+		if err != nil || counter < 0 || math.Trunc(counter) != counter {
+			return nullValue(), fmt.Errorf("random counter must be a non-negative integer")
+		}
+		state ^= uint64(counter) + 0x9e3779b97f4a7c15
+	}
+	state ^= state >> 30
+	state *= 0xbf58476d1ce4e5b9
+	state ^= state >> 27
+	state *= 0x94d049bb133111eb
+	state ^= state >> 31
+	return numberValue(float64(state>>11) * (1.0 / (1 << 53))), nil
 }
 
 // hashBytes handles the hash bytes step in the surrounding package and returns

@@ -698,6 +698,9 @@ func aliasExpr(expr Expr, scope *aliasScope, out *AliasProgram) aliasInfo {
 		for _, arm := range n.arms {
 			armScope := scope.childForBlock()
 			bindPatternAliases(arm.pattern, subject, armScope, out)
+			if arm.guard != nil {
+				_ = aliasExpr(arm.guard, armScope, out)
+			}
 			info := aliasExpr(arm.body, armScope, out)
 			if !have {
 				outInfo = info
@@ -788,6 +791,21 @@ func bindPatternAliases(pattern Pattern, subject aliasInfo, scope *aliasScope, o
 	case listPattern:
 		for _, item := range p.items {
 			bindPatternAliases(item, subject, scope, out)
+		}
+	case enumPattern:
+		for _, item := range p.items {
+			bindPatternAliases(item, subject, scope, out)
+		}
+	case typePattern:
+		if p.binding != "" && p.binding != "_" {
+			scope.bindLocal(p.binding, subject, out, false)
+		}
+	case andPattern:
+		bindPatternAliases(p.left, subject, scope, out)
+		bindPatternAliases(p.right, subject, scope, out)
+	case orPattern:
+		if len(p.alternatives) > 0 {
+			bindPatternAliases(p.alternatives[0], subject, scope, out)
 		}
 	}
 }
@@ -886,7 +904,7 @@ func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *Ali
 		return freshLikeInfo(args[0], "builtin "+name), true
 	case "mean", "var", "std", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "trace", "det":
 		return freshAliasInfo("scalar", "builtin "+name), true
-	case "len", "sum", "product", "dot", "norm", "hypot", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "noise", "real", "imag", "magnitude", "uint", "u8", "u16", "u32", "u64", "byte", "uf8", "uf16", "uf32", "ufnum", "uf64", "uf128", "uf256", "uf512", "uf1024", "f32", "f64", "bf8", "bf16", "bf32", "bf64", "bf128", "bf256", "bf512", "bf1024", "dec", "decimal", "rat", "rational", "interval", "modint", "fixed", "complex", "bigint", "bigfloat", "band", "bor", "bxor", "bnot", "shl", "shr", "rotl", "rotr", "write":
+	case "len", "sum", "product", "dot", "norm", "hypot", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "noise", "real", "imag", "conjugate", "magnitude", "uint", "u8", "u16", "u32", "u64", "byte", "uf8", "uf16", "uf32", "ufnum", "uf64", "uf128", "uf256", "uf512", "uf1024", "f32", "f64", "bf8", "bf16", "bf32", "bf64", "bf128", "bf256", "bf512", "bf1024", "dec", "decimal", "rat", "rational", "interval", "modint", "fixed", "complex", "bigint", "bigfloat", "band", "bor", "bxor", "bnot", "shl", "shr", "rotl", "rotr", "write":
 		return freshAliasInfo("scalar", "builtin "+name), true
 	case "jsonparse":
 		return freshAliasInfo("value", "builtin "+name), true

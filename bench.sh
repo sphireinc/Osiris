@@ -16,6 +16,7 @@ WORKDIR=${WORKDIR:-$(mktemp -d "${TMPDIR:-/tmp}/osiris-bench.XXXXXX")}
 OSIRIS_BIN=${OSIRIS_BIN:-"$WORKDIR/osiris"}
 WORKLOAD=${WORKLOAD:-benchmarks/native-loop.osr}
 NATIVE_BIN=${NATIVE_BIN:-"$WORKDIR/native-loop"}
+BENCH_JSON=${BENCH_JSON:-}
 
 case $RUNS in ''|*[!0-9]*) echo "RUNS must be a positive integer" >&2; exit 2;; esac
 case $WARMUP in ''|*[!0-9]*) echo "WARMUP must be a non-negative integer" >&2; exit 2;; esac
@@ -84,11 +85,14 @@ measure() {
   total=0
   best=
   worst=0
+  samples=
   while [ "$sample" -lt "$RUNS" ]; do
     start=$(now)
     "$@" >/dev/null
     end=$(now)
     ms=$(elapsed_ms "$start" "$end")
+    if [ -n "$samples" ]; then samples="$samples,"; fi
+    samples="$samples$ms"
     total=$(awk -v total="$total" -v ms="$ms" 'BEGIN { printf "%.6f", total + ms }')
     if [ -z "$best" ] || awk -v ms="$ms" -v best="$best" 'BEGIN { exit !(ms < best) }'; then best=$ms; fi
     if awk -v ms="$ms" -v worst="$worst" 'BEGIN { exit !(ms > worst) }'; then worst=$ms; fi
@@ -96,9 +100,9 @@ measure() {
   done
   average=$(awk -v total="$total" -v runs="$RUNS" 'BEGIN { printf "%.3f", total / runs }')
   printf '%-16s| %11sms | %11sms | %11sms\n' "$name" "$average" "$best" "$worst"
-  if [ "$name" = native ]; then native_average=$average; fi
-  if [ "$name" = interpreter ]; then interpreter_average=$average; fi
-  if [ "$name" = vm ]; then vm_average=$average; fi
+  if [ "$name" = native ]; then native_average=$average; native_samples=$samples; fi
+  if [ "$name" = interpreter ]; then interpreter_average=$average; interpreter_samples=$samples; fi
+  if [ "$name" = vm ]; then vm_average=$average; vm_samples=$samples; fi
 }
 
 printf '  [4/4] Measuring execution...\n\n'
@@ -118,3 +122,11 @@ printf '\n'
 printf '  All paths produced the same checksum. Timings include process startup;\n'
 printf '  interpreter and VM runs include parsing, while native runs are precompiled.\n'
 printf '  Tune with RUNS=15 BENCH_ITERS=5000 ./bench.sh\n\n'
+
+if [ -n "$BENCH_JSON" ]; then
+  mkdir -p "$(dirname "$BENCH_JSON")"
+  cat > "$BENCH_JSON" <<EOF
+{"schema_version":1,"workload":"$WORKLOAD","parity_checked":true,"iterations_per_run":$BENCH_ITERS,"warmup_runs":$WARMUP,"measured_runs":$RUNS,"environment":{"os":"$(uname -s)","arch":"$(uname -m)","go":"$(go version | sed 's/"/\\"/g')"},"costs_ms":{"native_build":$build_ms,"interpreter":{"samples":[$interpreter_samples],"average":$interpreter_average},"vm":{"samples":[$vm_samples],"average":$vm_average},"native_execution":{"samples":[$native_samples],"average":$native_average}},"caveats":["samples include process startup","interpreter and VM include parsing","native build time is separate from native execution"]}
+EOF
+  printf '  JSON result       : %s\n\n' "$BENCH_JSON"
+fi

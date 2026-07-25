@@ -24,6 +24,8 @@ type lockEntry struct {
 	Version string `json:"version,omitempty"`
 }
 
+const moduleLockFormatVersion = 2
+
 type moduleRegistry struct {
 	root     string
 	lockPath string
@@ -48,7 +50,7 @@ func newModuleRegistry(root string) *moduleRegistry {
 		lockPath: filepath.Join(root, ".osiris.lock"),
 		cacheDir: filepath.Join(root, ".osiris", "cache", "modules"),
 		lock: lockfile{
-			Version: 2,
+			Version: moduleLockFormatVersion,
 			Modules: make(map[string]lockEntry),
 		},
 	}
@@ -68,6 +70,9 @@ func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 	if kind == moduleKindStdlib {
 		return ref, "", nil
 	}
+	if !filepath.IsAbs(ref) && !pathWithinRoot(r.root, abs) {
+		return "", "", fmt.Errorf("module path %q escapes project root %q", ref, r.root)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -78,7 +83,8 @@ func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 		return "", "", err
 	}
 
-	if src, err := os.ReadFile(abs); err == nil {
+	offline := os.Getenv("OSIRIS_OFFLINE") == "1"
+	if src, err := os.ReadFile(abs); err == nil && !offline {
 		sum := sha256.Sum256(src)
 		hash := hex.EncodeToString(sum[:])
 		cache := filepath.Join(r.cacheDir, hash+".osr")
@@ -96,13 +102,25 @@ func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 
 	entry, ok := r.lock.Modules[abs]
 	if !ok {
+		if offline {
+			return "", "", fmt.Errorf("offline module %s is not present in the lockfile/cache", abs)
+		}
 		return "", "", fmt.Errorf("module %s is not cached and source is unavailable", abs)
 	}
 	src, err := os.ReadFile(entry.Cache)
 	if err != nil {
 		return "", "", fmt.Errorf("module %s cache missing at %s", abs, entry.Cache)
 	}
+	sum := sha256.Sum256(src)
+	if got := hex.EncodeToString(sum[:]); got != entry.Hash {
+		return "", "", fmt.Errorf("module %s cache hash mismatch: got %s, lock expects %s", abs, got, entry.Hash)
+	}
 	return abs + "@" + entry.Hash, string(src), nil
+}
+
+func pathWithinRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // recordManifest operates on moduleRegistry values and keeps the
@@ -149,8 +167,12 @@ func (r *moduleRegistry) loadLocked() error {
 	if err := json.Unmarshal(data, &lf); err != nil {
 		return err
 	}
-	if lf.Version == 0 {
-		lf.Version = 2
+	if lf.Version == 1 {
+		// Version 2 only added optional package metadata, so a v1 lock can be
+		// upgraded losslessly. The next save writes the canonical v2 form.
+		lf.Version = moduleLockFormatVersion
+	} else if lf.Version != moduleLockFormatVersion {
+		return fmt.Errorf("unsupported .osiris.lock format version %d (expected %d)", lf.Version, moduleLockFormatVersion)
 	}
 	if lf.Modules == nil {
 		lf.Modules = make(map[string]lockEntry)
@@ -206,6 +228,14 @@ func registryRootFor(base string) string {
 		}
 		dir = parent
 	}
+}
+
+// ModuleStatePaths returns the generated lockfile and module-cache locations
+// associated with a source path. Callers can use it for explicit lifecycle
+// commands without reconstructing registry path rules.
+func ModuleStatePaths(sourceName string) (lockPath, cacheDir string) {
+	root := registryRootFor(sourceName)
+	return filepath.Join(root, ".osiris.lock"), filepath.Join(root, ".osiris", "cache", "modules")
 }
 
 // registryEntryPath handles the registry entry path step in the surrounding

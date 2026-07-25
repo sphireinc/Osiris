@@ -244,6 +244,8 @@ func formatIRInstr(instr IRInstr) string {
 			return instr.Dest + " = call " + instr.Text
 		}
 		return instr.Dest + " = call " + instr.Text + "(" + strings.Join(instr.Args, ", ") + ")"
+	case "async":
+		return instr.Dest + " = async." + instr.Text + "(" + strings.Join(instr.Args, ", ") + ")"
 	case "member":
 		return instr.Dest + " = member " + strings.Join(instr.Args, ", ") + "." + instr.Text
 	case "list":
@@ -680,6 +682,8 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 	case exportStmt:
 		b.pb.prog.Exports = append(b.pb.prog.Exports, st.Names...)
 		return false, nil
+	case enumStmt:
+		return false, fmt.Errorf("native lowering does not yet support enum %q; use the interpreter or VM until tagged enum lowering is implemented", st.Name)
 	case letStmt:
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
@@ -1094,6 +1098,20 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 				return b.lowerLogicalCall(n, false)
 			case "or":
 				return b.lowerLogicalCall(n, true)
+			default:
+				args := make([]string, 0, len(n.args))
+				for _, arg := range n.args {
+					child := b.fork()
+					value, err := child.evalExpr(arg)
+					if err != nil {
+						return "", err
+					}
+					b.block = child.block
+					args = append(args, value)
+				}
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "async", Text: name, Args: args})
+				return tmp, nil
 			}
 		}
 		calleeBuilder := b.fork()

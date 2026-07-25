@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  fast:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,5 +24,130 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Verify supported Go release line
+        run: ./scripts/check-go-version.sh
+
+      - name: Verify repository hygiene
+        run: ./scripts/check-repository-hygiene.sh
+
+      - name: Verify support matrix
+        run: ./scripts/check-support-matrix.sh
+
+      - name: Verify task index
+        run: ./scripts/check-task-index.sh
+
+      - name: Verify CI workflow contract
+        run: ./scripts/check-ci-workflows.sh
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
       - name: Run tests
+        run: go test ./...
+
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run bounded race suite
+        run: go test -race ./internal/osiris -run '^(TestConcurrentTaskScheduler|TestTaskSpawnAwaitAndCancel|TestRaceSelectAndStreamingIO|TestDeterministicSchedulerOrder)$' -count=1
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run bounded formatter fuzz smoke
+        run: go test ./internal/osiris -run '^$' -fuzz '^FuzzFormatRoundTrip$' -fuzztime=5s
+      - name: Run bounded interpreter/VM fuzz smoke
+        run: go test ./internal/osiris -run '^$' -fuzz '^FuzzInterpreterVMParity$' -fuzztime=5s
+      - name: Run bounded source-map/error fuzz smoke
+        run: go test ./internal/osiris -run '^$' -fuzz '^FuzzSourceMapAndErrorsNoPanic$' -fuzztime=5s
+
+  native:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Compile and execute generated C with ${{ matrix.cc }}
+        env:
+          CC: ${{ matrix.cc }}
+        run: go test ./internal/osiris -run '^(TestCBackendObjectAndExecutable|TestCBackendControlFlowParity|TestCBackendComplexScalarParity|TestCBackendTensorDotParity)$' -count=1
+
+  native-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run native ASan and UBSan regression suite
+        run: ./scripts/test-native-sanitizers.sh
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: newdocs/package-lock.json
+      - name: Verify migrated reference and compatibility routes
+        working-directory: newdocs
+        run: npm ci && npm run check-reference
+      - name: Execute canonical documentation examples
+        working-directory: newdocs
+        run: npm run check-examples
+      - name: Build public React documentation
+        working-directory: newdocs
+        run: npm run build
+
+  release-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build, verify, extract, and run unsigned release archives
+        run: ./scripts/test-release-archive.sh
+
+  platform:
+    name: platform (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run portable Go tests
         run: go test ./...

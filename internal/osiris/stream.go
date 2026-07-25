@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"sync"
 )
@@ -14,6 +15,7 @@ type streamValue struct {
 	path   string
 	mode   string
 	file   *os.File
+	conn   net.Conn
 	reader *bufio.Reader
 	writer *bufio.Writer
 	closed bool
@@ -288,6 +290,11 @@ func (s *streamValue) close() (Value, error) {
 	}
 	if s.file != nil {
 		if err := s.file.Close(); err != nil {
+			return nullValue(), err
+		}
+	}
+	if s.conn != nil {
+		if err := s.conn.Close(); err != nil {
 			return nullValue(), err
 		}
 	}

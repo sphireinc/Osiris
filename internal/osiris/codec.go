@@ -13,6 +13,10 @@ import (
 
 const codecHeader = "OSR1"
 
+// maxCodecValueBytes bounds one untrusted encoded value before recursive
+// decoding or allocation. It is a resource-control limit, not a sandbox.
+const maxCodecValueBytes = 64 << 20
+
 type byteCursor struct {
 	data []byte
 	off  int
@@ -199,12 +203,30 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 		_, err := buf.WriteString(text)
 		return err
 	case kindComplex:
-		if err := buf.WriteByte(0x08); err != nil {
+		if v.fbits != 0 {
+			if err := buf.WriteByte(0x18); err != nil {
+				return err
+			}
+			if err := buf.WriteByte(byte(v.fbits)); err != nil {
+				return err
+			}
+		} else if err := buf.WriteByte(0x08); err != nil {
 			return err
 		}
 		var tmp [16]byte
 		binary.BigEndian.PutUint64(tmp[:8], math.Float64bits(real(v.cx)))
 		binary.BigEndian.PutUint64(tmp[8:], math.Float64bits(imag(v.cx)))
+		_, err := buf.Write(tmp[:])
+		return err
+	case kindDual:
+		if err := buf.WriteByte(0x19); err != nil {
+			return err
+		}
+		var tmp [16]byte
+		if v.dual != nil {
+			binary.BigEndian.PutUint64(tmp[:8], math.Float64bits(v.dual.primal))
+			binary.BigEndian.PutUint64(tmp[8:], math.Float64bits(v.dual.tangent))
+		}
 		_, err := buf.Write(tmp[:])
 		return err
 	case kindBigInt:
@@ -429,6 +451,9 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func decodeValueBytes(data []byte) (Value, error) {
+	if len(data) > maxCodecValueBytes {
+		return nullValue(), fmt.Errorf("encoded value exceeds %d-byte limit", maxCodecValueBytes)
+	}
 	cur := byteCursor{data: data}
 	head, err := cur.take(len(codecHeader))
 	if err != nil {
@@ -593,6 +618,27 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 		re := math.Float64frombits(binary.BigEndian.Uint64(raw[:8]))
 		im := math.Float64frombits(binary.BigEndian.Uint64(raw[8:]))
 		return complexValue(complex(re, im)), nil
+	case 0x18:
+		bits, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		if bits != 32 && bits != 64 {
+			return nullValue(), fmt.Errorf("invalid complex precision encoding")
+		}
+		raw, err := cur.take(16)
+		if err != nil {
+			return nullValue(), err
+		}
+		re := math.Float64frombits(binary.BigEndian.Uint64(raw[:8]))
+		im := math.Float64frombits(binary.BigEndian.Uint64(raw[8:]))
+		return complexValueStyled(complex(re, im), uint16(bits)), nil
+	case 0x19:
+		raw, err := cur.take(16)
+		if err != nil {
+			return nullValue(), err
+		}
+		return dualValueOf(math.Float64frombits(binary.BigEndian.Uint64(raw[:8])), math.Float64frombits(binary.BigEndian.Uint64(raw[8:]))), nil
 	case 0x0b:
 		n, err := cur.uvarint()
 		if err != nil {

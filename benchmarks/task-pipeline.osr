@@ -1,0 +1,2 @@
+let value = spawn({ 21 * 2 })
+emit await(value)

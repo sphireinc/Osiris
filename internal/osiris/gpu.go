@@ -12,9 +12,12 @@ type GPUKernel struct {
 }
 
 type GPUArtifact struct {
-	Source  string      `json:"source"`
-	Kernels []GPUKernel `json:"kernels"`
+	SchemaVersion int         `json:"schema_version"`
+	Source        string      `json:"source"`
+	Kernels       []GPUKernel `json:"kernels"`
 }
+
+const gpuArtifactSchemaVersion = 1
 
 // CompileGPU compiles the gpu into the requested backend artifact so the
 // caller can execute or inspect the program without keeping the source
@@ -26,8 +29,9 @@ func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
 	_ = ctx
 	plan := collectGPUPlan(prog)
 	return GPUArtifact{
-		Source:  renderGPUOpenCL(plan),
-		Kernels: plan.Kernels,
+		SchemaVersion: gpuArtifactSchemaVersion,
+		Source:        renderGPUOpenCL(plan),
+		Kernels:       plan.Kernels,
 	}, nil
 }
 
@@ -160,6 +164,7 @@ func (p *gpuPlan) walkExpr(expr Expr) {
 	case *matchExpr:
 		p.walkExpr(n.subject)
 		for _, arm := range n.arms {
+			p.walkExpr(arm.guard)
 			p.walkExpr(arm.body)
 		}
 	}

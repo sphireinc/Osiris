@@ -51,8 +51,10 @@ type vmInstr struct {
 }
 
 type vmMatchArm struct {
-	pattern Pattern
-	body    *vmChunk
+	pattern   Pattern
+	guard     *vmChunk
+	body      *vmChunk
+	isDefault bool
 }
 
 type vmCompiler struct {
@@ -139,6 +141,11 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			c.chunk.exports = append(c.chunk.exports, name)
 			seen[name] = struct{}{}
 		}
+		return nil
+	case enumStmt:
+		reg := c.alloc()
+		c.emit(vmInstr{op: vmOpConst, dst: reg, value: enumNamespaceValue(st.Name, st.Cases)})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
 		return nil
 	case letStmt:
 		reg, err := c.compileExpr(st.Expr)
@@ -260,11 +267,18 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 		}
 		arms := make([]vmMatchArm, len(n.arms))
 		for i, arm := range n.arms {
+			var guard *vmChunk
+			if arm.guard != nil {
+				guard, err = c.compileExprChunk(arm.guard)
+				if err != nil {
+					return 0, err
+				}
+			}
 			body, err := c.compileExprChunk(arm.body)
 			if err != nil {
 				return 0, err
 			}
-			arms[i] = vmMatchArm{pattern: arm.pattern, body: body}
+			arms[i] = vmMatchArm{pattern: arm.pattern, guard: guard, body: body, isDefault: arm.isDefault}
 		}
 		dst := c.alloc()
 		c.emit(vmInstr{op: vmOpMatch, dst: dst, a: subject, arms: arms})
@@ -656,6 +670,15 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				if !ok {
 					continue
 				}
+				if arm.guard != nil {
+					guard, err := r.runChildWithBindings(arm.guard, state.bindings)
+					if err != nil {
+						return nullValue(), err
+					}
+					if !guard.Truthy() {
+						continue
+					}
+				}
 				v, err := r.runChildWithBindings(arm.body, state.bindings)
 				if err != nil {
 					return nullValue(), err
@@ -665,7 +688,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				break
 			}
 			if !matched {
-				return nullValue(), fmt.Errorf("no match for %s", subject.Kind())
+				return nullValue(), noMatchError(subject, vmMatchArmsToMatchArms(instr.arms))
 			}
 		default:
 			return nullValue(), fmt.Errorf("unknown opcode %d", instr.op)
@@ -675,6 +698,15 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 		return regs[chunk.result], nil
 	}
 	return nullValue(), nil
+}
+
+func vmMatchArmsToMatchArms(arms []vmMatchArm) []matchArm {
+	out := make([]matchArm, len(arms))
+	for i, arm := range arms {
+		out[i].pattern = arm.pattern
+		out[i].isDefault = arm.isDefault
+	}
+	return out
 }
 
 // runChild operates on vmRunner values and keeps the vmrunner-specific
@@ -725,6 +757,18 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, error) {
 	if left.kind == kindTensor || right.kind == kindTensor {
 		return tensorBinaryValue(ctx, deterministicScheduler{}, op, left, right)
+	}
+	if left.kind == kindDual || right.kind == kindDual {
+		switch op {
+		case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+			return dualBinary(op, left, right)
+		case tokenEqualEqual:
+			return boolValue(left.Equal(right)), nil
+		case tokenBangEqual:
+			return boolValue(!left.Equal(right)), nil
+		default:
+			return nullValue(), fmt.Errorf("ordering is not defined for dual numbers")
+		}
 	}
 	if left.kind == kindQuantity || right.kind == kindQuantity {
 		return quantityBinary(op, left, right)

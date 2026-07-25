@@ -3,6 +3,8 @@ package osiris
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 const macroExpansionLimit = 1024
@@ -86,7 +88,7 @@ func cloneExpr(expr Expr) Expr {
 	case *matchExpr:
 		arms := make([]matchArm, len(n.arms))
 		for i := range n.arms {
-			arms[i] = matchArm{pattern: clonePattern(n.arms[i].pattern), body: cloneExpr(n.arms[i].body)}
+			arms[i] = matchArm{pattern: clonePattern(n.arms[i].pattern), guard: cloneExpr(n.arms[i].guard), body: cloneExpr(n.arms[i].body), isDefault: n.arms[i].isDefault}
 		}
 		return &matchExpr{subject: cloneExpr(n.subject), arms: arms}
 	case *blockExpr:
@@ -157,6 +159,29 @@ func clonePattern(pattern Pattern) Pattern {
 	case wildcardPattern:
 		return p
 	case bindPattern:
+		return p
+	case enumPattern:
+		items := make([]Pattern, len(p.items))
+		for i, item := range p.items {
+			items[i] = clonePattern(item)
+		}
+		p.items = items
+		return p
+	case orPattern:
+		alternatives := make([]Pattern, len(p.alternatives))
+		for i, alternative := range p.alternatives {
+			alternatives[i] = clonePattern(alternative)
+		}
+		p.alternatives = alternatives
+		return p
+	case andPattern:
+		p.left = clonePattern(p.left)
+		p.right = clonePattern(p.right)
+		return p
+	case notPattern:
+		p.inner = clonePattern(p.inner)
+		return p
+	case typePattern, relationalPattern:
 		return p
 	case literalPattern:
 		return literalPattern{value: p.value}
@@ -285,6 +310,17 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 					st.Alias: {expr: &literalExpr{value: mod}, env: curScope},
 				},
 			}
+		case enumStmt:
+			if mode == seqBlock {
+				return nil, nil, nil, fmt.Errorf("enum is only allowed at top level")
+			}
+			out = append(out, st)
+			curScope = &scope{
+				parent: curScope,
+				items: map[string]binding{
+					st.Name: {expr: &literalExpr{value: enumNamespaceValue(st.Name, st.Cases)}, env: curScope},
+				},
+			}
 		case packageStmt:
 			if mode == seqBlock {
 				return nil, nil, nil, fmt.Errorf("package is only allowed at top level")
@@ -369,15 +405,15 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 	}
 	switch n := expr.(type) {
 	case *literalExpr:
-		return &literalExpr{value: n.value}, nil
+		return &literalExpr{value: n.value, Span: n.Span}, nil
 	case *identExpr:
-		return &identExpr{name: n.name}, nil
+		return &identExpr{name: n.name, Span: n.Span}, nil
 	case *unaryExpr:
 		inner, err := e.expandExpr(n.expr, env, defs, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		return &unaryExpr{op: n.op, expr: inner}, nil
+		return &unaryExpr{op: n.op, expr: inner, Span: n.Span}, nil
 	case *binaryExpr:
 		left, err := e.expandExpr(n.left, env, defs, depth+1)
 		if err != nil {
@@ -387,7 +423,7 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 		if err != nil {
 			return nil, err
 		}
-		return &binaryExpr{op: n.op, left: left, right: right}, nil
+		return &binaryExpr{op: n.op, left: left, right: right, Span: n.Span}, nil
 	case *callExpr:
 		if name, ok := macroCallName(n.callee); ok {
 			if def, exists := defs[name]; exists {
@@ -406,13 +442,13 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 			}
 			args[i] = arg
 		}
-		return &callExpr{callee: callee, args: args}, nil
+		return &callExpr{callee: callee, args: args, Span: n.Span}, nil
 	case *memberExpr:
 		obj, err := e.expandExpr(n.object, env, defs, depth+1)
 		if err != nil {
 			return nil, err
 		}
-		return &memberExpr{object: obj, name: n.name}, nil
+		return &memberExpr{object: obj, name: n.name, Span: n.Span, NameSpan: n.NameSpan}, nil
 	case *listExpr:
 		items := make([]Expr, len(n.items))
 		for i := range n.items {
@@ -422,7 +458,7 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 			}
 			items[i] = item
 		}
-		return &listExpr{items: items}, nil
+		return &listExpr{items: items, Span: n.Span}, nil
 	case *matchExpr:
 		subject, err := e.expandExpr(n.subject, env, defs, depth+1)
 		if err != nil {
@@ -430,13 +466,29 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 		}
 		arms := make([]matchArm, len(n.arms))
 		for i := range n.arms {
+			if err := validatePatternBindings(n.arms[i].pattern, e.sourceName); err != nil {
+				return nil, err
+			}
+			if err := validateEnumPattern(n.arms[i].pattern, env, e.sourceName); err != nil {
+				return nil, err
+			}
+			var guard Expr
+			if n.arms[i].guard != nil {
+				guard, err = e.expandExpr(n.arms[i].guard, env, defs, depth+1)
+				if err != nil {
+					return nil, err
+				}
+			}
 			body, err := e.expandExpr(n.arms[i].body, env, defs, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			arms[i] = matchArm{pattern: clonePattern(n.arms[i].pattern), body: body}
+			arms[i] = matchArm{pattern: clonePattern(n.arms[i].pattern), guard: guard, body: body, isDefault: n.arms[i].isDefault}
 		}
-		return &matchExpr{subject: subject, arms: arms}, nil
+		if err := validateEnumMatchExhaustiveness(subject, arms, env, e.sourceName); err != nil {
+			return nil, err
+		}
+		return &matchExpr{subject: subject, arms: arms, Span: n.Span, keyword: n.keyword}, nil
 	case *blockExpr:
 		return e.expandBlockExpr(n, env, defs, depth+1)
 	case *tryExpr:
@@ -458,6 +510,292 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 	default:
 		return nil, fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
+}
+
+// validateEnumPattern checks qualified enum cases before execution. Pattern
+// names are deliberately lexical, so a misspelt type or case cannot quietly
+// become an arm that never matches.
+func validateEnumPattern(pattern Pattern, env *scope, source string) error {
+	switch p := pattern.(type) {
+	case enumPattern:
+		if env == nil {
+			return enumPatternError(source, p.Span, "undefined enum %q in pattern", p.typeName)
+		}
+		binding, ok := env.lookup(p.typeName)
+		if !ok {
+			return enumPatternError(source, p.Span, "undefined enum %q in pattern", p.typeName)
+		}
+		literal, ok := binding.expr.(*literalExpr)
+		if !ok || literal.value.kind != kindModule || literal.value.mod == nil {
+			return enumPatternError(source, p.Span, "%q is not an enum in pattern", p.typeName)
+		}
+		candidate, ok := literal.value.mod.members[p.caseName]
+		caseDef, defined := literal.value.mod.enumCases[p.caseName]
+		if !ok || !defined || (candidate.kind != kindEnum && candidate.kind != kindFunction) {
+			return enumPatternError(source, p.Span, "enum %s has no case %q", p.typeName, p.caseName)
+		}
+		if len(p.items) != caseDef.Arity() {
+			return enumPatternError(source, p.Span, "enum case %s.%s pattern expects %d values", p.typeName, p.caseName, caseDef.Arity())
+		}
+		for _, item := range p.items {
+			if err := validateEnumPattern(item, env, source); err != nil {
+				return err
+			}
+		}
+	case listPattern:
+		for _, item := range p.items {
+			if err := validateEnumPattern(item, env, source); err != nil {
+				return err
+			}
+		}
+	case orPattern:
+		for _, alternative := range p.alternatives {
+			if err := validateEnumPattern(alternative, env, source); err != nil {
+				return err
+			}
+		}
+	case andPattern:
+		if err := validateEnumPattern(p.left, env, source); err != nil {
+			return err
+		}
+		return validateEnumPattern(p.right, env, source)
+	case notPattern:
+		return validateEnumPattern(p.inner, env, source)
+	}
+	return nil
+}
+
+func validatePatternBindings(pattern Pattern, source string) error {
+	switch p := pattern.(type) {
+	case orPattern:
+		if len(p.alternatives) == 0 {
+			return nil
+		}
+		want := patternBindingSet(p.alternatives[0])
+		for _, alternative := range p.alternatives[1:] {
+			if !samePatternBindingSet(want, patternBindingSet(alternative)) {
+				return enumPatternError(source, p.Span, "all alternatives in a grouped pattern must bind the same names")
+			}
+		}
+		for _, alternative := range p.alternatives {
+			if err := validatePatternBindings(alternative, source); err != nil {
+				return err
+			}
+		}
+	case enumPattern:
+		for _, item := range p.items {
+			if err := validatePatternBindings(item, source); err != nil {
+				return err
+			}
+		}
+	case listPattern:
+		for _, item := range p.items {
+			if err := validatePatternBindings(item, source); err != nil {
+				return err
+			}
+		}
+	case andPattern:
+		if err := validatePatternBindings(p.left, source); err != nil {
+			return err
+		}
+		return validatePatternBindings(p.right, source)
+	case notPattern:
+		if len(patternBindingSet(p.inner)) != 0 {
+			return enumPatternError(source, p.Span, "not pattern cannot bind names")
+		}
+		return validatePatternBindings(p.inner, source)
+	}
+	return nil
+}
+
+func patternBindingSet(pattern Pattern) map[string]struct{} {
+	set := make(map[string]struct{})
+	var visit func(Pattern)
+	visit = func(item Pattern) {
+		switch p := item.(type) {
+		case bindPattern:
+			set[p.name] = struct{}{}
+		case enumPattern:
+			for _, child := range p.items {
+				visit(child)
+			}
+		case listPattern:
+			for _, child := range p.items {
+				visit(child)
+			}
+		case orPattern:
+			for _, child := range p.alternatives {
+				visit(child)
+			}
+		case andPattern:
+			visit(p.left)
+			visit(p.right)
+		case typePattern:
+			if p.binding != "" && p.binding != "_" {
+				set[p.binding] = struct{}{}
+			}
+		case notPattern:
+			visit(p.inner)
+		}
+	}
+	visit(pattern)
+	return set
+}
+
+func samePatternBindingSet(left, right map[string]struct{}) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name := range left {
+		if _, ok := right[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func validateEnumMatchExhaustiveness(subject Expr, arms []matchArm, env *scope, source string) error {
+	enum, ok := staticEnumValue(subject, env)
+	if !ok || enum.enum == nil {
+		return nil
+	}
+	namespace, ok := staticEnumNamespace(enum.enum.typeName, env)
+	if !ok {
+		return nil
+	}
+	covered := make(map[string]struct{}, len(arms))
+	catchAll := false
+	for _, arm := range arms {
+		if catchAll {
+			return enumPatternError(source, matchArmSpan(arm), "unreachable match arm after an unguarded catch-all")
+		}
+		if arm.guard != nil {
+			continue
+		}
+		switch arm.pattern.(type) {
+		case wildcardPattern, bindPattern:
+			catchAll = true
+			continue
+		}
+		armCases := enumPatternCases(arm.pattern)
+		if len(armCases) == 0 {
+			continue
+		}
+		newCase := false
+		for _, pattern := range armCases {
+			if pattern.typeName == enum.enum.typeName {
+				if _, exists := covered[pattern.caseName]; !exists {
+					newCase = true
+				}
+				covered[pattern.caseName] = struct{}{}
+			}
+		}
+		if !newCase {
+			return enumPatternError(source, matchArmSpan(arm), "unreachable match arm; its enum cases are already covered")
+		}
+	}
+	if catchAll {
+		return nil
+	}
+	missing := make([]string, 0, len(namespace.mod.enumCases))
+	for name := range namespace.mod.enumCases {
+		if _, found := covered[name]; !found {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return enumPatternError(source, exprSpan(subject), "non-exhaustive match for enum %s; missing cases: %s", enum.enum.typeName, strings.Join(missing, ", "))
+}
+
+func matchArmSpan(arm matchArm) sourceSpan {
+	if span := patternSpan(arm.pattern); span.start.line != 0 || span.start.col != 0 {
+		return span
+	}
+	return exprSpan(arm.body)
+}
+
+func enumPatternCases(pattern Pattern) []enumPattern {
+	switch p := pattern.(type) {
+	case enumPattern:
+		return []enumPattern{p}
+	case orPattern:
+		var out []enumPattern
+		for _, alternative := range p.alternatives {
+			out = append(out, enumPatternCases(alternative)...)
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func enumPatternError(source string, span sourceSpan, format string, args ...any) error {
+	return newOsirisError(ErrorKindType, fmt.Sprintf(format, args...)).withSource(source, span)
+}
+
+func staticEnumValue(expr Expr, env *scope) (Value, bool) {
+	switch node := expr.(type) {
+	case *identExpr:
+		if env == nil {
+			return Value{}, false
+		}
+		binding, ok := env.lookup(node.name)
+		if !ok {
+			return Value{}, false
+		}
+		return staticEnumValue(binding.expr, binding.env)
+	case *memberExpr:
+		namespace, ok := staticEnumNamespaceExpr(node.object, env)
+		if !ok || namespace.mod == nil {
+			return Value{}, false
+		}
+		value, ok := namespace.mod.members[node.name]
+		return value, ok && value.kind == kindEnum
+	case *callExpr:
+		member, ok := node.callee.(*memberExpr)
+		if !ok {
+			return Value{}, false
+		}
+		namespace, ok := staticEnumNamespaceExpr(member.object, env)
+		if !ok || namespace.mod == nil {
+			return Value{}, false
+		}
+		caseDef, ok := namespace.mod.enumCases[member.name]
+		if !ok || caseDef.Arity() != len(node.args) {
+			return Value{}, false
+		}
+		return enumCaseValue(namespace.mod.name, member.name), true
+	case *literalExpr:
+		return node.value, node.value.kind == kindEnum
+	default:
+		return Value{}, false
+	}
+}
+
+func staticEnumNamespace(typeName string, env *scope) (Value, bool) {
+	if env == nil {
+		return Value{}, false
+	}
+	binding, ok := env.lookup(typeName)
+	if !ok {
+		return Value{}, false
+	}
+	literal, ok := binding.expr.(*literalExpr)
+	if !ok || literal.value.kind != kindModule || literal.value.mod == nil {
+		return Value{}, false
+	}
+	return literal.value, true
+}
+
+func staticEnumNamespaceExpr(expr Expr, env *scope) (Value, bool) {
+	ident, ok := expr.(*identExpr)
+	if !ok {
+		return Value{}, false
+	}
+	return staticEnumNamespace(ident.name, env)
 }
 
 // expandBlockExpr operates on macroExpander values and keeps the
@@ -625,11 +963,18 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 			for k, v := range added {
 				bodyRenames[k] = v
 			}
+			var guard Expr
+			if n.arms[i].guard != nil {
+				guard, err = e.expandTemplateExpr(n.arms[i].guard, env, defs, params, args, bodyRenames, depth+1)
+				if err != nil {
+					return nil, err
+				}
+			}
 			body, err := e.expandTemplateExpr(n.arms[i].body, env, defs, params, args, bodyRenames, depth+1)
 			if err != nil {
 				return nil, err
 			}
-			arms[i] = matchArm{pattern: pat, body: body}
+			arms[i] = matchArm{pattern: pat, guard: guard, body: body, isDefault: n.arms[i].isDefault}
 		}
 		return &matchExpr{subject: subject, arms: arms}, nil
 	case *blockExpr:
@@ -799,6 +1144,41 @@ func (e *macroExpander) freshenPatternInto(pattern Pattern, renames map[string]s
 		fresh := e.freshName(p.name)
 		renames[p.name] = fresh
 		return bindPattern{name: fresh}
+	case enumPattern:
+		items := make([]Pattern, len(p.items))
+		for i, item := range p.items {
+			items[i] = e.freshenPatternInto(item, renames)
+		}
+		p.items = items
+		return p
+	case orPattern:
+		alternatives := make([]Pattern, len(p.alternatives))
+		for i, alternative := range p.alternatives {
+			alternatives[i] = e.freshenPatternInto(alternative, renames)
+		}
+		p.alternatives = alternatives
+		return p
+	case andPattern:
+		p.left = e.freshenPatternInto(p.left, renames)
+		p.right = e.freshenPatternInto(p.right, renames)
+		return p
+	case notPattern:
+		p.inner = e.freshenPatternInto(p.inner, renames)
+		return p
+	case typePattern:
+		if p.binding == "" || p.binding == "_" {
+			return p
+		}
+		if next, ok := renames[p.binding]; ok {
+			p.binding = next
+			return p
+		}
+		fresh := e.freshName(p.binding)
+		renames[p.binding] = fresh
+		p.binding = fresh
+		return p
+	case relationalPattern:
+		return p
 	case literalPattern:
 		return literalPattern{value: p.value}
 	case listPattern:

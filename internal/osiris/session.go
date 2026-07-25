@@ -135,6 +135,14 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			s.exportOrder = append(s.exportOrder, name)
 		}
 		return nil, false, nil
+	case enumStmt:
+		s.scope = &scope{
+			parent: s.scope,
+			items: map[string]binding{
+				st.Name: {expr: &literalExpr{value: enumNamespaceValue(st.Name, st.Cases)}, env: s.scope},
+			},
+		}
+		return nil, false, nil
 	case macroStmt:
 		if err := s.registerMacro(st.Name, st.Params, st.Body); err != nil {
 			return nil, false, err

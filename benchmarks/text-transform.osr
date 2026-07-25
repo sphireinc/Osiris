@@ -1,0 +1,3 @@
+import "std/text" as text
+let value = "The quick brown fox jumps over the lazy dog"
+emit text.slug(text.upper(value))

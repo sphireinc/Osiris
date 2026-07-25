@@ -16,28 +16,28 @@ import (
 type ErrorKind string
 
 const (
-	ErrorKindUnknown          ErrorKind = "unknown_error"
-	ErrorKindInvalidArgument  ErrorKind = "invalid_argument"
-	ErrorKindNotFound         ErrorKind = "not_found"
-	ErrorKindAlreadyExists    ErrorKind = "already_exists"
-	ErrorKindPermissionDenied ErrorKind = "permission_denied"
-	ErrorKindUnauthenticated  ErrorKind = "unauthenticated"
-	ErrorKindUnavailable      ErrorKind = "unavailable"
-	ErrorKindTimeout          ErrorKind = "timeout"
-	ErrorKindCancelled        ErrorKind = "cancelled"
-	ErrorKindConflict         ErrorKind = "conflict"
+	ErrorKindUnknown           ErrorKind = "unknown_error"
+	ErrorKindInvalidArgument   ErrorKind = "invalid_argument"
+	ErrorKindNotFound          ErrorKind = "not_found"
+	ErrorKindAlreadyExists     ErrorKind = "already_exists"
+	ErrorKindPermissionDenied  ErrorKind = "permission_denied"
+	ErrorKindUnauthenticated   ErrorKind = "unauthenticated"
+	ErrorKindUnavailable       ErrorKind = "unavailable"
+	ErrorKindTimeout           ErrorKind = "timeout"
+	ErrorKindCancelled         ErrorKind = "cancelled"
+	ErrorKindConflict          ErrorKind = "conflict"
 	ErrorKindResourceExhausted ErrorKind = "resource_exhausted"
-	ErrorKindOutOfMemory      ErrorKind = "out_of_memory"
-	ErrorKindOutOfRange       ErrorKind = "out_of_range"
-	ErrorKindUnsupported      ErrorKind = "unsupported"
+	ErrorKindOutOfMemory       ErrorKind = "out_of_memory"
+	ErrorKindOutOfRange        ErrorKind = "out_of_range"
+	ErrorKindUnsupported       ErrorKind = "unsupported"
 	ErrorKindNotImplemented    ErrorKind = "not_implemented"
-	ErrorKindParse            ErrorKind = "parse_error"
-	ErrorKindType             ErrorKind = "type_error"
-	ErrorKindEncoding         ErrorKind = "encoding_error"
-	ErrorKindIO               ErrorKind = "io_error"
-	ErrorKindNetwork          ErrorKind = "network_error"
-	ErrorKindDatabase         ErrorKind = "database_error"
-	ErrorKindInternal         ErrorKind = "internal_error"
+	ErrorKindParse             ErrorKind = "parse_error"
+	ErrorKindType              ErrorKind = "type_error"
+	ErrorKindEncoding          ErrorKind = "encoding_error"
+	ErrorKindIO                ErrorKind = "io_error"
+	ErrorKindNetwork           ErrorKind = "network_error"
+	ErrorKindDatabase          ErrorKind = "database_error"
+	ErrorKindInternal          ErrorKind = "internal_error"
 )
 
 type ErrorSeverity string
@@ -121,17 +121,17 @@ type OsirisError struct {
 	location *ErrorLocation
 	stack    []ErrorFrame
 
-	metadata     map[string]Value
+	metadata      map[string]Value
 	debugMetadata map[string]Value
 
-	operation    string
-	resource     string
-	retryable    *bool
-	severity     ErrorSeverity
+	operation     string
+	resource      string
+	retryable     *bool
+	severity      ErrorSeverity
 	correlationID string
-	timestamp    time.Time
-	component    string
-	remediation  string
+	timestamp     time.Time
+	component     string
+	remediation   string
 }
 
 // newOsirisError constructs a structured error record with a stable kind/code

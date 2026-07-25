@@ -433,19 +433,24 @@ func tensorDotValue(args []Value) (Value, error) {
 	if len(left) != len(right) {
 		return nullValue(), fmt.Errorf("dot expects tensors with the same length")
 	}
-	var total float64
+	complexResult := false
+	var total complex128
 	for i := range left {
-		ln, err := left[i].AsNumber()
+		ln, err := complexFromValue(left[i])
 		if err != nil {
 			return nullValue(), err
 		}
-		rn, err := right[i].AsNumber()
+		rn, err := complexFromValue(right[i])
 		if err != nil {
 			return nullValue(), err
 		}
+		complexResult = complexResult || left[i].kind == kindComplex || right[i].kind == kindComplex
 		total += ln * rn
 	}
-	return floatResultValue(total, append(append([]Value(nil), left...), right...)...), nil
+	if complexResult {
+		return complexValue(total), nil
+	}
+	return floatResultValue(real(total), append(append([]Value(nil), left...), right...)...), nil
 }
 
 // tensorMatMulValue handles the tensor mat mul value step in the surrounding
@@ -473,21 +478,32 @@ func tensorMatMulValue(args []Value) (Value, error) {
 	}
 	rows, mid, cols := leftShape[0], leftShape[1], rightShape[1]
 	out := make([]Value, rows*cols)
+	complexResult := false
+	for _, value := range append(append([]Value(nil), leftData...), rightData...) {
+		if value.kind == kindComplex {
+			complexResult = true
+			break
+		}
+	}
 	for r := 0; r < rows; r++ {
 		for c := 0; c < cols; c++ {
-			var total float64
+			var total complex128
 			for k := 0; k < mid; k++ {
-				ln, err := leftData[r*mid+k].AsNumber()
+				ln, err := complexFromValue(leftData[r*mid+k])
 				if err != nil {
 					return nullValue(), err
 				}
-				rn, err := rightData[k*cols+c].AsNumber()
+				rn, err := complexFromValue(rightData[k*cols+c])
 				if err != nil {
 					return nullValue(), err
 				}
 				total += ln * rn
 			}
-			out[r*cols+c] = floatResultValue(total, append(append([]Value(nil), leftData...), rightData...)...)
+			if complexResult {
+				out[r*cols+c] = complexValue(total)
+			} else {
+				out[r*cols+c] = floatResultValue(real(total), append(append([]Value(nil), leftData...), rightData...)...)
+			}
 		}
 	}
 	return tensorFromShapeAndData([]int{rows, cols}, out)

@@ -4,14 +4,25 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/sphireinc/osiris/internal/osiris"
+)
+
+// Release metadata is injected by the release build with -ldflags. Development
+// builds keep explicit, actionable defaults instead of pretending to be a
+// tagged release.
+var (
+	version   = "0.1.0-dev"
+	commit    = "unknown"
+	buildDate = "unknown"
 )
 
 // main is the CLI entry point for the Osiris executable. It hands control to
@@ -22,9 +33,113 @@ import (
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func main() {
-	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if code := execute(context.Background(), os.Args[1:], os.Stdout, os.Stderr); code != cliExitSuccess {
+		os.Exit(code)
+	}
+}
+
+const (
+	cliExitSuccess  = 0
+	cliExitUsage    = 64
+	cliExitCompile  = 65
+	cliExitInput    = 66
+	cliExitRuntime  = 70
+	cliExitInternal = 71
+)
+
+// cliDiagnostic is the versioned failure envelope written by
+// --diagnostics=json. Successful command payloads retain their command-owned
+// stdout schema; diagnostics always go to stderr.
+type cliDiagnostic struct {
+	SchemaVersion int    `json:"schema_version"`
+	Command       string `json:"command,omitempty"`
+	Category      string `json:"category"`
+	ExitCode      int    `json:"exit_code"`
+	Message       string `json:"message"`
+}
+
+type cliPhaseError struct {
+	exitCode int
+	err      error
+}
+
+func (e *cliPhaseError) Error() string { return e.err.Error() }
+func (e *cliPhaseError) Unwrap() error { return e.err }
+
+func cliCompileError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &cliPhaseError{exitCode: cliExitCompile, err: err}
+}
+
+// execute is the process boundary for the CLI. It owns exit-code selection and
+// diagnostic rendering while run remains directly testable by command tests.
+func execute(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	diagnosticsJSON, args, optionErr := consumeDiagnosticOption(args)
+	command := ""
+	if len(args) > 0 {
+		command = args[0]
+	}
+	if optionErr != nil {
+		writeCLIDiagnostic(stderr, command, cliExitUsage, optionErr, diagnosticsJSON)
+		return cliExitUsage
+	}
+	if err := run(ctx, args, stdout, stderr); err != nil {
+		code := classifyCLIExit(command, err)
+		writeCLIDiagnostic(stderr, command, code, err, diagnosticsJSON)
+		return code
+	}
+	return cliExitSuccess
+}
+
+func consumeDiagnosticOption(args []string) (bool, []string, error) {
+	if len(args) == 0 || !strings.HasPrefix(args[0], "--diagnostics") {
+		return false, args, nil
+	}
+	if args[0] != "--diagnostics=json" {
+		return false, args, fmt.Errorf("--diagnostics only supports json")
+	}
+	return true, args[1:], nil
+}
+
+func classifyCLIExit(command string, err error) int {
+	var phaseErr *cliPhaseError
+	if errors.As(err, &phaseErr) {
+		return phaseErr.exitCode
+	}
+	if errors.Is(err, flag.ErrHelp) || strings.HasPrefix(err.Error(), "flag provided but not defined") || strings.HasPrefix(err.Error(), "invalid value") || strings.Contains(err.Error(), " expects ") || strings.Contains(err.Error(), " is required") || strings.Contains(err.Error(), "cannot be combined") || strings.HasPrefix(err.Error(), "unknown command") {
+		return cliExitUsage
+	}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		return cliExitInput
+	}
+	if strings.Contains(err.Error(), "error[parse_error]") || strings.Contains(err.Error(), "error[type_error]") || strings.Contains(err.Error(), "native C backend") || strings.Contains(err.Error(), "unsupported lowering") {
+		return cliExitCompile
+	}
+	switch command {
+	case "run", "vm", "eval", "demo", "repl", "debug", "trace":
+		return cliExitRuntime
+	case "fmt", "opt", "ir", "ssa", "cfg", "dom", "loop", "c", "obj", "build", "compile", "infer", "alias", "pure", "closure", "viz", "wasm", "gpu", "map", "deps", "heap", "lsp":
+		return cliExitCompile
+	default:
+		return cliExitInternal
+	}
+}
+
+func writeCLIDiagnostic(w io.Writer, command string, code int, err error, asJSON bool) {
+	category := map[int]string{
+		cliExitUsage: "usage", cliExitCompile: "compile", cliExitInput: "input", cliExitRuntime: "runtime", cliExitInternal: "internal",
+	}[code]
+	if asJSON {
+		_ = json.NewEncoder(w).Encode(cliDiagnostic{SchemaVersion: 1, Command: command, Category: category, ExitCode: code, Message: err.Error()})
+		return
+	}
+	fmt.Fprintf(w, "osiris: %s\n", err)
+	if code == cliExitUsage {
+		fmt.Fprintln(w)
+		printUsage(w)
 	}
 }
 
@@ -40,6 +155,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	}
 
 	switch args[0] {
+	case "version":
+		return runVersion(stdout)
 	case "run":
 		return runProgram(ctx, args[1:], stdout)
 	case "vm":
@@ -90,6 +207,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runMap(ctx, args[1:], stdout)
 	case "deps":
 		return runDeps(ctx, args[1:], stdout)
+	case "mod":
+		return runMod(ctx, args[1:], stdout)
 	case "heap":
 		return runHeap(ctx, args[1:], stdout, os.Stdin)
 	case "trace":
@@ -100,15 +219,21 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runRepl(ctx, stdout)
 	case "help", "-h", "--help":
 		if len(args) > 1 {
-			printCommandHelp(stdout, args[1])
-			return nil
+			if printCommandHelp(stdout, args[1]) {
+				return nil
+			}
+			return fmt.Errorf("unknown command %q", args[1])
 		}
 		printUsage(stdout)
 		return nil
 	default:
-		printUsage(stderr)
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runVersion(stdout io.Writer) error {
+	_, err := fmt.Fprintf(stdout, "osiris %s\ncommit: %s\nbuilt: %s\ngo: %s\ntarget: %s/%s\n", version, commit, buildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	return err
 }
 
 // runProgram handles the run program command path for the CLI. It parses the
@@ -135,7 +260,7 @@ func runProgram(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	prog, err := osiris.Parse(name, src)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
 
 	rt := osiris.NewRuntime()
@@ -176,7 +301,7 @@ func runProgramVM(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	prog, err := osiris.Parse(name, src)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
 
 	rt := osiris.NewRuntime()
@@ -205,7 +330,7 @@ func runEval(ctx context.Context, args []string, stdout io.Writer) error {
 	src := "emit " + strings.Join(args, " ")
 	prog, err := osiris.Parse("<eval>", src)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
 	rt := osiris.NewRuntime()
 	outputs, err := rt.Run(ctx, prog)
@@ -278,7 +403,7 @@ func runFmt(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	formatted, err := osiris.FormatSource(name, src)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
 	if write {
 		if sourcePath == "" || sourcePath == "-" {
@@ -300,7 +425,11 @@ func runOpt(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("opt", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var write bool
+	var report bool
+	var jsonReport bool
 	fs.BoolVar(&write, "w", false, "write result back to file")
+	fs.BoolVar(&report, "report", false, "write a deterministic optimization report")
+	fs.BoolVar(&jsonReport, "json", false, "write the optimization report as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -315,10 +444,32 @@ func runOpt(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	prog, err := osiris.Parse(name, src)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
-	optProg := osiris.OptimizeProgram(prog)
+	optProg, optReport := osiris.OptimizeProgramWithReport(prog)
 	formatted := osiris.FormatProgram(optProg)
+	if report || jsonReport {
+		if write {
+			return fmt.Errorf("-w cannot be combined with -report or -json")
+		}
+		if jsonReport {
+			return json.NewEncoder(stdout).Encode(optReport)
+		}
+		for _, pass := range optReport.Passes {
+			if _, err := fmt.Fprintf(stdout, "%s: %s (%d -> %d statements)", pass.Name, pass.Status, pass.BeforeStatements, pass.AfterStatements); err != nil {
+				return err
+			}
+			if pass.Reason != "" {
+				if _, err := fmt.Fprintf(stdout, "; %s", pass.Reason); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(stdout); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	if write {
 		if sourcePath == "" || sourcePath == "-" {
 			return fmt.Errorf("-w requires a file path")
@@ -543,6 +694,15 @@ const (
 	cBackendExecutable
 )
 
+type stringListFlag []string
+
+func (f *stringListFlag) String() string { return strings.Join(*f, " ") }
+
+func (f *stringListFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
 // runCBackend handles the run cbackend command path for the CLI. It parses the
 // command-specific flags and arguments, performs the requested Osiris
 // operation, and writes the user-facing result to the provided stream.
@@ -554,9 +714,11 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 	var outputPath string
 	var cacheDir string
 	var linalgProvider string
+	var linalgProviderFlags stringListFlag
 	fs.StringVar(&outputPath, "o", "", "output path")
 	fs.StringVar(&cacheDir, "cache-dir", "", "content-addressed executable cache directory")
 	fs.StringVar(&linalgProvider, "linalg-provider", "", "C source implementing the Osiris numerical-provider ABI")
+	fs.Var(&linalgProviderFlags, "linalg-provider-flag", "linker argument for the numerical provider (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -574,10 +736,10 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 		return err
 	}
 	rt := osiris.NewRuntime()
-	options := osiris.CCompileOptions{LinalgProviderSource: linalgProvider}
+	options := osiris.CCompileOptions{LinalgProviderSource: linalgProvider, LinalgProviderFlags: append([]string(nil), linalgProviderFlags...)}
 	artifact, err := osiris.CompileCWithOptions(ctx, rt, prog, options)
 	if err != nil {
-		return err
+		return cliCompileError(err)
 	}
 	switch mode {
 	case cBackendSource:
@@ -1036,6 +1198,33 @@ func runDeps(ctx context.Context, args []string, stdout io.Writer) error {
 	return nil
 }
 
+// runMod owns generated module lock/cache lifecycle actions. It deliberately
+// does not expose manual lockfile editing.
+func runMod(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("mod expects sync or clean")
+	}
+	action := args[0]
+	if action == "sync" {
+		return runDeps(ctx, args[1:], stdout)
+	}
+	if action != "clean" {
+		return fmt.Errorf("unknown mod action %q", action)
+	}
+	if len(args) != 2 || args[1] == "-" {
+		return fmt.Errorf("mod clean requires a source file path")
+	}
+	lockPath, cacheDir := osiris.ModuleStatePaths(args[1])
+	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.RemoveAll(cacheDir); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(stdout, "removed generated module state:\n  %s\n  %s\n", lockPath, cacheDir)
+	return err
+}
+
 type debugBreakpoint struct {
 	Line      int
 	Column    int
@@ -1450,6 +1639,7 @@ func printUsage(w io.Writer) {
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "use `osiris help <command>` for command-specific details")
+	fmt.Fprintln(w, "use `osiris --diagnostics=json <command>` for JSON failure diagnostics")
 }
 
 type commandHelpRow struct {
@@ -1464,18 +1654,19 @@ type commandHelpRow struct {
 // the pipeline without re-deriving the same information.
 func commandHelpRows() []commandHelpRow {
 	return []commandHelpRow{
+		{"osiris version", "print release version, commit, build date, Go toolchain, and target"},
 		{"osiris run [-f file] [file]", "run source in the interpreter"},
 		{"osiris vm [-f file] [file]", "run source through the bytecode VM"},
 		{"osiris eval <expression>", "evaluate a single expression and emit the result"},
 		{"osiris demo", "run the built-in demo program"},
 		{"osiris fmt [-w] [file]", "format Osiris source code"},
-		{"osiris opt [-w] [file]", "rewrite source with optimizer simplifications"},
+		{"osiris opt [-w] [-report|-json] [file]", "rewrite source or emit a deterministic optimization report"},
 		{"osiris ir [file]", "dump the lowered intermediate representation"},
 		{"osiris ssa [file]", "dump SSA form with explicit defs and uses"},
 		{"osiris cfg [file]", "dump the control-flow graph"},
 		{"osiris dom [file]", "dump the dominator tree"},
 		{"osiris loop [file]", "show canonical loop shapes from the IR"},
-		{"osiris c [-o out.c] [file]", "emit readable C from the program snapshot"},
+		{"osiris c [-o out.c] [file]", "lower the supported program subset to readable C"},
 		{"osiris obj -o out.o [file]", "compile the C backend to an object file"},
 		{"osiris build -o out [file]", "compile the C backend to a native executable (standard path)"},
 		{"osiris compile -o out [file]", "alias for osiris build"},
@@ -1489,6 +1680,7 @@ func commandHelpRows() []commandHelpRow {
 		{"osiris lsp", "run the language server over stdio"},
 		{"osiris map [file]", "emit source maps for debugging and stepping"},
 		{"osiris deps [-json] [file]", "report module dependencies and cycles"},
+		{"osiris mod sync [file] | mod clean <file>", "create or remove generated module lock/cache state"},
 		{"osiris heap [-json] [-query expr] [file]", "inspect live scopes, modules, and dependency state"},
 		{"osiris trace [-json] [file]", "print execution trace frames"},
 		{"osiris debug [-json] [-break line[:col]] [file]", "step through execution with breakpoints"},
@@ -1502,7 +1694,7 @@ func commandHelpRows() []commandHelpRow {
 //
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
-func printCommandHelp(w io.Writer, name string) {
+func printCommandHelp(w io.Writer, name string) bool {
 	for _, cmd := range commandHelpRows() {
 		rest, ok := strings.CutPrefix(cmd.usage, "osiris ")
 		if !ok {
@@ -1512,9 +1704,8 @@ func printCommandHelp(w io.Writer, name string) {
 		if len(parts) > 0 && parts[0] == name {
 			fmt.Fprintf(w, "%s\n", cmd.usage)
 			fmt.Fprintf(w, "%s\n", cmd.desc)
-			return
+			return true
 		}
 	}
-	fmt.Fprintf(w, "unknown command %q\n", name)
-	printUsage(w)
+	return false
 }

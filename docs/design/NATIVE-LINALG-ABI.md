@@ -84,6 +84,31 @@ typedef struct {
 } OLinalgProviderV1;
 ```
 
+ABI version 2 extends that prefix without changing the v1 `eigh` or `svd`
+entries. A provider that advertises version 2 must use this layout and provide
+`eig_f64`:
+
+```c
+typedef struct { double real; double imag; } OComplex;
+
+typedef struct {
+    unsigned abi_version; /* exactly 2 */
+    OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *);
+    OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *,
+                             double *);
+    OLinalgStatus (*eig_f64)(size_t n, double *row_major_matrix,
+                             OComplex *values,
+                             OComplex *row_major_vectors);
+} OLinalgProviderV2;
+```
+
+`eig_f64` accepts a mutable owned row-major f64 copy. It writes `n` complex
+eigenvalues and an `n × n` row-major complex eigenvector matrix, with one
+eigenvector per column. The generated adapter owns all buffers and returns
+`[values, vectors]` as complex tensors even when every imaginary component is
+zero. A v1 provider remains valid for `eigh` and `svd`, but cannot service
+`eig`; an `eig` program requires a configured ABI-v2 provider.
+
 The matrix argument is mutable provider workspace. The generated adapter makes
 an owned copy of the Osiris input before calling either operation. A provider
 must not retain any pointer it receives. It may use internal threading, but it
@@ -93,22 +118,66 @@ The first integration may use a build-time selected provider and a generated
 `const OLinalgProviderV1 *` symbol. Dynamic loading, environment-dependent
 provider discovery, and silent fallback are deliberately out of scope.
 
+## Production provider selection
+
+The repository ships no numerical-library binary. The supported production
+strategy is an explicit adapter source plus explicit linker arguments, which
+keeps licensing, deployment, and CPU-library selection under the embedding
+application's control.
+
+On macOS, the maintained adapter is
+`internal/osiris/providers/accelerate_lapack_provider.c`. It adapts Apple
+Accelerate LAPACK `dsyevd`, `dgesdd`, and `dgeev` to ABI v2, including
+row-major/column-major conversion and LAPACK's paired real representation of
+complex eigenvectors. It is linked explicitly:
+
+```sh
+osiris build -o program \
+  -linalg-provider internal/osiris/providers/accelerate_lapack_provider.c \
+  -linalg-provider-flag=-framework \
+  -linalg-provider-flag=Accelerate \
+  program.osr
+```
+
+On other systems, supply an adapter with the same Osiris table and the local
+LAPACK/OpenBLAS link arguments, for example repeated
+`-linalg-provider-flag=-llapack` and `-linalg-provider-flag=-lblas` where
+those libraries are installed. Osiris does not assume a particular package
+manager, library path, or binary license.
+
+The table's `abi_version` and non-null function entries are capability
+discovery: v1 can serve `eigh`/`svd`; exactly v2 plus `eig_f64` is required
+for `eig`. A missing source is a compile error; a missing symbol is a linker
+error; a null/incompatible function entry becomes the deterministic native
+provider diagnostic. Provider source content and every explicit provider link
+argument participate in the executable cache key.
+
 ## Current implementation status
 
 The C backend now recognizes these operations as provider-gated. Without a
-configured provider integration, `eigh` and `svd` produce a compile-time
-diagnostic that names this ABI document; `eig` produces a separate diagnostic
-that names the missing complex tensor ABI. The provider source/linker selection
-is now available through `osiris build -linalg-provider provider.c`. The
-selected C source is compiled and linked with generated C. `eigh` now calls the
+configured provider integration, `eigh`, `svd`, and `eig` produce a compile-time
+diagnostic that names this ABI document. `eig` specifically requires ABI v2.
+The provider source/linker selection is now available through
+`osiris build -linalg-provider provider.c`. The selected C source is compiled
+and linked with generated C. `eigh` now calls the
 provider's `eigh_f64` entry after Osiris validates a square symmetric f64
 tensor; `svd` now calls `svd_f64` and returns the normalized `[U, s, VT]`
-tensor list. Provider source contents are included in cached-build identities.
+tensor list. `eig` now calls v2 `eig_f64` and returns complex value/vector
+tensors. Provider source contents are included in cached-build identities.
+The diagonal test provider is an ABI fixture only, not a general eigensolver;
+it includes a rotation-matrix conjugate-pair fixture whose native test checks
+eigenpair residuals rather than vector byte identity.
+
+The Accelerate adapter is a production path, and its integration test checks
+eigh reconstruction and orthogonality, SVD reconstruction and ordering, and
+complex eig residuals at `1e-10`. It skips only when that macOS framework is
+not available; the portable ABI fixture remains part of the regular suite.
 
 ## Error and determinism rules
 
 - No provider table: compile-time diagnostic naming the required provider.
-- ABI version mismatch: executable startup failure before user code runs.
+- ABI version mismatch or missing capability: deterministic native provider
+  diagnostic when the requested operation is reached; no interpreter fallback.
 - Invalid argument: native Osiris argument diagnostic.
 - No convergence: native Osiris numerical-convergence diagnostic.
 - Provider allocation failure: native out-of-memory diagnostic.
@@ -121,6 +190,7 @@ ordering, and residual tolerances, not bytewise equality with one provider.
 
 ## Implementation sequence
 
-1. Design the complex native ABI before considering general `eig` lowering.
+1. Add residual-based tests for non-real conjugate-pair spectra against a
+   general selected provider; do not compare unstable eigenvectors bytewise.
 2. Add benchmark and CI matrices for no-provider diagnostics and each selected
    provider.

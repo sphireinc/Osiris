@@ -23,6 +23,7 @@ type CFGBlock struct {
 	Params []string
 	Preds  []string
 	Succs  []string
+	Async  []string
 }
 
 // String operates on CFGProgram values and keeps the cfgprogram-specific
@@ -130,7 +131,13 @@ func FormatCFGProgram(prog *CFGProgram) string {
 				b.WriteString(strings.Join(block.Preds, ", "))
 				b.WriteString("] succs [")
 				b.WriteString(strings.Join(block.Succs, ", "))
-				b.WriteString("]\n")
+				b.WriteString("]")
+				if len(block.Async) > 0 {
+					b.WriteString(" async [")
+					b.WriteString(strings.Join(block.Async, ", "))
+					b.WriteByte(']')
+				}
+				b.WriteByte('\n')
 			}
 		}
 	}
@@ -162,7 +169,13 @@ func buildCFGFunction(fn *IRFunction) (CFGFunction, error) {
 		}
 		blockMap[block.Name] = block
 		order = append(order, block.Name)
-		cfgBlocks[block.Name] = &CFGBlock{Name: block.Name, Params: append([]string(nil), block.Params...)}
+		async := make([]string, 0)
+		for _, instr := range block.Instrs {
+			if instr.Op == "async" {
+				async = append(async, instr.Text)
+			}
+		}
+		cfgBlocks[block.Name] = &CFGBlock{Name: block.Name, Params: append([]string(nil), block.Params...), Async: async}
 	}
 	for _, block := range fn.Blocks {
 		cfgBlock := cfgBlocks[block.Name]

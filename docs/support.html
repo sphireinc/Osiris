@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backend support matrix - Osiris Reference</title>
+  <meta name="description" content="Evidence-linked support matrix for the Osiris language and its backends.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="panel panel-intro">
+        <p class="eyebrow">Language reference</p>
+        <h1>Osiris</h1>
+        <p class="lede">Evidence-linked backend support, generated in the browser from the canonical matrix.</p>
+      </div>
+      <nav class="nav"><div class="nav-group"><p class="nav-title">Reference</p><ul class="nav-list"><li><a href="index.html">Reference index</a></li><li><a href="native.html">Native interop</a></li><li><a href="support.html" class="active">Backend support matrix</a></li></ul></div></nav>
+    </aside>
+    <main class="content">
+      <section class="section">
+        <div class="section-heading"><div><p class="eyebrow">Current contract</p><h2>Feature and backend support</h2><p class="section-note">This page renders <code>support-matrix.json</code>, the repository’s machine-readable support contract. “Partial” means an explicit tested subset; unsupported programs must fail at compile time rather than execute through a hidden fallback.</p></div></div>
+        <div id="legend" class="support-legend" aria-label="Support state legend"></div>
+      </section>
+      <section class="section"><div id="matrix" class="support-matrix" aria-live="polite">Loading support matrix…</div></section>
+    </main>
+  </div>
+  <footer class="footer"><span>Osiris reference site.</span><span><a href="support-matrix.json">Machine-readable matrix (JSON)</a>.</span></footer>
+  <script src="support.js"></script>
+</body>
+</html>

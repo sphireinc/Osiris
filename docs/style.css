@@ -153,6 +153,85 @@ a:hover {
   gap: 20px;
 }
 
+.support-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.support-legend > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.support-matrix {
+  overflow-x: auto;
+}
+
+.support-matrix table {
+  width: 100%;
+  min-width: 1160px;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.support-matrix th,
+.support-matrix td {
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--line);
+}
+
+.support-matrix thead th {
+  background: var(--bg-soft);
+  text-transform: capitalize;
+}
+
+.support-matrix tbody > tr > th {
+  min-width: 210px;
+}
+
+.support-matrix td:last-child {
+  min-width: 320px;
+  color: var(--muted);
+}
+
+.support-matrix p {
+  margin: 0 0 9px;
+  line-height: 1.5;
+}
+
+.support-matrix details summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.matrix-docs {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.support-state {
+  display: inline-block;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.support-state.stable { color: #075f31; background: #e4f6eb; }
+.support-state.partial { color: #7a4700; background: #fff1d5; }
+.support-state.experimental { color: #2f4192; background: #e9eeff; }
+.support-state.unsupported { color: #6c2525; background: #fae8e8; }
+
 .section {
   padding: 22px;
 }

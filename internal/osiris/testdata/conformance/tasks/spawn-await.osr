@@ -1,0 +1,6 @@
+let task = spawn({
+  let x = 5
+  x + 7
+})
+emit await(task)
+emit cancel(task)

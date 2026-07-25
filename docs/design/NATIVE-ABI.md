@@ -142,6 +142,22 @@ the interpreter; `arange` retains its one-million-element safety limit.
 
 ## Ownership
 
+| Value family | Returned/retained representation | Ownership and cleanup rule |
+| --- | --- | --- |
+| Scalars and `OValue` itself | copied by value | No heap ownership; payload pointers follow their family rule. |
+| Strings | static literal or arena allocation/view | Literals are borrowed static storage; concatenation is registered in the native arena. Slices/views retain the source lifetime through that arena. |
+| Lists | arena-owned copied `OValue[]` | `olist` copies members into arena allocation. List copies share immutable storage. |
+| Closures | arena-owned capture array | Direct closures pass borrowed copied `OValue` arguments; escaped closures own an arena copy of captures and never retain Go memory. |
+| f64 tensors | arena-owned data plus shape | Constructors and transformations return owned independent data/shape; copy-on-write helpers never mutate an input tensor. Temporary shape/data buffers are freed before return or registered by the constructor. |
+| Complex tensors | arena-owned complex data plus shape | Same as f64 tensors; mixed calculations allocate a new owned complex tensor. |
+| Errors | static message / scalar `OValue` failure | `ofail` does not borrow caller-owned temporary memory. Native code has no heap error object yet. |
+| Numerical-provider outputs | provider-owned temporary buffers copied into arena tensors | Provider adapters copy results before returning `OValue`; the generated runtime never frees provider-owned memory. |
+
+The generated executable releases its arena with `ofreeallocs` at process exit.
+Helpers that allocate temporary work buffers (`malloc`/`calloc`) must either
+free them on every success and error path or transfer them exactly once to an
+arena-registering constructor. Borrowed pointers must never refer to Go memory.
+
 - Strings use an immutable UTF-8 pointer-and-length representation. Literals
   point to static storage. Concatenation allocates a null-terminated buffer in
   a tracked native arena that is released at process exit; copies of an OValue
@@ -175,6 +191,23 @@ the interpreter; `arange` retains its one-million-element safety limit.
 - Generated code may not retain pointers to Go-managed Value storage.
 
 ## Errors and unsupported operations
+
+## Numeric lowering contract
+
+| Family/operator | Native rule | Unsupported/rejected boundary |
+| --- | --- | --- |
+| `u8`–`u64` same-family `+ - *` | Preserve width through tagged helpers; unboxed proven `u64` operations use overflow intrinsics. | Overflow requiring bigint promotion is never silently wrapped on an unboxed path. |
+| `i8`–`i64` same-family arithmetic | Preserve signed width in tagged helpers; proven unboxed paths report signed overflow. | Minimum-value negation and overflowing arithmetic report a native diagnostic. |
+| Integer `/ %` | Exact same-family division/remainder only. | Divide/remainder by zero, non-exact division, and mixed-family integer arithmetic require a non-native numeric path. |
+| Integer shifts/bitwise | Tagged width-preserving operators only. | Invalid shift ranges and mixed signed/unsigned operations are rejected rather than delegated to C undefined behavior. |
+| `f32` / `f64` | Preserve explicit width metadata and native shortest-roundtrip rendering. | Domain operations that produce forbidden NaN/infinity return a native failure. |
+| Complex | Use explicit real/imaginary arithmetic and checked zero divisor. | Ordering comparisons are rejected. |
+| Decimal, rational, bigint, interval, fixed, wide/packed families | No general native scalar lowering. | Compiler emits a stable unsupported-lowering diagnostic; never maps these to C `double` or integer arithmetic. |
+| Integer exponentiation | No direct libm lowering. | `pow`/`expt` wait for exact integer-power and promotion parity. |
+
+Negative zero, NaN, and infinities retain their observable float form through
+the native printer when the interpreter permits them. Native compilation must
+not normalize them through integer formatting or an unchecked libm result.
 
 Unsupported IR operations are compile-time diagnostics; code generation never
 silently substitutes a null value for an operation it cannot lower. Supported arithmetic checks

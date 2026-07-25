@@ -1,0 +1,22 @@
+{
+  "name": "osiris-reference",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "migrate-reference": "node scripts/migrate-static-reference.mjs",
+    "redirects": "node scripts/create-legacy-redirects.mjs",
+    "check-reference": "npm run redirects && node scripts/check-reference.mjs",
+    "check-examples": "node scripts/check-examples.mjs",
+    "build": "npm run redirects && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.14",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {}
+}

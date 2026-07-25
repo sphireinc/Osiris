@@ -54,6 +54,15 @@ func formatStmt(stmt Stmt) string {
 		return "package " + s.Name
 	case exportStmt:
 		return "export " + strings.Join(s.Names, ", ")
+	case enumStmt:
+		cases := make([]string, len(s.Cases))
+		for i, item := range s.Cases {
+			cases[i] = item.Name
+			if len(item.Params) > 0 {
+				cases[i] += "(" + strings.Join(item.Params, ", ") + ")"
+			}
+		}
+		return "enum " + s.Name + " { " + strings.Join(cases, ", ") + " }"
 	case letStmt:
 		return "let " + s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:
@@ -182,7 +191,15 @@ func formatExpr(expr Expr, parentPrec int) string {
 			} else {
 				b.WriteByte(' ')
 			}
-			b.WriteString(formatPattern(arm.pattern))
+			if arm.isDefault {
+				b.WriteString("default")
+			} else {
+				b.WriteString(formatPattern(arm.pattern))
+			}
+			if arm.guard != nil {
+				b.WriteString(" when ")
+				b.WriteString(formatExpr(arm.guard, precLowest))
+			}
 			b.WriteString(" => ")
 			b.WriteString(formatExpr(arm.body, precLowest))
 		}
@@ -349,6 +366,33 @@ func formatPattern(p Pattern) string {
 		return "_"
 	case bindPattern:
 		return n.name
+	case enumPattern:
+		name := n.typeName + "." + n.caseName
+		if len(n.items) == 0 {
+			return name
+		}
+		parts := make([]string, len(n.items))
+		for i, item := range n.items {
+			parts[i] = formatPattern(item)
+		}
+		return name + "(" + strings.Join(parts, ", ") + ")"
+	case orPattern:
+		parts := make([]string, len(n.alternatives))
+		for i, alternative := range n.alternatives {
+			parts[i] = formatPattern(alternative)
+		}
+		return strings.Join(parts, " | ")
+	case andPattern:
+		return formatPattern(n.left) + " and " + formatPattern(n.right)
+	case notPattern:
+		return "not " + formatPattern(n.inner)
+	case typePattern:
+		if n.binding == "" || n.binding == "_" {
+			return n.typeName
+		}
+		return n.typeName + " " + n.binding
+	case relationalPattern:
+		return n.op.String() + " " + n.value.String()
 	case literalPattern:
 		return n.value.String()
 	case listPattern:

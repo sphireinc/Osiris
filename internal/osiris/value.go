@@ -38,6 +38,8 @@ const (
 	kindTask
 	kindFunction
 	kindModule
+	kindEnum
+	kindDual
 )
 
 type callable = Builtin
@@ -54,10 +56,25 @@ type functionValue struct {
 }
 
 type moduleValue struct {
-	name    string
-	version string
-	lookup  moduleLookup
-	members map[string]Value
+	name      string
+	version   string
+	lookup    moduleLookup
+	members   map[string]Value
+	enumCases map[string]enumCase
+}
+
+// enumValue is the nominal runtime identity of one declared enum case.  The
+// enum declaration itself is exposed as a module-like namespace so cases use
+// ordinary member access (for example, Status.Ready).
+type enumValue struct {
+	typeName string
+	caseName string
+	payload  []Value
+}
+
+type dualValue struct {
+	primal  float64
+	tangent float64
 }
 
 type Value struct {
@@ -94,6 +111,8 @@ type Value struct {
 	opt    *optionValue
 	fn     *functionValue
 	mod    *moduleValue
+	enum   *enumValue
+	dual   *dualValue
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -198,7 +217,22 @@ func modIntValueOfValue(v *modIntValue) Value {
 //
 // It returns Value so callers can continue with the next stage of the pipeline
 // without re-deriving the same information.
-func complexValue(v complex128) Value { return Value{kind: kindComplex, cx: v} }
+func complexValue(v complex128) Value { return complexValueStyled(v, 0) }
+
+// complexValueStyled creates a complex value with an optional component
+// precision.  A zero width is the historical/default complex family; the
+// explicit f32 and f64 families retain their component width just as scalar
+// floats do.
+func complexValueStyled(v complex128, bits uint16) Value {
+	if bits == 32 {
+		v = complex(float64(float32(real(v))), float64(float32(imag(v))))
+	}
+	return Value{kind: kindComplex, cx: v, fbits: bits}
+}
+
+func dualValueOf(primal, tangent float64) Value {
+	return Value{kind: kindDual, dual: &dualValue{primal: primal, tangent: tangent}}
+}
 
 // errorValue handles the error value step in the surrounding package and
 // returns Value.
@@ -363,6 +397,38 @@ func moduleValueOf(name, version string, lookup moduleLookup, members map[string
 	return Value{kind: kindModule, mod: &moduleValue{name: name, version: version, lookup: lookup, members: members}}
 }
 
+func enumCaseValue(typeName, caseName string, payload ...Value) Value {
+	return Value{kind: kindEnum, enum: &enumValue{typeName: typeName, caseName: caseName, payload: append([]Value(nil), payload...)}}
+}
+
+func enumNamespaceValue(name string, cases []enumCase) Value {
+	members := make(map[string]Value, len(cases))
+	caseDefs := make(map[string]enumCase, len(cases))
+	for _, item := range cases {
+		item := item
+		caseDefs[item.Name] = item
+		if item.Arity() == 0 {
+			members[item.Name] = enumCaseValue(name, item.Name)
+			continue
+		}
+		members[item.Name] = functionValueOf(name+"."+item.Name, func(args []Value) (Value, error) {
+			if len(args) != item.Arity() {
+				return nullValue(), fmt.Errorf("enum case %s.%s expects %d arguments", name, item.Name, item.Arity())
+			}
+			return enumCaseValue(name, item.Name, args...), nil
+		})
+	}
+	value := moduleValueOf(name, "", func(_ context.Context, member string) (Value, error) {
+		value, ok := members[member]
+		if !ok {
+			return nullValue(), fmt.Errorf("enum %s has no case %q", name, member)
+		}
+		return value, nil
+	}, members)
+	value.mod.enumCases = caseDefs
+	return value
+}
+
 // Kind operates on Value values and keeps the value-specific behavior attached
 // to the receiver so callers can use the method as the natural entry point for
 // that data structure.
@@ -378,6 +444,12 @@ func (v Value) Kind() string {
 	}
 	if v.kind == kindNumber && v.fbits != 0 {
 		return "f" + strconv.FormatUint(uint64(v.fbits), 10)
+	}
+	if v.kind == kindComplex && v.fbits != 0 {
+		return "complex<f" + strconv.FormatUint(uint64(v.fbits), 10) + ">"
+	}
+	if v.kind == kindDual {
+		return "dual"
 	}
 	if v.kind == kindFixed && v.fx != nil {
 		return fmt.Sprintf("fixed[%d,%d]", v.fx.width, v.fx.frac)
@@ -448,6 +520,10 @@ func (k valueKind) String() string {
 		return "function"
 	case kindModule:
 		return "module"
+	case kindEnum:
+		return "enum"
+	case kindDual:
+		return "dual"
 	default:
 		return "<?>"
 	}
@@ -477,6 +553,8 @@ func (v Value) Truthy() bool {
 		return v.mi != nil && v.mi.val.Sign() != 0
 	case kindComplex:
 		return real(v.cx) != 0 || imag(v.cx) != 0
+	case kindDual:
+		return v.dual != nil && (v.dual.primal != 0 || v.dual.tangent != 0)
 	case kindError:
 		return false
 	case kindResult:
@@ -552,6 +630,14 @@ func (v Value) AsNumber() (float64, error) {
 			return 0, fmt.Errorf("expected number, got complex")
 		}
 		return real(v.cx), nil
+	case kindDual:
+		if v.dual == nil {
+			return 0, nil
+		}
+		if v.dual.tangent != 0 {
+			return 0, fmt.Errorf("expected number, got dual with non-zero tangent")
+		}
+		return v.dual.primal, nil
 	case kindBigInt:
 		if v.bi == nil {
 			return 0, nil
@@ -1067,6 +1153,8 @@ func (v Value) Equal(other Value) bool {
 		default:
 			return false
 		}
+	case kindDual:
+		return other.kind == kindDual && v.dual != nil && other.dual != nil && v.dual.primal == other.dual.primal && v.dual.tangent == other.dual.tangent
 	case kindUint:
 		switch other.kind {
 		case kindUint:
@@ -1247,6 +1335,16 @@ func (v Value) Equal(other Value) bool {
 		return other.kind == kindFunction && v.fn != nil && other.fn != nil && v.fn.name == other.fn.name
 	case kindModule:
 		return other.kind == kindModule && v.mod != nil && other.mod != nil && v.mod.name == other.mod.name && v.mod.version == other.mod.version
+	case kindEnum:
+		if other.kind != kindEnum || v.enum == nil || other.enum == nil || v.enum.typeName != other.enum.typeName || v.enum.caseName != other.enum.caseName || len(v.enum.payload) != len(other.enum.payload) {
+			return false
+		}
+		for i := range v.enum.payload {
+			if !v.enum.payload[i].Equal(other.enum.payload[i]) {
+				return false
+			}
+		}
+		return true
 	default:
 		return false
 	}
@@ -1556,7 +1654,12 @@ func (v Value) String() string {
 	case kindModInt:
 		return formatModInt(v.mi)
 	case kindComplex:
-		return formatComplex(v.cx)
+		return formatComplexStyled(v.cx, v.fbits)
+	case kindDual:
+		if v.dual == nil {
+			return "dual(0, 0)"
+		}
+		return "dual(" + formatNumber(v.dual.primal) + ", " + formatNumber(v.dual.tangent) + ")"
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.String()
@@ -1630,6 +1733,19 @@ func (v Value) String() string {
 			return "<module " + v.mod.name + "@" + v.mod.version + ">"
 		}
 		return "<module " + v.mod.name + ">"
+	case kindEnum:
+		if v.enum == nil {
+			return "<enum>"
+		}
+		name := v.enum.typeName + "." + v.enum.caseName
+		if len(v.enum.payload) == 0 {
+			return name
+		}
+		parts := make([]string, len(v.enum.payload))
+		for i, item := range v.enum.payload {
+			parts[i] = item.String()
+		}
+		return name + "(" + strings.Join(parts, ", ") + ")"
 	default:
 		return "null"
 	}
@@ -1689,6 +1805,11 @@ func (v Value) toInterface() any {
 		return map[string]any{"modint": map[string]any{"mod": v.mi.mod.String(), "value": v.mi.val.String()}}
 	case kindComplex:
 		return []any{real(v.cx), imag(v.cx)}
+	case kindDual:
+		if v.dual == nil {
+			return map[string]any{"dual": []float64{0, 0}}
+		}
+		return map[string]any{"dual": []float64{v.dual.primal, v.dual.tangent}}
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.publicInterface()
@@ -1712,6 +1833,15 @@ func (v Value) toInterface() any {
 			return map[string]any{"option": map[string]any{"present": false}}
 		}
 		return map[string]any{"option": nil}
+	case kindEnum:
+		if v.enum == nil {
+			return map[string]any{"enum": nil}
+		}
+		payload := make([]any, len(v.enum.payload))
+		for i, item := range v.enum.payload {
+			payload[i] = item.toInterface()
+		}
+		return map[string]any{"enum": map[string]any{"type": v.enum.typeName, "case": v.enum.caseName, "payload": payload}}
 	case kindBigInt:
 		if v.bi == nil {
 			return map[string]any{"bigint": "0"}
@@ -1850,17 +1980,30 @@ func formatFloatValue(v Value) string {
 // It returns string so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func formatComplex(c complex128) string {
+	return formatComplexStyled(c, 0)
+}
+
+// formatComplexStyled renders a complex value while retaining an explicitly
+// selected component precision in the observable text form.
+func formatComplexStyled(c complex128, bits uint16) string {
 	re := real(c)
 	im := imag(c)
+	format := formatNumber
+	if bits != 0 {
+		format = func(value float64) string { return formatFloat(value, bits) }
+	}
 	switch {
 	case im == 0:
-		return formatNumber(re) + "+0i"
+		if bits == 0 {
+			return format(re) + "+0i"
+		}
+		return format(re) + "+" + format(0) + "i"
 	case re == 0:
-		return formatNumber(im) + "i"
+		return format(im) + "i"
 	case im < 0:
-		return formatNumber(re) + formatNumber(im) + "i"
+		return format(re) + format(im) + "i"
 	default:
-		return formatNumber(re) + "+" + formatNumber(im) + "i"
+		return format(re) + "+" + format(im) + "i"
 	}
 }
 
@@ -1890,6 +2033,8 @@ func textify(v Value) string {
 		return formatModInt(v.mi)
 	case kindComplex:
 		return formatComplex(v.cx)
+	case kindDual:
+		return v.String()
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.displayMessage()

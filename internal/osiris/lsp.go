@@ -8,8 +8,16 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
+
+// maxLSPMessageBytes bounds one framed JSON-RPC payload before allocation.
+// Editors should send incremental changes; a larger document update is a
+// protocol/resource error rather than an opportunity to exhaust the server.
+const maxLSPMessageBytes = 16 << 20
 
 type languageServer struct {
 	rt     *Runtime
@@ -32,6 +40,7 @@ type documentAnalysis struct {
 	diagnostics []lspDiagnostic
 	defs        []*symbolDef
 	refs        []*symbolRef
+	enumCases   map[string]*symbolDef
 }
 
 // findAt operates on documentAnalysis values and keeps the
@@ -149,9 +158,15 @@ func NewLanguageServer(rt *Runtime, out, log io.Writer) *languageServer {
 //
 // It returns an error when the operation cannot complete cleanly.
 func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
-	_ = ctx
 	r := bufio.NewReader(in)
+
+messageLoop:
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		msg, err := readLSPMessage(r)
 		if err != nil {
 			if err == io.EOF {
@@ -176,9 +191,12 @@ func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 		case "initialize":
 			if err := s.writeResponse(msg.ID, map[string]any{
 				"capabilities": map[string]any{
-					"textDocumentSync":   map[string]any{"openClose": true, "change": 1},
+					// 2 is TextDocumentSyncKind.Incremental. Every edit is
+					// applied against the current document with UTF-16 positions.
+					"textDocumentSync":   map[string]any{"openClose": true, "change": 2},
 					"hoverProvider":      true,
 					"definitionProvider": true,
+					"renameProvider":     true,
 				},
 			}, nil); err != nil {
 				return err
@@ -199,9 +217,21 @@ func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
 				return err
 			}
+			state := s.docs[params.TextDocument.URI]
 			text := ""
-			if len(params.ContentChanges) > 0 {
-				text = params.ContentChanges[len(params.ContentChanges)-1].Text
+			if state != nil {
+				text = state.text
+			}
+			for _, change := range params.ContentChanges {
+				var applyErr error
+				text, applyErr = applyLSPChange(text, change.Range, change.Text)
+				if applyErr != nil {
+					// didChange is a notification, so there is no response in
+					// which to report a bad client range. Preserve the prior
+					// document rather than corrupting it or taking down the server.
+					_, _ = fmt.Fprintf(s.log, "osiris lsp: ignored invalid didChange for %s: %v\n", params.TextDocument.URI, applyErr)
+					continue messageLoop
+				}
 			}
 			s.upsertDocument(params.TextDocument.URI, text)
 			continue
@@ -244,6 +274,20 @@ func (s *languageServer) Serve(ctx context.Context, in io.Reader) error {
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
 			}
+		case "textDocument/rename":
+			var params renameParams
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				return err
+			}
+			rewritten, err := s.RenameDocument(params.TextDocument.URI, params.Position, params.NewName)
+			if err != nil {
+				return s.writeResponse(msg.ID, nil, err)
+			}
+			state := s.docs[params.TextDocument.URI]
+			edit := map[string]any{"changes": map[string]any{params.TextDocument.URI: []any{map[string]any{"range": fullDocumentRange(state.text), "newText": rewritten}}}}
+			if err := s.writeResponse(msg.ID, edit, nil); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -265,10 +309,20 @@ func (s *languageServer) upsertDocument(uri, text string) {
 	} else {
 		state.prog = prog
 		state.analysis = analyzeDocument(s.rt, uri, prog)
-		state.diagnostics = state.analysis.diagnostics
+		state.diagnostics = diagnosticsInText(text, state.analysis.diagnostics)
 	}
 	s.docs[uri] = state
 	_ = s.publishDiagnostics(uri, state.diagnostics)
+}
+
+// rangeForURI converts parser rune columns to the UTF-16 positions required by
+// LSP. Definitions can point at a different open document, whose text must be
+// used for the conversion.
+func (s *languageServer) rangeForURI(uri string, sp sourceSpan) lspRange {
+	if target := s.docs[uri]; target != nil {
+		return toLSPRangeInText(target.text, sp)
+	}
+	return toLSPRange(sp)
 }
 
 // hover operates on languageServer values and keeps the
@@ -285,7 +339,7 @@ func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
 	if state.analysis == nil {
 		return nil, nil
 	}
-	ref, def := state.analysis.findAt(toSourcePos(pos))
+	ref, def := state.analysis.findAt(toSourcePosInText(state.text, pos))
 	if ref == nil && def == nil {
 		return nil, nil
 	}
@@ -309,7 +363,7 @@ func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
 	}
 	h := &lspHover{Contents: lspMarkupContent{Kind: "markdown", Value: content.String()}}
 	if ref != nil {
-		r := toLSPRange(ref.span)
+		r := toLSPRangeInText(state.text, ref.span)
 		h.Range = &r
 	}
 	return h, nil
@@ -329,20 +383,117 @@ func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
 	if state.analysis == nil {
 		return nil, nil
 	}
-	ref, def := state.analysis.findAt(toSourcePos(pos))
+	ref, def := state.analysis.findAt(toSourcePosInText(state.text, pos))
 	if ref != nil && ref.target != nil {
 		if ref.target.uri == "" || (ref.target.span.start.line == 0 && ref.target.span.start.col == 0 && ref.target.span.end.line == 0 && ref.target.span.end.col == 0) {
 			return nil, nil
 		}
-		return lspLocation{URI: ref.target.uri, Range: toLSPRange(ref.target.span)}, nil
+		return lspLocation{URI: ref.target.uri, Range: s.rangeForURI(ref.target.uri, ref.target.span)}, nil
 	}
 	if def != nil {
 		if def.uri == "" || (def.span.start.line == 0 && def.span.start.col == 0 && def.span.end.line == 0 && def.span.end.col == 0) {
 			return nil, nil
 		}
-		return lspLocation{URI: def.uri, Range: toLSPRange(def.span)}, nil
+		return lspLocation{URI: def.uri, Range: s.rangeForURI(def.uri, def.span)}, nil
 	}
 	return nil, nil
+}
+
+// RenameDocument returns a formatted, dry-run rewrite of the symbol at pos.
+// It never mutates the open document. Reference selection uses the semantic
+// analysis target pointer, so same-spelled shadowed bindings are excluded.
+func (s *languageServer) RenameDocument(uri string, pos lspPosition, replacement string) (string, error) {
+	if !validIdentifier(replacement) {
+		return "", fmt.Errorf("invalid replacement identifier %q", replacement)
+	}
+	state := s.docs[uri]
+	if state == nil || state.analysis == nil {
+		return "", fmt.Errorf("document not open: %s", uri)
+	}
+	ref, target := state.analysis.findAt(toSourcePosInText(state.text, pos))
+	if ref != nil {
+		target = ref.target
+	}
+	if target == nil || target.uri == "" {
+		return "", fmt.Errorf("no renameable symbol at position")
+	}
+	if target.uri != uri {
+		return "", fmt.Errorf("cross-document rename is not supported")
+	}
+	spans := []sourceSpan{target.span}
+	for _, candidate := range state.analysis.refs {
+		if candidate.target == target && spanText(state.text, candidate.span) == target.name {
+			spans = append(spans, candidate.span)
+		}
+	}
+	type edit struct{ start, end int }
+	edits := make([]edit, 0, len(spans))
+	seen := map[edit]bool{}
+	for _, span := range spans {
+		start, ok := sourceSpanOffsets(state.text, span)
+		if !ok {
+			return "", fmt.Errorf("rename source span is invalid")
+		}
+		item := edit{start: start, end: start + (span.end.col - span.start.col)}
+		if !seen[item] {
+			edits, seen[item] = append(edits, item), true
+		}
+	}
+	sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
+	rewritten := state.text
+	for _, item := range edits {
+		rewritten = rewritten[:item.start] + replacement + rewritten[item.end:]
+	}
+	return FormatSource(state.sourceName, rewritten)
+}
+
+func spanText(text string, span sourceSpan) string {
+	start, ok := sourceSpanOffsets(text, span)
+	if !ok {
+		return ""
+	}
+	end := start + span.end.col - span.start.col
+	if end < start || end > len(text) {
+		return ""
+	}
+	return text[start:end]
+}
+
+func validIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		if r != '_' && !unicode.IsLetter(r) && (i == 0 || !unicode.IsDigit(r)) {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceSpanOffsets(text string, span sourceSpan) (int, bool) {
+	if span.start.line < 1 || span.start.col < 1 || span.end.line != span.start.line || span.end.col < span.start.col {
+		return 0, false
+	}
+	lines := strings.SplitAfter(text, "\n")
+	if span.start.line > len(lines) {
+		return 0, false
+	}
+	offset := 0
+	for i := 0; i < span.start.line-1; i++ {
+		offset += len(lines[i])
+	}
+	start := offset + span.start.col - 1
+	if start > len(text) || start+(span.end.col-span.start.col) > len(text) {
+		return 0, false
+	}
+	return start, true
+}
+
+func fullDocumentRange(text string) lspRange {
+	lines := strings.Split(text, "\n")
+	last := lines[len(lines)-1]
+	return toLSPRangeInText(text, sourceSpan{start: sourcePos{line: 1, col: 1}, end: sourcePos{line: len(lines), col: len(last) + 1}})
 }
 
 // publishDiagnostics operates on languageServer values and keeps the
@@ -434,6 +585,9 @@ func readLSPMessage(r *bufio.Reader) (lspMessage, error) {
 	if length <= 0 {
 		return lspMessage{}, io.EOF
 	}
+	if length > maxLSPMessageBytes {
+		return lspMessage{}, fmt.Errorf("LSP message exceeds %d-byte limit", maxLSPMessageBytes)
+	}
 	buf := make([]byte, length)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return lspMessage{}, err
@@ -457,8 +611,61 @@ type didChangeParams struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`
 	ContentChanges []struct {
-		Text string `json:"text"`
+		Range *lspRange `json:"range,omitempty"`
+		Text  string    `json:"text"`
 	} `json:"contentChanges"`
+}
+
+type renameParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position lspPosition `json:"position"`
+	NewName  string      `json:"newName"`
+}
+
+func applyLSPChange(text string, change *lspRange, replacement string) (string, error) {
+	if change == nil {
+		return replacement, nil
+	}
+	start, ok := lspUTF16Offset(text, change.Start)
+	if !ok {
+		return "", fmt.Errorf("invalid incremental change start")
+	}
+	end, ok := lspUTF16Offset(text, change.End)
+	if !ok || end < start {
+		return "", fmt.Errorf("invalid incremental change end")
+	}
+	return text[:start] + replacement + text[end:], nil
+}
+
+func lspUTF16Offset(text string, pos lspPosition) (int, bool) {
+	if pos.Line < 0 || pos.Character < 0 {
+		return 0, false
+	}
+	lines := strings.SplitAfter(text, "\n")
+	if pos.Line >= len(lines) {
+		return 0, false
+	}
+	offset := 0
+	for i := 0; i < pos.Line; i++ {
+		offset += len(lines[i])
+	}
+	line := strings.TrimSuffix(lines[pos.Line], "\n")
+	units, at := 0, 0
+	for at < len(line) && units < pos.Character {
+		r, size := utf8.DecodeRuneInString(line[at:])
+		at += size
+		if r > 0xffff {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	if units != pos.Character {
+		return 0, false
+	}
+	return offset + at, true
 }
 
 type didCloseParams struct {
@@ -487,7 +694,7 @@ type definitionParams struct {
 // It returns *documentAnalysis so callers can continue with the next stage of
 // the pipeline without re-deriving the same information.
 func analyzeDocument(rt *Runtime, uri string, prog *Program) *documentAnalysis {
-	a := &documentAnalysis{}
+	a := &documentAnalysis{enumCases: make(map[string]*symbolDef)}
 	root := &lspScope{defs: map[string]*symbolDef{}}
 	for name := range rt.Builtins {
 		root.defs[name] = &symbolDef{name: name, kind: "builtin", detail: "builtin function", uri: "", span: sourceSpan{}}
@@ -564,6 +771,15 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 	case importStmt:
 		def := &symbolDef{name: st.Alias, kind: "module", detail: importDetail(st), uri: uri, span: st.AliasSpan}
 		a.defs = append(a.defs, def)
+		return scope.push(def), nil
+	case enumStmt:
+		def := &symbolDef{name: st.Name, kind: "enum", detail: fmt.Sprintf("enum with %d cases", len(st.Cases)), uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		for _, item := range st.Cases {
+			caseDef := &symbolDef{name: st.Name + "." + item.Name, kind: "enum case", detail: "case of " + st.Name, uri: uri, span: item.Span}
+			a.defs = append(a.defs, caseDef)
+			a.enumCases[caseDef.name] = caseDef
+		}
 		return scope.push(def), nil
 	case letStmt:
 		if err := analyzeExpr(a, scope, uri, st.Expr); err != nil {
@@ -648,7 +864,7 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 		if err := analyzeExpr(a, scope, uri, n.object); err != nil {
 			return err
 		}
-		def := resolveMemberTarget(a, scope, n.object)
+		def := resolveMemberTarget(a, scope, n.object, n.name)
 		if def != nil {
 			a.refs = append(a.refs, &symbolRef{span: n.NameSpan, target: def, detail: "member " + n.name})
 		}
@@ -699,10 +915,18 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 			return err
 		}
 		for _, arm := range n.arms {
+			if err := validatePatternBindings(arm.pattern, ""); err != nil {
+				a.diagnostics = append(a.diagnostics, diagnosticAt(patternSpan(arm.pattern), err.Error()))
+			}
 			child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
 			for _, def := range patternDefs(uri, arm.pattern) {
 				child.defs[def.name] = def
 				a.defs = append(a.defs, def)
+			}
+			if arm.guard != nil {
+				if err := analyzeExpr(a, child, uri, arm.guard); err != nil {
+					return err
+				}
 			}
 			if err := analyzeExpr(a, child, uri, arm.body); err != nil {
 				return err
@@ -721,8 +945,13 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 //
 // It returns *symbolDef so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
-func resolveMemberTarget(a *documentAnalysis, scope *lspScope, expr Expr) *symbolDef {
+func resolveMemberTarget(a *documentAnalysis, scope *lspScope, expr Expr, member string) *symbolDef {
 	if ident, ok := expr.(*identExpr); ok {
+		if a != nil && a.enumCases != nil {
+			if def := a.enumCases[ident.name+"."+member]; def != nil {
+				return def
+			}
+		}
 		return scope.lookup(ident.name)
 	}
 	return nil
@@ -743,6 +972,24 @@ func patternDefs(uri string, p Pattern) []*symbolDef {
 			out = append(out, patternDefs(uri, item)...)
 		}
 		return out
+	case enumPattern:
+		var out []*symbolDef
+		for _, item := range n.items {
+			out = append(out, patternDefs(uri, item)...)
+		}
+		return out
+	case orPattern:
+		if len(n.alternatives) == 0 {
+			return nil
+		}
+		return patternDefs(uri, n.alternatives[0])
+	case andPattern:
+		return append(patternDefs(uri, n.left), patternDefs(uri, n.right)...)
+	case typePattern:
+		if n.binding == "" || n.binding == "_" {
+			return nil
+		}
+		return []*symbolDef{{name: n.binding, kind: "pattern", detail: n.typeName + " pattern binding", uri: uri, span: n.Span}}
 	default:
 		return nil
 	}
@@ -804,6 +1051,24 @@ func diagnosticAt(sp sourceSpan, msg string) lspDiagnostic {
 	return lspDiagnostic{Range: toLSPRange(sp), Severity: 1, Source: "osiris", Message: msg}
 }
 
+// diagnosticsInText upgrades analysis diagnostics from parser rune columns to
+// the UTF-16 columns required on the wire by the Language Server Protocol.
+func diagnosticsInText(text string, diagnostics []lspDiagnostic) []lspDiagnostic {
+	converted := make([]lspDiagnostic, len(diagnostics))
+	copy(converted, diagnostics)
+	for i := range converted {
+		r := converted[i].Range
+		if r == (lspRange{}) {
+			continue
+		}
+		converted[i].Range = toLSPRangeInText(text, sourceSpan{
+			start: sourcePos{line: r.Start.Line + 1, col: r.Start.Character + 1},
+			end:   sourcePos{line: r.End.Line + 1, col: r.End.Character + 1},
+		})
+	}
+	return converted
+}
+
 // toSourcePos handles the to source pos step in the surrounding package and
 // returns sourcePos.
 //
@@ -811,6 +1076,60 @@ func diagnosticAt(sp sourceSpan, msg string) lspDiagnostic {
 // pipeline without re-deriving the same information.
 func toSourcePos(pos lspPosition) sourcePos {
 	return sourcePos{line: pos.Line + 1, col: pos.Character + 1}
+}
+
+func toSourcePosInText(text string, pos lspPosition) sourcePos {
+	lines := strings.Split(text, "\n")
+	if pos.Line < 0 || pos.Line >= len(lines) {
+		return sourcePos{line: pos.Line + 1, col: pos.Character + 1}
+	}
+	line := lines[pos.Line]
+	units, bytes := 0, 0
+	for bytes < len(line) && units < pos.Character {
+		r, size := utf8.DecodeRuneInString(line[bytes:])
+		bytes += size
+		if r > 0xffff {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	// Parser locations currently use UTF-8 byte columns (the lexer advances its
+	// source column by encoded byte width). Convert the editor's UTF-16
+	// position back to that source-map representation for lookup.
+	return sourcePos{line: pos.Line + 1, col: bytes + 1}
+}
+
+func toLSPRangeInText(text string, sp sourceSpan) lspRange {
+	r := toLSPRange(sp)
+	lines := strings.Split(text, "\n")
+	convert := func(p lspPosition) lspPosition {
+		if p.Line < 0 || p.Line >= len(lines) {
+			return p
+		}
+		line := lines[p.Line]
+		byteAt := p.Character
+		if byteAt > len(line) {
+			byteAt = len(line)
+		}
+		// Parser spans should lie on a code-point boundary. Be defensive for
+		// malformed/generated spans: never slice through a UTF-8 sequence.
+		for byteAt > 0 && byteAt < len(line) && (line[byteAt]&0xc0) == 0x80 {
+			byteAt--
+		}
+		units := 0
+		for _, ch := range line[:byteAt] {
+			if ch > 0xffff {
+				units += 2
+			} else {
+				units++
+			}
+		}
+		p.Character = units
+		return p
+	}
+	r.Start, r.End = convert(r.Start), convert(r.End)
+	return r
 }
 
 // toLSPRange handles the to lsprange step in the surrounding package and

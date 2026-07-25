@@ -1,0 +1,28 @@
+name: Scheduled benchmarks
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-loop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Collect parity-checked raw samples
+        run: RUNS=15 WARMUP=2 BENCH_ITERS=5000 BENCH_JSON=artifacts/native-loop.json ./bench.sh
+      - name: Verify text, module, tensor, and task benchmark fixtures
+        run: ./scripts/check-benchmark-workloads.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-native-loop-${{ github.sha }}
+          path: artifacts/native-loop.json
+          if-no-files-found: error

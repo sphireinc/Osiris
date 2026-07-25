@@ -46,3 +46,35 @@ emit if(base > 0, add1(i), 0)
 		}
 	}
 }
+
+func TestAsyncFormsRemainExplicitIRBoundaries(t *testing.T) {
+	prog, err := Parse("<async-ir>", `
+let task = spawn({ 1 + 2 })
+emit await(task)
+emit parallel(3, 4)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	ir, err := rt.BuildIR(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifySSAProgram(ir); err != nil {
+		t.Fatalf("async IR SSA verification: %v", err)
+	}
+	got := FormatIRProgram(ir)
+	for _, want := range []string{"async.spawn", "async.await", "async.parallel"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("IR output missing %q\n%s", want, got)
+		}
+	}
+	cfgProg, err := rt.BuildCFG(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := FormatCFGProgram(cfgProg); !strings.Contains(got, "async [spawn, await, parallel]") {
+		t.Fatalf("CFG hides async boundary:\n%s", got)
+	}
+}

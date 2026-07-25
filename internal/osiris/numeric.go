@@ -219,7 +219,7 @@ func parseNumericLiteral(text string) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return complexValue(complex(0, n)), nil
+		return complexValueStyled(complex(0, n), complexComponentBits(scalar)), nil
 	}
 
 	return parseScalarNumericLiteral(cleaned)
@@ -897,6 +897,23 @@ func floatResultBits(left, right Value) uint16 {
 	return r
 }
 
+// complexComponentBits returns the precision carried by a complex value or
+// by an explicitly typed real component. A zero result is the default complex
+// family rather than an implicit f64 annotation.
+func complexComponentBits(v Value) uint16 {
+	if v.kind == kindComplex || v.kind == kindNumber {
+		return v.fbits
+	}
+	return 0
+}
+
+// complexResultBits applies the scalar float promotion rule to complex
+// components. A default numeric participant promotes an explicit f32 result
+// to f64; fully f32 inputs remain complex<f32>.
+func complexResultBits(values ...Value) uint16 {
+	return floatResultBitsMany(values...)
+}
+
 // floatUnaryBits handles the float unary bits step in the surrounding package
 // and returns uint16.
 //
@@ -1112,7 +1129,7 @@ func complexValueFromArgs(args []Value) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return complexValue(c), nil
+		return complexValueStyled(c, complexComponentBits(args[0])), nil
 	case 2:
 		re, err := args[0].AsNumber()
 		if err != nil {
@@ -1122,7 +1139,7 @@ func complexValueFromArgs(args []Value) (Value, error) {
 		if err != nil {
 			return nullValue(), err
 		}
-		return complexValue(complex(re, im)), nil
+		return complexValueStyled(complex(re, im), complexResultBits(args...)), nil
 	default:
 		return nullValue(), fmt.Errorf("complex expects 1 or 2 arguments")
 	}
@@ -1141,7 +1158,7 @@ func realValue(args []Value) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
-	return numberValue(real(c)), nil
+	return floatValue(real(c), complexComponentBits(args[0])), nil
 }
 
 // imagValue handles the imag value step in the surrounding package and returns
@@ -1157,7 +1174,34 @@ func imagValue(args []Value) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
-	return numberValue(imag(c)), nil
+	return floatValue(imag(c), complexComponentBits(args[0])), nil
+}
+
+// conjugateValue returns the complex conjugate of a scalar or every element
+// of a tensor. Real values retain their original numeric representation.
+func conjugateValue(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("conjugate expects 1 argument")
+	}
+	x := args[0]
+	if x.kind == kindTensor {
+		data := make([]Value, len(x.data))
+		for i, item := range x.data {
+			value, err := conjugateValue([]Value{item})
+			if err != nil {
+				return nullValue(), err
+			}
+			data[i] = value
+		}
+		return tensorValue(x.shape, data), nil
+	}
+	if x.kind != kindComplex {
+		if _, err := complexFromValue(x); err != nil {
+			return nullValue(), err
+		}
+		return x, nil
+	}
+	return complexValueStyled(complex(real(x.cx), -imag(x.cx)), complexComponentBits(x)), nil
 }
 
 // magnitudeValue handles the magnitude value step in the surrounding package
@@ -1240,19 +1284,97 @@ func complexBinary(op tokenKind, left, right Value) (Value, error) {
 	}
 	switch op {
 	case tokenPlus:
-		return complexValue(lc + rc), nil
+		return complexValueStyled(lc+rc, complexResultBits(left, right)), nil
 	case tokenMinus:
-		return complexValue(lc - rc), nil
+		return complexValueStyled(lc-rc, complexResultBits(left, right)), nil
 	case tokenStar:
-		return complexValue(lc * rc), nil
+		return complexValueStyled(lc*rc, complexResultBits(left, right)), nil
 	case tokenSlash:
 		if rc == 0 {
 			return nullValue(), fmt.Errorf("division by zero")
 		}
-		return complexValue(lc / rc), nil
+		return complexValueStyled(lc/rc, complexResultBits(left, right)), nil
 	default:
 		return nullValue(), fmt.Errorf("unsupported complex operator %s", op)
 	}
+}
+
+func dualValueFromArgs(args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("dual expects 2 arguments")
+	}
+	primal, err := args[0].AsNumber()
+	if err != nil {
+		return nullValue(), err
+	}
+	tangent, err := args[1].AsNumber()
+	if err != nil {
+		return nullValue(), err
+	}
+	return dualValueOf(primal, tangent), nil
+}
+
+func dualParts(v Value) (float64, float64, error) {
+	if v.kind == kindDual {
+		if v.dual == nil {
+			return 0, 0, nil
+		}
+		return v.dual.primal, v.dual.tangent, nil
+	}
+	primal, err := v.AsNumber()
+	if err != nil {
+		return 0, 0, err
+	}
+	return primal, 0, nil
+}
+
+func dualBinary(op tokenKind, left, right Value) (Value, error) {
+	a, da, err := dualParts(left)
+	if err != nil {
+		return nullValue(), err
+	}
+	b, db, err := dualParts(right)
+	if err != nil {
+		return nullValue(), err
+	}
+	switch op {
+	case tokenPlus:
+		return dualValueOf(a+b, da+db), nil
+	case tokenMinus:
+		return dualValueOf(a-b, da-db), nil
+	case tokenStar:
+		return dualValueOf(a*b, da*b+a*db), nil
+	case tokenSlash:
+		if b == 0 {
+			return nullValue(), fmt.Errorf("division by zero")
+		}
+		return dualValueOf(a/b, (da*b-a*db)/(b*b)), nil
+	default:
+		return nullValue(), fmt.Errorf("unsupported dual operator %s", op)
+	}
+}
+
+func primalValue(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("primal expects 1 argument")
+	}
+	if args[0].kind == kindDual && args[0].dual != nil {
+		return numberValue(args[0].dual.primal), nil
+	}
+	return args[0], nil
+}
+
+func tangentValue(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("tangent expects 1 argument")
+	}
+	if args[0].kind == kindDual && args[0].dual != nil {
+		return numberValue(args[0].dual.tangent), nil
+	}
+	if _, err := args[0].AsNumber(); err != nil {
+		return nullValue(), err
+	}
+	return numberValue(0), nil
 }
 
 // isFloatLiteral handles the is float literal step in the surrounding package

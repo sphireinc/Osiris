@@ -44,6 +44,15 @@ rank-two f64 diagonal tensors with direct fill kernels. `slice(tensor, start,
 end[, axis])` now copies a half-open range along any tensor axis while
 retaining all other dimensions. Rank-two `trace` and square-matrix `det` now
 lower to direct f64 reduction kernels, with determinant using partial pivoting.
+Complex rank-two `trace` and square-matrix `det` now lower as well; the latter
+uses complex-magnitude partial pivoting while preserving the real fast path.
+Complex tensor `sum`, `product`, bilinear `dot`, and Euclidean `norm` now
+lower directly, preserving the corresponding f64 fast paths.
+Complex `outer` now lowers directly as a rank-two bilinear tensor product.
+Complex `solve` and `inv` now lower through complex-magnitude partial-pivot
+Gauss-Jordan elimination, including real/complex RHS mixing.
+Complex `qr` now lowers through Hermitian classical Gram-Schmidt.
+Complex `cholesky` now lowers for Hermitian positive-definite matrices.
 Rank-two `solve` and `inv` now lower through partial-pivot Gauss-Jordan
 elimination for non-empty square f64 matrices and tensor vector/matrix RHSs.
 Rank-two `cholesky` now lowers to an interpreter-matched lower-triangular f64
@@ -53,4 +62,15 @@ tensors. `outer` now lowers for f64 tensors of any rank after flattening both
 operands into a direct rank-two product kernel. The remaining `eigh` and `svd`
 work is implemented through the optional versioned numerical-provider ABI in
 `docs/design/NATIVE-LINALG-ABI.md`; native `eig` remains blocked on a real
-complex scalar and tensor ABI specified in `docs/design/NATIVE-COMPLEX-ABI.md`.
+complex tensor ABI specified in `docs/design/NATIVE-COMPLEX-ABI.md`. The
+native tagged ABI now has f64 complex scalar parity for literals,
+construction, arithmetic, equality, real/imaginary projection, conjugation,
+magnitude, absolute value, truthiness, and rendering. Owned rank-aware complex
+tensors now cover construction, shape/flattening, indexing, reshape,
+copy-on-write mutation, slicing, broadcasting, and conjugation; reductions,
+`outer`, complex `solve`/`inv`/`qr`/`cholesky`, and selected matrix kernels
+now have direct parity coverage. Production-provider numerical coverage
+remains. Native
+`eig` now lowers through ABI-v2 `eig_f64` into complex value/vector tensors;
+the bundled provider is a diagonal/rotation residual fixture, not a general
+eigensolver.

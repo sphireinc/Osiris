@@ -499,6 +499,9 @@ func analyzePurityExpr(expr Expr, scope *purityScope, out *PurityProgram) purity
 		for _, arm := range n.arms {
 			armScope := scope.childForBlock()
 			bindPurityPattern(arm.pattern, subject, armScope, out)
+			if arm.guard != nil {
+				arms = append(arms, analyzePurityExpr(arm.guard, armScope, out))
+			}
 			arms = append(arms, analyzePurityExpr(arm.body, armScope, out))
 		}
 		return combinePurity("match", append([]purityInfo{subject}, arms...)...)
@@ -711,6 +714,21 @@ func bindPurityPattern(pattern Pattern, subject purityInfo, scope *purityScope, 
 		for _, item := range p.items {
 			bindPurityPattern(item, subject, scope, out)
 		}
+	case enumPattern:
+		for _, item := range p.items {
+			bindPurityPattern(item, subject, scope, out)
+		}
+	case typePattern:
+		if p.binding != "" && p.binding != "_" {
+			scope.bindLocal(p.binding, subject, out, false)
+		}
+	case andPattern:
+		bindPurityPattern(p.left, subject, scope, out)
+		bindPurityPattern(p.right, subject, scope, out)
+	case orPattern:
+		if len(p.alternatives) > 0 {
+			bindPurityPattern(p.alternatives[0], subject, scope, out)
+		}
 	}
 }
 
@@ -861,7 +879,7 @@ func builtinPurityKind(name string) string {
 		return "string"
 	case "read", "readbytes", "write":
 		return "string"
-	case "len", "sum", "product", "norm", "hypot", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "noise", "real", "imag", "magnitude", "uint", "u8", "u16", "u32", "u64", "byte", "uf8", "uf16", "uf32", "ufnum", "uf64", "uf128", "uf256", "uf512", "uf1024", "f32", "f64", "bf8", "bf16", "bf32", "bf64", "bf128", "bf256", "bf512", "bf1024", "i8", "i16", "i32", "i64", "i128", "i256", "i512", "i1024", "dec", "decimal", "rat", "rational", "interval", "modint", "fixed", "complex", "bigint", "bigfloat", "band", "bor", "bxor", "bnot", "shl", "shr", "rotl", "rotr", "setat", "at", "repeat", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "mean", "var", "std", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "cumsum", "cumprod", "trace", "det":
+	case "len", "sum", "product", "norm", "hypot", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "noise", "real", "imag", "conjugate", "magnitude", "uint", "u8", "u16", "u32", "u64", "byte", "uf8", "uf16", "uf32", "ufnum", "uf64", "uf128", "uf256", "uf512", "uf1024", "f32", "f64", "bf8", "bf16", "bf32", "bf64", "bf128", "bf256", "bf512", "bf1024", "i8", "i16", "i32", "i64", "i128", "i256", "i512", "i1024", "dec", "decimal", "rat", "rational", "interval", "modint", "fixed", "complex", "bigint", "bigfloat", "band", "bor", "bxor", "bnot", "shl", "shr", "rotl", "rotr", "setat", "at", "repeat", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "mean", "var", "std", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "cumsum", "cumprod", "trace", "det":
 		return "value"
 	default:
 		return "value"

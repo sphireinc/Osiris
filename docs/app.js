@@ -9,6 +9,7 @@ const PAGE_DEFS = [
   { id: "guide", label: "Writing programs", href: "guide.html", kind: "section", target: "guide", title: "Writing Osiris programs" },
   { id: "errors", label: "Error model", href: "errors.html", kind: "section", target: "errors", title: "Error model" },
   { id: "native", label: "Native interop", href: "native.html", kind: "section", target: "native", title: "Native interop" },
+  { id: "support", label: "Backend support matrix", href: "support.html", kind: "section", target: "support", title: "Backend support matrix", summary: "Evidence-linked support status for the parser, runtimes, compilers, formatter, and LSP." },
   { id: "core", label: "Core language constructs", href: "core.html", kind: "group", target: "core", title: "Core language constructs" },
   { id: "text", label: "std/text", href: "text.html", kind: "group", target: "text", title: "std/text" },
   { id: "math", label: "std/math", href: "math.html", kind: "group", target: "math", title: "std/math" },
@@ -225,7 +226,7 @@ function renderLanding() {
     const p = document.createElement("p");
     const section = docs.sections.find((entry) => entry.id === page.target);
     const group = docs.groups.find((entry) => entry.id === page.target);
-    p.textContent = section?.summary || group?.summary || "";
+    p.textContent = section?.summary || group?.summary || page.summary || "";
     card.append(h, p);
     grid.append(card);
   });

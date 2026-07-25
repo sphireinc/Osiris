@@ -47,14 +47,36 @@ later if C emission proves to be the bottleneck.
 ## Reproducible executable cache
 
 `CompileCExecutableCached` provides an explicit content-addressed executable
-cache for build integrations. Its key includes the generated C SHA-256,
-resolved C compiler path and version output, the exact compiler flags, and the
-artifact target. Each entry has a JSON manifest beside the executable. The
-cache directory is supplied by the caller so cache lifetime and location do not
-affect ordinary builds.
+cache for build integrations. Its key includes a cache-format version, the
+generated C SHA-256, numerical-provider SHA-256, resolved C compiler path and
+version output, exact compiler/linker flags, and native OS/architecture target.
+Each entry has a versioned JSON manifest beside the executable. Reuse validates
+that manifest exactly; a missing, corrupt, old, or mismatched one is an error,
+never an unchecked cache hit. The cache directory is supplied by the caller so
+cache lifetime and location do not affect ordinary builds.
 
 The CLI exposes this through `osiris build -cache-dir <directory> -o <output>
 <source>`. Without `-cache-dir`, builds compile directly as before.
+
+## Static module identity
+
+Native C does not represent dynamic module values. The lowering analysis treats
+an import path as compile-time metadata with a two-point lattice: a value is
+either a proven path or unknown. Imports introduce a proven path; copies retain
+it; a CFG block parameter retains it only when every incoming edge has the
+same proven path. Any missing or conflicting predecessor yields unknown.
+
+The same rule applies to lexical captures. The compiler propagates the proven
+identity from each `makefunc` capture site into the nested function and accepts
+it only when all construction sites agree. This permits a captured `std/math`
+alias to lower directly to native helpers, without turning module values into a
+runtime ABI feature.
+
+A member access on an unknown module value is a compile-time diagnostic
+(`dynamic module member "name" cannot be lowered`). A known but unsupported
+module is also rejected explicitly. Dynamic imports, escaping module values,
+and conflicting control-flow paths must never be lowered as `null` values or
+indirect native calls.
 
 ## Non-goals
 

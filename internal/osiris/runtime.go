@@ -124,31 +124,6 @@ func (r *Runtime) Run(ctx context.Context, prog *Program) ([]Value, error) {
 	return NewSession(r, ctx, prog.SourceName).ExecProgram(prog, false, nil)
 }
 
-type binding struct {
-	expr Expr
-	env  *scope
-}
-
-type scope struct {
-	parent *scope
-	items  map[string]binding
-}
-
-// lookup operates on scope values and keeps the scope-specific behavior
-// attached to the receiver so callers can use the method as the natural entry
-// point for that data structure.
-//
-// It returns binding, bool so callers can continue with the next stage of the
-// pipeline without re-deriving the same information.
-func (s *scope) lookup(name string) (binding, bool) {
-	for cur := s; cur != nil; cur = cur.parent {
-		if b, ok := cur.items[name]; ok {
-			return b, true
-		}
-	}
-	return binding{}, false
-}
-
 type fpKey struct {
 	expr  Expr
 	scope *scope
@@ -197,6 +172,11 @@ func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 	}
 	if m, ok := expr.(*matchExpr); ok {
 		return evalMatch(ev, m, scope)
+	}
+	if binary, ok := expr.(*binaryExpr); ok && (binary.op == tokenAndAnd || binary.op == tokenOrOr) {
+		// Logical expressions must not fingerprint the deferred operand: doing so
+		// resolves names before evalBinary can short-circuit them.
+		return computeExpr(ev, expr, scope, "")
 	}
 	if exprHasTaskEffect(ev, expr, scope, nil) {
 		return computeExpr(ev, expr, scope, "")
@@ -747,6 +727,18 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 
 	if left.kind == kindTensor || right.kind == kindTensor {
 		return tensorBinaryValue(ev.ctx, ev.sched, n.op, left, right)
+	}
+	if left.kind == kindDual || right.kind == kindDual {
+		switch n.op {
+		case tokenPlus, tokenMinus, tokenStar, tokenSlash:
+			return dualBinary(n.op, left, right)
+		case tokenEqualEqual:
+			return boolValue(left.Equal(right)), nil
+		case tokenBangEqual:
+			return boolValue(!left.Equal(right)), nil
+		default:
+			return nullValue(), fmt.Errorf("ordering is not defined for dual numbers")
+		}
 	}
 	if left.kind == kindQuantity || right.kind == kindQuantity {
 		return quantityBinary(n.op, left, right)
@@ -1601,6 +1593,9 @@ func exprHasTaskEffect(ev *evaluator, expr Expr, scope *scope, seen map[*functio
 			return true
 		}
 		for _, arm := range n.arms {
+			if arm.guard != nil && exprHasTaskEffect(ev, arm.guard, scope, seen) {
+				return true
+			}
 			if exprHasTaskEffect(ev, arm.body, scope, seen) {
 				return true
 			}
@@ -1735,7 +1730,13 @@ func applyUnary(op tokenKind, v Value) (Value, error) {
 			return fixedValueOf(v.fx.width, v.fx.frac, new(big.Int).Neg(v.fx.raw))
 		}
 		if v.kind == kindComplex {
-			return complexValue(-v.cx), nil
+			return complexValueStyled(-v.cx, complexComponentBits(v)), nil
+		}
+		if v.kind == kindDual {
+			if v.dual == nil {
+				return dualValueOf(0, 0), nil
+			}
+			return dualValueOf(-v.dual.primal, -v.dual.tangent), nil
 		}
 		n, err := v.AsNumber()
 		if err != nil {
@@ -2003,42 +2004,8 @@ func registerBuiltins(dst map[string]Builtin) {
 		}
 		return listValue(out), nil
 	}
-	dst["sum"] = func(args []Value) (Value, error) {
-		if len(args) != 1 {
-			return nullValue(), fmt.Errorf("sum expects 1 argument")
-		}
-		items, err := args[0].AsList()
-		if err != nil {
-			return nullValue(), err
-		}
-		var total float64
-		for _, item := range items {
-			n, err := item.AsNumber()
-			if err != nil {
-				return nullValue(), err
-			}
-			total += n
-		}
-		return numberValue(total), nil
-	}
-	dst["product"] = func(args []Value) (Value, error) {
-		if len(args) != 1 {
-			return nullValue(), fmt.Errorf("product expects 1 argument")
-		}
-		items, err := args[0].AsList()
-		if err != nil {
-			return nullValue(), err
-		}
-		total := 1.0
-		for _, item := range items {
-			n, err := item.AsNumber()
-			if err != nil {
-				return nullValue(), err
-			}
-			total *= n
-		}
-		return numberValue(total), nil
-	}
+	dst["sum"] = sumValue
+	dst["product"] = productValue
 	dst["json"] = func(args []Value) (Value, error) {
 		if len(args) != 1 {
 			return nullValue(), fmt.Errorf("json expects 1 argument")
@@ -2096,6 +2063,7 @@ func registerBuiltins(dst map[string]Builtin) {
 		n := h.Sum64()
 		return stringValue(fmt.Sprintf("%016x", n^((n<<13)|(n>>51)))), nil
 	}
+	dst["random"] = seededRandomValue
 	dst["zeros"] = func(args []Value) (Value, error) { return zerosValue(args) }
 	dst["ones"] = func(args []Value) (Value, error) { return onesValue(args) }
 	dst["full"] = func(args []Value) (Value, error) { return fullValue(args) }
@@ -2173,8 +2141,12 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["i512"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 512) }
 	dst["i1024"] = func(args []Value) (Value, error) { return castSignedWidthValue(args, 1024) }
 	dst["complex"] = func(args []Value) (Value, error) { return complexValueFromArgs(args) }
+	dst["dual"] = func(args []Value) (Value, error) { return dualValueFromArgs(args) }
+	dst["primal"] = func(args []Value) (Value, error) { return primalValue(args) }
+	dst["tangent"] = func(args []Value) (Value, error) { return tangentValue(args) }
 	dst["real"] = func(args []Value) (Value, error) { return realValue(args) }
 	dst["imag"] = func(args []Value) (Value, error) { return imagValue(args) }
+	dst["conjugate"] = func(args []Value) (Value, error) { return conjugateValue(args) }
 	dst["magnitude"] = func(args []Value) (Value, error) { return magnitudeValue(args) }
 	dst["abs"] = func(args []Value) (Value, error) { return magnitudeValue(args) }
 	dst["exp"] = func(args []Value) (Value, error) { return expValue(args) }

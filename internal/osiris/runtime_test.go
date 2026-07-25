@@ -3,6 +3,8 @@ package osiris
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -514,7 +516,7 @@ emit svd(matrix(2, 2, [3, 0, 0, 2]))
 		"",
 		"[tensor[2x2]([1, 0, 0, 1]), tensor[2x2]([1, 0, 0, 1])]",
 		"tensor[2x2]([2, 0, 0, 3])",
-		"[tensor[2]([3, 2]), tensor[2x2]([1, 0, 0, 1])]",
+		"[tensor[2]([3+0i, 2+0i]), tensor[2x2]([1+0i, 0+0i, 0+0i, 1+0i])]",
 		"[tensor[2]([5, 7]), tensor[2x2]([1, 0, 0, 1])]",
 		"[tensor[2x2]([1, 0, 0, 1]), tensor[2]([3, 2]), tensor[2x2]([1, 0, 0, 1])]",
 	}
@@ -838,6 +840,8 @@ emit math.hypot(3, 4)
 emit math.norm(math.vec(3, 4))
 emit math.dot(math.vec([1, 2, 3]), math.vec([4, 5, 6]))
 emit math.matmul(math.matrix(2, 2, [1, 2, 3, 4]), math.matrix(2, 2, [5, 6, 7, 8]))
+emit math.conjugate(complex(2, 3))
+emit math.conjugate(math.tensor([complex(1, 2), complex(3, -4)]))
 emit math.u128(5)
 `)
 	if err != nil {
@@ -861,6 +865,8 @@ emit math.u128(5)
 		"5",
 		"32",
 		"tensor[2x2]([19, 22, 43, 50])",
+		"2-3i",
+		"tensor[2]([1-2i, 3+4i])",
 		"5u128",
 	}
 	if got, wantLen := len(out), len(want); got != wantLen {
@@ -1900,6 +1906,49 @@ emit await(jsonparse_async("{\"x\":1}"))
 	}
 }
 
+func TestTCPNetworkLoopbackResources(t *testing.T) {
+	listener, err := tcpListen("127.0.0.1:0")
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("loopback listeners are forbidden by this sandbox")
+		}
+		t.Fatal(err)
+	}
+	defer listener.close()
+	accepted := make(chan *streamValue, 1)
+	go func() { connection, _ := listener.accept(1000); accepted <- connection }()
+	client, err := tcpDial(listener.address(), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.close()
+	server := <-accepted
+	if server == nil {
+		t.Fatal("accept returned no connection")
+	}
+	defer server.close()
+	if _, err := client.writeChunk(stringValue("ping\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.flush(); err != nil {
+		t.Fatal(err)
+	}
+	line, err := server.readLine()
+	if err != nil || line.String() != "ping" {
+		t.Fatalf("server read = %s, %v", line.String(), err)
+	}
+	if _, err := server.writeChunk(stringValue("pong\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.flush(); err != nil {
+		t.Fatal(err)
+	}
+	line, err = client.readLine()
+	if err != nil || line.String() != "pong" {
+		t.Fatalf("client read = %s, %v", line.String(), err)
+	}
+}
+
 // TestRaceSelectAndStreamingIO exercises the behavior described by its body
 // and locks in the observable language, runtime, or CLI semantics that the
 // surrounding package depends on.
@@ -2013,6 +2062,314 @@ func TestFormatSource(t *testing.T) {
 	const want = "package demo\nexport alpha, beta\nimport \"std/text\" as text\nlet x = text.slug(\"Hello, World\")\nemit text.upper(x)\nemit \"Solved:\", 42u64\n"
 	if formatted != want {
 		t.Fatalf("formatted = %q, want %q", formatted, want)
+	}
+}
+
+func TestEnumDeclarationParseAndFormat(t *testing.T) {
+	source := "enum Status { Ready, Running, Done }\n"
+	prog, err := Parse("<enum>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, ok := prog.Statements[0].(enumStmt)
+	if !ok || stmt.Name != "Status" || len(stmt.Cases) != 3 || stmt.Cases[2].Name != "Done" {
+		t.Fatalf("enum parse = %#v", prog.Statements[0])
+	}
+	formatted, err := FormatSource("<enum>", source)
+	if err != nil || formatted != source {
+		t.Fatalf("enum format = %q, %v", formatted, err)
+	}
+	if _, err := Parse("<enum>", "enum Empty { }"); err == nil {
+		t.Fatal("empty enum unexpectedly parsed")
+	}
+	if _, err := Parse("<enum>", "enum Repeat { A, A }"); err == nil {
+		t.Fatal("duplicate enum case unexpectedly parsed")
+	}
+}
+
+func TestEnumCasesEvaluateWithNominalEqualityInInterpreterAndVM(t *testing.T) {
+	source := "enum Status { Ready, Running, Done }\nemit Status.Ready == Status.Ready\nemit Status.Ready == Status.Done\nemit Status.Ready\n"
+	prog, err := Parse("<enum>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "true\nfalse\nStatus.Ready\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestEnumCasesMatchInInterpreterAndVM(t *testing.T) {
+	source := "enum Status { Ready, Running, Done }\nlet status = Status.Running\nemit match status { Status.Ready => 1, Status.Running => 2, Status.Done => 3 }\n"
+	prog, err := Parse("<enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "2u64\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	formatted, err := FormatSource("<enum-match>", source)
+	if err != nil || !strings.Contains(formatted, "Status.Running => 2u64") {
+		t.Fatalf("formatted enum match = %q, %v", formatted, err)
+	}
+}
+
+func TestPayloadEnumCasesConstructAndMatchInInterpreterAndVM(t *testing.T) {
+	source := "enum Result { Ok(value), Err(message) }\nlet result = Result.Ok([2, 3])\nemit match result { Result.Ok([x, y]) => x + y, Result.Err(message) => 0 }\nemit Result.Ok(5) == Result.Ok(5)\nemit Result.Ok(5) == Result.Ok(6)\n"
+	prog, err := Parse("<payload-enum>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "5u64\ntrue\nfalse\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	formatted, err := FormatSource("<payload-enum>", source)
+	if err != nil || !strings.Contains(formatted, "enum Result { Ok(value), Err(message) }") || !strings.Contains(formatted, "Result.Ok([x, y])") {
+		t.Fatalf("formatted payload enum = %q, %v", formatted, err)
+	}
+}
+
+func TestPayloadEnumCaseDiagnostics(t *testing.T) {
+	fixtures := []struct {
+		source string
+		want   string
+	}{
+		{source: "enum Result { Ok(value), Err(message) }\nemit Result.Ok()\n", want: "enum case Result.Ok expects 1 arguments"},
+		{source: "enum Result { Ok(value), Err(message) }\nemit match Result.Ok(1) { Result.Ok => 1, Result.Err(message) => 2 }\n", want: "enum case Result.Ok pattern expects 1 values"},
+		{source: "enum Result { Ok(value), Err(message) }\nemit match Result.Ok(1) { Result.Ok(value) => value }\n", want: "non-exhaustive match for enum Result; missing cases: Err"},
+	}
+	for _, fixture := range fixtures {
+		prog, err := Parse("<payload-enum-error>", fixture.source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, run := range []struct {
+			name string
+			fn   func(*Runtime, *Program) ([]Value, error)
+		}{
+			{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+			{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+		} {
+			t.Run(run.name, func(t *testing.T) {
+				_, err := run.fn(NewRuntime(), prog)
+				if err == nil || !strings.Contains(err.Error(), fixture.want) {
+					t.Fatalf("error = %v, want %q", err, fixture.want)
+				}
+			})
+		}
+	}
+}
+
+func TestMatchGuardsAndDefaultHaveInterpreterVMParity(t *testing.T) {
+	source := "enum Result { Ok(value), Err(message) }\nlet result = Result.Ok(-2)\nemit match result { Result.Ok(value) when value > 0 => value, Result.Ok(value) => -value, default => 0 }\n"
+	prog, err := Parse("<match-guard>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "2\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	formatted, err := FormatSource("<match-guard>", source)
+	if err != nil || !strings.Contains(formatted, "Result.Ok(value) when value > 0u64 => value") || !strings.Contains(formatted, "default => 0u64") {
+		t.Fatalf("formatted guard/default = %q, %v", formatted, err)
+	}
+}
+
+func TestGroupedPatternsHaveInterpreterVMParityAndStableBindings(t *testing.T) {
+	source := "enum Result { Ok(value), Err(value) }\nlet result = Result.Err(7)\nemit match result { Result.Ok(value) | Result.Err(value) => value, default => 0 }\n"
+	prog, err := Parse("<grouped-pattern>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "7u64\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	badProg, err := Parse("<bad-grouped-pattern>", "enum Result { Ok(value), Err(value) }\nemit match Result.Ok(1) { Result.Ok(x) | Result.Err(y) => x, default => 0 }\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRuntime().Run(context.Background(), badProg); err == nil || !strings.Contains(err.Error(), "must bind the same names") {
+		t.Fatalf("grouped binding error = %v", err)
+	}
+	formatted, err := FormatSource("<grouped-pattern>", source)
+	if err != nil || !strings.Contains(formatted, "Result.Ok(value) | Result.Err(value) => value") {
+		t.Fatalf("formatted grouped pattern = %q, %v", formatted, err)
+	}
+}
+
+func TestRelationalTypeAndLogicalPatternsHaveInterpreterVMParity(t *testing.T) {
+	source := "let value = 7\nemit match value { number n and >= 0 => n, not null => 0 }\nemit match -3 { < 0 => 1, _ => 0 }\n"
+	prog, err := Parse("<advanced-pattern>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+		{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "7u64\n1u64\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	formatted, err := FormatSource("<advanced-pattern>", source)
+	if err != nil || !strings.Contains(formatted, "number n and >= 0u64 => n") || !strings.Contains(formatted, "not null => 0u64") {
+		t.Fatalf("formatted advanced pattern = %q, %v", formatted, err)
+	}
+}
+
+func TestEnumMatchRejectsRedundantArmsWithSourceLocations(t *testing.T) {
+	fixtures := []string{
+		"enum Status { Ready, Done }\nemit match Status.Ready { Status.Ready => 1, Status.Ready => 2, Status.Done => 3 }\n",
+		"enum Status { Ready, Done }\nemit match Status.Ready { _ => 1, Status.Ready => 2 }\n",
+	}
+	for _, source := range fixtures {
+		prog, err := Parse("<redundant-enum-match>", source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, run := range []struct {
+			name string
+			fn   func(*Runtime, *Program) ([]Value, error)
+		}{
+			{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+			{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+		} {
+			t.Run(run.name, func(t *testing.T) {
+				_, err := run.fn(NewRuntime(), prog)
+				var diagnostic *OsirisError
+				if err == nil || !strings.Contains(err.Error(), "unreachable match arm") || !errors.As(err, &diagnostic) || diagnostic.location == nil || diagnostic.location.Span.start.line == 0 {
+					t.Fatalf("redundancy error = %#v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestEnumMatchRejectsUnknownCaseAndReportsNonExhaustiveCase(t *testing.T) {
+	unknownCase := "enum Status { Ready, Done }\nemit match Status.Ready { Status.Missing => 1, _ => 2 }\n"
+	nonExhaustive := "enum Status { Ready, Done }\nemit match Status.Done { Status.Ready => 1 }\n"
+	for _, source := range []struct {
+		source string
+		want   string
+	}{
+		{source: unknownCase, want: "enum Status has no case"},
+		{source: nonExhaustive, want: "non-exhaustive match for enum Status"},
+	} {
+		prog, err := Parse("<enum-match>", source.source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, run := range []struct {
+			name string
+			fn   func(*Runtime, *Program) ([]Value, error)
+		}{
+			{name: "interpreter", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.Run(context.Background(), prog) }},
+			{name: "vm", fn: func(rt *Runtime, prog *Program) ([]Value, error) { return rt.RunVM(context.Background(), prog) }},
+		} {
+			t.Run(run.name, func(t *testing.T) {
+				_, err := run.fn(NewRuntime(), prog)
+				if err == nil || !strings.Contains(err.Error(), source.want) {
+					t.Fatalf("error = %v, want %q", err, source.want)
+				}
+				var diagnostic *OsirisError
+				if !errors.As(err, &diagnostic) || diagnostic.location == nil || diagnostic.location.Span.start.line == 0 || diagnostic.location.Span.start.col == 0 {
+					t.Fatalf("error has no stable source span: %#v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestNativeLoweringRejectsEnumsExplicitly(t *testing.T) {
+	for _, source := range []string{
+		"enum Status { Ready, Done }\nemit Status.Ready\n",
+		"enum Result { Ok(value), Err(message) }\nemit match Result.Ok(1) { Result.Ok(value) => value, Result.Err(message) => 0 }\n",
+	} {
+		prog, err := Parse("<enum>", source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil || !strings.Contains(err.Error(), "native lowering does not yet support enum") {
+			t.Fatalf("native error = %v, want explicit enum lowering rejection", err)
+		}
 	}
 }
 
@@ -2458,6 +2815,41 @@ emit tensor_values + tensor_values
 	}
 }
 
+// TestCBackendRuntimeComponentGolden pins the complete generated C source for
+// a representative complex-tensor program. The digest is an intentionally
+// compact golden: changing component order, whitespace, or an emitted helper
+// requires an explicit review of the generated artifact and this value.
+func TestCBackendRuntimeComponentGolden(t *testing.T) {
+	prog, err := Parse("<runtime-component-golden>", `
+let values = tensor([[complex(1, 2), complex(3, -4)]])
+emit transpose(values)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	first, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("first C compile failed: %v", err)
+	}
+	second, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("second C compile failed: %v", err)
+	}
+	if first.Source != second.Source {
+		t.Fatal("runtime-component C source is not deterministic")
+	}
+	if !strings.Contains(first.Source, "static OValue oat_real(") ||
+		!strings.Contains(first.Source, "static OValue oat(OValue x, OValue index)") ||
+		strings.Index(first.Source, "static OValue oat_real(") > strings.Index(first.Source, "static OValue oat(OValue x, OValue index)") {
+		t.Fatal("runtime components were not emitted in the required base-then-complex order")
+	}
+	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
+	const want = "53f213f6070bf8445fd8945e896d41af39dfeab9816f0ec40e2f39a5ce23d819"
+	if got != want {
+		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
+	}
+}
+
 func TestCBackendReportsTaggedFallbackReason(t *testing.T) {
 	prog, err := Parse("<test>", `
 let values = [1, 2]
@@ -2633,6 +3025,68 @@ func TestCBackendExecutableCache(t *testing.T) {
 	}
 	if got, want := string(out), "10u64\n"; got != want {
 		t.Fatalf("cached executable output = %q, want %q", got, want)
+	}
+}
+
+func TestCBackendExecutableCacheIncludesProviderLinkFlags(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<provider-cache-flags>", "emit 7 + 3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	first, err := CompileCExecutableCachedWithOptions(context.Background(), artifact.Source, filepath.Join(dir, "first"), filepath.Join(dir, "cache"), CCompileOptions{LinalgProviderFlags: []string{"-D__OSIRIS_PROVIDER_LINK_A=1"}})
+	if err != nil {
+		t.Fatalf("first cached compile failed: %v", err)
+	}
+	second, err := CompileCExecutableCachedWithOptions(context.Background(), artifact.Source, filepath.Join(dir, "second"), filepath.Join(dir, "cache"), CCompileOptions{LinalgProviderFlags: []string{"-D__OSIRIS_PROVIDER_LINK_B=1"}})
+	if err != nil {
+		t.Fatalf("second cached compile failed: %v", err)
+	}
+	if first.Key == second.Key || first.SourceSHA256 != second.SourceSHA256 {
+		t.Fatalf("provider link flags did not participate in cache identity: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestCBackendExecutableCacheIncludesProviderSourceContent(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<provider-cache-source>", "emit 7 + 3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	providerPath := filepath.Join(dir, "provider.c")
+	writeProvider := func(marker string) {
+		t.Helper()
+		if err := os.WriteFile(providerPath, []byte("int osiris_provider_"+marker+"(void) { return 0; }\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeProvider("first")
+	options := CCompileOptions{LinalgProviderSource: providerPath}
+	first, err := CompileCExecutableCachedWithOptions(context.Background(), artifact.Source, filepath.Join(dir, "first"), filepath.Join(dir, "cache"), options)
+	if err != nil {
+		t.Fatalf("first cached compile failed: %v", err)
+	}
+	writeProvider("second")
+	second, err := CompileCExecutableCachedWithOptions(context.Background(), artifact.Source, filepath.Join(dir, "second"), filepath.Join(dir, "cache"), options)
+	if err != nil {
+		t.Fatalf("second cached compile failed: %v", err)
+	}
+	if first.Key == second.Key || first.LinalgProviderSHA256 == second.LinalgProviderSHA256 {
+		t.Fatalf("provider source content did not participate in cache identity: first=%#v second=%#v", first, second)
 	}
 }
 
@@ -2929,6 +3383,185 @@ emit twice_after_one(4)
 	}
 	if got, want := string(out), "10u64\n"; got != want {
 		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendComplexScalarParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+func make_complex(real, imag) => complex(real, imag)
+func components(z) => real(z) + imag(z)
+emit 5 + 3i
+emit complex(2, 3) * complex(1, -1)
+emit make_complex(2, 3)
+emit components(make_complex(2, 3))
+emit real(complex(2, 3))
+emit imag(complex(2, 3))
+emit magnitude(complex(3, 4))
+emit abs(complex(3, 4))
+emit complex(5, 0) == 5
+emit complex(5, 0)
+emit -complex(2, 3)
+emit conjugate(complex(2, 3))
+let complex_values = tensor([complex(1, 2), complex(3, 4)])
+emit complex_values
+emit shape(complex_values)
+emit flatten(complex_values)
+emit at(complex_values, 1)
+emit sum(complex_values)
+emit product(complex_values)
+emit dot(complex_values, complex_values)
+emit norm(complex_values)
+emit outer(complex_values, complex_values)
+let complex_matrix = tensor([[complex(1, 2), complex(3, 4)], [complex(5, 6), complex(7, 8)]])
+emit at(complex_matrix, [1, 0])
+emit at(complex_matrix, [0])
+emit reshape(complex_matrix, [4])
+emit setat(complex_matrix, [1, 0], complex(9, 10))
+emit setat(complex_matrix, [0], tensor([complex(11, 12), complex(13, 14)]))
+emit complex_matrix + complex(1, -1)
+emit tensor([[complex(1, 1)], [complex(2, 2)]]) + tensor([complex(10, 0), complex(20, 0)])
+emit take(complex_matrix, 3)
+emit slice(complex_matrix, 0, 1)
+emit slice(complex_matrix, 0, 1, 1)
+emit conjugate(complex_matrix)
+emit transpose(complex_matrix)
+emit trace(complex_matrix)
+emit det(tensor([[complex(1, 2), complex(0, 0)], [complex(0, 0), complex(7, 8)]]))
+emit solve(tensor([[complex(1, 1), complex(0, 0)], [complex(0, 0), complex(2, -1)]]), tensor([complex(2, 2), complex(4, -2)]))
+emit inv(tensor([[complex(1, 1), complex(0, 0)], [complex(0, 0), complex(2, -1)]]))
+emit qr(tensor([[complex(1, 0), complex(0, 1)], [complex(0, 0), complex(0, 0)]]))
+emit matmul(complex_matrix, tensor([[1, 2], [3, 4]]))`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if !strings.Contains(artifact.Source, "= ocomplexcall(") {
+		t.Fatalf("complex builtin was not lowered into generated C:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "complex-scalars")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "5+3i\n5+1i\n2+3i\n5\n2\n3\n5\n5\ntrue\n5+0i\n-2-3i\n2-3i\ntensor[2]([1+2i, 3+4i])\n[2u64]\n[1+2i, 3+4i]\n3+4i\n4+6i\n-5+10i\n-10+28i\n5.477225575051661\ntensor[2x2]([-3+4i, -5+10i, -5+10i, -7+24i])\n5+6i\ntensor[2]([1+2i, 3+4i])\ntensor[4]([1+2i, 3+4i, 5+6i, 7+8i])\ntensor[2x2]([1+2i, 3+4i, 9+10i, 7+8i])\ntensor[2x2]([11+12i, 13+14i, 5+6i, 7+8i])\ntensor[2x2]([2+1i, 4+3i, 6+5i, 8+7i])\ntensor[2x2]([11+1i, 21+1i, 12+2i, 22+2i])\ntensor[3]([1+2i, 3+4i, 5+6i])\ntensor[1x2]([1+2i, 3+4i])\ntensor[2x1]([1+2i, 5+6i])\ntensor[2x2]([1-2i, 3-4i, 5-6i, 7-8i])\ntensor[2x2]([1+2i, 5+6i, 3+4i, 7+8i])\n8+10i\n-9+22i\ntensor[2]([2+0i, 2+0i])\ntensor[2x2]([0.5-0.5i, 0+0i, 0+0i, 0.4+0.2i])\n[tensor[2x2]([1+0i, 0+0i, 0+0i, 0+0i]), tensor[2x2]([1+0i, 1i, 0+0i, 0+0i])]\ntensor[2x2]([10+14i, 14+20i, 26+30i, 38+44i])\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestComplexTensorReductions(t *testing.T) {
+	prog, err := Parse("<test>", `
+let values = tensor([complex(1, 2), complex(3, 4)])
+emit sum(values)
+emit product(values)
+emit dot(values, values)
+emit norm(values)
+emit outer(values, values)
+emit solve(tensor([[complex(1, 1), complex(0, 0)], [complex(0, 0), complex(2, -1)]]), tensor([complex(2, 2), complex(4, -2)]))
+emit inv(tensor([[complex(1, 1), complex(0, 0)], [complex(0, 0), complex(2, -1)]]))
+emit qr(tensor([[complex(1, 0), complex(0, 1)], [complex(0, 0), complex(0, 0)]]))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	out, err := NewRuntime().Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+	want := []string{"4+6i", "-5+10i", "-10+28i", "5.477225575051661", "tensor[2x2]([-3+4i, -5+10i, -5+10i, -7+24i])", "tensor[2]([2+0i, 2+0i])", "tensor[2x2]([0.5-0.5i, 0+0i, 0+0i, 0.4+0.2i])", "[tensor[2x2]([1+0i, 0+0i, 0+0i, 0+0i]), tensor[2x2]([1+0i, 1i, 0+0i, 0+0i])]"}
+	if got := len(out); got != len(want) {
+		t.Fatalf("output length = %d, want %d", got, len(want))
+	}
+	for i := range want {
+		if got := out[i].String(); got != want[i] {
+			t.Fatalf("output[%d] = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+func TestCBackendComplexCholeskyParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `emit cholesky(tensor([[complex(4, 0), complex(0, 2)], [complex(0, -2), complex(5, 0)]]))`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	interpreted, err := NewRuntime().Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter run failed: %v", err)
+	}
+	if got, want := interpreted[0].String(), "tensor[2x2]([2+0i, 0+0i, -1i, 2+0i])"; got != want {
+		t.Fatalf("interpreter output = %q, want %q", got, want)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile C failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "complex-cholesky")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v", err)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "tensor[2x2]([2+0i, 0+0i, -1i, 2+0i])\n"; got != want {
+		t.Fatalf("native output = %q, want %q", got, want)
+	}
+}
+
+// TestCBackendComplexTensorResiduals checks numerical complex kernels by their
+// mathematical residuals rather than by incidental factor/vector layouts.
+func TestCBackendComplexTensorResiduals(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<complex-residuals>", `
+let a = tensor([[complex(4, 0), complex(0, 2)], [complex(0, -2), complex(5, 0)]])
+let rhs = tensor([complex(2, 2), complex(4, -2)])
+let solution = solve(a, rhs)
+let factor = cholesky(a)
+let decomposition = qr(tensor([[complex(1, 0), complex(0, 1)], [complex(0, 1), complex(1, 0)]]))
+emit norm(matmul(a, reshape(solution, [2, 1])) - reshape(rhs, [2, 1]))
+emit norm(matmul(factor, transpose(conjugate(factor))) - a)
+emit norm(matmul(at(decomposition, 0), at(decomposition, 1)) - tensor([[complex(1, 0), complex(0, 1)], [complex(0, 1), complex(1, 0)]]))
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile C failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "complex-residuals")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	lines := strings.Fields(string(out))
+	if got, want := len(lines), 3; got != want {
+		t.Fatalf("residual output = %q, want %d values", out, want)
+	}
+	for i, text := range lines {
+		residual, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			t.Fatalf("residual[%d] %q is not a float: %v", i, text, err)
+		}
+		if residual > 1e-10 {
+			t.Fatalf("residual[%d] = %.17g, want <= 1e-10\n--- C ---\n%s", i, residual, artifact.Source)
+		}
 	}
 }
 
@@ -3278,6 +3911,54 @@ emit math.tau
 	}
 }
 
+func TestCBackendStaticMathCapturedModuleParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<captured-static-module>", `
+import "std/math" as math
+func root(value) => math.sqrt(value)
+emit root(81.0)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile C failed: %v", err)
+	}
+	if strings.Contains(artifact.Source, " = ocall(") {
+		t.Fatalf("captured static module lowered through a dynamic call:\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "captured-static-module")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "9\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendRejectsConflictingModuleMerge(t *testing.T) {
+	prog, err := Parse("<conflicting-static-module>", `
+import "std/math" as math
+import "std/text" as text
+let selected = if(true, math, text)
+emit selected.sqrt(81)
+`)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	_, err = CompileC(context.Background(), NewRuntime(), prog)
+	if err == nil || !strings.Contains(err.Error(), "dynamic module member \"sqrt\" cannot be lowered") {
+		t.Fatalf("CompileC error = %v, want a dynamic module member diagnostic", err)
+	}
+}
+
 func TestCBackendReportsUnsupportedStaticMathMember(t *testing.T) {
 	prog, err := Parse("<test>", `
 import "std/math" as math
@@ -3499,7 +4180,7 @@ func TestCBackendNumericalProviderDiagnostics(t *testing.T) {
 		{
 			name: "eig",
 			src:  "import \"std/math\" as math\nemit math.eig(math.identity(2))",
-			want: "eig requires a native complex tensor ABI",
+			want: "eig requires a configured ABI v2 native numerical provider",
 		},
 	}
 	for _, test := range tests {
@@ -3550,6 +4231,35 @@ emit math.eigh(math.matrix(2, 2, [2.0, 0.0, 0.0, 3.0]))
 	}
 }
 
+func TestCBackendProviderABIMismatchDiagnostic(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<provider-abi-mismatch>", `
+import "std/math" as math
+emit math.eigh(math.identity(2))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerPath := filepath.Join("testdata", "linalg_provider_incompatible.c")
+	artifact, err := CompileCWithOptions(context.Background(), NewRuntime(), prog, CCompileOptions{LinalgProviderSource: providerPath})
+	if err != nil {
+		t.Fatalf("compile C failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "provider-abi-mismatch")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, CCompileOptions{LinalgProviderSource: providerPath}); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "osiris native error: eigh numerical provider failed\nnull\n"; got != want {
+		t.Fatalf("provider ABI mismatch output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
 func TestCBackendSVDProviderParity(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -3581,6 +4291,152 @@ emit math.svd(math.matrix(2, 2, [3.0, 0.0, 0.0, 2.0]))
 	}
 	if got, want := string(out), wantValues[0].String()+"\n"; got != want {
 		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendEigProviderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.eig(math.matrix(2, 2, [3.0, 0.0, 0.0, 2.0]))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerPath := filepath.Join("testdata", "linalg_provider_diagonal.c")
+	artifact, err := CompileCWithOptions(context.Background(), rt, prog, CCompileOptions{LinalgProviderSource: providerPath})
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "eig-provider")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, CCompileOptions{LinalgProviderSource: providerPath}); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), wantValues[0].String()+"\n"; got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendEigProviderComplexResidual(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+let result = math.eig(math.matrix(2, 2, [0.0, -1.0, 1.0, 0.0]))
+let values = at(result, 0)
+let vectors = at(result, 1)
+let plus = at(values, 0)
+let minus = at(values, 1)
+let plus0 = at(vectors, [0, 0])
+let plus1 = at(vectors, [1, 0])
+let minus0 = at(vectors, [0, 1])
+let minus1 = at(vectors, [1, 1])
+emit magnitude(0 - plus1 - plus * plus0)
+emit magnitude(plus0 - plus * plus1)
+emit magnitude(0 - minus1 - minus * minus0)
+emit magnitude(minus0 - minus * minus1)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerPath := filepath.Join("testdata", "linalg_provider_diagonal.c")
+	artifact, err := CompileCWithOptions(context.Background(), NewRuntime(), prog, CCompileOptions{LinalgProviderSource: providerPath})
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "eig-provider-complex-residual")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, CCompileOptions{LinalgProviderSource: providerPath}); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, want := string(out), "0\n0\n0\n0\n"; got != want {
+		t.Fatalf("complex eig residuals = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendAccelerateProviderResiduals(t *testing.T) {
+	providerPath := filepath.Join("providers", "accelerate_lapack_provider.c")
+	if _, err := os.Stat(providerPath); err != nil {
+		t.Skipf("Apple Accelerate provider is unavailable: %v", err)
+	}
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<accelerate-provider>", `
+import "std/math" as math
+let symmetric = math.matrix(2, 2, [2.0, 1.0, 1.0, 2.0])
+let eigen = math.eigh(symmetric)
+let eigenvalues = at(eigen, 0)
+let eigenvectors = at(eigen, 1)
+let diagonal = math.matrix(2, 2, [at(eigenvalues, 0), 0.0, 0.0, at(eigenvalues, 1)])
+let source = math.matrix(2, 2, [3.0, 1.0, 0.0, 2.0])
+let singular = math.svd(source)
+let u = at(singular, 0)
+let values = at(singular, 1)
+let vt = at(singular, 2)
+let singular_diagonal = math.matrix(2, 2, [at(values, 0), 0.0, 0.0, at(values, 1)])
+let rotation = math.matrix(2, 2, [0.0, -1.0, 1.0, 0.0])
+let general = math.eig(rotation)
+let general_values = at(general, 0)
+let general_vectors = at(general, 1)
+let plus = at(general_values, 0)
+let minus = at(general_values, 1)
+let plus0 = at(general_vectors, [0, 0])
+let plus1 = at(general_vectors, [1, 0])
+let minus0 = at(general_vectors, [0, 1])
+let minus1 = at(general_vectors, [1, 1])
+emit norm(matmul(matmul(eigenvectors, diagonal), transpose(eigenvectors)) - symmetric)
+emit norm(matmul(transpose(eigenvectors), eigenvectors) - math.identity(2))
+emit norm(matmul(matmul(u, singular_diagonal), vt) - source)
+emit at(values, 0) >= at(values, 1)
+emit magnitude(0 - plus1 - plus * plus0)
+emit magnitude(plus0 - plus * plus1)
+emit magnitude(0 - minus1 - minus * minus0)
+emit magnitude(minus0 - minus * minus1)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options := CCompileOptions{LinalgProviderSource: providerPath, LinalgProviderFlags: []string{"-framework", "Accelerate"}}
+	artifact, err := CompileCWithOptions(context.Background(), NewRuntime(), prog, options)
+	if err != nil {
+		t.Fatalf("compile C failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "accelerate-provider")
+	if err := CompileCExecutableWithOptions(context.Background(), artifact.Source, exePath, options); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	lines := strings.Fields(string(out))
+	if got, want := len(lines), 8; got != want {
+		t.Fatalf("provider output = %q, want %d values", out, want)
+	}
+	if lines[3] != "true" {
+		t.Fatalf("singular values are not non-increasing: %q", out)
+	}
+	for i, text := range append(lines[:3], lines[4:]...) {
+		residual, err := strconv.ParseFloat(text, 64)
+		if err != nil || residual > 1e-10 {
+			t.Fatalf("residual[%d] = %q, want finite value <= 1e-10 (err=%v)\n--- C ---\n%s", i, text, err, artifact.Source)
+		}
 	}
 }
 

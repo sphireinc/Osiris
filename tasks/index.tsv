@@ -1,0 +1,49 @@
+# id|path|status|owner|depends_on|evidence_or_next
+001|tasks/001-c-backend-real-lowering.md|historical|unassigned|-|Delivered executable C foundation; successor: 033
+002|tasks/002-native-value-abi.md|superseded|unassigned|-|Split into ownership/runtime tasks 028 and 029
+003|tasks/003-native-loop-optimization.md|superseded|unassigned|-|Successors: 034 and 044
+004|tasks/004-native-numeric-and-tensor-lowering.md|active|unassigned|001,002|Native kernel expansion; successors 030,031,032
+005|tasks/005-native-tooling-validation.md|superseded|unassigned|001|Successors: 024,025,027,034,043
+006|tasks/completed/006-numeric-literal-contract.md|complete|unassigned|032|Numeric literal defaults/suffixes/inference/codec contract documented and characterized
+007|tasks/completed/007-numeric-type-expansion.md|complete|unassigned|006|Shape inference, complex<f32>/complex<f64>, dual scalar contract, sparse-storage design, and named-unit design complete
+008|tasks/completed/008-scientific-stdlib.md|complete|unassigned|007,047|Pure seeded random helper, std/signal reference kernels, executable parity tests, and canonical React documentation complete
+009|tasks/completed/009-async-semantics-docs.md|complete|unassigned|040,045|Canonical concurrency/streaming chapter, examples, and React validation complete
+010|tasks/completed/010-async-ir-and-scheduler.md|complete|unassigned|045|Explicit async IR/SSA/CFG boundaries and scheduler evidence audit complete; no speculative scheduler rewrite
+011|tasks/011-network-io.md|active|unassigned|037,045|Define the minimal TCP client/server capability with contexts, deadlines, close rules, and structured errors
+012|tasks/012-polling-foundation.md|ready|unassigned|045|Task/runtime contract complete; define portable polling interface increment
+013|tasks/013-error-language-tools.md|ready|unassigned|046|Threat model and error contract complete; select syntax/combinator increment
+014|tasks/014-os-task-error-semantics.md|ready|unassigned|045,046|Scheduler and threat-model contracts complete; specify OS/task error mapping increment
+015|tasks/completed/015-refactoring-tools.md|complete|unassigned|038|Scope-aware formatted dry-run rename, LSP WorkspaceEdit, import/shadowing coverage, and reference documentation complete
+016|tasks/016-ffi-boundary-design.md|superseded|unassigned|-|Successor: 047
+017|tasks/017-documentation-consolidation.md|superseded|unassigned|022|Successors: 039 and 040
+018|tasks/018-enums-and-pattern-matching.md|superseded|unassigned|048|Implemented and completed by task 048
+019|tasks/completed/019-reconcile-and-checkpoint-the-current-worktree.md|complete|unassigned|-|Completion record and full test evidence in task file
+020|tasks/completed/020-establish-a-supported-go-toolchain-policy.md|complete|unassigned|019|docs/development/GO-TOOLCHAIN.md; completion record
+021|tasks/completed/021-harden-repository-ignore-and-generated-artifact-policy.md|complete|unassigned|019|docs/development/GENERATED-ARTIFACTS.md; completion record
+022|tasks/completed/022-create-a-canonical-feature-and-backend-support-matrix.md|complete|unassigned|019|docs/support-matrix.json; support-matrix tests
+023|tasks/completed/023-replace-historical-backlog-ambiguity-with-a-current-task-index.md|complete|unassigned|019,022|tasks/INDEX.md; scripts/check-task-index.sh; completion record
+024|tasks/completed/024-expand-ci-into-a-trustworthy-validation-pipeline.md|complete|unassigned|019,020,021,022|docs/development/CI.md; workflow contract smoke evidence
+025|tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md|complete|unassigned|024|internal/osiris/differential_test.go; completion record
+026|tasks/completed/026-build-a-language-corpus-and-golden-conformance-suite.md|complete|unassigned|025|internal/osiris/conformance_test.go; completion record
+027|tasks/completed/027-introduce-property-and-fuzz-testing-across-language-boundaries.md|complete|unassigned|025,026|fuzz targets and short-circuit regression; completion record
+028|tasks/completed/028-specify-and-test-native-c-abi-ownership.md|complete|unassigned|025|docs/design/NATIVE-ABI.md; sanitizer suite; completion record
+029|tasks/completed/029-modularize-the-embedded-native-c-runtime.md|complete|unassigned|028|Component boundaries doc; generated-C golden; full native parity
+030|tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md|complete|unassigned|028,029|Complex kernel inventory, parity, residual, and sanitizer evidence
+031|tasks/completed/031-integrate-and-validate-a-production-numerical-provider.md|complete|unassigned|028,029,030|Accelerate ABI-v2 adapter, explicit provider links, residual/cache validation
+032|tasks/completed/032-harden-native-numeric-semantics-and-overflow-parity.md|complete|unassigned|025,028|numeric ABI table and differential boundary tests; completion record
+033|tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md|complete|unassigned|025,029,032|Conservative CFG/capture module lattice; native parity and diagnostics
+034|tasks/completed/034-add-optimization-verification-and-reporting.md|complete|unassigned|025,027,033|OptimizationReport v1; CLI reports; semantic, benchmark, and React-reference evidence in completion record
+035|tasks/completed/035-define-cli-stability-diagnostics-and-machine-readable-output.md|complete|unassigned|024|CLI contract v1; versioned JSON diagnostics, exit categories, stream tests, and public reference documentation
+036|tasks/completed/036-version-bytecode-cache-lock-and-artifact-formats.md|complete|unassigned|035|Versioned native manifests/GPU JSON; strict lock/cache validation; artifact format inventory and corruption tests
+037|tasks/completed/037-secure-and-make-module-resolution-reproducible.md|complete|unassigned|036|Canonical identities, traversal boundary, verified offline cache, mod lifecycle commands, and tests
+038|tasks/completed/038-complete-lsp-correctness-and-protocol-test-coverage.md|complete|unassigned|026,035|UTF-16 incremental LSP contract, protocol fixtures, documentation, and full validation
+039|tasks/completed/039-select-and-consolidate-the-documentation-system.md|complete|unassigned|021,022|newdocs/ React reference; Pages workflow; completion record
+040|tasks/completed/040-make-documentation-examples-executable.md|complete|unassigned|026,039|Canonical example execution, visible annotations, local command, CI job, and full validation
+041|tasks/completed/041-create-a-release-packaging-and-installation-pipeline.md|complete|unassigned|024,035,036,037|Version provenance, unsigned archives/checksums, install policy, smoke test, CI, and validation
+042|tasks/completed/042-add-changelog-migration-notes-and-deprecation-machinery.md|complete|unassigned|035,041|Changelog, migrations, stable warning contract, React policy docs, and validation
+043|tasks/completed/043-create-benchmark-json-and-regression-tracking.md|complete|unassigned|024,034|Benchmark JSON, raw samples, workload matrix, scheduled artifact CI, and parity validation
+044|tasks/completed/044-profile-and-decompose-compiler-runtime-hotspots.md|complete|unassigned|043|CPU/allocation baseline, scope-component extraction, conformance/profile evidence, and validation
+045|tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md|complete|unassigned|025,027|Lifecycle contract, bounded scheduler/stream/error coverage, full race validation, and docs
+046|tasks/completed/046-threat-model-native-compilation-modules-lsp-and-codecs.md|complete|unassigned|037,038|Threat model, LSP/codec limits, private temp fixture, malicious corpus, and validation
+047|tasks/completed/047-define-an-ffi-boundary-before-implementation.md|complete|unassigned|028,046|Versioned capability-gated FFI design, value/ownership/security contract, public reference, and validation
+048|tasks/completed/048-gate-enums-and-pattern-matching-behind-a-complete-semantic-contract.md|complete|unassigned|025,032,033|Enum/pattern semantic contract complete; native C explicitly rejects enums pending tagged lowering

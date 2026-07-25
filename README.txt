@@ -116,7 +116,7 @@ With Osiris you can:
   * define recursive functions and use loops for controlled iteration
   * catch runtime failures with `try { ... } catch err { ... }`
   * fan out independent work through a multi-core task scheduler
-  * run code through an interpreter, a bytecode VM, or WebAssembly
+  * run code through the interpreter or a bytecode VM
   * inspect source maps, traces, heap snapshots, dependency graphs, and live scopes
   * use the LSP server for hover and go-to-definition
   * build reproducible transforms and language experiments in Go
@@ -153,15 +153,18 @@ The usual flow is:
      `osiris map`, or `osiris deps`.
   5. Use `osiris lsp` if you want editor integration.
   6. Use `osiris ir` to inspect the lowered IR.
-  7. Open the GitHub Pages manual under `docs/` for the long-form language
-     reference, function index, and editorial guide.
+  7. Open the GitHub Pages React manual built from `newdocs/` for the
+     long-form language reference, function index, and editorial guide.
   7. Use `osiris ssa` to inspect the SSA-verified IR and capture flow.
   8. Use `osiris cfg` to inspect the control-flow graph.
   9. Use `osiris dom` to inspect the dominator tree.
  10. Use `osiris loop` to inspect canonical loop shapes.
  11. Use `osiris alias` to inspect alias classes, fresh values, and escapes.
  12. Use `osiris infer` to inspect inferred kinds, shapes, and escapes.
- 13. Use `osiris vm` or `osiris wasm` when you want alternate backends.
+ 13. Use `osiris vm` when you want the alternate bytecode backend.
+ 14. Check the Backend support material in the React manual before choosing
+     any non-interpreter backend; native C, WebAssembly, GPU, and LSP
+     coverage are feature-specific.
 
 There is also a REPL for quick experiments.
 For quick cross-language timing, run `bench.sh` from the repo root. It builds

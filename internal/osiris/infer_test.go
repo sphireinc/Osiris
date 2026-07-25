@@ -47,3 +47,32 @@ emit add1(4)
 		}
 	}
 }
+
+func TestInferTensorBinaryUsesBroadcastShape(t *testing.T) {
+	prog, err := Parse("<infer-broadcast>", `
+let vector = tensor([10, 20])
+let matrix = tensor([[1, 2], [3, 4]])
+let sum = vector + matrix
+let reshaped = reshape(sum, [4])
+let transposed = transpose(matrix)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inferProg, err := NewRuntime().InferProgram(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := FormatInferProgram(inferProg)
+	for _, want := range []string{
+		"main.vector: tensor[2]",
+		"main.matrix: tensor[2x2]",
+		"main.sum: tensor[2x2]",
+		"main.reshaped: tensor[4]",
+		"main.transposed: tensor[2x2]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("infer output missing %q\n--- got ---\n%s", want, got)
+		}
+	}
+}

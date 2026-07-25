@@ -347,7 +347,7 @@ func verifySSATerminator(fnName, blockName string, term IRTerminator, available 
 // pipeline without re-deriving the same information.
 func operandRefsForInstr(instr IRInstr) []string {
 	switch instr.Op {
-	case "copy", "unary", "binary", "emit", "phi", "list", "makefunc":
+	case "copy", "unary", "binary", "emit", "phi", "list", "makefunc", "async":
 		return append([]string(nil), instr.Args...)
 	case "member":
 		if len(instr.Args) == 0 {

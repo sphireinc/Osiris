@@ -344,6 +344,11 @@ func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 			have bool
 		)
 		for _, arm := range n.arms {
+			if arm.guard != nil {
+				if _, err := shapeOfExpr(arm.guard, env); err != nil {
+					return unknownShape(), err
+				}
+			}
 			info, err := shapeOfExpr(arm.body, env)
 			if err != nil {
 				return unknownShape(), err

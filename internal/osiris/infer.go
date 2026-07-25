@@ -240,6 +240,11 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 		scope.items[st.Alias] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "module"}, owner: scope.fn}
 		out.Bindings = append(out.Bindings, *bind)
 		return inferTypeInfo{known: true, kind: "module"}
+	case enumStmt:
+		bind := &InferBinding{Name: st.Name, Scope: scope.name, Kind: "enum"}
+		scope.items[st.Name] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "enum"}, owner: scope.fn}
+		out.Bindings = append(out.Bindings, *bind)
+		return inferTypeInfo{known: true, kind: "enum"}
 	case funcStmt:
 		return inferFunctionStmt(st, scope, out)
 	case emitStmt:
@@ -502,6 +507,9 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 		var outInfo inferTypeInfo
 		have := false
 		for _, arm := range n.arms {
+			if arm.guard != nil {
+				_ = inferExpr(arm.guard, scope, out)
+			}
 			info := inferExpr(arm.body, scope, out)
 			if !have {
 				outInfo = info
@@ -527,8 +535,10 @@ func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 		return inferTypeInfo{known: true, kind: "bool"}, true
 	case "null":
 		return inferTypeInfo{known: true, kind: "null"}, true
-	case "len", "sum", "product", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "hypot", "norm", "noise", "real", "imag", "magnitude":
+	case "len", "sum", "product", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "hypot", "norm", "noise", "random", "real", "imag", "magnitude":
 		return inferTypeInfo{known: true, kind: "number"}, true
+	case "conjugate":
+		return inferTypeInfo{known: true, kind: "complex"}, true
 	case "f32":
 		return inferTypeInfo{known: true, kind: "float", bits: 32}, true
 	case "f64":
@@ -934,7 +944,17 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 	case "rat", "rational":
 		return inferTypeInfo{known: true, kind: "decimal"}, true
 	case "complex":
-		return inferTypeInfo{known: true, kind: "complex"}, true
+		return inferComplexCall(args, scope, out), true
+	case "dual":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "dual"}, true
+	case "primal", "tangent":
+		if len(args) == 1 {
+			_ = inferExpr(args[0], scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "number"}, true
 	case "bigint":
 		return inferTypeInfo{known: true, kind: "bigint"}, true
 	case "bigfloat":
@@ -942,6 +962,40 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 	default:
 		return inferTypeInfo{}, false
 	}
+}
+
+// inferComplexCall retains an explicitly selected f32 or f64 component width
+// from the constructor arguments. It follows runtime promotion: a default
+// numeric argument widens a solely-f32 construction to f64.
+func inferComplexCall(args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
+	infos := make([]inferTypeInfo, 0, len(args))
+	for _, arg := range args {
+		infos = append(infos, inferExpr(arg, scope, out))
+	}
+	return inferTypeInfo{known: true, kind: "complex", bits: inferComplexResultBits(infos...)}
+}
+
+func inferComplexResultBits(values ...inferTypeInfo) uint16 {
+	var bits uint16
+	sawExplicit := false
+	sawDefault := false
+	for _, value := range values {
+		if value.bits == 0 {
+			sawDefault = true
+			continue
+		}
+		sawExplicit = true
+		if value.bits > bits {
+			bits = value.bits
+		}
+	}
+	if !sawExplicit {
+		return 0
+	}
+	if sawDefault && bits < 64 {
+		return 64
+	}
+	return bits
 }
 
 // inferFixedCall handles the infer fixed call step in the surrounding package
@@ -1124,13 +1178,14 @@ func inferBinaryType(op tokenKind, left, right inferTypeInfo) inferTypeInfo {
 	case tokenPlus, tokenMinus, tokenStar, tokenSlash, tokenPercent:
 		if left.kind == "tensor" || right.kind == "tensor" {
 			out := inferTypeInfo{known: true, kind: "tensor"}
-			if len(left.shape) > 0 {
-				out.shape = append([]int(nil), left.shape...)
-			}
-			if len(right.shape) > 0 {
-				if len(out.shape) == 0 {
-					out.shape = append([]int(nil), right.shape...)
+			if left.kind == "tensor" && right.kind == "tensor" && len(left.shape) > 0 && len(right.shape) > 0 {
+				if shape, err := tensorBroadcastShape(left.shape, right.shape); err == nil {
+					out.shape = shape
 				}
+			} else if len(left.shape) > 0 {
+				out.shape = append([]int(nil), left.shape...)
+			} else if len(right.shape) > 0 {
+				out.shape = append([]int(nil), right.shape...)
 			}
 			return out
 		}
@@ -1186,8 +1241,10 @@ func inferBinaryType(op tokenKind, left, right inferTypeInfo) inferTypeInfo {
 // pipeline without re-deriving the same information.
 func promoteNumeric(left, right inferTypeInfo) inferTypeInfo {
 	switch {
+	case left.kind == "dual" || right.kind == "dual":
+		return inferTypeInfo{known: true, kind: "dual"}
 	case left.kind == "complex" || right.kind == "complex":
-		return inferTypeInfo{known: true, kind: "complex"}
+		return inferTypeInfo{known: true, kind: "complex", bits: inferComplexResultBits(left, right)}
 	case left.kind == "bigfloat" || right.kind == "bigfloat":
 		return inferTypeInfo{known: true, kind: "bigfloat"}
 	case left.kind == "bigint" || right.kind == "bigint":
@@ -1295,6 +1352,9 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 		}
 	case kindComplex:
 		info.kind = "complex"
+		info.bits = v.fbits
+	case kindDual:
+		info.kind = "dual"
 	case kindError:
 		info.kind = "error"
 	case kindBigInt:
@@ -1376,6 +1436,11 @@ func (i inferTypeInfo) KindString() string {
 			return "bf64"
 		}
 		return fmt.Sprintf("bf%d", i.bits)
+	case "complex":
+		if i.bits == 0 {
+			return "complex"
+		}
+		return fmt.Sprintf("complex<f%d>", i.bits)
 	case "fixed":
 		if i.bits == 0 {
 			i.bits = 64

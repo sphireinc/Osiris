@@ -1,5 +1,19 @@
 .osiris.lock
 .osiris/
+/osiris
+/internal/osiris/.osiris.lock
+
+# Generated JavaScript dependencies and site output. newdocs/ is source;
+# newdocs/dist/ is a build artifact and is published by CI only after adoption.
+node_modules/
+dist/
+
+# Local build, test, benchmark, and platform artifacts.
+*.test
+*.prof
+coverage.out
+*.tmp
+.DS_Store
 
 IO.txt
 CHECKLIST.md
