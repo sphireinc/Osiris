@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -187,6 +188,23 @@ emit isnone(none())
 emit unwrap(ok(7))
 emit unwrap(some(8))
 emit or_else(none(), 99)
+emit to_option(ok(11))
+emit to_option(err(error(InvalidArgument, "bad")))
+emit to_result(some(12))
+emit try { unwrap(to_result(none(), "missing option")) } catch err { [err.kind, err.message] }
+emit collect([ok(1), some(2), ok(3)])
+emit try { unwrap(collect([ok(1), err(error(InvalidArgument, "bad"))])) } catch err { err.kind }
+func double(x) => x * 2
+func recover(err) => wrap(err, NotFound, "while loading")
+func next(x) => ok(x + 1)
+emit map(ok(5), double)
+emit map(err(error(InvalidArgument, "bad")), double)
+emit map_error(err(error(NotFound, "missing")), recover)
+emit flat_map(ok(8), next)
+emit discard(err(error(InvalidArgument, "ignored")))
+emit try { discard(42) } catch err { err.message }
+emit is_must_handle(must_handle(ok(1)))
+emit is_must_handle(map(must_handle(ok(2)), double))
 emit decode(encode(ok(123)))
 emit decode(encode(some(456)))
 emit try { expect(none(), "missing value") } catch err { err.kind }
@@ -207,6 +225,20 @@ emit try { expect(none(), "missing value") } catch err { err.kind }
 		"7u64",
 		"8u64",
 		"99u64",
+		"some(11u64)",
+		"none",
+		"ok(12u64)",
+		`["not_found", "missing option"]`,
+		"ok([1u64, 2u64, 3u64])",
+		`"invalid_argument"`,
+		"ok(10u64)",
+		`err(error[invalid_argument]("bad"))`,
+		`err(error[not_found]("while loading") <- error[not_found]("missing"))`,
+		"ok(9u64)",
+		"null",
+		`"discard expects a result, option, or error"`,
+		"true",
+		"true",
 		"ok(123u64)",
 		"some(456u64)",
 		`"not_found"`,
@@ -218,6 +250,86 @@ emit try { expect(none(), "missing value") } catch err { err.kind }
 		if got := out[i].String(); got != want[i] {
 			t.Fatalf("output[%d] = %s, want %s", i, got, want[i])
 		}
+	}
+}
+
+func TestResultBindingInterpreterVMAndFormatting(t *testing.T) {
+	source := `
+	let? value = ok(41)
+emit value + 1
+emit try { let? missing = none(); missing } catch err { err.kind }
+emit try { let? failed = err(error(InvalidArgument, "bad")); failed } catch err { err.kind }
+`
+	prog, err := Parse("<result-binding>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if formatted, err := FormatSource("<result-binding>", source); err != nil || !strings.Contains(formatted, "let? value = ok(41u64)") {
+		t.Fatalf("format = %q, %v", formatted, err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(context.Context, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: NewRuntime().Run},
+		{name: "vm", fn: NewRuntime().RunVM},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(context.Background(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"42u64", `"not_found"`, `"invalid_argument"`}
+			for i := range want {
+				if i >= len(out) || out[i].String() != want[i] {
+					t.Fatalf("output = %v, want %v", out, want)
+				}
+			}
+		})
+	}
+}
+
+func TestResultCombinatorInterpreterVMParity(t *testing.T) {
+	prog, err := Parse("<result-combinators>", `
+func double(x) => x * 2
+func next(x) => ok(x + 1)
+func recover(err) => wrap(err, NotFound, "while loading")
+emit map(ok(5), double)
+emit flat_map(ok(8), next)
+emit map_error(err(error(NotFound, "missing")), recover)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(context.Context, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: NewRuntime().Run},
+		{name: "vm", fn: NewRuntime().RunVM},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(context.Background(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"ok(10u64)", "ok(9u64)", `err(error[not_found]("while loading") <- error[not_found]("missing"))`}
+			for i := range want {
+				if i >= len(out) || out[i].String() != want[i] {
+					t.Fatalf("output = %v, want %v", out, want)
+				}
+			}
+		})
+	}
+}
+
+func TestResultBindingLiteralDiagnosticHasSourceSpan(t *testing.T) {
+	_, err := Parse("<result-diagnostic>", "let? value = 42\n")
+	if err == nil || !strings.Contains(err.Error(), "<result-diagnostic>:1:6") || !strings.Contains(err.Error(), "let? requires a result or option") {
+		t.Fatalf("diagnostic = %v", err)
+	}
+	if _, err := Parse("<result-diagnostic>", "let? value = read(path)\n"); err != nil {
+		t.Fatalf("dynamic fallible API was incorrectly rejected: %v", err)
 	}
 }
 
@@ -1906,6 +2018,78 @@ emit await(jsonparse_async("{\"x\":1}"))
 	}
 }
 
+func TestTransferStreamsPreservesBoundedBytesAndFlushes(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "source.txt")
+	destinationPath := filepath.Join(t.TempDir(), "destination.txt")
+	if err := os.WriteFile(sourcePath, []byte("abcdef"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source, err := openReadStream(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.close()
+	destination, err := openWriteStream(destinationPath, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer destination.close()
+	value, err := transferContextValue(context.Background(), []Value{streamValueOf(source), streamValueOf(destination), uintValue(4, 64)})
+	if err != nil || value.String() != "4u64" {
+		t.Fatalf("transfer = %s, %v", value.String(), err)
+	}
+	if got, err := os.ReadFile(destinationPath); err != nil || string(got) != "abcd" {
+		t.Fatalf("destination = %q, %v", got, err)
+	}
+	if _, err := transferContextValue(context.Background(), []Value{streamValueOf(source), streamValueOf(source)}); err == nil {
+		t.Fatal("self transfer unexpectedly succeeded")
+	}
+}
+
+func TestTransferBuiltinInterpreterVMParity(t *testing.T) {
+	for _, run := range []struct {
+		name string
+		fn   func(context.Context, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: NewRuntime().Run},
+		{name: "vm", fn: NewRuntime().RunVM},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sourcePath := filepath.Join(dir, "source.txt")
+			destinationPath := filepath.Join(dir, "destination.txt")
+			if err := os.WriteFile(sourcePath, []byte("abcdef"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			prog, err := Parse("<transfer-parity>", `
+let source = openread(`+strconv.Quote(sourcePath)+`)
+let destination = openwrite(`+strconv.Quote(destinationPath)+`)
+emit transfer(source, destination, 4)
+emit close(source)
+emit close(destination)
+`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := run.fn(context.Background(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := len(out), 3; got != want {
+				t.Fatalf("output count = %d, want %d", got, want)
+			}
+			for index, want := range []string{"4u64", "true", "true"} {
+				if got := out[index].String(); got != want {
+					t.Fatalf("output[%d] = %q, want %q", index, got, want)
+				}
+			}
+			if got, err := os.ReadFile(destinationPath); err != nil || string(got) != "abcd" {
+				t.Fatalf("destination = %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestTCPNetworkLoopbackResources(t *testing.T) {
 	listener, err := tcpListen("127.0.0.1:0")
 	if err != nil {
@@ -1946,6 +2130,85 @@ func TestTCPNetworkLoopbackResources(t *testing.T) {
 	line, err = client.readLine()
 	if err != nil || line.String() != "pong" {
 		t.Fatalf("client read = %s, %v", line.String(), err)
+	}
+}
+
+func TestTCPCancellationTimeoutAndStructuredErrors(t *testing.T) {
+	listener, err := tcpListen("127.0.0.1:0")
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("loopback listeners are forbidden by this sandbox")
+		}
+		t.Fatal(err)
+	}
+	defer listener.close()
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := listener.acceptContext(cancelled, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled accept error = %v, want context.Canceled", err)
+	}
+	timed, cancelTimeout := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelTimeout()
+	if _, err := listener.acceptContext(timed, 0); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timed accept error = %v, want context.DeadlineExceeded", err)
+	}
+
+	accepted := make(chan *streamValue, 1)
+	acceptErr := make(chan error, 1)
+	go func() {
+		stream, err := listener.acceptContext(context.Background(), 1000)
+		accepted <- stream
+		acceptErr <- err
+	}()
+	client, err := tcpDialContext(context.Background(), listener.address(), 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.close()
+	server := <-accepted
+	if err := <-acceptErr; err != nil || server == nil {
+		t.Fatalf("accept = %v, %v", server, err)
+	}
+	defer server.close()
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelRead()
+	if _, err := server.readLineContext(readCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("timed read error = %v, want context.DeadlineExceeded", err)
+	}
+
+	if got := classifyGoError(&net.OpError{Op: "dial", Err: errors.New("refused")}); got != ErrorKindUnavailable {
+		t.Fatalf("dial error kind = %s, want %s", got, ErrorKindUnavailable)
+	}
+	if got := classifyGoError(net.ErrClosed); got != ErrorKindIO {
+		t.Fatalf("closed network error kind = %s, want %s", got, ErrorKindIO)
+	}
+}
+
+func TestTCPContextBuiltinsRunInInterpreterAndVM(t *testing.T) {
+	prog, err := Parse("<tcp-context-builtins>", `emit close(tcp_listen("127.0.0.1:0"))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(context.Context, *Program) ([]Value, error)
+	}{
+		{name: "interpreter", fn: NewRuntime().Run},
+		{name: "vm", fn: NewRuntime().RunVM},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(context.Background(), prog)
+			if err != nil {
+				if strings.Contains(err.Error(), "operation not permitted") {
+					t.Skip("loopback listeners are forbidden by this sandbox")
+				}
+				t.Fatal(err)
+			}
+			if len(out) != 1 || !out[0].Truthy() {
+				t.Fatalf("output = %v, want true", out)
+			}
+		})
 	}
 }
 
@@ -2844,7 +3107,7 @@ emit transpose(values)
 		t.Fatal("runtime components were not emitted in the required base-then-complex order")
 	}
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
-	const want = "53f213f6070bf8445fd8945e896d41af39dfeab9816f0ec40e2f39a5ce23d819"
+	const want = "0b60fbe66d45d7a6697429cd4f764cfe8708020bd671c1ab6315f1c678c0a0fd"
 	if got != want {
 		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
 	}
@@ -3179,7 +3442,7 @@ func TestCBackendUnboxedFloatWidthParity(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
 	}
-	prog, err := Parse("<test>", "emit 1.25f32 + 2.5f32\nemit 1.25f64 + 2.5f64")
+	prog, err := Parse("<test>", "emit 1.25f32 + 2.5f32\nemit 2.0f32\nemit 1.25f64 + 2.5f64")
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
@@ -3214,6 +3477,1765 @@ func TestCBackendUnboxedFloatWidthParity(t *testing.T) {
 	}
 }
 
+func TestCBackendUnboxedLogicalBranchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit true && false\nemit false && true\nemit true || false\nemit false || true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "Osiris native fallback") || strings.Contains(artifact.Source[mainAt:], "OValue s") {
+		t.Fatalf("logical branch program did not use unboxed lowering\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-logical-branches")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatDivisionParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 7.5f32 / 2.0f32\nemit -22.0f64 / 7.0f64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float division unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-division")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatDivisionZeroIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1.0f64 / 0.0f64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float division unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-division-zero")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: division by zero") {
+		t.Fatalf("native float division result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatSqrtParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.sqrt(2.25f32)\nemit math.sqrt(81.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float sqrt unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-sqrt")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatSqrtDomainIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.sqrt(-1.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float sqrt unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-sqrt-domain")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: sqrt domain error") {
+		t.Fatalf("native float sqrt result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatCbrtParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.cbrt(-8.0f32)\nemit math.cbrt(27.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float cbrt unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-cbrt")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatExpm1Parity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.expm1(0.5f32)\nemit math.expm1(-0.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float expm1 unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-expm1")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatLog1pParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.log1p(0.5f32)\nemit math.log1p(-0.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float log1p unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-log1p")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatErfParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.erf(0.5f32)\nemit math.erf(-0.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float erf unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-erf")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatErfcParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.erfc(0.5f32)\nemit math.erfc(-0.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float erfc unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-erfc")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatRoundParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.round(1.5f32)\nemit math.round(-1.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float round unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-round")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatAbsParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.abs(-2.5f32)\nemit math.abs(-2.5f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float abs unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-abs")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatMathLoopParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+let i = 1.0f64
+let total = 0.0f64
+while i < 5.0f64 {
+  let total = total + math.sqrt(i)
+  let i = i + 1.0f64
+}
+emit total
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 || strings.Contains(artifact.Source[mainAt:], "Osiris native fallback") || strings.Contains(artifact.Source[mainAt:], "OValue s") {
+		t.Fatalf("float math loop unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	if !strings.Contains(artifact.Source[mainAt:], "sqrt(") {
+		t.Fatalf("generated loop does not call direct sqrt\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-math-loop")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatClampParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.clamp(-2.0f32, 0.0f32, 10.0f32)
+emit math.clamp(12.0f32, 0.0f32, 10.0f32)
+emit math.clamp(4.0f64, 0.0f64, 10.0f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float clamp unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-clamp")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatExtremaParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.min(4.0f32, -2.0f32, 3.0f32)
+emit math.max(4.0f32, -2.0f32, 3.0f32)
+emit math.min(4.0f64, -2.0f64, 3.0f64)
+emit math.max(4.0f64, -2.0f64, 3.0f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float extrema unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-extrema")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatFloorCeilParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.floor(1.75f32)
+emit math.ceil(-1.25f32)
+emit math.floor(-1.25f64)
+emit math.ceil(1.75f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float floor/ceil unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-floor-ceil")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatHypotParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.hypot(3.0f32, 4.0f32)
+emit math.hypot(2.0f64, 3.0f64, 6.0f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float hypot unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-hypot")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatTrigonometricParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.sin(0.5f32)
+emit math.cos(0.5f32)
+emit math.tan(0.5f32)
+emit math.sin(-0.5f64)
+emit math.cos(-0.5f64)
+emit math.tan(-0.5f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float trigonometry unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-trigonometry")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatInverseTrigonometricParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.asin(0.5f32)
+emit math.acos(-0.5f32)
+emit math.atan(0.5f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float inverse trigonometry unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-inverse-trigonometry")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatInverseTrigonometricDomainIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	for _, test := range []struct {
+		name    string
+		source  string
+		message string
+	}{
+		{name: "asin", source: "emit math.asin(2.0f32)", message: "asin domain error"},
+		{name: "acos", source: "emit math.acos(-2.0f32)", message: "acos domain error"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\n"+test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(artifact.Source, "Osiris native fallback") {
+				t.Fatalf("float %s unexpectedly used tagged fallback\n--- C ---\n%s", test.name, artifact.Source)
+			}
+			exePath := filepath.Join(t.TempDir(), "unboxed-float-"+test.name+"-domain")
+			if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+				t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+			}
+			out, err := exec.Command(exePath).CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "osiris native error: "+test.message) {
+				t.Fatalf("native %s domain = err %v, output %q\n--- C ---\n%s", test.name, err, out, artifact.Source)
+			}
+		})
+	}
+}
+
+func TestCBackendFloatLibmF64IsRejected(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		source string
+	}{
+		{name: "inverse", source: "emit math.asin(0.5f64)\nemit math.atan(-0.5f64)"},
+		{name: "hyperbolic", source: "emit math.sinh(0.5f64)\nemit math.acosh(2.0f64)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\n"+test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileC(context.Background(), NewRuntime(), prog)
+			if err == nil || !strings.Contains(err.Error(), "requires a proven f32 scalar input") {
+				t.Fatalf("CompileC error = %v, want f64 libm diagnostic", err)
+			}
+		})
+	}
+}
+
+func TestCBackendUnboxedFloatHyperbolicParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.sinh(0.5f32)
+emit math.cosh(0.5f32)
+emit math.tanh(-0.5f32)
+emit math.asinh(-0.5f32)
+emit math.acosh(2.0f32)
+emit math.atanh(0.5f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float hyperbolic functions unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-hyperbolic")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatHyperbolicDomainIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	for _, test := range []struct {
+		name    string
+		source  string
+		message string
+	}{
+		{name: "acosh", source: "emit math.acosh(0.5f32)", message: "acosh domain error"},
+		{name: "atanh", source: "emit math.atanh(1.0f32)", message: "atanh domain error"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\n"+test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(artifact.Source, "Osiris native fallback") {
+				t.Fatalf("float %s unexpectedly used tagged fallback\n--- C ---\n%s", test.name, artifact.Source)
+			}
+			exePath := filepath.Join(t.TempDir(), "unboxed-float-"+test.name+"-domain")
+			if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+				t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+			}
+			out, err := exec.Command(exePath).CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "osiris native error: "+test.message) {
+				t.Fatalf("native %s domain = err %v, output %q\n--- C ---\n%s", test.name, err, out, artifact.Source)
+			}
+		})
+	}
+}
+
+func TestCBackendUnboxedFloatComparisonMathParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.sign(-2.0f32)
+emit math.sign(0.0f64)
+emit math.step(-2.0f32)
+emit math.step(2.0f64)
+emit math.heaviside(-2.0f32)
+emit math.heaviside(0.0f64)
+emit math.relu(-2.0f32)
+emit math.relu(2.0f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("comparison math unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-comparison-math")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntegerComparisonMathParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.sign(-2i16)
+emit math.step(2u8)
+emit math.heaviside(0u32)
+emit math.relu(-2i32)
+emit math.relu(2u64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("integer comparison math unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-integer-comparison-math")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedExactSignedLiteralDivisionParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit 12i32 / 3i32
+emit 8i64 / 2i64
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("exact signed literal division unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-exact-signed-division")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendNonExactSignedLiteralDivisionRetainsTaggedDecimalPath(t *testing.T) {
+	prog, err := Parse("<test>", "emit 7i32 / 3i32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("non-exact signed literal division unexpectedly used unboxed lowering\n--- C ---\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatSigmoidParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.sigmoid(-8.0f32)
+emit math.sigmoid(0.5f32)
+emit math.sigmoid(80.0f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("f32 sigmoid unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-sigmoid")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatSoftplusParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.softplus(-8.0f32)
+emit math.softplus(0.5f32)
+emit math.softplus(20.0f32)
+emit math.softplus(21.0f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("f32 softplus unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-softplus")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatGammaParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.gamma(0.5f32)
+emit math.gamma(4.5f32)
+emit math.gamma(-0.5f32)
+emit math.gamma(-1.0f32)
+emit math.lgamma(0.5f32)
+emit math.lgamma(4.5f32)
+emit math.lgamma(-0.5f32)
+emit math.lgamma(-1.0f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("f32 gamma functions unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-gamma")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendFloatGammaF64IsRejected(t *testing.T) {
+	for _, name := range []string{"gamma", "lgamma"} {
+		t.Run(name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\nemit math."+name+"(0.5f64)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileC(context.Background(), NewRuntime(), prog)
+			if err == nil || !strings.Contains(err.Error(), "requires a proven f32 scalar input") {
+				t.Fatalf("%s f64 compile error = %v, want parity-safe rejection", name, err)
+			}
+		})
+	}
+}
+
+func TestCBackendUnboxedFloatPowParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.pow(2.0f32, 5.75f32)
+emit math.pow(8.5f32, 3.5f32)
+emit math.pow(8.0f32, 0.5f32)
+emit math.expt(3.0f32, 0.5f32)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("f32 pow functions unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-pow")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendFloatPowF64IsRejected(t *testing.T) {
+	for _, name := range []string{"pow", "expt"} {
+		t.Run(name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\nemit math."+name+"(2.0f64, 3.0f64)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileC(context.Background(), NewRuntime(), prog)
+			if err == nil || !strings.Contains(err.Error(), "requires proven f32 scalar inputs") {
+				t.Fatalf("%s f64 compile error = %v, want parity-safe rejection", name, err)
+			}
+		})
+	}
+}
+
+func TestCBackendExactFloatPowIsRejected(t *testing.T) {
+	for _, name := range []string{"pow", "expt"} {
+		t.Run(name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\nemit math."+name+"(2.0f32, 3.0f32)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileC(context.Background(), NewRuntime(), prog)
+			if err == nil || !strings.Contains(err.Error(), "requires proven f32 scalar inputs") {
+				t.Fatalf("%s exact f32 compile error = %v, want result-kind-safe rejection", name, err)
+			}
+		})
+	}
+}
+
+func TestCBackendUnboxedFloatComplexProjectionParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.real(-3.5f32)
+emit math.imag(-3.5f32)
+emit math.conjugate(-3.5f32)
+emit math.magnitude(-3.5f32)
+emit math.conjugate(-7i16)
+emit math.conjugate(255u8)
+emit math.real(7.25f64)
+emit math.imag(7.25f64)
+emit math.conjugate(7.25f64)
+emit math.magnitude(-7.25f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("scalar complex projections unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-complex-projections")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatCastParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.f32(1.234567890123f64)
+emit math.f32(-7.25f32)
+emit math.f64(1.234567f32)
+emit math.f64(-7.25f64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float casts unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-casts")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedUnsignedMagnitudeParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.abs(255u8)
+emit math.magnitude(255u8)
+emit math.abs(18446744073709551615u64)
+emit math.magnitude(18446744073709551615u64)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("unsigned magnitude functions unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-unsigned-magnitude")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedSignedMagnitudeParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+import "std/math" as math
+emit math.abs(-7i16)
+emit math.magnitude(-7i16)
+emit math.abs(-128i8)
+emit math.magnitude(-128i8)
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("signed magnitude functions unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-signed-magnitude")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatExpParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.exp(1.0f32)\nemit math.exp(1.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float exp unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-exp")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatExpOverflowIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.exp(1000.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float exp unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-exp-overflow")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: exp overflow") {
+		t.Fatalf("native exp overflow = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatLogarithmParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.log(2.0f32)\nemit math.log(81.0f32, 3.0f32)\nemit math.log10(100.0f64)\nemit math.log2(8.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float logarithms unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-logarithms")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("native executable failed: %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatLogarithmDomainIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	for _, test := range []struct {
+		name    string
+		source  string
+		message string
+	}{
+		{name: "log", source: "emit math.log(0.0f64)", message: "log domain error"},
+		{name: "log-base", source: "emit math.log(1.0f32, 1.0f32)", message: "log domain error"},
+		{name: "log10", source: "emit math.log10(-1.0f64)", message: "log10 domain error"},
+		{name: "log2", source: "emit math.log2(0.0f64)", message: "log2 domain error"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prog, err := Parse("<test>", "import \"std/math\" as math\n"+test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(artifact.Source, "Osiris native fallback") {
+				t.Fatalf("float %s unexpectedly used tagged fallback\n--- C ---\n%s", test.name, artifact.Source)
+			}
+			exePath := filepath.Join(t.TempDir(), "unboxed-float-"+test.name+"-domain")
+			if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+				t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+			}
+			out, err := exec.Command(exePath).CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "osiris native error: "+test.message) {
+				t.Fatalf("native %s domain = err %v, output %q\n--- C ---\n%s", test.name, err, out, artifact.Source)
+			}
+		})
+	}
+}
+
+func TestCBackendFloatBaseLogF64IsRejected(t *testing.T) {
+	prog, err := Parse("<test>", "import \"std/math\" as math\nemit math.log(81.0f64, 3.0f64)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CompileC(context.Background(), NewRuntime(), prog)
+	if err == nil || !strings.Contains(err.Error(), "two-argument log requires proven f32 scalar inputs") {
+		t.Fatalf("base-log f64 compile error = %v, want parity-safe rejection", err)
+	}
+}
+
+func TestCBackendUnboxedFloatRemainderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 5.5f32 % 2.0f32\nemit -22.0f64 % 7.0f64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float remainder unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-remainder")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedFloatRemainderZeroIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1.0f32 % 0.0f32")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("float remainder unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-float-remainder-zero")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: remainder by zero") {
+		t.Fatalf("native float remainder result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendTaggedFloatRemainderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let values = [5.5f64]
+emit at(values, 0) % 2.0f64
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("tagged float remainder unexpectedly used scalar lowering\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "tagged-float-remainder")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, expected := string(out), want[0].String()+"\n"; got != expected {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected, artifact.Source)
+	}
+}
+
+func TestCBackendTaggedFloatRemainderZeroIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let values = [1.0f32]
+emit at(values, 0) % 0.0f32
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("tagged float remainder unexpectedly used scalar lowering\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "tagged-float-remainder-zero")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "osiris native error: remainder by zero") {
+		t.Fatalf("native tagged float zero remainder = %q\n--- C ---\n%s", out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedScalarLoopIgnoresDeadUndefCarry(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+let i = 0.0f64
+let total = 0.0f64
+while i < 8.0f64 {
+  let transient = (i + 1.0f64) / 3.0f64
+  let total = total + i
+  let i = i + 1.0f64
+}
+emit total
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("dead loop carry unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-dead-loop-carry")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, expected := string(out), want[0].String()+"\n"; got != expected {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected, artifact.Source)
+	}
+}
+
 func TestCBackendUnboxedUintOverflowIsReported(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -3236,6 +5258,266 @@ func TestCBackendUnboxedUintOverflowIsReported(t *testing.T) {
 	}
 }
 
+func TestCBackendUnboxedIntArithmeticParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit -17i64 + 5i64\nemit -1234567i64 * 33i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 arithmetic unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-arithmetic")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntOverflowIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 9223372036854775807i64 + 1i64\nemit 3037000500i64 * 3037000500i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 arithmetic unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-overflow")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: signed addition overflow") {
+		t.Fatalf("native i64 overflow result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedUintRemainderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 18446744073709551615 % 97")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("u64 remainder unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-u64-remainder")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	if got, expected := string(out), want[0].String()+"\n"; got != expected {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntRemainderParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit -17i64 % 5i64\nemit -9223372036854775808i64 % -1i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 remainder unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-remainder")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntRemainderZeroIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1i64 % 0i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 remainder unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-remainder-zero")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: signed remainder by zero") {
+		t.Fatalf("native zero remainder result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntBitwiseParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit -1i64 & 255i64\nemit -256i64 | 15i64\nemit -1i64 ^ 0x55i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 bitwise operations unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-bitwise")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntShiftParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1i64 << 62i64\nemit -1i64 >> 1i64\nemit -4i64 >> 2i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 shifts unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-shifts")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var expected strings.Builder
+	for _, value := range want {
+		expected.WriteString(value.String())
+		expected.WriteByte('\n')
+	}
+	if got := string(out); got != expected.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, expected.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedIntShiftRangeIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1i64 << 64i64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("i64 shift unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-i64-shift-range")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: shift count exceeds signed width") {
+		t.Fatalf("native i64 shift result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
 func TestCBackendUnboxedShiftRangeIsReported(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -3255,6 +5537,50 @@ func TestCBackendUnboxedShiftRangeIsReported(t *testing.T) {
 	out, err := exec.Command(exePath).CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "osiris native error: shift count exceeds u64 width") {
 		t.Fatalf("native shift result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedNarrowSignedShiftRangeIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1i8 << 8i8")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-narrow-signed-shift-range")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: shift count exceeds signed width") {
+		t.Fatalf("native shift result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedNarrowSignedRemainderZeroIsReported(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", "emit 1i8 % 0i8")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-narrow-signed-remainder-zero")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "osiris native error: signed remainder by zero") {
+		t.Fatalf("native remainder result = err %v, output %q\n--- C ---\n%s", err, out, artifact.Source)
 	}
 }
 
@@ -3866,6 +6192,115 @@ emit -5i16
 	}
 }
 
+func TestCBackendUnboxedNarrowUnsignedIntegerParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit 250u8 + 10u8
+emit 65535u16 + 2u16
+emit 4294967295u32 * 2u32
+emit 1u8 << 7u8
+emit 250u8 + 10u16
+emit 0xffu8 | 0xff00u16
+emit 1u8 << 2
+emit 255u8 % 10u16
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("narrow unsigned program unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	for _, declaration := range []string{"uint8_t s", "uint16_t s", "uint32_t s"} {
+		if !strings.Contains(artifact.Source, declaration) {
+			t.Fatalf("generated C does not contain unboxed %s local\n--- C ---\n%s", declaration, artifact.Source)
+		}
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-narrow-unsigned")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
+func TestCBackendUnboxedNarrowSignedIntegerParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<test>", `
+emit 120i8 + 10i8
+emit 120i8 - 240i8
+emit 30000i16 * 2i16
+emit 5i32 - 15i32
+emit -(120i8)
+emit 0x7fi8 ^ 0x80i8
+emit 0x7fi16 & 0xff00i16
+emit 1i8 << 6i8
+emit 0x80i8 >> 1i8
+emit 0x80i8 % 3i8
+emit 120i8 + 10i16
+emit 0x7fi8 | 0x0100i16
+emit 1i8 << 6i16
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	wantValues, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter failed: %v", err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile c failed: %v", err)
+	}
+	if strings.Contains(artifact.Source, "Osiris native fallback") {
+		t.Fatalf("narrow signed program unexpectedly used tagged fallback\n--- C ---\n%s", artifact.Source)
+	}
+	for _, declaration := range []string{"int8_t s", "int16_t s", "int32_t s"} {
+		if !strings.Contains(artifact.Source, declaration) {
+			t.Fatalf("generated C does not contain unboxed %s local\n--- C ---\n%s", declaration, artifact.Source)
+		}
+	}
+	exePath := filepath.Join(t.TempDir(), "unboxed-narrow-signed")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running executable failed: %v\n%s", err, out)
+	}
+	var want strings.Builder
+	for _, value := range wantValues {
+		want.WriteString(value.String())
+		want.WriteByte('\n')
+	}
+	if got := string(out); got != want.String() {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want.String(), artifact.Source)
+	}
+}
+
 func TestCBackendStaticMathImportParity(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -3968,8 +6403,8 @@ emit math.pow(2, 3)
 		t.Fatalf("parse failed: %v", err)
 	}
 	_, err = CompileC(context.Background(), NewRuntime(), prog)
-	if err == nil || !strings.Contains(err.Error(), `builtin "pow" is not supported yet`) {
-		t.Fatalf("CompileC error = %v, want unsupported static builtin diagnostic", err)
+	if err == nil || !strings.Contains(err.Error(), "requires proven f32 scalar inputs") {
+		t.Fatalf("CompileC error = %v, want parity-safe pow diagnostic", err)
 	}
 }
 
@@ -3981,27 +6416,18 @@ func TestCBackendStaticMathScalarParity(t *testing.T) {
 import "std/math" as math
 let m = math
 	emit math.sqrt(4.0f64)
-	emit m.log(100.0f64, 10.0f64)
+	emit m.log(100.0f32, 10.0f32)
 emit math.log2(8.0f64)
 emit math.log10(1000.0f64)
 emit math.hypot(3.0f64, 4.0f64)
 emit math.sin(0.0f64)
-emit math.asin(0.0f64)
-emit math.acos(1.0f64)
-emit math.atan(0.0f64)
-emit math.sinh(0.0f64)
-emit math.cosh(0.0f64)
-emit math.tanh(0.0f64)
-emit math.asinh(0.0f64)
-emit math.acosh(1.0f64)
-emit math.atanh(0.0f64)
 emit math.expm1(0.0f64)
 emit math.log1p(0.0f64)
 emit math.cbrt(8.0f64)
 emit math.erf(0.0f64)
 emit math.erfc(0.0f64)
-emit math.gamma(1.0f64)
-emit math.lgamma(1.0f64)
+emit math.gamma(1.0f32)
+emit math.lgamma(1.0f32)
 emit math.floor(2.9f32)
 emit math.ceil(2.1f32)
 emit math.round(2.5f64)

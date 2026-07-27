@@ -394,6 +394,16 @@ func stdlibModule(name, selector string) (Value, error) {
 			"hann":     functionValueOf("std/signal.hann", hannValue),
 			"convolve": functionValueOf("std/signal.convolve", convolveValue),
 		}), nil
+	case "std/net":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, map[string]Value{
+			"tcp_listen": contextFunctionValueOf("std/net.tcp_listen", tcpListenContextValue),
+			"tcp_accept": contextFunctionValueOf("std/net.tcp_accept", tcpAcceptContextValue),
+			"tcp_dial":   contextFunctionValueOf("std/net.tcp_dial", tcpDialContextValue),
+		}), nil
 	case "std/list":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {

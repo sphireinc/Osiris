@@ -1,0 +1,12 @@
+# Native-lowering benchmark for width-aware scalar CFGs. The accumulator is
+# deliberately u32 so the compiler exercises narrow locals, wrapping
+# arithmetic, comparisons, and a loop-carried value. BENCH_ITERS in bench.sh
+# replaces the literal while preserving the u32 suffix.
+
+let i = 0u32
+let total = 0u32
+while i < 1000000u32 {
+  let total = total + i
+  let i = i + 1u32
+}
+emit total

@@ -14,7 +14,7 @@
       "label": "Core syntax, bindings, functions, loops, and control flow",
       "documentation": ["docs/core.html", "docs/semantics.html", "docs/guide.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"], "tasks": ["tasks/001-c-backend-real-lowering.md", "tasks/tasks/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"], "tasks": ["tasks/001-c-backend-real-lowering.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
       "notes": "Native C covers tested scalar control flow, loops, and direct/closure calls; unsupported IR is rejected during compilation."
     },
     {
@@ -22,7 +22,7 @@
       "label": "Types, numeric families, units, and exact values",
       "documentation": ["docs/types.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity"], "tasks": ["tasks/tasks/032-harden-native-numeric-semantics-and-overflow-parity.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity"], "tasks": ["tasks/completed/032-harden-native-numeric-semantics-and-overflow-parity.md"]},
       "notes": "The interpreter and VM cover the documented type families. Native C currently has a deliberately smaller, tested numeric subset."
     },
     {
@@ -30,7 +30,7 @@
       "label": "Structured errors, Result, Option, and try/catch",
       "documentation": ["docs/errors.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"], "tasks": ["tasks/013-error-language-tools.md", "tasks/tasks/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"], "tasks": ["tasks/completed/013-error-language-tools.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
       "notes": "Native C reports selected runtime failures, but it does not yet claim complete structured-error parity."
     },
     {
@@ -70,7 +70,7 @@
       "label": "std/text",
       "documentation": ["docs/text.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendUnicodeStringAtParity"], "tasks": ["tasks/tasks/033-make-static-module-propagation-sound-through-cfg-and-closures.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendUnicodeStringAtParity"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md"]},
       "notes": "Core string operations have selected native coverage, but importing std/text is not yet a supported native-C path."
     },
     {
@@ -78,8 +78,8 @@
       "label": "std/math scalar, complex, and constructor functions",
       "documentation": ["docs/math.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdMathLibrary", "internal/osiris/runtime_test.go#TestCBackendStaticMathScalarParity", "internal/osiris/runtime_test.go#TestCBackendComplexScalarParity"], "tasks": ["tasks/004-native-numeric-and-tensor-lowering.md", "tasks/tasks/032-harden-native-numeric-semantics-and-overflow-parity.md"]},
-      "notes": "Native support is restricted to explicitly lowered, parity-tested static math members."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdMathLibrary", "internal/osiris/runtime_test.go#TestCBackendStaticMathScalarParity", "internal/osiris/runtime_test.go#TestCBackendComplexScalarParity"], "tasks": ["tasks/004-native-numeric-and-tensor-lowering.md", "tasks/completed/032-harden-native-numeric-semantics-and-overflow-parity.md"]},
+      "notes": "Native support is restricted to explicitly lowered, parity-tested static math members. Real floating scalar real/imag/magnitude projections and real floating or fixed-width-integer conjugate lower directly; abs/magnitude additionally lower as identities for unsigned scalars and with width-aware bit arithmetic for i8/i16/i32. Complex, i64 magnitude, and aggregate forms retain their dedicated native paths. Inverse trigonometry, hyperbolic functions, gamma, and log-gamma currently lower only for proven f32 scalar inputs; their f64 forms are rejected at native compile time because platform libm is not an exact Go-semantics contract. Two-argument base log likewise lowers only for proven f32 scalar inputs; f64 base log is rejected because the Go and C libm result can differ in the final bit. pow/expt lower only for literal f32 calls proven not to take Osiris's exact-integer branch; all other power calls reject so native lowering cannot change the result kind."
     },
     {
       "id": "array-constructors-and-ranges",
@@ -94,7 +94,7 @@
       "label": "Tensor, matrix, and linear algebra",
       "documentation": ["docs/tensor.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"], "tasks": ["tasks/tasks/030-complete-native-complex-tensor-kernel-coverage.md", "tasks/tasks/031-integrate-and-validate-a-production-numerical-provider.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"], "tasks": ["tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md", "tasks/completed/031-integrate-and-validate-a-production-numerical-provider.md"]},
       "notes": "Native C covers a growing tested kernel set. eig, eigh, and svd require an ABI-compatible numerical provider and are not a general bundled solver."
     },
     {
@@ -110,8 +110,8 @@
       "label": "I/O helpers",
       "documentation": ["docs/io.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO"], "tasks": ["tasks/011-network-io.md", "tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md"]},
-      "notes": "I/O is host-backed in the Go runtime; it is not currently lowered to native C."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/runtime_test.go#TestTCPCancellationTimeoutAndStructuredErrors", "internal/osiris/runtime_test.go#TestTransferStreamsPreservesBoundedBytesAndFlushes"], "tasks": ["tasks/completed/011-network-io.md", "tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md", "tasks/049-tcp-optimization-tuning.md"]},
+      "notes": "I/O is host-backed in the Go runtime with bounded stream transfer; it is not currently lowered to native C."
     },
     {
       "id": "data-helpers",
@@ -134,7 +134,7 @@
       "label": "std/list",
       "documentation": ["docs/list.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity"], "tasks": ["tasks/tasks/033-make-static-module-propagation-sound-through-cfg-and-closures.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md"]},
       "notes": "Native C supports selected list literals and indexing, not the imported std/list module surface."
     },
     {

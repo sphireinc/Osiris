@@ -30,7 +30,7 @@
       "label": "Structured errors, Result, Option, and try/catch",
       "documentation": ["docs/errors.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"], "tasks": ["tasks/013-error-language-tools.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"], "tasks": ["tasks/completed/013-error-language-tools.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
       "notes": "Native C reports selected runtime failures, but it does not yet claim complete structured-error parity."
     },
     {
@@ -110,8 +110,8 @@
       "label": "I/O helpers",
       "documentation": ["docs/io.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO"], "tasks": ["tasks/011-network-io.md", "tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md"]},
-      "notes": "I/O is host-backed in the Go runtime; it is not currently lowered to native C."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/runtime_test.go#TestTCPCancellationTimeoutAndStructuredErrors", "internal/osiris/runtime_test.go#TestTransferStreamsPreservesBoundedBytesAndFlushes"], "tasks": ["tasks/completed/011-network-io.md", "tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md", "tasks/049-tcp-optimization-tuning.md"]},
+      "notes": "I/O is host-backed in the Go runtime with bounded stream transfer; it is not currently lowered to native C."
     },
     {
       "id": "data-helpers",

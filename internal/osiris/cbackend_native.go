@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"fmt"
+	"math/big"
 	"sort"
 	"strings"
 )
@@ -348,7 +349,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		if builtin == "" {
 			builtin = in.Text
 		}
-		if fn == nil && (builtin == "abs" || builtin == "uint" || builtin == "byte" || builtin == "u8" || builtin == "u16" || builtin == "u32" || builtin == "u64" || builtin == "i8" || builtin == "i16" || builtin == "i32" || builtin == "i64" || builtin == "f32" || builtin == "f64" || builtin == "complex" || builtin == "real" || builtin == "imag" || builtin == "conjugate" || builtin == "magnitude" || builtin == "sqrt" || builtin == "exp" || builtin == "log" || builtin == "log10" || builtin == "log2" || builtin == "sin" || builtin == "cos" || builtin == "tan" || builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" || builtin == "expm1" || builtin == "log1p" || builtin == "cbrt" || builtin == "erf" || builtin == "erfc" || builtin == "gamma" || builtin == "lgamma" || builtin == "floor" || builtin == "ceil" || builtin == "round" || builtin == "hypot" || builtin == "min" || builtin == "max" || builtin == "clamp" || builtin == "vector" || builtin == "vec" || builtin == "zeros" || builtin == "ones" || builtin == "full" || builtin == "identity" || builtin == "eye" || builtin == "arange" || builtin == "linspace" || builtin == "logspace" || builtin == "len" || builtin == "take" || builtin == "slice" || builtin == "at" || builtin == "setat" || builtin == "tensor" || builtin == "matrix" || builtin == "reshape" || builtin == "transpose" || builtin == "matmul" || builtin == "outer" || builtin == "trace" || builtin == "det" || builtin == "solve" || builtin == "inv" || builtin == "cholesky" || builtin == "qr" || builtin == "eig" || builtin == "eigh" || builtin == "svd" || builtin == "shape" || builtin == "flatten" || builtin == "sum" || builtin == "product" || builtin == "dot" || builtin == "norm") {
+		if fn == nil && (builtin == "abs" || builtin == "uint" || builtin == "byte" || builtin == "u8" || builtin == "u16" || builtin == "u32" || builtin == "u64" || builtin == "i8" || builtin == "i16" || builtin == "i32" || builtin == "i64" || builtin == "f32" || builtin == "f64" || builtin == "complex" || builtin == "real" || builtin == "imag" || builtin == "conjugate" || builtin == "magnitude" || builtin == "sqrt" || builtin == "exp" || builtin == "pow" || builtin == "expt" || builtin == "log" || builtin == "log10" || builtin == "log2" || builtin == "sin" || builtin == "cos" || builtin == "tan" || builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" || builtin == "expm1" || builtin == "log1p" || builtin == "cbrt" || builtin == "erf" || builtin == "erfc" || builtin == "gamma" || builtin == "lgamma" || builtin == "floor" || builtin == "ceil" || builtin == "round" || builtin == "hypot" || builtin == "min" || builtin == "max" || builtin == "clamp" || builtin == "vector" || builtin == "vec" || builtin == "zeros" || builtin == "ones" || builtin == "full" || builtin == "identity" || builtin == "eye" || builtin == "arange" || builtin == "linspace" || builtin == "logspace" || builtin == "len" || builtin == "take" || builtin == "slice" || builtin == "at" || builtin == "setat" || builtin == "tensor" || builtin == "matrix" || builtin == "reshape" || builtin == "transpose" || builtin == "matmul" || builtin == "outer" || builtin == "trace" || builtin == "det" || builtin == "solve" || builtin == "inv" || builtin == "cholesky" || builtin == "qr" || builtin == "eig" || builtin == "eigh" || builtin == "svd" || builtin == "shape" || builtin == "flatten" || builtin == "sum" || builtin == "product" || builtin == "dot" || builtin == "norm") {
 			expected := 1
 			if builtin == "at" || builtin == "take" || builtin == "dot" || builtin == "reshape" || builtin == "matmul" || builtin == "outer" || builtin == "solve" {
 				expected = 2
@@ -369,6 +370,9 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				expected = 2
 			}
 			if builtin == "log" && len(in.Args) == 2 {
+				expected = 2
+			}
+			if builtin == "pow" || builtin == "expt" {
 				expected = 2
 			}
 			if len(in.Args) != expected {
@@ -412,6 +416,31 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				}
 				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
 				return nil
+			}
+			if builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" {
+				// The scalar specializer admits the characterized f32 subset. Do
+				// not route every other call through platform libm: Go's f64
+				// implementation is not an exact cross-platform C-libm contract.
+				return fmt.Errorf("native C backend: %s requires a proven f32 scalar input; f64 libm lowering is not parity-safe", builtin)
+			}
+			if builtin == "log" && len(in.Args) == 2 {
+				// Go and C libm can differ in the final f64 bit after the two
+				// logarithms and division. The scalar specializer proves the f32
+				// rounding boundary; every other base-log call must reject rather
+				// than use ologbase's incompatible host result.
+				return fmt.Errorf("native C backend: two-argument log requires proven f32 scalar inputs; f64 libm lowering is not parity-safe")
+			}
+			if builtin == "gamma" || builtin == "lgamma" {
+				// The scalar specializer admits only the characterized f32
+				// narrowing boundary. Do not silently use the tagged C helper for
+				// f64: Go and platform libm have no bit-exact shared contract.
+				return fmt.Errorf("native C backend: %s requires a proven f32 scalar input; f64 libm lowering is not parity-safe", builtin)
+			}
+			if builtin == "pow" || builtin == "expt" {
+				// Exact integer inputs have a different result kind, while f64
+				// power relies on a libm contract that is not bit-exact with Go.
+				// The scalar specializer admits only proven f32 operands.
+				return fmt.Errorf("native C backend: %s requires proven f32 scalar inputs; exact and f64 lowering is not parity-safe", builtin)
 			}
 			if builtin == "min" || builtin == "max" {
 				fmt.Fprintf(b, "  %s = ominmax((OValue[]){", vars[in.Dest])
@@ -704,7 +733,13 @@ const (
 	nativeScalarUnknown nativeScalarKind = iota
 	nativeScalarBool
 	nativeScalarUint
+	nativeScalarU8
+	nativeScalarU16
+	nativeScalarU32
 	nativeScalarInt
+	nativeScalarI8
+	nativeScalarI16
+	nativeScalarI32
 	nativeScalarFloat
 	nativeScalarF32
 	nativeScalarF64
@@ -715,12 +750,30 @@ func nativeScalarValueKind(v Value) nativeScalarKind {
 	case kindBool:
 		return nativeScalarBool
 	case kindUint:
-		if v.ub == nil && v.ubits <= 64 && nativeUintWidth(v) == 64 {
-			return nativeScalarUint
+		if v.ub == nil && v.ubits <= 64 {
+			switch nativeUintWidth(v) {
+			case 8:
+				return nativeScalarU8
+			case 16:
+				return nativeScalarU16
+			case 32:
+				return nativeScalarU32
+			case 64:
+				return nativeScalarUint
+			}
 		}
 	case kindInt:
-		if v.i != nil && v.i.IsInt64() && nativeIntWidth(v) == 64 {
-			return nativeScalarInt
+		if v.i != nil && v.i.IsInt64() {
+			switch nativeIntWidth(v) {
+			case 8:
+				return nativeScalarI8
+			case 16:
+				return nativeScalarI16
+			case 32:
+				return nativeScalarI32
+			case 64:
+				return nativeScalarInt
+			}
 		}
 	case kindNumber:
 		switch v.fbits {
@@ -735,8 +788,72 @@ func nativeScalarValueKind(v Value) nativeScalarKind {
 	return nativeScalarUnknown
 }
 
+func nativeScalarUnsignedWidth(kind nativeScalarKind) uint {
+	switch kind {
+	case nativeScalarU8:
+		return 8
+	case nativeScalarU16:
+		return 16
+	case nativeScalarU32:
+		return 32
+	case nativeScalarUint:
+		return 64
+	default:
+		return 0
+	}
+}
+
+func nativeScalarIsUnsigned(kind nativeScalarKind) bool {
+	return nativeScalarUnsignedWidth(kind) != 0
+}
+
+func nativeScalarNarrowUnsignedResult(a, b nativeScalarKind) nativeScalarKind {
+	aw, bw := nativeScalarUnsignedWidth(a), nativeScalarUnsignedWidth(b)
+	if aw == 0 || bw == 0 || aw >= 64 || bw >= 64 {
+		return nativeScalarUnknown
+	}
+	if aw >= bw {
+		return a
+	}
+	return b
+}
+
+func nativeScalarSignedWidth(kind nativeScalarKind) uint {
+	switch kind {
+	case nativeScalarI8:
+		return 8
+	case nativeScalarI16:
+		return 16
+	case nativeScalarI32:
+		return 32
+	case nativeScalarInt:
+		return 64
+	default:
+		return 0
+	}
+}
+
+func nativeScalarIsNarrowSigned(kind nativeScalarKind) bool {
+	return nativeScalarSignedWidth(kind) != 0 && kind != nativeScalarInt
+}
+
+func nativeScalarNarrowSignedResult(a, b nativeScalarKind) nativeScalarKind {
+	aw, bw := nativeScalarSignedWidth(a), nativeScalarSignedWidth(b)
+	if aw == 0 || bw == 0 || aw >= 64 || bw >= 64 {
+		return nativeScalarUnknown
+	}
+	if aw >= bw {
+		return a
+	}
+	return b
+}
+
 func nativeScalarIsFloat(kind nativeScalarKind) bool {
 	return kind == nativeScalarFloat || kind == nativeScalarF32 || kind == nativeScalarF64
+}
+
+func nativeScalarIsInteger(kind nativeScalarKind) bool {
+	return nativeScalarIsUnsigned(kind) || nativeScalarSignedWidth(kind) != 0
 }
 
 func nativeScalarFloatResult(a, b nativeScalarKind) nativeScalarKind {
@@ -769,24 +886,180 @@ func nativeScalarResultKind(op string, a, b nativeScalarKind) nativeScalarKind {
 		if nativeScalarIsFloat(a) || nativeScalarIsFloat(b) {
 			return nativeScalarFloatResult(a, b)
 		}
+		if kind := nativeScalarNarrowUnsignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		}
 		if a == nativeScalarUint && b == nativeScalarUint {
 			return nativeScalarUint
+		}
+		if a == nativeScalarInt && b == nativeScalarInt {
+			return nativeScalarInt
+		}
+		if kind := nativeScalarNarrowSignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
 		}
 	case "-":
 		if nativeScalarIsFloat(a) || nativeScalarIsFloat(b) {
 			return nativeScalarFloatResult(a, b)
 		}
+		if kind := nativeScalarNarrowSignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		}
 		if a == nativeScalarInt && b == nativeScalarInt {
 			return nativeScalarInt
 		}
-	// Division and remainder retain the tagged path until the direct emitter
-	// has the same recoverable zero-divisor contract as the native ABI.
-	case "&", "|", "^", "<<", ">>":
+		if kind := nativeScalarNarrowUnsignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		}
 		if a == nativeScalarUint && b == nativeScalarUint {
 			return nativeScalarUint
 		}
+	case "/":
+		if nativeScalarIsFloat(a) && nativeScalarIsFloat(b) {
+			return nativeScalarFloatResult(a, b)
+		}
+	case "%":
+		if nativeScalarIsFloat(a) && nativeScalarIsFloat(b) {
+			return nativeScalarFloatResult(a, b)
+		}
+		if kind := nativeScalarNarrowSignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		}
+		if a == nativeScalarInt && b == nativeScalarInt {
+			return nativeScalarInt
+		}
+		if kind := nativeScalarNarrowUnsignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		}
+		if a == nativeScalarUint && b == nativeScalarUint {
+			return nativeScalarUint
+		}
+	// Division retains the tagged path until the direct emitter has the same
+	// decimal-result and recoverable zero-divisor contract as the native ABI.
+	case "&", "|", "^", "<<", ">>":
+		if op == "<<" || op == ">>" {
+			if nativeScalarUnsignedWidth(a) > 0 && nativeScalarUnsignedWidth(a) < 64 && nativeScalarUnsignedWidth(b) > 0 {
+				return a
+			}
+			if a == nativeScalarUint && b == nativeScalarUint {
+				return nativeScalarUint
+			}
+		} else if kind := nativeScalarNarrowUnsignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		} else if a == nativeScalarUint && b == nativeScalarUint {
+			return nativeScalarUint
+		}
+		if op == "<<" || op == ">>" {
+			if nativeScalarIsNarrowSigned(a) && nativeScalarIsNarrowSigned(b) {
+				return a
+			}
+			if a == nativeScalarInt && b == nativeScalarInt {
+				return nativeScalarInt
+			}
+		} else if kind := nativeScalarNarrowSignedResult(a, b); kind != nativeScalarUnknown {
+			return kind
+		} else if a == nativeScalarInt && b == nativeScalarInt {
+			return nativeScalarInt
+		}
 	}
 	return nativeScalarUnknown
+}
+
+// nativeScalarBuiltinResultKind describes the small subset of static std/math
+// calls whose result kind and failure contract are fully representable by the
+// unboxed scalar emitter. A builtin is admitted only when its result cannot
+// change into a tagged language value at runtime.
+func nativeScalarBuiltinResultKind(name string, args []nativeScalarKind) nativeScalarKind {
+	if (name == "abs" || name == "sqrt" || name == "cbrt" || name == "exp" || name == "log" || name == "log10" || name == "log2" || name == "expm1" || name == "log1p" || name == "erf" || name == "erfc" || name == "sin" || name == "cos" || name == "tan" || name == "floor" || name == "ceil" || name == "round") && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+		return args[0]
+	}
+	if name == "log" && len(args) == 2 && args[0] == nativeScalarF32 && args[1] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	if name == "f32" && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+		return nativeScalarF32
+	}
+	if name == "f64" && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+		return nativeScalarF64
+	}
+	// Real scalar inputs are complex-compatible. Their projection and
+	// conjugation contracts are representable without materializing a complex
+	// OValue; magnitude is simply the width-preserving floating absolute value.
+	if (name == "real" || name == "imag" || name == "magnitude") && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+		return args[0]
+	}
+	if (name == "abs" || name == "magnitude") && len(args) == 1 && nativeScalarIsUnsigned(args[0]) {
+		return args[0]
+	}
+	if (name == "abs" || name == "magnitude") && len(args) == 1 && nativeScalarIsNarrowSigned(args[0]) {
+		return args[0]
+	}
+	if name == "conjugate" && len(args) == 1 && (nativeScalarIsFloat(args[0]) || nativeScalarIsInteger(args[0])) {
+		return args[0]
+	}
+	if (name == "sign" || name == "step" || name == "heaviside" || name == "relu") && len(args) == 1 {
+		if nativeScalarIsFloat(args[0]) {
+			return args[0]
+		}
+		if nativeScalarIsInteger(args[0]) {
+			return nativeScalarFloat
+		}
+	}
+	// Go's f64 inverse-trigonometric implementation can differ by one final
+	// bit from the platform libm. The f32 result is explicitly narrowed by the
+	// language and is characterized below; retain f64 on the tagged Go path.
+	if (name == "asin" || name == "acos" || name == "atan") && len(args) == 1 && args[0] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	if (name == "sinh" || name == "cosh" || name == "tanh" || name == "asinh" || name == "acosh" || name == "atanh") && len(args) == 1 && args[0] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	if name == "sigmoid" && len(args) == 1 && args[0] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	if name == "softplus" && len(args) == 1 && args[0] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	// Gamma implementations are not specified to agree bit-for-bit between Go
+	// and a platform C library. The language's explicit f32 narrowing is the
+	// characterized contract; retain f64 on a rejecting path until equivalent
+	// evidence exists.
+	if (name == "gamma" || name == "lgamma") && len(args) == 1 && args[0] == nativeScalarF32 {
+		return nativeScalarF32
+	}
+	if name == "clamp" && len(args) == 3 && nativeScalarIsFloat(args[0]) && args[0] == args[1] && args[1] == args[2] {
+		return args[0]
+	}
+	if (name == "min" || name == "max") && len(args) > 0 && nativeScalarIsFloat(args[0]) {
+		for _, kind := range args[1:] {
+			if kind != args[0] {
+				return nativeScalarUnknown
+			}
+		}
+		return args[0]
+	}
+	if name == "hypot" && len(args) >= 2 && nativeScalarIsFloat(args[0]) {
+		for _, kind := range args[1:] {
+			if kind != args[0] {
+				return nativeScalarUnknown
+			}
+		}
+		return args[0]
+	}
+	return nativeScalarUnknown
+}
+
+// nativeScalarExactSignedDivisionKind admits only literal, same-width signed
+// divisions whose quotient is integral. Osiris otherwise returns a decimal,
+// which cannot be represented by an unboxed scalar local.
+func nativeScalarExactSignedDivisionKind(left, right Value, leftKind, rightKind nativeScalarKind) nativeScalarKind {
+	if leftKind != rightKind || nativeScalarSignedWidth(leftKind) == 0 || right.kind != kindInt || right.i == nil || right.i.Sign() == 0 || left.kind != kindInt || left.i == nil {
+		return nativeScalarUnknown
+	}
+	if new(big.Int).Rem(left.i, right.i).Sign() != 0 {
+		return nativeScalarUnknown
+	}
+	return leftKind
 }
 
 func nativeScalarLiteral(v Value) (string, bool) {
@@ -798,12 +1071,30 @@ func nativeScalarLiteral(v Value) (string, bool) {
 		return "0", true
 	case nativeScalarUint:
 		return fmt.Sprintf("%duLL", v.u), true
+	case nativeScalarU8:
+		return fmt.Sprintf("UINT8_C(%d)", v.u), true
+	case nativeScalarU16:
+		return fmt.Sprintf("UINT16_C(%d)", v.u), true
+	case nativeScalarU32:
+		return fmt.Sprintf("UINT32_C(%d)", v.u), true
 	case nativeScalarInt:
 		return fmt.Sprintf("%dLL", v.i.Int64()), true
+	case nativeScalarI8:
+		return fmt.Sprintf("((int8_t)%d)", v.i.Int64()), true
+	case nativeScalarI16:
+		return fmt.Sprintf("((int16_t)%d)", v.i.Int64()), true
+	case nativeScalarI32:
+		return fmt.Sprintf("((int32_t)%d)", v.i.Int64()), true
 	case nativeScalarFloat:
 		return fmt.Sprintf("%.17g", v.num), true
 	case nativeScalarF32:
-		return fmt.Sprintf("%.17gf", v.num), true
+		literal := fmt.Sprintf("%.17g", v.num)
+		// C requires a decimal point or exponent before the f suffix. Without
+		// this, an integral f32 such as 2.0f32 became the invalid token `2f`.
+		if !strings.ContainsAny(literal, ".eE") {
+			literal += ".0"
+		}
+		return literal + "f", true
 	case nativeScalarF64:
 		return fmt.Sprintf("%.17g", v.num), true
 	default:
@@ -817,8 +1108,20 @@ func nativeScalarCType(kind nativeScalarKind) string {
 		return "int"
 	case nativeScalarUint:
 		return "uint64_t"
+	case nativeScalarU8:
+		return "uint8_t"
+	case nativeScalarU16:
+		return "uint16_t"
+	case nativeScalarU32:
+		return "uint32_t"
 	case nativeScalarInt:
 		return "int64_t"
+	case nativeScalarI8:
+		return "int8_t"
+	case nativeScalarI16:
+		return "int16_t"
+	case nativeScalarI32:
+		return "int32_t"
 	case nativeScalarFloat, nativeScalarF64:
 		return "double"
 	case nativeScalarF32:
@@ -877,7 +1180,7 @@ func scalarInlinePlanFor(fn *IRFunction, args []nativeScalarKind) *scalarInlineP
 			if in.Text == "!" {
 				kind = nativeScalarBool
 			} else if in.Text == "-" {
-				if nativeScalarIsFloat(kinds[in.Args[0]]) || kinds[in.Args[0]] == nativeScalarInt {
+				if nativeScalarIsFloat(kinds[in.Args[0]]) || nativeScalarSignedWidth(kinds[in.Args[0]]) != 0 {
 					kind = kinds[in.Args[0]]
 				}
 			}
@@ -954,7 +1257,7 @@ func scalarTernaryPlanFor(fn *IRFunction, args []nativeScalarKind) *scalarTernar
 				}
 				if in.Text == "!" {
 					kind = nativeScalarBool
-				} else if in.Text == "-" && (nativeScalarIsFloat(kinds[in.Args[0]]) || kinds[in.Args[0]] == nativeScalarInt) {
+				} else if in.Text == "-" && (nativeScalarIsFloat(kinds[in.Args[0]]) || nativeScalarSignedWidth(kinds[in.Args[0]]) != 0) {
 					kind = kinds[in.Args[0]]
 				}
 			case "binary":
@@ -1005,17 +1308,446 @@ func scalarTernaryPlanFor(fn *IRFunction, args []nativeScalarKind) *scalarTernar
 
 func emitScalarBinary(b *strings.Builder, dest, op, left, right string, kind nativeScalarKind) {
 	switch {
+	case op == "%" && nativeScalarIsFloat(kind):
+		fmt.Fprintf(b, "  if (%s == 0) return onativefail(\"remainder by zero\");\n", right)
+		if kind == nativeScalarF32 {
+			// The interpreter evaluates math.Mod in f64 and then applies f32
+			// result-width rounding, so use fmod rather than fmodf here.
+			fmt.Fprintf(b, "  %s = (%s)fmod((double)%s, (double)%s);\n", dest, nativeScalarCType(kind), left, right)
+		} else {
+			fmt.Fprintf(b, "  %s = fmod(%s, %s);\n", dest, left, right)
+		}
+	case op == "/" && nativeScalarIsFloat(kind):
+		fmt.Fprintf(b, "  if (%s == 0) return onativefail(\"division by zero\");\n", right)
+		fmt.Fprintf(b, "  %s = %s / %s;\n", dest, left, right)
 	case op == "+" && kind == nativeScalarUint:
 		fmt.Fprintf(b, "  if (__builtin_add_overflow(%s, %s, &%s)) return onativefail(\"unsigned addition overflow\");\n", left, right, dest)
 	case op == "*" && kind == nativeScalarUint:
 		fmt.Fprintf(b, "  if (__builtin_mul_overflow(%s, %s, &%s)) return onativefail(\"unsigned multiplication overflow\");\n", left, right, dest)
+	case op == "+" && kind == nativeScalarInt:
+		fmt.Fprintf(b, "  if (__builtin_add_overflow(%s, %s, &%s)) return onativefail(\"signed addition overflow\");\n", left, right, dest)
+	case op == "*" && kind == nativeScalarInt:
+		fmt.Fprintf(b, "  if (__builtin_mul_overflow(%s, %s, &%s)) return onativefail(\"signed multiplication overflow\");\n", left, right, dest)
 	case op == "-" && kind == nativeScalarInt:
 		fmt.Fprintf(b, "  if (__builtin_sub_overflow(%s, %s, &%s)) return onativefail(\"signed subtraction overflow\");\n", left, right, dest)
 	case (op == "<<" || op == ">>") && kind == nativeScalarUint:
 		fmt.Fprintf(b, "  if (%s >= 64) return onativefail(\"shift count exceeds u64 width\");\n", right)
 		fmt.Fprintf(b, "  %s = %s %s %s;\n", dest, left, op, right)
+	case (op == "<<" || op == ">>") && nativeScalarUnsignedWidth(kind) != 0:
+		// C shifts at or above the operand width are undefined. The native ABI
+		// reports such counts instead of relying on host behavior.
+		fmt.Fprintf(b, "  if (%s >= %d) return onativefail(\"shift count exceeds unsigned width\");\n", right, nativeScalarUnsignedWidth(kind))
+		fmt.Fprintf(b, "  %s = (%s)((uint64_t)%s %s %s);\n", dest, nativeScalarCType(kind), left, op, right)
+	case (op == "+" || op == "-" || op == "*") && nativeScalarIsNarrowSigned(kind):
+		// The widest narrow product fits in int64_t. Normalize through the
+		// explicit ABI helper before assigning to a signed narrow C local, so
+		// neither C signed overflow nor implementation-defined narrowing leaks
+		// into the language result.
+		fmt.Fprintf(b, "  %s = (%s)osignedbits((uint64_t)((int64_t)%s %s (int64_t)%s), %d);\n", dest, nativeScalarCType(kind), left, op, right, nativeScalarSignedWidth(kind))
+	case (op == "&" || op == "|" || op == "^") && nativeScalarIsNarrowSigned(kind):
+		fmt.Fprintf(b, "  %s = (%s)osignedbits((uint64_t)%s %s (uint64_t)%s, %d);\n", dest, nativeScalarCType(kind), left, op, right, nativeScalarSignedWidth(kind))
+	case op == "%" && nativeScalarIsNarrowSigned(kind):
+		fmt.Fprintf(b, "  if ((int64_t)%s == 0) return onativefail(\"signed remainder by zero\");\n", right)
+		fmt.Fprintf(b, "  %s = (%s)osignedbits((uint64_t)((int64_t)%s %% (int64_t)%s), %d);\n", dest, nativeScalarCType(kind), left, right, nativeScalarSignedWidth(kind))
+	case op == "%" && kind == nativeScalarInt:
+		// INT64_MIN % -1 is undefined in C, although its mathematical and
+		// Osiris result is zero. Handle it before emitting the host operation.
+		fmt.Fprintf(b, "  if (%s == 0) return onativefail(\"signed remainder by zero\");\n", right)
+		fmt.Fprintf(b, "  %s = (%s == INT64_MIN && %s == -1) ? 0 : %s %% %s;\n", dest, left, right, left, right)
+	case op == "%" && nativeScalarUnsignedWidth(kind) > 0 && nativeScalarUnsignedWidth(kind) < 64:
+		fmt.Fprintf(b, "  if ((uint64_t)%s == 0) return onativefail(\"unsigned remainder by zero\");\n", right)
+		fmt.Fprintf(b, "  %s = (%s)((uint64_t)%s %% (uint64_t)%s);\n", dest, nativeScalarCType(kind), left, right)
+	case op == "%" && kind == nativeScalarUint:
+		fmt.Fprintf(b, "  if (%s == 0) return onativefail(\"unsigned remainder by zero\");\n", right)
+		fmt.Fprintf(b, "  %s = %s %% %s;\n", dest, left, right)
+	case (op == "<<" || op == ">>") && nativeScalarIsNarrowSigned(kind):
+		width := nativeScalarSignedWidth(kind)
+		fmt.Fprintf(b, "  if ((int64_t)%s < 0 || (uint64_t)%s >= %d) return onativefail(\"shift count exceeds signed width\");\n", right, right, width)
+		if op == "<<" {
+			fmt.Fprintf(b, "  %s = (%s)osignedbits((uint64_t)(int64_t)%s << %s, %d);\n", dest, nativeScalarCType(kind), left, right, width)
+		} else {
+			fmt.Fprintf(b, "  %s = (%s)osignedbits((int64_t)%s >= 0 ? ((uint64_t)(int64_t)%s >> %s) : ~((~(uint64_t)(int64_t)%s) >> %s), %d);\n", dest, nativeScalarCType(kind), left, left, right, left, right, width)
+		}
+	case (op == "<<" || op == ">>") && kind == nativeScalarInt:
+		fmt.Fprintf(b, "  if ((int64_t)%s < 0 || (uint64_t)%s >= 64) return onativefail(\"shift count exceeds signed width\");\n", right, right)
+		if op == "<<" {
+			fmt.Fprintf(b, "  %s = osignedbits((uint64_t)%s << %s, 64);\n", dest, left, right)
+		} else {
+			fmt.Fprintf(b, "  %s = osignedbits((int64_t)%s >= 0 ? ((uint64_t)%s >> %s) : ~((~(uint64_t)%s) >> %s), 64);\n", dest, left, left, right, left, right)
+		}
+	case (op == "+" || op == "-" || op == "*") && nativeScalarUnsignedWidth(kind) > 0 && nativeScalarUnsignedWidth(kind) < 32:
+		// uint8_t and uint16_t operands undergo C's signed integer promotion.
+		// Widen explicitly before arithmetic, then narrow to Osiris's wrapping
+		// result width so multiplication cannot invoke signed-overflow UB.
+		fmt.Fprintf(b, "  %s = (%s)((uint64_t)%s %s (uint64_t)%s);\n", dest, nativeScalarCType(kind), left, op, right)
 	default:
 		fmt.Fprintf(b, "  %s = %s %s %s;\n", dest, left, op, right)
+	}
+}
+
+func emitScalarExactSignedDivision(b *strings.Builder, dest, leftName, rightName string, left, right Value, kind nativeScalarKind) {
+	// C defines every proven exact case except MIN / -1. Osiris wraps that
+	// quotient back to the declared signed width, which is the original MIN.
+	width := nativeScalarSignedWidth(kind)
+	minimum := new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), width-1))
+	if right.i != nil && right.i.Cmp(big.NewInt(-1)) == 0 && left.i != nil && left.i.Cmp(minimum) == 0 {
+		fmt.Fprintf(b, "  %s = %s;\n", dest, leftName)
+		return
+	}
+	fmt.Fprintf(b, "  %s = %s / %s;\n", dest, leftName, rightName)
+}
+
+func emitScalarBuiltin(b *strings.Builder, dest, name string, args []string, kind nativeScalarKind) bool {
+	switch name {
+	case "f32":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = (float)%s;\n", dest, args[0])
+		return true
+	case "f64":
+		if len(args) != 1 || kind != nativeScalarF64 {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = (double)%s;\n", dest, args[0])
+		return true
+	case "real":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+		return true
+	case "conjugate":
+		if len(args) != 1 || (!nativeScalarIsFloat(kind) && !nativeScalarIsInteger(kind)) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+		return true
+	case "imag":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = 0;\n", dest)
+		return true
+	case "magnitude":
+		if len(args) != 1 {
+			return false
+		}
+		if nativeScalarIsUnsigned(kind) {
+			fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+			return true
+		}
+		if nativeScalarIsNarrowSigned(kind) {
+			fmt.Fprintf(b, "  %s = (%s)osignedbits(%s < 0 ? UINT64_C(0) - (uint64_t)(int64_t)%s : (uint64_t)(int64_t)%s, %d);\n", dest, nativeScalarCType(kind), args[0], args[0], args[0], nativeScalarSignedWidth(kind))
+			return true
+		}
+		if !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)fabs((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = fabs(%s);\n", dest, args[0])
+		}
+		return true
+	case "sign", "step", "heaviside", "relu":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		switch name {
+		case "sign":
+			fmt.Fprintf(b, "  %s = %s > 0 ? 1 : (%s < 0 ? -1 : 0);\n", dest, args[0], args[0])
+		case "step":
+			fmt.Fprintf(b, "  %s = %s > 0 ? 1 : 0;\n", dest, args[0])
+		case "heaviside":
+			fmt.Fprintf(b, "  %s = %s > 0 ? 1 : (%s < 0 ? 0 : 0.5);\n", dest, args[0], args[0])
+		case "relu":
+			fmt.Fprintf(b, "  %s = %s < 0 ? 0 : %s;\n", dest, args[0], args[0])
+		}
+		return true
+	case "sigmoid":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		// Match the interpreter's branch before exp so large positive and
+		// negative values retain its stable finite formulation.
+		fmt.Fprintf(b, "  %s = %s >= 0 ? (float)(1 / (1 + exp(-(double)%s))) : (float)(exp((double)%s) / (1 + exp((double)%s)));\n", dest, args[0], args[0], args[0], args[0])
+		return true
+	case "softplus":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		// Retain the source runtime's strictly-greater-than 20 cutoff rather
+		// than substituting a host-library softplus approximation.
+		fmt.Fprintf(b, "  %s = %s > 20 ? %s : (float)log1p(exp((double)%s));\n", dest, args[0], args[0], args[0])
+		return true
+	case "sin", "cos", "tan":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)%s((double)%s);\n", dest, name, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = %s(%s);\n", dest, name, args[0])
+		}
+		return true
+	case "atan":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)atan((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = atan(%s);\n", dest, args[0])
+		}
+		return true
+	case "asin", "acos":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		// As with exp, use a scoped temporary because a scalar CFG block may
+		// begin at a C label. The interpreter rejects NaN and infinity from
+		// these inverse functions, including a NaN input, before width rounding.
+		b.WriteString("  {\n")
+		fmt.Fprintf(b, "    double %s_%s = %s((double)%s);\n", dest, name, name, args[0])
+		fmt.Fprintf(b, "    if (!isfinite(%s_%s)) return onativefail(\"%s domain error\");\n", dest, name, name)
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "    %s = (float)%s_%s;\n", dest, dest, name)
+		} else {
+			fmt.Fprintf(b, "    %s = %s_%s;\n", dest, dest, name)
+		}
+		b.WriteString("  }\n")
+		return true
+	case "sinh", "cosh", "tanh", "asinh":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = (float)%s((double)%s);\n", dest, name, args[0])
+		return true
+	case "acosh", "atanh":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		// These helpers reject NaN and infinity in the interpreter. Keep the
+		// check before f32 narrowing and scope the declaration for label-led CFGs.
+		b.WriteString("  {\n")
+		fmt.Fprintf(b, "    double %s_%s = %s((double)%s);\n", dest, name, name, args[0])
+		fmt.Fprintf(b, "    if (!isfinite(%s_%s)) return onativefail(\"%s domain error\");\n", dest, name, name)
+		fmt.Fprintf(b, "    %s = (float)%s_%s;\n", dest, dest, name)
+		b.WriteString("  }\n")
+		return true
+	case "hypot":
+		if len(args) < 2 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = ", dest)
+		if kind == nativeScalarF32 {
+			b.WriteString("(float)")
+		}
+		b.WriteString("sqrt(")
+		for i, arg := range args {
+			if i > 0 {
+				b.WriteString(" + ")
+			}
+			fmt.Fprintf(b, "((double)%s * (double)%s)", arg, arg)
+		}
+		b.WriteString(");\n")
+		return true
+	case "floor", "ceil":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)%s((double)%s);\n", dest, name, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = %s(%s);\n", dest, name, args[0])
+		}
+		return true
+	case "min", "max":
+		if len(args) == 0 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+		for _, arg := range args[1:] {
+			if name == "min" {
+				fmt.Fprintf(b, "  if (%s < %s) %s = %s;\n", arg, dest, dest, arg)
+			} else {
+				fmt.Fprintf(b, "  if (%s > %s) %s = %s;\n", arg, dest, dest, arg)
+			}
+		}
+		return true
+	case "clamp":
+		if len(args) != 3 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+		fmt.Fprintf(b, "  if (%s < %s) %s = %s; else if (%s > %s) %s = %s;\n", dest, args[1], dest, args[1], dest, args[2], dest, args[2])
+		return true
+	case "abs":
+		if len(args) != 1 {
+			return false
+		}
+		if nativeScalarIsUnsigned(kind) {
+			fmt.Fprintf(b, "  %s = %s;\n", dest, args[0])
+			return true
+		}
+		if nativeScalarIsNarrowSigned(kind) {
+			fmt.Fprintf(b, "  %s = (%s)osignedbits(%s < 0 ? UINT64_C(0) - (uint64_t)(int64_t)%s : (uint64_t)(int64_t)%s, %d);\n", dest, nativeScalarCType(kind), args[0], args[0], args[0], nativeScalarSignedWidth(kind))
+			return true
+		}
+		if !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)fabs((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = fabs(%s);\n", dest, args[0])
+		}
+		return true
+	case "sqrt":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  if (%s < 0) return onativefail(\"sqrt domain error\");\n", args[0])
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)sqrt((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = sqrt(%s);\n", dest, args[0])
+		}
+		return true
+	case "cbrt":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)cbrt((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = cbrt(%s);\n", dest, args[0])
+		}
+		return true
+	case "exp":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		// The interpreter checks the double-precision result before applying
+		// float-width rounding. Keep that order so a finite result which only
+		// overflows when narrowed to f32 retains its language value.
+		// Blocks may start with a C label, which must be followed by a
+		// statement rather than a declaration. Scope the temporary in a
+		// compound statement so this emission is valid in every CFG block.
+		b.WriteString("  {\n")
+		fmt.Fprintf(b, "    double %s_exp = exp((double)%s);\n", dest, args[0])
+		fmt.Fprintf(b, "    if (!isfinite(%s_exp)) return onativefail(\"exp overflow\");\n", dest)
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "    %s = (float)%s_exp;\n", dest, dest)
+		} else {
+			fmt.Fprintf(b, "    %s = %s_exp;\n", dest, dest)
+		}
+		b.WriteString("  }\n")
+		return true
+	case "log":
+		if !nativeScalarIsFloat(kind) || (len(args) != 1 && len(args) != 2) {
+			return false
+		}
+		if len(args) == 1 {
+			fmt.Fprintf(b, "  if (%s <= 0) return onativefail(\"log domain error\");\n", args[0])
+			if kind == nativeScalarF32 {
+				fmt.Fprintf(b, "  %s = (float)log((double)%s);\n", dest, args[0])
+			} else {
+				fmt.Fprintf(b, "  %s = log(%s);\n", dest, args[0])
+			}
+			return true
+		}
+		if kind != nativeScalarF32 {
+			return false
+		}
+		// The runtime defines base conversion as math.Log(value) / math.Log(base)
+		// after validating both inputs. Keep that expression and f32 narrowing
+		// order rather than substituting a platform-specific log-base helper.
+		fmt.Fprintf(b, "  if (%s <= 0 || %s <= 0 || %s == 1) return onativefail(\"log domain error\");\n", args[0], args[1], args[1])
+		fmt.Fprintf(b, "  %s = (float)(log((double)%s) / log((double)%s));\n", dest, args[0], args[1])
+		return true
+	case "pow", "expt":
+		if len(args) != 2 || kind != nativeScalarF32 {
+			return false
+		}
+		// Float operands bypass the runtime's exact-integer branch. Preserve
+		// its math.Pow semantics and round only once at the f32 boundary.
+		fmt.Fprintf(b, "  %s = (float)pow((double)%s, (double)%s);\n", dest, args[0], args[1])
+		return true
+	case "log10", "log2":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		fmt.Fprintf(b, "  if (%s <= 0) return onativefail(\"%s domain error\");\n", args[0], name)
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)%s((double)%s);\n", dest, name, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = %s(%s);\n", dest, name, args[0])
+		}
+		return true
+	case "expm1":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)expm1((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = expm1(%s);\n", dest, args[0])
+		}
+		return true
+	case "log1p":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)log1p((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = log1p(%s);\n", dest, args[0])
+		}
+		return true
+	case "erf":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)erf((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = erf(%s);\n", dest, args[0])
+		}
+		return true
+	case "erfc":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)erfc((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = erfc(%s);\n", dest, args[0])
+		}
+		return true
+	case "gamma", "lgamma":
+		if len(args) != 1 || kind != nativeScalarF32 {
+			return false
+		}
+		if name == "gamma" {
+			fmt.Fprintf(b, "  %s = (float)tgamma((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = (float)lgamma((double)%s);\n", dest, args[0])
+		}
+		return true
+	case "round":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)round((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = round(%s);\n", dest, args[0])
+		}
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1036,6 +1768,8 @@ func emitScalarInlineInstrs(b *strings.Builder, instrs []IRInstr, kinds map[stri
 		case "unary":
 			if in.Text == "-" && kinds[in.Dest] == nativeScalarInt {
 				fmt.Fprintf(b, "    if (__builtin_sub_overflow((int64_t)0, %s, &%s)) return onativefail(\"signed negation overflow\");\n", values[in.Args[0]], local)
+			} else if in.Text == "-" && nativeScalarIsNarrowSigned(kinds[in.Dest]) {
+				fmt.Fprintf(b, "    %s = (%s)osignedbits((uint64_t)(-(int64_t)%s), %d);\n", local, nativeScalarCType(kinds[in.Dest]), values[in.Args[0]], nativeScalarSignedWidth(kinds[in.Dest]))
 			} else {
 				fmt.Fprintf(b, "    %s = %s%s;\n", local, in.Text, values[in.Args[0]])
 			}
@@ -1059,34 +1793,94 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 	blocks := make(map[string]*IRBlock, len(fn.Blocks))
 	uses := make(map[string]bool)
 	bindings := make(map[string]*IRFunction)
+	builtins := make(map[string]string)
+	modules := nativeModuleIdentities(fn, nil)
 	for _, block := range fn.Blocks {
 		blocks[block.Name] = block
 		for _, in := range block.Instrs {
 			if in.Op == "makefunc" {
 				bindings[in.Dest] = functions[in.Text]
 			}
-			for _, arg := range in.Args {
-				uses[arg] = true
+			if in.Op == "builtin" {
+				builtins[in.Dest] = in.Text
+			}
+			if in.Op == "member" && len(in.Args) == 1 && modules[in.Args[0]] == "std/math" {
+				builtins[in.Dest] = in.Text
+			}
+			if in.Op == "emit" {
+				for _, arg := range in.Args {
+					uses[arg] = true
+				}
 			}
 		}
 		switch term := block.Term.(type) {
-		case *irJump:
-			for _, arg := range term.Args {
-				uses[arg] = true
-			}
 		case *irBranch:
 			uses[term.Cond] = true
-			for _, arg := range term.TrueArgs {
-				uses[arg] = true
-			}
-			for _, arg := range term.FalseArgs {
-				uses[arg] = true
-			}
 		case *irReturn:
 			uses[term.Value] = term.HasValue
 		}
 	}
+	// Compute value liveness rather than treating every SSA edge as a use.
+	// A source-level loop local can create an undef-initialized block parameter
+	// that is carried around a cycle but never observed. Such dead plumbing must
+	// not prevent an otherwise proven scalar CFG from lowering, while a live
+	// undef remains an immediate reason to retain the tagged ABI.
+	for changed := true; changed; {
+		changed = false
+		mark := func(name string) {
+			if name != "" && !uses[name] {
+				uses[name] = true
+				changed = true
+			}
+		}
+		for _, block := range fn.Blocks {
+			for _, in := range block.Instrs {
+				if in.Dest != "" && uses[in.Dest] {
+					for _, arg := range in.Args {
+						mark(arg)
+					}
+				}
+			}
+			switch term := block.Term.(type) {
+			case *irJump:
+				target := blocks[term.Target]
+				if target == nil || len(target.Params) != len(term.Args) {
+					return false, nil
+				}
+				for i, arg := range term.Args {
+					if uses[target.Params[i]] {
+						mark(arg)
+					}
+				}
+			case *irBranch:
+				for _, edge := range []struct {
+					target string
+					args   []string
+				}{{term.TrueTarget, term.TrueArgs}, {term.FalseTarget, term.FalseArgs}} {
+					target := blocks[edge.target]
+					if target == nil || len(target.Params) != len(edge.args) {
+						return false, nil
+					}
+					for i, arg := range edge.args {
+						if uses[target.Params[i]] {
+							mark(arg)
+						}
+					}
+				}
+			}
+		}
+	}
 	kinds := make(map[string]nativeScalarKind)
+	constants := make(map[string]Value)
+	for _, block := range fn.Blocks {
+		for _, in := range block.Instrs {
+			if in.Op == "const" && in.Dest != "" {
+				constants[in.Dest] = in.Value
+			}
+		}
+	}
+	exactSignedDivisions := make(map[string]bool)
+	nonExactF32Powers := make(map[string]bool)
 	set := func(name string, kind nativeScalarKind) (bool, bool) {
 		if name == "" || kind == nativeScalarUnknown {
 			return false, true
@@ -1105,6 +1899,9 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 		}
 		changed := false
 		for i, arg := range args {
+			if !uses[block.Params[i]] {
+				continue
+			}
 			c, ok := set(block.Params[i], kinds[arg])
 			if !ok {
 				return false, false
@@ -1122,6 +1919,13 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 				case "const":
 					kind = nativeScalarValueKind(in.Value)
 				case "copy":
+					// A lexical alias of a static module is compiler metadata, not a
+					// scalar C value. Its member calls have already been resolved into
+					// builtin handles above, so it must not be inferred or emitted as a
+					// blank scalar assignment.
+					if modules[in.Dest] != "" {
+						continue
+					}
 					if len(in.Args) != 1 {
 						return false, nil
 					}
@@ -1132,18 +1936,26 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 					}
 					if in.Text == "!" {
 						kind = nativeScalarBool
-					} else if in.Text == "-" {
-						if nativeScalarIsFloat(kinds[in.Args[0]]) {
-							kind = kinds[in.Args[0]]
-						} else if kinds[in.Args[0]] == nativeScalarInt {
-							kind = nativeScalarInt
-						}
+					} else if in.Text == "-" && (nativeScalarIsFloat(kinds[in.Args[0]]) || nativeScalarSignedWidth(kinds[in.Args[0]]) != 0) {
+						kind = kinds[in.Args[0]]
 					}
 				case "binary":
 					if len(in.Args) != 2 {
 						return false, nil
 					}
-					kind = nativeScalarResultKind(in.Text, kinds[in.Args[0]], kinds[in.Args[1]])
+					if in.Text == "/" {
+						left, leftOK := constants[in.Args[0]]
+						right, rightOK := constants[in.Args[1]]
+						if leftOK && rightOK {
+							kind = nativeScalarExactSignedDivisionKind(left, right, kinds[in.Args[0]], kinds[in.Args[1]])
+							if kind != nativeScalarUnknown {
+								exactSignedDivisions[in.Dest] = true
+							}
+						}
+					}
+					if kind == nativeScalarUnknown {
+						kind = nativeScalarResultKind(in.Text, kinds[in.Args[0]], kinds[in.Args[1]])
+					}
 				case "makefunc":
 					if bindings[in.Dest] == nil {
 						return false, nil
@@ -1154,9 +1966,45 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 					for i, arg := range in.Args {
 						args[i] = kinds[arg]
 					}
-					kind = scalarInlineCallKind(bindings[in.Text], args)
+					if builtin, ok := builtins[in.Text]; ok {
+						if builtin == "pow" || builtin == "expt" {
+							// pow/expt first attempt exact integer arithmetic, even when a
+							// literal was written with an f32 suffix. Admit C pow only when
+							// both static operands are f32 constants and that exact branch is
+							// conclusively inapplicable; otherwise its result kind can become
+							// an integer or bigint rather than an unboxed f32.
+							if len(in.Args) != 2 || args[0] != nativeScalarF32 || args[1] != nativeScalarF32 {
+								return false, nil
+							}
+							left, leftOK := constants[in.Args[0]]
+							right, rightOK := constants[in.Args[1]]
+							if !leftOK || !rightOK {
+								return false, nil
+							}
+							_, exact, err := exactPowValue(left, right)
+							if err != nil || exact {
+								return false, nil
+							}
+							kind = nativeScalarF32
+							nonExactF32Powers[in.Dest] = true
+						} else {
+							kind = nativeScalarBuiltinResultKind(builtin, args)
+						}
+						if kind == nativeScalarUnknown {
+							return false, nil
+						}
+					} else {
+						kind = scalarInlineCallKind(bindings[in.Text], args)
+					}
+				case "import", "member", "builtin":
+					continue
 				case "emit":
 					continue
+				case "undef":
+					if !uses[in.Dest] {
+						continue
+					}
+					return false, nil
 				default:
 					return false, nil
 				}
@@ -1207,13 +2055,20 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 	}
 	for _, block := range fn.Blocks {
 		for _, param := range block.Params {
-			if kinds[param] == nativeScalarUnknown {
+			if uses[param] && kinds[param] == nativeScalarUnknown {
 				return false, nil
 			}
 		}
 		for _, in := range block.Instrs {
 			switch in.Op {
-			case "const", "copy", "unary", "binary", "call":
+			case "const", "unary", "binary", "call":
+				if kinds[in.Dest] == nativeScalarUnknown && uses[in.Dest] {
+					return false, nil
+				}
+			case "copy":
+				if modules[in.Dest] != "" {
+					continue
+				}
 				if kinds[in.Dest] == nativeScalarUnknown && uses[in.Dest] {
 					return false, nil
 				}
@@ -1221,11 +2076,18 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 				if bindings[in.Dest] == nil {
 					return false, nil
 				}
+			case "import", "member", "builtin":
+				// Static module metadata and builtin handles do not become C
+				// values in the unboxed path.
 			case "emit":
 				for _, arg := range in.Args {
 					if kinds[arg] == nativeScalarUnknown {
 						return false, nil
 					}
+				}
+			case "undef":
+				if uses[in.Dest] {
+					return false, nil
 				}
 			default:
 				return false, nil
@@ -1276,14 +2138,26 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 			fmt.Fprintf(b, "  puts(%s ? \"true\" : \"false\");\n", v)
 		case nativeScalarUint:
 			fmt.Fprintf(b, "  printf(\"%%lluu64\\n\", (unsigned long long)%s);\n", v)
+		case nativeScalarU8:
+			fmt.Fprintf(b, "  printf(\"%%uu8\\n\", (unsigned)%s);\n", v)
+		case nativeScalarU16:
+			fmt.Fprintf(b, "  printf(\"%%uu16\\n\", (unsigned)%s);\n", v)
+		case nativeScalarU32:
+			fmt.Fprintf(b, "  printf(\"%%uu32\\n\", (unsigned)%s);\n", v)
 		case nativeScalarInt:
 			fmt.Fprintf(b, "  printf(\"%%lldi64\\n\", (long long)%s);\n", v)
+		case nativeScalarI8:
+			fmt.Fprintf(b, "  printf(\"%%hhdi8\\n\", %s);\n", v)
+		case nativeScalarI16:
+			fmt.Fprintf(b, "  printf(\"%%hdi16\\n\", %s);\n", v)
+		case nativeScalarI32:
+			fmt.Fprintf(b, "  printf(\"%%di32\\n\", %s);\n", v)
 		case nativeScalarFloat:
-			fmt.Fprintf(b, "  printf(\"%%.17g\\n\", %s);\n", v)
+			fmt.Fprintf(b, "  oprintfloat(%s); putchar('\\n');\n", v)
 		case nativeScalarF32:
-			fmt.Fprintf(b, "  printf(\"%%.17gf32\\n\", (double)%s);\n", v)
+			fmt.Fprintf(b, "  oprintfloat((double)%s); fputs(\"f32\\n\", stdout);\n", v)
 		case nativeScalarF64:
-			fmt.Fprintf(b, "  printf(\"%%.17gf64\\n\", %s);\n", v)
+			fmt.Fprintf(b, "  oprintfloat(%s); fputs(\"f64\\n\", stdout);\n", v)
 		default:
 			return false
 		}
@@ -1295,6 +2169,9 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 			return false
 		}
 		for i, arg := range args {
+			if !uses[block.Params[i]] {
+				continue
+			}
 			if kinds[block.Params[i]] != kinds[arg] {
 				return false
 			}
@@ -1308,6 +2185,13 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 		fmt.Fprintf(b, "%s:\n", cLabel(block.Name))
 		for _, in := range block.Instrs {
 			switch in.Op {
+			case "import", "member", "builtin":
+				continue
+			case "undef":
+				if uses[in.Dest] {
+					return false, nil
+				}
+				continue
 			case "const":
 				if kinds[in.Dest] == nativeScalarUnknown && !uses[in.Dest] {
 					continue
@@ -1315,19 +2199,45 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 				// Pure scalar constants were initialized at function entry. This
 				// hoists loop-header constants out of every iteration.
 			case "copy":
+				if modules[in.Dest] != "" {
+					// Static module aliases are compile-time metadata only.
+					continue
+				}
+				if vars[in.Dest] == "" || vars[in.Args[0]] == "" {
+					return false, nil
+				}
 				fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], vars[in.Args[0]])
 			case "unary":
 				if in.Text == "-" && kinds[in.Dest] == nativeScalarInt {
 					fmt.Fprintf(b, "  if (__builtin_sub_overflow((int64_t)0, %s, &%s)) return onativefail(\"signed negation overflow\");\n", vars[in.Args[0]], vars[in.Dest])
+				} else if in.Text == "-" && nativeScalarIsNarrowSigned(kinds[in.Dest]) {
+					fmt.Fprintf(b, "  %s = (%s)osignedbits((uint64_t)(-(int64_t)%s), %d);\n", vars[in.Dest], nativeScalarCType(kinds[in.Dest]), vars[in.Args[0]], nativeScalarSignedWidth(kinds[in.Dest]))
 				} else {
 					fmt.Fprintf(b, "  %s = %s%s;\n", vars[in.Dest], in.Text, vars[in.Args[0]])
 				}
 			case "binary":
 				left, right := vars[in.Args[0]], vars[in.Args[1]]
-				emitScalarBinary(b, vars[in.Dest], in.Text, left, right, kinds[in.Dest])
+				if in.Text == "/" && exactSignedDivisions[in.Dest] {
+					emitScalarExactSignedDivision(b, vars[in.Dest], left, right, constants[in.Args[0]], constants[in.Args[1]], kinds[in.Dest])
+				} else {
+					emitScalarBinary(b, vars[in.Dest], in.Text, left, right, kinds[in.Dest])
+				}
 			case "makefunc":
 				// The recognized direct call is inlined below; no closure object is needed.
 			case "call":
+				if builtin, ok := builtins[in.Text]; ok {
+					if (builtin == "pow" || builtin == "expt") && !nonExactF32Powers[in.Dest] {
+						return false, nil
+					}
+					args := make([]string, len(in.Args))
+					for i, arg := range in.Args {
+						args[i] = vars[arg]
+					}
+					if !emitScalarBuiltin(b, vars[in.Dest], builtin, args, kinds[in.Dest]) {
+						return false, nil
+					}
+					continue
+				}
 				callee := bindings[in.Text]
 				argKinds := make([]nativeScalarKind, len(in.Args))
 				for i, arg := range in.Args {
@@ -1433,6 +2343,7 @@ static void ofreeallocs(void) { while(oallocs) { OAlloc *next=oallocs->next; fre
 static OValue onull(void) { return (OValue){O_NULL,0,{.u=0}}; }
 static OValue obool(int x) { return (OValue){O_BOOL,0,{.b=!!x}}; }
 static uint64_t omask(uint16_t bits) { return bits>=64?UINT64_MAX:((UINT64_C(1)<<bits)-1); }
+static int64_t osignedbits(uint64_t raw, uint16_t bits) { if(bits>=64) { int64_t value; memcpy(&value,&raw,sizeof(value)); return value; } uint64_t masked=raw&omask(bits),sign=UINT64_C(1)<<(bits-1); return masked&sign?(int64_t)masked-(int64_t)(UINT64_C(1)<<bits):(int64_t)masked; }
 static OValue ouintbits(uint64_t x, uint16_t bits) { if(bits==0||bits>64) bits=64; return (OValue){O_UINT,bits,{.u=x&omask(bits)}}; }
 static OValue ointbits(int64_t x, uint16_t bits) { if(bits==0||bits>64) bits=64; uint64_t raw=(uint64_t)x&omask(bits); if(bits<64&&(raw&(UINT64_C(1)<<(bits-1)))) raw|=~omask(bits); return (OValue){O_INT,bits,{.i=(int64_t)raw}}; }
 static OValue ouint(uint64_t x) { return ouintbits(x,64); }
@@ -1509,7 +2420,7 @@ static OValue oadd(OValue a, OValue b) { return obin("+",a,b); }
 static OValue osub(OValue a, OValue b) { return obin("-",a,b); }
 static OValue omul(OValue a, OValue b) { return obin("*",a,b); }
 static OValue odiv(OValue a, OValue b) { return obin("/",a,b); }
-static OValue omod(OValue a, OValue b) { return obit("%",a,b); }
+static OValue omod(OValue a, OValue b) { if(a.kind==O_FLOAT||b.kind==O_FLOAT) { double x,y; if(!onum(a,&x)||!onum(b,&y)) return ofail("numeric operator expects numeric values"); if(y==0) return ofail("remainder by zero"); return ofloatbits(fmod(x,y),ofloatwidth(a,b)); } return obit("%",a,b); }
 static OValue oband(OValue a, OValue b) { return obit("&",a,b); }
 static OValue obor(OValue a, OValue b) { return obit("|",a,b); }
 static OValue obxor(OValue a, OValue b) { return obit("^",a,b); }

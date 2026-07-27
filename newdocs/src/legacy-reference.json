@@ -78,6 +78,10 @@
         {
           "title": "Garbage collection",
           "text": "There is no user-facing garbage collector to tune. Lifetime is governed by the host runtime's collector and the shape of the current evaluation graph, so programmers focus on data flow instead of manual reclamation."
+        },
+        {
+          "title": "Hosted runtime and native boundary",
+          "text": "The interpreter and VM are currently Go-hosted: streams, task state, and temporary buffers use host-managed memory. close releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend is a compute-focused subset and rejects networking and task-runtime programs at compile time. A future native async runtime must establish its own ownership, buffer-pinning, cleanup, and platform-polling contracts before Osiris can promise no-GC network behavior."
         }
       ]
     },
@@ -556,15 +560,29 @@
         },
         {
           "kind": "construct",
-          "name": "match / switch",
-          "syntax": "match value { ... } / switch value { ... }",
-          "returns": "branch result",
-          "summary": "Choose a branch by pattern or equivalent switch-style matching.",
+          "name": "match",
+          "syntax": "match value { pattern => expression, ... }",
+          "returns": "The value of the first matching arm.",
+          "summary": "Evaluate a value once and select an expression by pattern.",
           "details": [
-            "switch is an alias-shaped branch table over match semantics.",
-            "It exists to make multi-branch code easier to read."
+            "Patterns may be literals, wildcards, bindings, fixed-length lists, or qualified enum cases. An arm expression runs only after its pattern matches.",
+            "Use _ or default for a catch-all arm. Enum matches without a catch-all are checked for missing cases before execution."
           ],
-          "example": "switch n { 0 => \"zero\"; _ => \"other\" }"
+          "errors": "A dynamic unmatched value reports an error. Invalid, duplicate, unreachable, or non-exhaustive enum arms are source-located diagnostics.",
+          "example": "emit match [1, 2] { [left, right] => left + right, _ => 0 }\n# 3u64"
+        },
+        {
+          "kind": "construct",
+          "name": "switch",
+          "syntax": "switch value { pattern => expression, ... }",
+          "returns": "The value of the first matching arm.",
+          "summary": "Use match semantics with switch-oriented spelling for a multi-branch expression.",
+          "details": [
+            "switch evaluates its subject once and accepts the same patterns, guards, wildcard, and enum-exhaustiveness rules as match.",
+            "Choose switch when its branch-table presentation makes the surrounding code easier to scan; it does not change matching or return semantics."
+          ],
+          "errors": "A dynamic unmatched value reports an error. Invalid, duplicate, unreachable, or non-exhaustive enum arms are source-located diagnostics.",
+          "example": "emit switch 0 { 0 => \"zero\", _ => \"other\" }\n# \"zero\""
         }
       ]
     },
@@ -709,7 +727,7 @@
           "returns": "unsigned integer",
           "summary": "Construct an explicit unsigned fixed-width integer.",
           "details": [
-            "This family includes u8, u16, u32, u64, u128, u256, u512, u1024.",
+            "This family includes u8, u16, u32, u64, u128, u256, u512, u1024; uint is the u64 constructor and byte is the u8 constructor.",
             "Osiris keeps the width explicit so the compiler, encoder, and runtime can preserve it through analysis and native lowering."
           ],
           "members": [
@@ -720,7 +738,9 @@
             "u128",
             "u256",
             "u512",
-            "u1024"
+            "u1024",
+            "uint",
+            "byte"
           ],
           "example": "u1024(42)"
         },
@@ -775,8 +795,9 @@
           "returns": "float",
           "summary": "Construct a 32-bit explicit float.",
           "details": [
-            "number remains the default literal type, but explicit float widths are useful when precision choice matters.",
-            "Use this when you want hardware-friendly single-precision semantics."
+            "f32 accepts exactly one numeric value and returns that value rounded to the language's explicit 32-bit floating representation. Non-numeric input is an error.",
+            "number remains the default literal type, but explicit float widths are useful when precision choice matters. Use f32 when you want hardware-friendly single-precision semantics and visible f32 output/inference.",
+            "Native C lowers a proven scalar floating input directly with one C float conversion. Integer, decimal, complex, tensor, and other value families retain their representation-aware native paths."
           ],
           "example": "emit f32(3.5)"
         },
@@ -786,8 +807,9 @@
           "returns": "float",
           "summary": "Construct a 64-bit explicit float.",
           "details": [
-            "number remains the default literal type, but explicit float widths are useful when precision choice matters.",
-            "Use this when you want the familiar double-precision path."
+            "f64 accepts exactly one numeric value and returns that value in the language's explicit 64-bit floating representation. Non-numeric input is an error.",
+            "number remains the default literal type, but explicit float widths are useful when precision choice matters. Use f64 when you want the familiar double-precision path and visible f64 output/inference.",
+            "Native C lowers a proven scalar floating input directly with one C double conversion. Integer, decimal, complex, tensor, and other value families retain their representation-aware native paths."
           ],
           "example": "emit f64(3.5)"
         },
@@ -923,7 +945,8 @@
           "summary": "Read the real component of a complex-compatible value.",
           "details": [
             "For complex<f32> and complex<f64>, real preserves the same component width and returns f32 or f64. A default complex returns the default number family.",
-            "A real scalar is accepted only when it is complex-compatible; a complex with a nonzero imaginary part cannot be coerced by an ordinary numeric cast."
+            "A real scalar is accepted only when it is complex-compatible; a complex with a nonzero imaginary part cannot be coerced by an ordinary numeric cast.",
+            "For a real floating scalar, real returns that scalar unchanged. Native C lowers this scalar f32/f64/default-float case directly; complex, tensor, integer, and other value families retain their respective native contracts."
           ],
           "example": "let z = complex(f32(3), f32(4))\nemit real(z)\n# 3f32"
         },
@@ -934,9 +957,22 @@
           "summary": "Read the imaginary component of a complex-compatible value.",
           "details": [
             "For complex<f32> and complex<f64>, imag preserves the component width. This makes it safe to split a typed complex value and reconstruct it without an implicit widening step.",
-            "For a real-compatible input, imag returns zero in that input's scalar family."
+            "For a real-compatible input, imag returns zero in that input's scalar family.",
+            "Native C lowers real floating scalar inputs directly to a same-width zero. Complex and aggregate projections retain their separate native representation contracts."
           ],
           "example": "let z = complex(f64(3), f64(4))\nemit imag(z)\n# 4f64"
+        },
+        {
+          "name": "conjugate",
+          "syntax": "conjugate(value)",
+          "returns": "same scalar, complex, or tensor family as value",
+          "summary": "Return the complex conjugate while preserving real values.",
+          "details": [
+            "For a complex scalar a + bi, conjugate returns a - bi and preserves the complex component width. Applying conjugate twice returns the original value.",
+            "Real numeric values are returned unchanged. For tensors, conjugate is applied element-wise and the tensor shape is retained.",
+            "Native C lowers a proven real floating or fixed-width integer scalar as an identity assignment. Complex and tensor conjugation use their owned native value paths."
+          ],
+          "example": "emit conjugate(complex(3, 4))\n# 3-4i"
         },
         {
           "name": "magnitude",
@@ -944,9 +980,11 @@
           "returns": "numeric scalar",
           "summary": "Read the magnitude of a complex value.",
           "details": [
-            "This is the radial length of the complex plane representation."
+            "For a complex value a + bi, magnitude is sqrt(a² + b²), returned in the promoted floating component family. It is the radial length of the complex-plane representation.",
+            "For a real floating scalar, magnitude is its absolute value and preserves f32, f64, or default-float style. Unsigned integers are already non-negative, so magnitude returns the same width and value. Signed integers, decimal, quantity, bigint, and complex values follow their own representation-preserving magnitude rules.",
+            "Native C lowers a proven real floating scalar through width-aware absolute value, a proven unsigned scalar as an identity, and proven i8/i16/i32 values with width-aware bit arithmetic. Complex, i64, and other value families use their separate native contracts."
           ],
-          "example": "emit magnitude(complex(3, 4))"
+          "example": "emit magnitude(complex(3, 4))\n# 5"
         },
         {
           "name": "abs",
@@ -954,9 +992,11 @@
           "returns": "numeric scalar",
           "summary": "Return the absolute value of a number.",
           "details": [
-            "Use this for signed magnitude and distance-like calculations."
+            "For floating values, abs returns a same-width non-negative floating result. For unsigned values it returns the input unchanged, preserving its declared width and packed/native style.",
+            "Signed integers, bigint, decimal, quantity, and complex values retain their own representation-aware absolute-value rules; use magnitude when you specifically want complex-plane length.",
+            "Native C lowers proven floating scalars through width-aware absolute value, unsigned scalars as identity assignments, and i8/i16/i32 scalars with width-aware bit arithmetic. I64 remains on its separate native path."
           ],
-          "example": "emit abs(-3)"
+          "example": "emit abs(-3)\nemit abs(255u8)\n# 3\n# 255u8"
         },
         {
           "name": "min",
@@ -1224,9 +1264,12 @@
           "returns": "numeric scalar",
           "summary": "Raise a value to a power.",
           "details": [
-            "Exact integer inputs use the exact integer path where possible."
+            "pow first attempts exact integer exponentiation when both operands can be interpreted as integers and the exponent is non-negative. That branch preserves integer style and may produce a bigint rather than a floating value.",
+            "When exact exponentiation does not apply, pow uses floating power semantics and returns a floating numeric scalar. Fully f32 floating inputs narrow once to f32; f64 or default floating inputs retain their corresponding floating result style.",
+            "A negative or fractional exponent bypasses the exact branch. Floating exceptional values follow the underlying IEEE numeric result instead of introducing a separate Osiris domain error.",
+            "Native C lowering currently admits only statically known f32 literal operands for which the exact-integer branch is proven inapplicable. Exact, f64, mixed-width, dynamic, and unproven calls are rejected at native compile time so a C pow call cannot silently change the language result kind."
           ],
-          "example": "emit pow(2, 10)"
+          "example": "emit pow(2.0f32, 5.75f32)"
         },
         {
           "name": "expt",
@@ -1234,19 +1277,24 @@
           "returns": "numeric scalar",
           "summary": "Alias-shaped power helper for exact integer style code.",
           "details": [
-            "This exists for users who prefer the expt spelling in exact-math contexts."
+            "expt has exactly the same behavior, result type, and errors as pow; it is an alternate spelling for users who prefer exact-math terminology.",
+            "Integer-like operands with a non-negative exponent first use exact exponentiation and preserve integer style, potentially returning a bigint. Other numeric inputs use floating power semantics and return a floating numeric scalar.",
+            "Native C lowering has the same narrow contract as pow: only statically known non-exact f32 literal calls lower directly. Exact, f64, mixed-width, dynamic, and unproven calls reject at native compile time rather than losing the exact result-kind rule."
           ],
-          "example": "emit expt(2, 10)"
+          "example": "emit expt(3.0f32, 0.5f32)"
         },
         {
           "name": "log",
-          "syntax": "log(x)",
+          "syntax": "log(x[, base])",
           "returns": "numeric scalar",
-          "summary": "Compute the natural logarithm.",
+          "summary": "Compute the natural logarithm, or a logarithm in an explicit base.",
           "details": [
-            "Use this for logarithmic scaling and inverse exponential work."
+            "With one argument, log(x) is the natural logarithm. With base, log(x, base) is evaluated as log(x) / log(base).",
+            "Both forms require x > 0. The base form additionally requires base > 0 and base != 1; violations raise the log domain error.",
+            "The result is a floating numeric scalar. An f32 input produces f32 after the language's explicit narrowing boundary; f64 and default floating inputs retain their corresponding floating representation.",
+            "Native C lowering supports the one-argument floating form. The two-argument form lowers only when both operands are statically proven f32; f64, mixed-width, and unproven base-log calls are rejected at native compile time to preserve exact interpreter parity across Go and C math libraries."
           ],
-          "example": "emit log(8)"
+          "example": "emit log(81.0f32, 3.0f32)"
         },
         {
           "name": "log10",
@@ -1350,9 +1398,11 @@
           "details": [
             "The gamma function extends the factorial to non-integer values.",
             "For positive integers n, gamma(n) = (n - 1)! and for half-integers it connects to square roots of pi.",
-            "It is used throughout combinatorics, analytic continuation, statistical distributions, and special-function identities."
+            "It returns a floating numeric scalar, preserving f32 or f64 style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
+            "It is used throughout combinatorics, analytic continuation, statistical distributions, and special-function identities. The function follows IEEE numeric behavior for exceptional inputs rather than defining a separate Osiris domain error.",
+            "Native C lowering supports a statically proven f32 scalar input, computed in double precision and narrowed once to f32. F64 and unproven inputs are rejected by the native compiler because Go's and a platform C library's gamma implementations do not have a bit-exact shared contract."
           ],
-          "example": "emit gamma(5)"
+          "example": "emit gamma(4.5f32)"
         },
         {
           "name": "lgamma",
@@ -1361,10 +1411,11 @@
           "summary": "Compute the logarithm of the gamma function.",
           "details": [
             "lgamma(x) returns the natural logarithm of the gamma function, which is often easier to compute safely than gamma(x) itself.",
-            "It is especially useful when gamma(x) would overflow or when a formula needs stable log-domain arithmetic.",
-            "Statistics, probability, and asymptotic analysis often use lgamma to keep large products numerically manageable."
+            "It returns a floating numeric scalar, preserving f32 or f64 style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
+            "It is especially useful when gamma(x) would overflow or when a formula needs stable log-domain arithmetic. Statistics, probability, and asymptotic analysis often use lgamma to keep large products numerically manageable.",
+            "Native C lowering supports a statically proven f32 scalar input, computed in double precision and narrowed once to f32. F64 and unproven inputs are rejected by the native compiler because Go's and a platform C library's log-gamma implementations do not have a bit-exact shared contract."
           ],
-          "example": "emit lgamma(5)"
+          "example": "emit lgamma(4.5f32)"
         }
       ]
     },
@@ -2036,24 +2087,76 @@
           "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"hello\\n\")\nclose(out)"
         },
         {
-          "name": "readline / readchunk",
-          "syntax": "readline(handle) / readchunk(handle, size)",
-          "returns": "text or bytes",
-          "summary": "Read the next line or up to a requested byte count from a stream.",
+          "name": "readline",
+          "syntax": "readline(handle)",
+          "returns": "text or null",
+          "summary": "Read one line from a readable stream without retaining its line ending.",
           "details": [
-            "These helpers allow large inputs to be processed without first loading the whole file."
+            "The returned text excludes a trailing LF or CRLF. At end-of-file it returns null rather than an empty text value.",
+            "Each call advances the handle, allowing line-oriented processing without loading the entire input."
           ],
-          "example": "let chunk = readchunk(input, 4096)"
+          "errors": "The handle must be open and readable. Wrong arity, a non-stream value, a closed stream, and host I/O failures are errors.",
+          "example": "let input = openread(\"input.txt\")\nemit readline(input)\n# \"first line\"\nclose(input)"
         },
         {
-          "name": "writechunk / flush / close",
-          "syntax": "writechunk(handle, data) / flush(handle) / close(handle)",
-          "returns": "success value",
-          "summary": "Write to, flush, and release an explicit stream handle.",
+          "name": "readchunk",
+          "syntax": "readchunk(handle, size)",
+          "returns": "list<uint8> or null",
+          "summary": "Read up to size bytes from a readable stream as exact uint8 values.",
           "details": [
-            "Handles are ordinary values; lifetime and failure handling remain visible in source."
+            "A zero size returns an empty list. A short list is valid when fewer than size bytes are available; null means no bytes remain at end-of-file.",
+            "Each call advances the handle and bounds the temporary read buffer to the requested size."
           ],
-          "example": "writechunk(out, bytes(0x4f, 0x53, 0x52))\nflush(out)\nclose(out)"
+          "errors": "size must be a non-negative integer. The handle must be open and readable; wrong arity, a non-stream value, and host I/O failures are errors.",
+          "example": "let input = openread(\"input.bin\")\nemit readchunk(input, 4)\n# [79u8, 83u8, 82u8, …]\nclose(input)"
+        },
+        {
+          "name": "writechunk",
+          "syntax": "writechunk(handle, data)",
+          "returns": "uint64 byte count",
+          "summary": "Append byte-compatible data to a writable stream's bounded user-space buffer.",
+          "details": [
+            "data may be text, a byte list or tensor, or an integer encoded as bytes. The result is the number of bytes accepted by the stream writer.",
+            "writechunk does not promise that buffered bytes have reached the operating-system descriptor; call flush when that boundary matters."
+          ],
+          "errors": "The handle must be open and writable. Non-byte-compatible data, wrong arity, a non-stream value, and host write failures are errors.",
+          "example": "let out = openwrite(\"out.txt\")\nemit writechunk(out, \"OSR\\n\")\n# 4u64\nclose(out)"
+        },
+        {
+          "name": "flush",
+          "syntax": "flush(handle)",
+          "returns": "bool",
+          "summary": "Flush buffered stream output to its underlying descriptor.",
+          "details": [
+            "flush returns true after the writer flushes successfully. It is a no-op that returns true for an open readable-only handle.",
+            "Flushing does not close the handle and does not promise remote receipt for a TCP stream; it only completes the local writer boundary."
+          ],
+          "errors": "The handle must be open. Wrong arity, a non-stream value, a closed stream, and host flush failures are errors.",
+          "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"OSR\\n\")\nemit flush(out)\n# true\nclose(out)"
+        },
+        {
+          "name": "close",
+          "syntax": "close(handle)",
+          "returns": "bool",
+          "summary": "Flush and release the file or TCP descriptor owned by a stream handle.",
+          "details": [
+            "The first successful close returns true. A later close of the same handle returns false without reopening or re-closing it.",
+            "The handle remains printable after close, but later reads, writes, and flushes fail. close flushes a writable buffer before releasing the descriptor."
+          ],
+          "errors": "The argument must be a stream. A host flush or descriptor-close failure is returned as an error.",
+          "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"OSR\\n\")\nemit close(out)\n# true\nemit close(out)\n# false"
+        },
+        {
+          "name": "transfer",
+          "syntax": "transfer(source, destination[, limit])",
+          "returns": "uint64 byte count",
+          "summary": "Copy ordered bytes between two open streams through a bounded buffer.",
+          "details": [
+            "source must be readable and destination writable; they must be distinct. The function borrows both handles, flushes the copied bytes before success, and never closes either one.",
+            "limit is optional and non-negative. Without it transfer continues to end-of-file using bounded memory. It preserves destination backpressure and returns only bytes accepted by the destination.",
+            "Task/session cancellation, TCP deadlines, close, and I/O failures remain structured errors. Networking is interpreter/VM host I/O only; native C lowering rejects transfer."
+          ],
+          "example": "let source = openread(\"input.bin\")\nlet destination = openwrite(\"copy.bin\")\nemit transfer(source, destination, 4096)\nclose(source)\nclose(destination)\n# 4096u64"
         }
       ]
     },
@@ -2199,6 +2302,49 @@
             "counter defaults to zero and must be a non-negative integer. Increment it explicitly to obtain a reproducible sequence; this helper is not a cryptographic random-number generator."
           ],
           "example": "emit random(\"osiris\", 0)\nemit random(\"osiris\", 1)\n# Stable distinct f64-backed samples in [0, 1)"
+        }
+      ]
+    },
+    {
+      "id": "net",
+      "title": "std/net",
+      "summary": "Explicit TCP listener and connection resources.",
+      "items": [
+        {
+          "name": "tcp_listen",
+          "syntax": "tcp_listen(address)",
+          "returns": "tcp_listener",
+          "summary": "Bind an owned TCP listener at an explicit address.",
+          "details": [
+            "address uses the host:port form, including port 0 when the operating system should choose a local port. The caller must close the returned listener.",
+            "Listening is host I/O and may fail due to permissions or an occupied address. It is interpreter/VM-only; native compilation does not support networking."
+          ],
+          "example": "import \"std/net\" as net\nlet listener = net.tcp_listen(\"127.0.0.1:9000\")\n# close(listener) when the server is finished"
+        },
+        {
+          "name": "tcp_accept",
+          "syntax": "tcp_accept(listener[, timeout_ms])",
+          "returns": "readable/writable tcp stream",
+          "summary": "Accept one TCP connection as an explicit duplex stream.",
+          "details": [
+            "timeout_ms is optional, non-negative, and applies only to this accept call. The result works with readline, readchunk, writechunk, flush, and close.",
+            "Every accepted TCP stream uses the portable low-latency default: TCP_NODELAY and keepalive are enabled. The language does not yet expose arbitrary socket options; platform-specific controls remain capability-gated runtime work, not silent behavior.",
+            "Accept blocks until a client arrives, the timeout expires, the current task/session is cancelled, or the listener is closed. Closing a listener unblocks its pending accepts but does not close already accepted streams.",
+            "A timeout is a timeout error; task/session cancellation is a cancelled error; a closed local listener is an I/O error. These remain structured errors that try/catch can inspect."
+          ],
+          "example": "let client = net.tcp_accept(listener, 1000)\nwritechunk(client, \"hello\\n\")\nflush(client)\nclose(client)"
+        },
+        {
+          "name": "tcp_dial",
+          "syntax": "tcp_dial(address[, timeout_ms])",
+          "returns": "readable/writable tcp stream",
+          "summary": "Connect to one TCP endpoint as an explicit duplex stream.",
+          "details": [
+            "timeout_ms is optional and non-negative. A successful connection is a stream; reads observe the current task/session context and stop when it is cancelled or expires.",
+            "Every newly dialed TCP stream enables TCP_NODELAY and keepalive by default for low-latency request/response traffic. The current language surface intentionally has no raw arbitrary socket-option escape hatch, and native C compilation rejects networking.",
+            "Use close to release the connection. Connection refusal is unavailable, timeout is timeout, malformed addresses are invalid_argument, and closed local resources are I/O errors; all remain explicit structured errors rather than status values."
+          ],
+          "example": "let peer = net.tcp_dial(\"127.0.0.1:9000\", 1000)\nwritechunk(peer, \"ping\\n\")\nflush(peer)\nemit readline(peer)\nclose(peer)"
         }
       ]
     },

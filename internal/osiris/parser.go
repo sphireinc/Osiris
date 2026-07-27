@@ -16,6 +16,7 @@ type Stmt interface {
 type letStmt struct {
 	Name     string
 	Expr     Expr
+	Unwrap   bool
 	Span     sourceSpan
 	NameSpan sourceSpan
 }
@@ -535,6 +536,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 	switch p.peek().kind {
 	case tokenLet:
 		start := p.next()
+		unwrap := p.match(tokenQuestion)
 		nameTok, err := p.expect(tokenIdent)
 		if err != nil {
 			return nil, err
@@ -546,7 +548,12 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return letStmt{Name: nameTok.text, Expr: expr, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		if unwrap {
+			if literal, ok := expr.(*literalExpr); ok && literal.value.kind != kindResult && literal.value.kind != kindOption {
+				return nil, p.errorf(nameTok, "let? requires a result or option expression")
+			}
+		}
+		return letStmt{Name: nameTok.text, Expr: expr, Unwrap: unwrap, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
 	case tokenEmit:
 		start := p.next()
 		expr, err := p.parseExpr(0)

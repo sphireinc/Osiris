@@ -127,7 +127,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		} else {
 			delete(env, s.Name)
 		}
-		return letStmt{Name: s.Name, Expr: expr}, env
+		return letStmt{Name: s.Name, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
 	case emitStmt:
 		return emitStmt{Expr: optimizeExprWithEnv(s.Expr, env)}, env
 	case macroStmt:

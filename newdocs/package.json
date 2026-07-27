@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "migrate-reference": "node scripts/migrate-static-reference.mjs",
     "redirects": "node scripts/create-legacy-redirects.mjs",
     "check-reference": "npm run redirects && node scripts/check-reference.mjs",
     "check-examples": "node scripts/check-examples.mjs",

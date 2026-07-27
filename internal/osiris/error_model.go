@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -380,11 +383,57 @@ func (e *OsirisError) Equal(other *OsirisError) bool {
 // Redacted returns a copy of the error with debug metadata and stack traces
 // removed. Public metadata and the cause chain are preserved, so the caller
 // still has a useful error summary without the sensitive details.
+var sensitiveErrorText = regexp.MustCompile(`(?i)\b(token|secret|password|passwd|api[_-]?key|authorization|credential)\s*([:=])\s*([^\s,;]+)`)
+var bearerErrorText = regexp.MustCompile(`(?i)\b(bearer)\s+[^\s,;]+`)
+
+func redactErrorText(text string) string {
+	text = sensitiveErrorText.ReplaceAllString(text, "$1$2[REDACTED]")
+	return bearerErrorText.ReplaceAllString(text, "$1 [REDACTED]")
+}
+
+func isSensitiveErrorMetadataKey(key string) bool {
+	key = strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_"))
+	for _, sensitive := range []string{"token", "secret", "password", "passwd", "api_key", "authorization", "credential"} {
+		if strings.Contains(key, sensitive) {
+			return true
+		}
+	}
+	return false
+}
+
+func redactErrorMetadata(metadata map[string]Value) map[string]Value {
+	if len(metadata) == 0 {
+		return nil
+	}
+	out := make(map[string]Value, len(metadata))
+	for key, value := range metadata {
+		if isSensitiveErrorMetadataKey(key) {
+			continue
+		}
+		if value.kind == kindString {
+			value = stringValue(redactErrorText(value.str))
+		}
+		out[key] = value
+	}
+	return out
+}
+
 func (e *OsirisError) Redacted() *OsirisError {
 	if e == nil {
 		return nil
 	}
 	out := e.clone()
+	out.message = redactErrorText(out.message)
+	out.userMessage = redactErrorText(out.userMessage)
+	out.operation = redactErrorText(out.operation)
+	out.resource = redactErrorText(out.resource)
+	out.correlationID = redactErrorText(out.correlationID)
+	out.component = redactErrorText(out.component)
+	out.remediation = redactErrorText(out.remediation)
+	if out.location != nil {
+		out.location.Source = redactErrorText(out.location.Source)
+	}
+	out.metadata = redactErrorMetadata(out.metadata)
 	out.debugMetadata = nil
 	out.stack = nil
 	if out.cause != nil {
@@ -631,7 +680,7 @@ func errorValueFromGoError(err error) Value {
 		return errorValueFromRecord(oe)
 	}
 	kind := classifyGoError(err)
-	return errorValueFromRecord(newOsirisError(kind, err.Error()))
+	return errorValueFromRecord(withNativeErrorCode(newOsirisError(kind, err.Error()), err))
 }
 
 // normalizeError turns a Go error into an OsirisError when possible and
@@ -649,9 +698,23 @@ func normalizeError(err error, source string) error {
 		}
 		return oe
 	}
-	rec := newOsirisError(classifyGoError(err), err.Error())
+	rec := withNativeErrorCode(newOsirisError(classifyGoError(err), err.Error()), err)
 	if source != "" {
 		rec = rec.withSource(source, sourceSpan{})
+	}
+	return rec
+}
+
+// withNativeErrorCode preserves a host errno only in debug metadata. Numeric
+// error codes are useful for diagnostics without becoming part of Osiris's
+// portable error-message or public metadata contract.
+func withNativeErrorCode(rec *OsirisError, err error) *OsirisError {
+	if rec == nil || err == nil {
+		return rec
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return rec.withDebugMetadata("native_code", stringValue(strconv.FormatInt(int64(errno), 10)))
 	}
 	return rec
 }
@@ -675,6 +738,13 @@ func classifyGoError(err error) ErrorKind {
 		return ErrorKindCancelled
 	case errors.Is(err, context.DeadlineExceeded):
 		return ErrorKindTimeout
+	case errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK):
+		// EAGAIN/EWOULDBLOCK is a temporary readiness condition. It is
+		// intentionally portable as unavailable rather than exposed as a new
+		// platform-specific public error kind.
+		return ErrorKindUnavailable
+	case errors.Is(err, net.ErrClosed):
+		return ErrorKindIO
 	case errors.Is(err, os.ErrNotExist):
 		return ErrorKindNotFound
 	case errors.Is(err, os.ErrPermission):
@@ -684,6 +754,21 @@ func classifyGoError(err error) ErrorKind {
 	case errors.Is(err, io.EOF):
 		return ErrorKindOutOfRange
 	default:
+		var address *net.AddrError
+		if errors.As(err, &address) {
+			return ErrorKindInvalidArgument
+		}
+		var networkErr net.Error
+		if errors.As(err, &networkErr) && networkErr.Timeout() {
+			return ErrorKindTimeout
+		}
+		var operation *net.OpError
+		if errors.As(err, &operation) {
+			if operation.Op == "dial" {
+				return ErrorKindUnavailable
+			}
+			return ErrorKindNetwork
+		}
 		return ErrorKindUnknown
 	}
 }

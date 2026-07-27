@@ -123,7 +123,7 @@ func cloneStmt(stmt Stmt) Stmt {
 		names := append([]string(nil), s.Names...)
 		return exportStmt{Names: names}
 	case letStmt:
-		return letStmt{Name: s.Name, Expr: cloneExpr(s.Expr)}
+		return letStmt{Name: s.Name, Expr: cloneExpr(s.Expr), Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}
 	case emitStmt:
 		return emitStmt{Expr: cloneExpr(s.Expr)}
 	case importStmt:
@@ -291,7 +291,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, letStmt{Name: st.Name, Expr: expr})
+			out = append(out, letStmt{Name: st.Name, Expr: expr, Unwrap: st.Unwrap, Span: st.Span, NameSpan: st.NameSpan})
 			curScope = &scope{
 				parent: curScope,
 				items: map[string]binding{
@@ -1031,7 +1031,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 				return nil, err
 			}
 			fresh := e.freshName(st.Name)
-			out = append(out, letStmt{Name: fresh, Expr: expr})
+			out = append(out, letStmt{Name: fresh, Expr: expr, Unwrap: st.Unwrap, Span: st.Span, NameSpan: st.NameSpan})
 			curRenames[st.Name] = fresh
 			curScope = &scope{
 				parent: curScope,

@@ -42,13 +42,13 @@ func repositoryRoot(t *testing.T) string {
 func loadSupportMatrix(t *testing.T) (string, supportMatrix) {
 	t.Helper()
 	root := repositoryRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "docs", "support-matrix.json"))
+	data, err := os.ReadFile(filepath.Join(root, "newdocs", "src", "support-matrix.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var matrix supportMatrix
 	if err := json.Unmarshal(data, &matrix); err != nil {
-		t.Fatalf("decode docs/support-matrix.json: %v", err)
+		t.Fatalf("decode newdocs/src/support-matrix.json: %v", err)
 	}
 	return root, matrix
 }
@@ -122,13 +122,17 @@ func TestSupportMatrixSchema(t *testing.T) {
 
 func TestSupportMatrixDocumentationPage(t *testing.T) {
 	root := repositoryRoot(t)
-	for _, path := range []string{"docs/support.html", "docs/support.js"} {
+	checks := map[string]string{
+		"newdocs/src/reference-app.jsx":         "./support-matrix.json",
+		"newdocs/src/components/page-shell.jsx": "Backend support",
+	}
+	for path, required := range checks {
 		data, err := os.ReadFile(filepath.Join(root, path))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(data), "support-matrix.json") {
-			t.Fatalf("%s does not render the canonical support matrix", path)
+		if !strings.Contains(string(data), required) {
+			t.Fatalf("%s does not expose the canonical React support matrix route", path)
 		}
 	}
 }

@@ -17,19 +17,20 @@ import (
 type Builtin func(args []Value) (Value, error)
 
 type Runtime struct {
-	Builtins    map[string]Builtin
-	Constants   map[string]Value
-	moduleMu    sync.Mutex
-	modules     map[string]Value
-	registryMu  sync.Mutex
-	registries  map[string]*moduleRegistry
-	taskMu      sync.Mutex
-	taskSeq     uint64
-	traceMu     sync.Mutex
-	traceSeq    uint64
-	taskTrace   []TaskTraceEvent
-	taskTraceOn bool
-	taskDebug   bool
+	Builtins        map[string]Builtin
+	ContextBuiltins map[string]contextCallable
+	Constants       map[string]Value
+	moduleMu        sync.Mutex
+	modules         map[string]Value
+	registryMu      sync.Mutex
+	registries      map[string]*moduleRegistry
+	taskMu          sync.Mutex
+	taskSeq         uint64
+	traceMu         sync.Mutex
+	traceSeq        uint64
+	taskTrace       []TaskTraceEvent
+	taskTraceOn     bool
+	taskDebug       bool
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -40,12 +41,14 @@ type Runtime struct {
 // pipeline without re-deriving the same information.
 func NewRuntime() *Runtime {
 	r := &Runtime{
-		Builtins:   make(map[string]Builtin),
-		Constants:  make(map[string]Value),
-		modules:    make(map[string]Value),
-		registries: make(map[string]*moduleRegistry),
+		Builtins:        make(map[string]Builtin),
+		ContextBuiltins: make(map[string]contextCallable),
+		Constants:       make(map[string]Value),
+		modules:         make(map[string]Value),
+		registries:      make(map[string]*moduleRegistry),
 	}
 	registerBuiltins(r.Builtins)
+	registerContextBuiltins(r.ContextBuiltins)
 	registerConstants(r.Constants)
 	return r
 }
@@ -269,6 +272,9 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 			if _, exists := ev.builtin[n.name]; exists {
 				return hashParts("builtin", n.name), nil
 			}
+			if _, exists := ev.rt.ContextBuiltins[n.name]; exists {
+				return hashParts("context-builtin", n.name), nil
+			}
 			return "", fmt.Errorf("undefined name %q", n.name)
 		}
 		out, err = ev.fingerprint(b.expr, b.env)
@@ -463,6 +469,9 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 		if !ok {
 			if v, exists := ev.rt.Constants[n.name]; exists {
 				return v, nil
+			}
+			if fn, exists := ev.rt.ContextBuiltins[n.name]; exists {
+				return contextFunctionValueOf(n.name, fn), nil
 			}
 			if fn, exists := ev.builtin[n.name]; exists {
 				return functionValueOf(n.name, fn), nil
@@ -948,6 +957,9 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		if callee.fn.builtin != nil {
 			return callee.fn.builtin(args)
 		}
+		if callee.fn.contextBuiltin != nil {
+			return callee.fn.contextBuiltin(ev.ctx, args)
+		}
 		if callee.fn.body == nil {
 			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
 		}
@@ -1059,6 +1071,8 @@ func specialFormName(expr Expr) (string, bool) {
 		return id.name, true
 	case "parallel", "timeout", "race", "select":
 		return id.name, true
+	case "map", "map_error", "flat_map":
+		return id.name, true
 	case "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
 		return id.name, true
 	default:
@@ -1071,7 +1085,7 @@ func specialFormName(expr Expr) (string, bool) {
 // eliding effects such as file access and streaming reads or writes.
 func builtinHasTaskEffect(name string) bool {
 	switch name {
-	case "read", "readbytes", "write", "openread", "openwrite", "readline", "readchunk", "writechunk", "flush", "close":
+	case "read", "readbytes", "write", "openread", "openwrite", "readline", "readchunk", "writechunk", "transfer", "flush", "close", "tcp_listen", "tcp_accept", "tcp_dial":
 		return true
 	default:
 		return false
@@ -1171,6 +1185,12 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 		return evalRace(ev, args, scope, false)
 	case "select":
 		return evalRace(ev, args, scope, true)
+	case "map":
+		return evalResultCombinator(ev, args, scope, "map")
+	case "map_error":
+		return evalResultCombinator(ev, args, scope, "map_error")
+	case "flat_map":
+		return evalResultCombinator(ev, args, scope, "flat_map")
 	case "read_async":
 		return evalAsyncRead(ev, args, scope)
 	case "readbytes_async":
@@ -1186,6 +1206,73 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 	default:
 		return nullValue(), fmt.Errorf("unknown special form %q", name)
 	}
+}
+
+func evalResultCombinator(ev *evaluator, args []Expr, scope *scope, kind string) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("%s expects result and function", kind)
+	}
+	input, err := ev.eval(args[0], scope)
+	if err != nil {
+		return nullValue(), err
+	}
+	if input.kind != kindResult || input.res == nil {
+		return nullValue(), fmt.Errorf("%s expects a result", kind)
+	}
+	callback, err := ev.eval(args[1], scope)
+	if err != nil {
+		return nullValue(), err
+	}
+	call := func(value Value) (Value, error) {
+		return evalCall(ev, &callExpr{callee: &literalExpr{value: callback}, args: []Expr{&literalExpr{value: value}}}, scope)
+	}
+	switch kind {
+	case "map":
+		if !input.res.ok {
+			return inheritMustHandle(input, resultErrValue(input.res.err)), nil
+		}
+		value, err := call(input.res.val)
+		if err != nil {
+			return nullValue(), err
+		}
+		return inheritMustHandle(input, resultOkValue(value)), nil
+	case "map_error":
+		if input.res.ok {
+			return inheritMustHandle(input, resultOkValue(input.res.val)), nil
+		}
+		value, err := call(errorValueFromRecord(input.res.err))
+		if err != nil {
+			return nullValue(), err
+		}
+		if rec, recErr := value.AsError(); recErr == nil && rec != nil {
+			return inheritMustHandle(input, resultErrValue(rec)), nil
+		}
+		message, messageErr := value.AsString()
+		if messageErr != nil {
+			return nullValue(), fmt.Errorf("map_error callback must return error or string")
+		}
+		return inheritMustHandle(input, resultErrValue(newOsirisError(ErrorKindUnknown, message))), nil
+	case "flat_map":
+		if !input.res.ok {
+			return inheritMustHandle(input, resultErrValue(input.res.err)), nil
+		}
+		value, err := call(input.res.val)
+		if err != nil {
+			return nullValue(), err
+		}
+		switch value.kind {
+		case kindResult:
+			return inheritMustHandle(input, value), nil
+		case kindOption:
+			if value.opt != nil && value.opt.present {
+				return inheritMustHandle(input, resultOkValue(value.opt.val)), nil
+			}
+			return inheritMustHandle(input, resultErrValue(newOsirisError(ErrorKindNotFound, "option is empty"))), nil
+		default:
+			return nullValue(), fmt.Errorf("flat_map callback must return result or option")
+		}
+	}
+	return nullValue(), fmt.Errorf("unknown result combinator %q", kind)
 }
 
 // evalParallel handles the eval parallel step in the surrounding package and
@@ -2314,7 +2401,12 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["readchunk"] = func(args []Value) (Value, error) { return readChunkValue(args) }
 	dst["writechunk"] = func(args []Value) (Value, error) { return writeChunkValue(args) }
 	dst["flush"] = func(args []Value) (Value, error) { return flushStreamValue(args) }
-	dst["close"] = func(args []Value) (Value, error) { return closeStreamValue(args) }
+	dst["close"] = func(args []Value) (Value, error) {
+		if len(args) == 1 && args[0].kind == kindTCPListener {
+			return closeTCPListenerValue(args)
+		}
+		return closeStreamValue(args)
+	}
 	dst["error"] = func(args []Value) (Value, error) { return errorBuiltin(args) }
 	dst["wrap"] = func(args []Value) (Value, error) { return wrapErrorBuiltin(args) }
 	dst["cause"] = func(args []Value) (Value, error) { return causeErrorBuiltin(args) }
@@ -2333,11 +2425,26 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["isnone"] = func(args []Value) (Value, error) { return isNoneBuiltin(args) }
 	dst["expect"] = func(args []Value) (Value, error) { return expectBuiltin(args) }
 	dst["or_else"] = func(args []Value) (Value, error) { return orElseBuiltin(args) }
+	dst["to_option"] = func(args []Value) (Value, error) { return toOptionBuiltin(args) }
+	dst["to_result"] = func(args []Value) (Value, error) { return toResultBuiltin(args) }
+	dst["collect"] = func(args []Value) (Value, error) { return collectResultsBuiltin(args) }
+	dst["discard"] = func(args []Value) (Value, error) { return discardBuiltin(args) }
+	dst["must_handle"] = func(args []Value) (Value, error) { return mustHandleBuiltin(args) }
+	dst["is_must_handle"] = func(args []Value) (Value, error) { return isMustHandleBuiltin(args) }
 	dst["panic"] = func(args []Value) (Value, error) { return panicBuiltin(args) }
 	dst["trap"] = func(args []Value) (Value, error) { return trapBuiltin(args) }
 	dst["assert"] = func(args []Value) (Value, error) { return assertBuiltin(args) }
 	dst["matches"] = func(args []Value) (Value, error) { return matchesErrorBuiltin(args) }
 	dst["is"] = func(args []Value) (Value, error) { return isErrorBuiltin(args) }
+}
+
+func registerContextBuiltins(dst map[string]contextCallable) {
+	dst["tcp_listen"] = tcpListenContextValue
+	dst["tcp_accept"] = tcpAcceptContextValue
+	dst["tcp_dial"] = tcpDialContextValue
+	dst["readline"] = readLineContextValue
+	dst["readchunk"] = readChunkContextValue
+	dst["transfer"] = transferContextValue
 }
 
 // hashValue handles the hash value step in the surrounding package and returns

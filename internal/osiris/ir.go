@@ -685,6 +685,9 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 	case enumStmt:
 		return false, fmt.Errorf("native lowering does not yet support enum %q; use the interpreter or VM until tagged enum lowering is implemented", st.Name)
 	case letStmt:
+		if st.Unwrap {
+			return false, fmt.Errorf("let? result binding is not yet lowered into IR")
+		}
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
 		if err != nil {

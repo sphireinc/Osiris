@@ -18,11 +18,33 @@ Generated C uses an OValue tagged value at dynamic boundaries:
 
 Hot paths may specialize an OValue operation to a native scalar only when
 inference proves its kind. The C backend currently emits scalar-only `main`
-CFGs as `uint64_t`, `int64_t`, `float`, `double`, and `int` locals, including
-loop-carried values. It preserves f32/f64 width metadata on that path. A
+CFGs as `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`, `int64_t`, `float`,
+`double`, and `int` locals, including loop-carried values. It preserves
+f32/f64 and unsigned-integer width metadata on that path. Same-width narrow
+unsigned `+`, `-`, `*`, bitwise operations, and shifts are specialized; their
+arithmetic widens before calculating and narrows explicitly to retain Osiris
+wrapping semantics without C signed-promotion undefined behavior. The proven
+`u8`/`u16`/`u32` subset also supports mixed narrow widths, yielding the wider
+operand width for arithmetic, remainder, and bitwise operations, or the left width for a
+shift. The same promotion rule is proven for supported `i8`/`i16`/`i32`
+operations. Same-width `u64` and `i64` remainder are also specialized with an explicit
+zero-divisor check; `i64` additionally uses checked direct `+` and `*` with
+stable overflow diagnostics and direct fixed-width `&`, `|`, and `^`.
+Same-width `i64` shifts validate the count and use unsigned-bit operations
+with explicit sign extension for right shifts before reconstructing the fixed
+width signed result. Same-width
+signed `i8`, `i16`, and `i32` `+`, `-`, `*`, unary negation, remainder, `&`,
+`|`, and `^` are likewise specialized through an `int64_t` intermediate and
+explicit signed-width normalization. Their shifts reject a negative or
+out-of-width count and use unsigned-bit operations with explicit sign
+extension for right shifts; remainder checks zero explicitly. Mixed-family,
+division, and promotion-sensitive paths stay tagged until their error contract
+is proven. A
 non-capturing straight-line scalar helper (including local scalar bindings) is
 inlined into such a caller. A scalar `if` helper with straight-line branches is
-also inlined as typed C control flow. Other functions and uncertain values use
+also inlined as typed C control flow. Short-circuit `&&` and `||` lower through
+that typed CFG path, preserving branch-only operand evaluation. Other
+functions and uncertain values use
 the tagged ABI. Generated tagged code also
 calls an operator-specific entry point (`oadd`, `omul`, and so on), rather than
 passing an operator string through a generic dispatch at every instruction.
@@ -38,9 +60,9 @@ until their explicit ABI form is added.
 
 The tagged scalar ABI preserves the declared width of `u8`, `u16`, `u32`,
 `u64`, `byte`, `i8`, `i16`, `i32`, and `i64` literals and casts. Narrow
-integers stay on this path until they have an unboxed specialization with the
-same wrapping and overflow contract; they must never be widened silently to
-`u64` in generated output.
+integers not covered by the proven unboxed subsets stay on this path until they
+have the same wrapping and overflow contract; they must never be widened
+silently to `u64` in generated output.
 
 Within the tagged ABI, same-family fixed-width integer `+`, `-`, `*`, exact
 division, remainder, bitwise operations, shifts, unary negation, and `abs`
@@ -200,7 +222,7 @@ arena-registering constructor. Borrowed pointers must never refer to Go memory.
 | `i8`–`i64` same-family arithmetic | Preserve signed width in tagged helpers; proven unboxed paths report signed overflow. | Minimum-value negation and overflowing arithmetic report a native diagnostic. |
 | Integer `/ %` | Exact same-family division/remainder only. | Divide/remainder by zero, non-exact division, and mixed-family integer arithmetic require a non-native numeric path. |
 | Integer shifts/bitwise | Tagged width-preserving operators only. | Invalid shift ranges and mixed signed/unsigned operations are rejected rather than delegated to C undefined behavior. |
-| `f32` / `f64` | Preserve explicit width metadata and native shortest-roundtrip rendering. | Domain operations that produce forbidden NaN/infinity return a native failure. |
+| `f32` / `f64` | Preserve explicit width metadata and native shortest-roundtrip rendering; proven scalar `/` and `%` lower directly with zero-divisor checks. f32 remainder follows f64 `fmod` then narrows; the tagged fallback uses the same rule. | Domain operations that produce forbidden NaN/infinity return a native failure. |
 | Complex | Use explicit real/imaginary arithmetic and checked zero divisor. | Ordering comparisons are rejected. |
 | Decimal, rational, bigint, interval, fixed, wide/packed families | No general native scalar lowering. | Compiler emits a stable unsupported-lowering diagnostic; never maps these to C `double` or integer arithmetic. |
 | Integer exponentiation | No direct libm lowering. | `pow`/`expt` wait for exact integer-power and promotion parity. |

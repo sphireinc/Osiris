@@ -1,0 +1,12 @@
+# Native-lowering benchmark for loop-carried f64 arithmetic. BENCH_ITERS in
+# bench.sh replaces the literal bound while retaining the explicit f64 type.
+# It exercises direct comparison, addition, division, remainder, and canonical
+# shortest-roundtrip output without relying on a compile-time snapshot.
+let i = 0.0f64
+let total = 0.0f64
+while i < 1000000.0f64 {
+  let ratio = (i + 1.0f64) / 3.0f64
+  let total = total + ratio % 2.0f64
+  let i = i + 1.0f64
+}
+emit total

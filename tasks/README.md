@@ -21,7 +21,7 @@ boundaries and dependencies make parallel work safe.
 
 ### Wave 3 - scale, security, and future language work
 
-043, 044, 045, 046, 047, 048
+043, 044, 045, 046, 047, 048, 049
 
 ## Parallelism cautions
 
@@ -29,13 +29,15 @@ boundaries and dependencies make parallel work safe.
 - Do not parallelize module tasks 033/036/037 without explicit ownership.
 - Documentation tasks 039/040 can start after task 022 defines the support matrix.
 - Release task 041 should wait for the toolchain and artifact-versioning tasks.
+- TCP tuning task 049 must wait for task 011's cancellation/error contract and
+  task 012's portable polling boundary; benchmark before claiming a gain.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–048.
+  next-step metadata for tasks 001–049.
 - `completed/`: finished task records with validation evidence.
-- `tasks/`: current audit task files (019–048).
+- `tasks/`: current audit task files (019–049).
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

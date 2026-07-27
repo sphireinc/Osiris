@@ -23,12 +23,14 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 ## Current selection
 
-- **Active:** task 011 defines the minimal TCP client/server capability on the
-  completed resolution and scheduler contracts. Tasks 012–014 remain ready
-  behind it.
+- **Active:** task 049 establishes a measured TCP baseline and only then tunes
+  the completed task-011 TCP correctness and task-012 polling foundations.
+  Task 014's host-error mapping, deterministic cancellation, safe native errno
+  metadata, and recursive redaction contract are complete.
 - **Documentation:** tasks 039 and 040 are complete. `newdocs/` is the
-  canonical componentized React reference, while `docs/` retains design and
-  compatibility material only.
+  canonical componentized React reference and owns public API/reference data,
+  examples, and the support matrix. `docs/` retains frozen compatibility and
+  durable design material only.
 - **Native stream:** task 004 remains the historical umbrella for the
   in-progress C lowering work. Use `index.tsv` dependency/status fields rather
   than this summary when selecting later native tasks.
@@ -37,11 +39,11 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 Tasks 019–022 live under `tasks/completed/`. Their completion records name
 commands, tests, and documentation evidence. In particular, task 022’s public
-contract is `docs/support-matrix.json`, validated by
+contract is `newdocs/src/support-matrix.json`, validated by
 `internal/osiris/support_matrix_test.go`.
 
 ## Historical material
 
 The large async, error, polling, and type phase files are preserved under
 `tasks/archive/roadmaps/`. They are design source, not an implementation queue.
-Their extracted actionable work is represented by tasks 006–018 and 024–048.
+Their extracted actionable work is represented by tasks 006–018 and 024–049.

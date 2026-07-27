@@ -1,14 +1,20 @@
+import languageSections from './language-reference.json' with { type: 'json' };
 import manual from './legacy-reference.json' with { type: 'json' };
+
+export { languageSections };
 
 function entryFromLegacy(groupID, item) {
   return {
+    kind: item.kind || 'function',
     name: item.name,
+	aliases: item.members || [],
     signature: item.syntax,
     description: item.summary,
-    parameters: item.members?.length ? `Supported family members: ${item.members.join(', ')}.` : undefined,
+    parameters: item.parameters || (item.members?.length ? `Supported family members: ${item.members.join(', ')}.` : `Arguments and their order are defined by ${item.syntax}.`),
     returns: item.returns,
     returnValue: item.details?.[0],
     details: item.details,
+    errors: item.errors,
     example: item.example,
     exampleStatus: groupID === 'io' ? 'sandbox-required' : item.example.startsWith('emit ') ? 'checked' : 'illustrative',
   };
@@ -56,6 +62,7 @@ const typeModule = {
   }, {
     title: 'Type reference',
     entries: manual.types.map((type) => ({
+      kind: 'type',
       name: type.name,
       signature: type.name,
       description: type.summary,
@@ -190,8 +197,15 @@ export const chapters = manual.sections.map((chapter) => ({
   cards: chapter.cards || [],
 }));
 
+const languageSearchModule = {
+  id: 'language',
+  label: 'Language',
+  summary: 'Core syntax and semantics.',
+  sections: languageSections,
+};
+
 export function searchEntries(query) {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  return modules.flatMap((module) => module.sections.flatMap((section) => section.entries.map((entry) => ({ module, section, entry })))).filter(({ module, section, entry }) => [module.label, module.summary, section.title, entry.name, entry.signature, entry.description, entry.parameters, entry.returns, entry.returnValue, entry.details?.join(' '), entry.example].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  return [...modules, languageSearchModule].flatMap((module) => module.sections.flatMap((section) => section.entries.map((entry) => ({ module, section, entry })))).filter(({ module, section, entry }) => [module.label, module.summary, section.title, entry.name, entry.aliases?.join(' '), entry.signature, entry.description, entry.parameters, entry.returns, entry.returnValue, entry.details?.join(' '), entry.errors, entry.native, entry.example].filter(Boolean).join(' ').toLowerCase().includes(needle));
 }

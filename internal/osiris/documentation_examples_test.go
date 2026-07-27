@@ -22,6 +22,10 @@ func TestCanonicalDocumentationExamples(t *testing.T) {
 		ID    string `json:"id"`
 		Items []item `json:"items"`
 	}
+	type languageSection struct {
+		Title   string `json:"title"`
+		Entries []item `json:"entries"`
+	}
 	var reference struct {
 		Groups []group `json:"groups"`
 	}
@@ -32,13 +36,29 @@ func TestCanonicalDocumentationExamples(t *testing.T) {
 	if err := json.Unmarshal(data, &reference); err != nil {
 		t.Fatal(err)
 	}
+	data, err = os.ReadFile(filepath.Join("..", "..", "newdocs", "src", "language-reference.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var language []languageSection
+	if err := json.Unmarshal(data, &language); err != nil {
+		t.Fatal(err)
+	}
+	for _, section := range language {
+		reference.Groups = append(reference.Groups, group{ID: "language-" + strings.ToLower(strings.ReplaceAll(section.Title, " ", "-")), Items: section.Entries})
+	}
 	checked := 0
 	for _, group := range reference.Groups {
 		if group.ID == "io" {
 			continue
 		}
 		for _, item := range group.Items {
-			if !strings.HasPrefix(item.Example, "emit ") {
+			// The legacy reference deliberately retains concise illustrative
+			// fragments, which are executable only when they begin with emit.
+			// The React-owned language JSON uses complete snippets and may begin
+			// with a declaration before its observable emit.
+			languageExample := strings.HasPrefix(group.ID, "language-")
+			if (!languageExample && !strings.HasPrefix(item.Example, "emit ")) || (languageExample && !strings.Contains(item.Example, "emit ")) {
 				continue
 			}
 			source := item.Example + "\n"

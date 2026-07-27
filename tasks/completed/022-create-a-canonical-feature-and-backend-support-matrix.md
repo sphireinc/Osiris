@@ -40,12 +40,14 @@ Make feature claims precise across parser, interpreter, VM, native C, WASM, GPU,
 
 ## Completion record — 2026-07-24
 
-- Added `docs/support-matrix.json`, the canonical machine-readable contract for
-  every current reference chapter and standard module. Each row names parser,
+- Added the canonical machine-readable contract for every current reference
+  chapter and standard module. It now lives at
+  `newdocs/src/support-matrix.json`, alongside the React public reference that
+  renders it. Each row names parser,
   interpreter, VM, native C, WASM, GPU, formatter, and LSP state, its evidence,
   and the limitation behind every non-stable state.
-- Added `docs/support.html` and `docs/support.js`, which render that JSON at
-  the documentation site rather than maintaining a second handwritten table.
+- The React support route renders that JSON without a second handwritten table.
+  The old static support page remains frozen compatibility material only.
 - Added `internal/osiris/support_matrix_test.go` and the CI-invoked
   `scripts/check-support-matrix.sh`. They validate the schema, all state
   values, complete reference-page coverage, existing documentation links, and

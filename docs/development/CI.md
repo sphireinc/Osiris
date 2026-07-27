@@ -21,8 +21,9 @@ runtime currently aborts during its own initialization before a generated
 executable begins, so it is an explicit skip rather than a false correctness
 signal.
 
-`newdocs/` is the public React reference source. CI checks its migrated
-content, search contract, compatibility redirects, and deterministic build.
-The dedicated Pages workflow publishes it from `main`. `docs/` is retained
-only as legacy source material; its former URLs are emitted as redirects in the
-published site.
+`newdocs/` is the canonical public React reference source, including its
+checked-in API and support-matrix data. CI checks its content, search contract,
+compatibility redirects, executable examples, and deterministic build. The
+dedicated Pages workflow publishes it from `main`. `docs/` is retained only as
+frozen legacy compatibility and durable design material; its former URLs are
+emitted as redirects in the published site.

@@ -1,0 +1,54 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/sphireinc/osiris/internal/osiris
+cpu: Apple M1 Pro
+BenchmarkTCPLoopbackRoundTrip64B
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19746	     63796 ns/op	   1.02 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   18979	     62501 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19039	     62788 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   18949	     63407 ns/op	   1.03 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   18967	     63123 ns/op	   1.03 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19141	     62728 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19125	     62743 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19122	     62855 ns/op	   1.03 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19093	     63063 ns/op	   1.03 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19099	     62670 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19130	     62706 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19147	     62933 ns/op	   1.03 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19105	     62749 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19108	     62679 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64B-10       	   19131	     62711 ns/op	   1.04 MB/s	     480 B/op	       6 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5882	    201334 ns/op	 325.51 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    6063	    214241 ns/op	 305.90 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5785	    205852 ns/op	 318.37 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5856	    201342 ns/op	 325.50 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5882	    203136 ns/op	 322.63 MB/s	  574881 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5766	    207771 ns/op	 315.43 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5102	    207055 ns/op	 316.52 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5451	    200048 ns/op	 327.61 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5845	    201692 ns/op	 324.94 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5883	    200989 ns/op	 326.07 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5911	    201660 ns/op	 324.99 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5870	    201641 ns/op	 325.02 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5692	    202329 ns/op	 323.91 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    6006	    202161 ns/op	 324.18 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackRoundTrip64KiB-10     	    5868	    202154 ns/op	 324.19 MB/s	  574880 B/op	      46 allocs/op
+BenchmarkTCPLoopbackCancelledAccept
+BenchmarkTCPLoopbackCancelledAccept-10    	14451322	        82.91 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14306762	        83.24 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14348810	        83.18 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14488976	        84.36 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14037468	        85.35 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14438564	        83.24 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14486185	        83.66 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14319872	        83.13 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14397840	        83.28 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14472288	        83.09 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14446785	        83.24 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14472171	        83.21 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14543955	        84.54 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14400828	        83.94 ns/op	      96 B/op	       2 allocs/op
+BenchmarkTCPLoopbackCancelledAccept-10    	14425510	        84.32 ns/op	      96 B/op	       2 allocs/op
+PASS
+ok  	github.com/sphireinc/osiris/internal/osiris	65.062s

@@ -169,6 +169,17 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		if err != nil {
 			return nil, false, err
 		}
+		if st.Unwrap {
+			value, err := s.ev.eval(expr, s.scope)
+			if err != nil {
+				return nil, false, err
+			}
+			value, err = unwrapBinding(value)
+			if err != nil {
+				return nil, false, err
+			}
+			expr = &literalExpr{value: value}
+		}
 		s.scope = &scope{
 			parent: s.scope,
 			items: map[string]binding{
@@ -384,6 +395,17 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 				expr, err := s.expandExpr(st.Expr, cur)
 				if err != nil {
 					return nullValue(), cur, err
+				}
+				if st.Unwrap {
+					value, err := s.ev.eval(expr, cur)
+					if err != nil {
+						return nullValue(), cur, err
+					}
+					value, err = unwrapBinding(value)
+					if err != nil {
+						return nullValue(), cur, err
+					}
+					expr = &literalExpr{value: value}
 				}
 				cur = &scope{
 					parent: cur,

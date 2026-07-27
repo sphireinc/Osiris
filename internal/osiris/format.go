@@ -64,7 +64,11 @@ func formatStmt(stmt Stmt) string {
 		}
 		return "enum " + s.Name + " { " + strings.Join(cases, ", ") + " }"
 	case letStmt:
-		return "let " + s.Name + " = " + formatExpr(s.Expr, 0)
+		prefix := "let "
+		if s.Unwrap {
+			prefix = "let? "
+		}
+		return prefix + s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:
 		return "emit " + formatEmitExpr(s.Expr)
 	case macroStmt:

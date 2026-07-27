@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-# The current public site is authored static HTML. Keep its local reference
-# links valid while Task 039 decides whether newdocs becomes the public source.
+# `docs/` is frozen compatibility material. Keep its tracked local links
+# intact, but validate the public React source separately below.
 for page in docs/*.html; do
   [ -f "$page" ] || continue
   grep -q 'style.css' "$page" || { printf '%s\n' "missing stylesheet reference: $page" >&2; exit 1; }
@@ -12,6 +12,6 @@ for page in docs/*.html; do
   done
 done
 
-[ -f docs/support-matrix.json ] || { printf '%s\n' 'missing canonical support matrix' >&2; exit 1; }
 [ -f newdocs/package.json ] || { printf '%s\n' 'missing newdocs package manifest' >&2; exit 1; }
-printf '%s\n' 'Static documentation checks passed.'
+[ -f newdocs/src/support-matrix.json ] || { printf '%s\n' 'missing canonical React support matrix' >&2; exit 1; }
+printf '%s\n' 'Legacy compatibility documentation checks passed.'

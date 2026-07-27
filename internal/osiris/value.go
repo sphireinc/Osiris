@@ -40,19 +40,22 @@ const (
 	kindModule
 	kindEnum
 	kindDual
+	kindTCPListener
 )
 
 type callable = Builtin
+type contextCallable func(context.Context, []Value) (Value, error)
 
 type moduleLookup func(ctx context.Context, name string) (Value, error)
 
 type functionValue struct {
-	name    string
-	builtin callable
-	params  []string
-	body    Expr
-	closure *scope
-	session *Session
+	name           string
+	builtin        callable
+	contextBuiltin contextCallable
+	params         []string
+	body           Expr
+	closure        *scope
+	session        *Session
 }
 
 type moduleValue struct {
@@ -78,41 +81,42 @@ type dualValue struct {
 }
 
 type Value struct {
-	kind   valueKind
-	num    float64
-	fbits  uint16
-	bfloat bool
-	dec    *big.Rat
-	fx     *fixedValue
-	iv     *intervalValue
-	mi     *modIntValue
-	cx     complex128
-	bi     *big.Int
-	bf     *big.Float
-	i      *big.Int
-	ibits  uint16
-	qty    *quantityValue
-	u      uint64
-	bits   uint8
-	ub     *big.Int
-	ubits  uint16
-	packed bool
-	native bool
-	boo    bool
-	str    string
-	list   []Value
-	shape  []int
-	data   []Value
-	stream *streamValue
-	task   *taskValue
-	err    *OsirisError
-	errMsg string
-	res    *resultValue
-	opt    *optionValue
-	fn     *functionValue
-	mod    *moduleValue
-	enum   *enumValue
-	dual   *dualValue
+	kind     valueKind
+	num      float64
+	fbits    uint16
+	bfloat   bool
+	dec      *big.Rat
+	fx       *fixedValue
+	iv       *intervalValue
+	mi       *modIntValue
+	cx       complex128
+	bi       *big.Int
+	bf       *big.Float
+	i        *big.Int
+	ibits    uint16
+	qty      *quantityValue
+	u        uint64
+	bits     uint8
+	ub       *big.Int
+	ubits    uint16
+	packed   bool
+	native   bool
+	boo      bool
+	str      string
+	list     []Value
+	shape    []int
+	data     []Value
+	stream   *streamValue
+	task     *taskValue
+	err      *OsirisError
+	errMsg   string
+	res      *resultValue
+	opt      *optionValue
+	fn       *functionValue
+	mod      *moduleValue
+	enum     *enumValue
+	dual     *dualValue
+	listener *tcpListener
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -232,6 +236,10 @@ func complexValueStyled(v complex128, bits uint16) Value {
 
 func dualValueOf(primal, tangent float64) Value {
 	return Value{kind: kindDual, dual: &dualValue{primal: primal, tangent: tangent}}
+}
+
+func tcpListenerValueOf(listener *tcpListener) Value {
+	return Value{kind: kindTCPListener, listener: listener}
 }
 
 // errorValue handles the error value step in the surrounding package and
@@ -373,6 +381,13 @@ func functionValueOf(name string, fn callable) Value {
 	return Value{kind: kindFunction, fn: &functionValue{name: name, builtin: fn}}
 }
 
+// contextFunctionValueOf constructs a builtin whose blocking work must observe
+// the evaluator/session context. Interpreter and VM callers both pass their
+// current context at the invocation boundary.
+func contextFunctionValueOf(name string, fn contextCallable) Value {
+	return Value{kind: kindFunction, fn: &functionValue{name: name, contextBuiltin: fn}}
+}
+
 // userFunctionValue handles the user function value step in the surrounding
 // package and returns Value.
 //
@@ -451,6 +466,9 @@ func (v Value) Kind() string {
 	if v.kind == kindDual {
 		return "dual"
 	}
+	if v.kind == kindTCPListener {
+		return "tcp_listener"
+	}
 	if v.kind == kindFixed && v.fx != nil {
 		return fmt.Sprintf("fixed[%d,%d]", v.fx.width, v.fx.frac)
 	}
@@ -524,6 +542,8 @@ func (k valueKind) String() string {
 		return "enum"
 	case kindDual:
 		return "dual"
+	case kindTCPListener:
+		return "tcp_listener"
 	default:
 		return "<?>"
 	}
@@ -555,6 +575,8 @@ func (v Value) Truthy() bool {
 		return real(v.cx) != 0 || imag(v.cx) != 0
 	case kindDual:
 		return v.dual != nil && (v.dual.primal != 0 || v.dual.tangent != 0)
+	case kindTCPListener:
+		return v.listener != nil && v.listener.listener != nil
 	case kindError:
 		return false
 	case kindResult:
@@ -890,6 +912,13 @@ func (v Value) AsStream() (*streamValue, error) {
 		return nil, fmt.Errorf("expected stream, got %s", v.kind)
 	}
 	return v.stream, nil
+}
+
+func (v Value) AsTCPListener() (*tcpListener, error) {
+	if v.kind != kindTCPListener || v.listener == nil {
+		return nil, fmt.Errorf("expected tcp listener, got %s", v.kind)
+	}
+	return v.listener, nil
 }
 
 // Int operates on Value values and keeps the value-specific behavior attached
@@ -1660,6 +1689,11 @@ func (v Value) String() string {
 			return "dual(0, 0)"
 		}
 		return "dual(" + formatNumber(v.dual.primal) + ", " + formatNumber(v.dual.tangent) + ")"
+	case kindTCPListener:
+		if v.listener == nil {
+			return "<tcp-listener>"
+		}
+		return "<tcp-listener " + v.listener.address() + ">"
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.String()
@@ -1810,6 +1844,11 @@ func (v Value) toInterface() any {
 			return map[string]any{"dual": []float64{0, 0}}
 		}
 		return map[string]any{"dual": []float64{v.dual.primal, v.dual.tangent}}
+	case kindTCPListener:
+		if v.listener == nil {
+			return nil
+		}
+		return map[string]any{"tcp_listener": v.listener.address()}
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.publicInterface()

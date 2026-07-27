@@ -12,6 +12,7 @@ const (
 	vmOpConst vmOp = iota
 	vmOpLoadName
 	vmOpBind
+	vmOpResultBind
 	vmOpUnary
 	vmOpBinary
 	vmOpCall
@@ -151,6 +152,11 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		reg, err := c.compileExpr(st.Expr)
 		if err != nil {
 			return err
+		}
+		if st.Unwrap {
+			unwrapped := c.alloc()
+			c.emit(vmInstr{op: vmOpResultBind, dst: unwrapped, a: reg})
+			reg = unwrapped
 		}
 		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
 		return nil
@@ -520,6 +526,10 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				regs[instr.dst] = v
 				continue
 			}
+			if fn, ok := r.rt.ContextBuiltins[instr.name]; ok {
+				regs[instr.dst] = contextFunctionValueOf(instr.name, fn)
+				continue
+			}
 			if fn, ok := r.rt.Builtins[instr.name]; ok {
 				regs[instr.dst] = functionValueOf(instr.name, fn)
 				continue
@@ -527,6 +537,12 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			return nullValue(), fmt.Errorf("undefined name %q", instr.name)
 		case vmOpBind:
 			r.frame.bind(instr.name, regs[instr.a])
+		case vmOpResultBind:
+			value, err := unwrapBinding(regs[instr.a])
+			if err != nil {
+				return nullValue(), err
+			}
+			regs[instr.dst] = value
 		case vmOpUnary:
 			v, err := applyUnary(instr.tok, regs[instr.a])
 			if err != nil {
@@ -562,6 +578,14 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			}
 			if callee.fn.builtin != nil {
 				out, err := callee.fn.builtin(args)
+				if err != nil {
+					return nullValue(), err
+				}
+				regs[instr.dst] = out
+				continue
+			}
+			if callee.fn.contextBuiltin != nil {
+				out, err := callee.fn.contextBuiltin(r.ctx, args)
 				if err != nil {
 					return nullValue(), err
 				}
@@ -1042,7 +1066,7 @@ func exprContainsControl(expr Expr) bool {
 	case *callExpr:
 		if name, ok := specialFormName(n.callee); ok {
 			switch name {
-			case "spawn", "await", "cancel", "parallel", "timeout", "race", "select", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
+			case "spawn", "await", "cancel", "parallel", "timeout", "race", "select", "map", "map_error", "flat_map", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
 				return true
 			}
 		}
