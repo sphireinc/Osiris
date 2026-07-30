@@ -24,9 +24,14 @@ all recorded dependencies satisfied and is the next selection candidate.
 ## Current selection
 
 - **Active:** none. Tasks 001–049 and 100–104 are complete.
-- **Ready:** task 105 defines and enforces canonical reference-entry ordering.
+- **Ready (P1 correctness):** task 107 fixes the confirmed interpreter stack
+  overflow caused by deep lazy loop-carried binding chains.
+- **Ready (P2 documentation):** task 105 defines and enforces canonical
+  reference-entry ordering.
 - **Blocked:** task 106 adds `#page/entry` deep links and per-page tables of
-  contents after task 105 establishes the order those links display.
+  contents after task 105 establishes the order those links display. Task 108
+  makes `emit` consistent in synchronous blocks after task 107 finishes the
+  overlapping evaluator repair.
 - **Documentation:** tasks 039 and 040 are complete. `newdocs/` is the
   canonical componentized React reference and owns public API/reference data,
   examples, and the support matrix. `docs/` retains frozen compatibility and
@@ -35,7 +40,10 @@ all recorded dependencies satisfied and is the next selection candidate.
   catalog and exact reference indexes. Task 101's duration constants remain qualified
   under `std/time`; task 104's same-spelled globals are quantity values.
   Task 106 must consume task 105's ordered arrays rather than defining another
-  comparator in the navigation component.
+  comparator in the navigation component. Task 107 is independent of the
+  reference-navigation sequence and should take priority as a runtime
+  correctness defect. Task 108 follows task 107 and must not reintroduce eager
+  binding or per-iteration output into the arithmetic benchmarks.
 
 ## Completed evidence
 

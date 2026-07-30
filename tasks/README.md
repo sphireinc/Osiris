@@ -27,7 +27,11 @@ boundaries and dependencies make parallel work safe.
 
 100, 101, 102, 103, 104
 
-### Wave 5 - reference ordering and navigation
+### Wave 5 - runtime correctness and output semantics
+
+107, then 108
+
+### Wave 6 - reference ordering and navigation
 
 105, then 106
 
@@ -44,14 +48,21 @@ boundaries and dependencies make parallel work safe.
   global measurement quantities.
 - Task 106 depends on task 105. Its table of contents must reuse the canonical
   ordered entry arrays rather than creating an independent UI sort.
+- Task 107 is independent of tasks 105 and 106 and takes priority as a
+  confirmed runtime correctness defect. Do not make lazy bindings globally
+  eager to fix its benchmark symptom.
+- Task 108 depends on task 107 because both touch evaluator/block execution.
+  It must use a separate small emission fixture and keep the arithmetic
+  benchmarks checksum-only.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049 and 100–106.
+  next-step metadata for tasks 001–049 and 100–108.
 - `completed/`: finished task records with validation evidence.
-- repository-root tasks 105 and 106: the remaining canonical-reference
-  ordering and navigation tasks. Tasks 100–104 are under `completed/`.
+- repository-root tasks 105–108: canonical-reference ordering/navigation,
+  the lazy loop-binding stack-overflow repair, and consistent synchronous
+  `emit` semantics. Tasks 100–104 are under `completed/`.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

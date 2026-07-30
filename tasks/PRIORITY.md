@@ -7,15 +7,22 @@ human shortcut and must agree with it.
 
 No task is active. Tasks 001–049 and 100–104 are complete.
 
+## Ready — runtime correctness
+
+1. 107: eliminate the confirmed Go stack overflow when large iterative loops
+   build and then demand deep lazy loop-carried binding chains.
+
 ## Ready — reference navigation
 
-1. 105: define and enforce deterministic ordering inside every canonical
+2. 105: define and enforce deterministic ordering inside every canonical
    reference-page section.
 
 ## Blocked
 
 - 106: add `#page/entry` deep-link routing and accessible “On This Page”
   navigation after task 105 fixes the canonical listing order.
+- 108: make `emit` a consistent ordered statement in synchronous executable
+  blocks after task 107 completes the overlapping evaluator work.
 
 ## Completed — scoped surface expansion
 

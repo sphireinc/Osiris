@@ -4,9 +4,12 @@
 # shortest-roundtrip output without relying on a compile-time snapshot.
 let i = 0.0f64
 let total = 0.0f64
+emit i
+emit total
 while i < 1000000.0f64 {
   let ratio = (i + 1.0f64) / 3.0f64
   let total = total + ratio % 2.0f64
   let i = i + 1.0f64
+  emit i
 }
 emit total
