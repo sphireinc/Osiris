@@ -1,0 +1,1767 @@
+{
+  "groups": [
+    {
+      "id": "core",
+      "items": [
+        {
+          "name": "format",
+          "syntax": "format(template, values...)",
+          "returns": "`string`",
+          "summary": "Render runtime values with a Go-style formatting template.",
+          "details": [
+            "The first argument is a `string` template. Remaining Osiris values are converted to host-facing scalar or aggregate representations and supplied to the template in source order.",
+            "Use ordinary interpolation-free text helpers when a host formatting verb is unnecessary; malformed or mismatched verbs are rendered according to the underlying formatter rather than parsed as Osiris syntax."
+          ],
+          "errors": "At least one argument is required, and the first argument must be a `string`.",
+          "example": "emit format(\"%s:%d\", \"item\", 3)\n# \"item:3\""
+        }
+      ]
+    },
+    {
+      "id": "text",
+      "items": [
+        {
+          "name": "compare",
+          "syntax": "text.compare(left, right)",
+          "parameters": "`left` and `right` are UTF-8 strings.",
+          "returns": "`i64`",
+          "summary": "Perform a locale-independent three-way lexical comparison.",
+          "details": [
+            "The result is `-1i64` when `left` sorts before `right`, `0i64` when they are equal, and `1i64` when `left` sorts after `right`.",
+            "Valid UTF-8 text is ordered lexicographically by Unicode code point. Empty strings compare before non-empty strings."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.compare(\"café\", \"世界\") # -1i64"
+        },
+        {
+          "name": "equal_fold",
+          "syntax": "text.equal_fold(left, right)",
+          "parameters": "`left` and `right` are UTF-8 strings.",
+          "returns": "`bool`",
+          "summary": "Test strings for equality with Unicode simple case folding.",
+          "details": [
+            "The comparison is locale-independent and follows Unicode simple folding; it does not normalize combining sequences or perform locale-sensitive collation.",
+            "Two empty strings compare equal. Greek sigma forms such as `Σ` and `ς` belong to the same simple-fold class."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.equal_fold(\"Σ\", \"ς\") # true"
+        },
+        {
+          "name": "contains",
+          "syntax": "text.contains(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`bool`",
+          "summary": "Report whether a substring occurs in a string.",
+          "details": [
+            "Matching is exact, case-sensitive, and based on complete UTF-8 substring sequences.",
+            "The empty needle is present in every string, including the empty string."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.contains(\"naïve café\", \"café\") # true"
+        },
+        {
+          "name": "contains_any",
+          "syntax": "text.contains_any(value, code_points)",
+          "parameters": "`value` is searched for any Unicode code point listed in the `code_points` string.",
+          "returns": "`bool`",
+          "summary": "Report whether a string contains any member of a Unicode code-point set.",
+          "details": [
+            "`code_points` is a set of characters, not a substring, byte set, or regular expression.",
+            "An empty code-point set always returns `false`, including for an empty input."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.contains_any(\"rhythm世\", \"ae世\") # true"
+        },
+        {
+          "name": "has_prefix",
+          "syntax": "text.has_prefix(value, prefix)",
+          "parameters": "`value` and `prefix` are UTF-8 strings.",
+          "returns": "`bool`",
+          "summary": "Report whether a string begins with an exact prefix.",
+          "details": [
+            "The comparison is case-sensitive and does not normalize Unicode.",
+            "Every string has the empty prefix."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.has_prefix(\"世界\", \"世\") # true"
+        },
+        {
+          "name": "has_suffix",
+          "syntax": "text.has_suffix(value, suffix)",
+          "parameters": "`value` and `suffix` are UTF-8 strings.",
+          "returns": "`bool`",
+          "summary": "Report whether a string ends with an exact suffix.",
+          "details": [
+            "The comparison is case-sensitive and does not normalize Unicode.",
+            "Every string has the empty suffix."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.has_suffix(\"café\", \"fé\") # true"
+        },
+        {
+          "name": "count",
+          "syntax": "text.count(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`u64`",
+          "summary": "Count non-overlapping occurrences of a substring.",
+          "details": [
+            "Repeated matches do not overlap, so `count(\"aaaa\", \"aa\")` is `2u64`.",
+            "An empty needle matches before the first code point and after every code point: the result is one plus the Unicode code-point count."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.count(\"a世\", \"\") # 3u64"
+        },
+        {
+          "name": "index",
+          "syntax": "text.index(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`option<u64>`",
+          "summary": "Find the first occurrence of a substring by Unicode code-point index.",
+          "details": [
+            "A match returns `some(index)` and an absent needle returns `none()`; there is no `-1` sentinel.",
+            "Indexes count Unicode code points rather than UTF-8 bytes. An empty needle returns `some(0u64)`."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.index(\"a世b\", \"b\") # some(2u64)"
+        },
+        {
+          "name": "index_any",
+          "syntax": "text.index_any(value, code_points)",
+          "parameters": "`value` is searched for any Unicode code point listed in the `code_points` string.",
+          "returns": "`option<u64>`",
+          "summary": "Find the first member of a Unicode code-point set.",
+          "details": [
+            "The result is a zero-based Unicode code-point index, not a UTF-8 byte offset.",
+            "An empty set or an absent member returns `none()`."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.index_any(\"αβç\", \"çx\") # some(2u64)"
+        },
+        {
+          "name": "last_index",
+          "syntax": "text.last_index(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`option<u64>`",
+          "summary": "Find the last occurrence of a substring by Unicode code-point index.",
+          "details": [
+            "A match returns `some(index)` and an absent needle returns `none()`.",
+            "An empty needle matches at the end and returns the Unicode code-point length of `value`."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.last_index(\"é-é\", \"é\") # some(2u64)"
+        },
+        {
+          "name": "last_index_any",
+          "syntax": "text.last_index_any(value, code_points)",
+          "parameters": "`value` is searched backward for any Unicode code point listed in the `code_points` string.",
+          "returns": "`option<u64>`",
+          "summary": "Find the last member of a Unicode code-point set.",
+          "details": [
+            "The result is a zero-based Unicode code-point index, not a UTF-8 byte offset.",
+            "An empty set or an absent member returns `none()`."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.last_index_any(\"a世b世\", \"世\") # some(3u64)"
+        },
+        {
+          "name": "cut",
+          "syntax": "text.cut(value, separator)",
+          "parameters": "`value` and `separator` are UTF-8 strings.",
+          "returns": "`option<list<string>>`",
+          "summary": "Cut a string around the first separator.",
+          "details": [
+            "A present separator returns `some([before, after])`, excluding the separator; an absent separator returns `none()`.",
+            "The empty separator is present at the start and returns `some([\"\", value])`."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.cut(\"key=value=tail\", \"=\") # some([\"key\", \"value=tail\"])"
+        },
+        {
+          "name": "cut_prefix",
+          "syntax": "text.cut_prefix(value, prefix)",
+          "parameters": "`value` and `prefix` are UTF-8 strings.",
+          "returns": "`option<string>`",
+          "summary": "Remove an exact prefix and report whether it was present.",
+          "details": [
+            "A present prefix returns the remaining string in `some`; an absent prefix returns `none()`.",
+            "The empty prefix is always present and returns the original value."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.cut_prefix(\"unhappy\", \"un\") # some(\"happy\")"
+        },
+        {
+          "name": "cut_suffix",
+          "syntax": "text.cut_suffix(value, suffix)",
+          "parameters": "`value` and `suffix` are UTF-8 strings.",
+          "returns": "`option<string>`",
+          "summary": "Remove an exact suffix and report whether it was present.",
+          "details": [
+            "A present suffix returns the preceding string in `some`; an absent suffix returns `none()`.",
+            "The empty suffix is always present and returns the original value."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.cut_suffix(\"report.txt\", \".txt\") # some(\"report\")"
+        },
+        {
+          "name": "fields",
+          "syntax": "text.fields(value)",
+          "parameters": "`value` is one UTF-8 string.",
+          "returns": "`list<string>`",
+          "summary": "Split text into non-empty fields separated by Unicode whitespace.",
+          "details": [
+            "Runs of spaces, tabs, newlines, and other Unicode whitespace act as one boundary and do not create empty fields.",
+            "An empty or whitespace-only input returns an empty list."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.fields(\"  alpha\\u2003β\\t\") # [\"alpha\", \"β\"]"
+        },
+        {
+          "name": "split_after",
+          "syntax": "text.split_after(value, separator)",
+          "parameters": "`value` and `separator` are UTF-8 strings.",
+          "returns": "`list<string>`",
+          "summary": "Split after every separator, retaining each separator in its preceding part.",
+          "details": [
+            "Adjacent and trailing separators are preserved in the returned pieces instead of being discarded.",
+            "An empty separator splits after each Unicode code point. Empty input with an empty separator returns an empty list."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.split_after(\"a,,b\", \",\") # [\"a,\", \",\", \"b\"]"
+        },
+        {
+          "name": "split_n",
+          "syntax": "text.split_n(value, separator, n)",
+          "parameters": "`value` and `separator` are UTF-8 strings. `n` is an exact integral default number, signed/unsigned integer, or `bigint` that fits the host allocation index width.",
+          "returns": "`list<string>`",
+          "summary": "Split around a separator with an explicit result limit.",
+          "details": [
+            "`n < 0` returns every substring, `n == 0` returns an empty list, and positive `n` returns at most `n` substrings with the unsplit remainder in the last element.",
+            "An empty separator splits between Unicode code points; a positive limit still bounds the result count."
+          ],
+          "errors": "Wrong arity, invalid kinds, a non-integral limit, or a limit outside the host allocation index width produces a structured error.",
+          "example": "emit text.split_n(\"a,,b\", \",\", 2) # [\"a\", \",b\"]"
+        },
+        {
+          "name": "split_after_n",
+          "syntax": "text.split_after_n(value, separator, n)",
+          "parameters": "`value` and `separator` are UTF-8 strings. `n` is an exact integral default number, signed/unsigned integer, or `bigint` that fits the host allocation index width.",
+          "returns": "`list<string>`",
+          "summary": "Split after a separator with an explicit result limit.",
+          "details": [
+            "`n < 0` returns every part, `n == 0` returns an empty list, and positive `n` returns at most `n` parts with the unsplit remainder in the last element.",
+            "Matched separators remain attached to their preceding parts. An empty separator splits after Unicode code points."
+          ],
+          "errors": "Wrong arity, invalid kinds, a non-integral limit, or a limit outside the host allocation index width produces a structured error.",
+          "example": "emit text.split_after_n(\"a,,b\", \",\", 2) # [\"a,\", \",b\"]"
+        },
+        {
+          "name": "trim_space",
+          "syntax": "text.trim_space(value)",
+          "parameters": "`value` is one UTF-8 string.",
+          "returns": "`string`",
+          "summary": "Remove leading and trailing Unicode whitespace.",
+          "details": [
+            "The whitespace definition includes non-ASCII Unicode space code points.",
+            "An empty string and a whitespace-only string both return an empty string. `trim` is the preserved original spelling."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim_space(\"\\u2003osiris\\u00a0\") # \"osiris\""
+        },
+        {
+          "name": "trim_left",
+          "syntax": "text.trim_left(value, code_points)",
+          "parameters": "`value` is trimmed from the start while its code points belong to the set listed in `code_points`.",
+          "returns": "`string`",
+          "summary": "Remove a Unicode code-point set from the start of a string.",
+          "details": [
+            "`code_points` is a character set, not a prefix, substring, byte set, or regular expression.",
+            "An empty set leaves the value unchanged."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim_left(\"¡¡hola!!\", \"¡\") # \"hola!!\""
+        },
+        {
+          "name": "trim_right",
+          "syntax": "text.trim_right(value, code_points)",
+          "parameters": "`value` is trimmed from the end while its code points belong to the set listed in `code_points`.",
+          "returns": "`string`",
+          "summary": "Remove a Unicode code-point set from the end of a string.",
+          "details": [
+            "`code_points` is a character set, not a suffix, substring, byte set, or regular expression.",
+            "An empty set leaves the value unchanged."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim_right(\"¡¡hola!!\", \"!\") # \"¡¡hola\""
+        },
+        {
+          "name": "trim_prefix",
+          "syntax": "text.trim_prefix(value, prefix)",
+          "parameters": "`value` and `prefix` are UTF-8 strings.",
+          "returns": "`string`",
+          "summary": "Remove one exact prefix when present.",
+          "details": [
+            "Unlike `cut_prefix`, absence is not represented separately: an absent prefix returns the original value.",
+            "An empty prefix also leaves the value unchanged."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim_prefix(\"foobar\", \"foo\") # \"bar\""
+        },
+        {
+          "name": "trim_suffix",
+          "syntax": "text.trim_suffix(value, suffix)",
+          "parameters": "`value` and `suffix` are UTF-8 strings.",
+          "returns": "`string`",
+          "summary": "Remove one exact suffix when present.",
+          "details": [
+            "Unlike `cut_suffix`, absence is not represented separately: an absent suffix returns the original value.",
+            "An empty suffix also leaves the value unchanged."
+          ],
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim_suffix(\"foobar\", \"bar\") # \"foo\""
+        },
+        {
+          "name": "replace_n",
+          "syntax": "text.replace_n(value, old, replacement, n)",
+          "parameters": "`value`, `old`, and `replacement` are UTF-8 strings. `n` is an exact integral default number, signed/unsigned integer, or `bigint` that fits the host allocation index width.",
+          "returns": "`string`",
+          "summary": "Replace a bounded number of non-overlapping substring occurrences.",
+          "details": [
+            "`n < 0` replaces every occurrence, `n == 0` returns the original value, and positive `n` replaces at most the first `n` matches.",
+            "An empty `old` value matches before the first code point and after each code point; `n` still limits inserted replacements."
+          ],
+          "errors": "Wrong arity, invalid kinds, a non-integral or out-of-range limit, or a result too large for the host allocation limit produces a structured error.",
+          "example": "emit text.replace_n(\"aaa\", \"a\", \"世\", 2) # \"世世a\""
+        }
+      ]
+    },
+    {
+      "id": "math",
+      "items": [
+        {
+          "name": "pi",
+          "members": [
+            "tau"
+          ],
+          "syntax": "math.pi  math.tau",
+          "returns": "`number`",
+          "summary": "Read the standard-library circle constants.",
+          "details": [
+            "`math.pi` is π and `math.tau` is 2π. They are immutable `number` values exported by `std/math`.",
+            "Global named constants `Pi`/`pi` and `Tau`/`tau` are also available; the qualified spellings make the module dependency explicit."
+          ],
+          "example": "emit math.pi\nemit math.tau"
+        },
+        {
+          "name": "atan2",
+          "syntax": "math.atan2(y, x)",
+          "parameters": "`y` and `x` are `number`, `f32`, `f64`, or bfloat values. Exact integers and decimal families require an explicit floating conversion.",
+          "returns": "floating-point number",
+          "summary": "Return the quadrant-aware angle of the point `(x, y)` in radians.",
+          "details": [
+            "The result lies in `[-Pi, Pi]` and retains the promoted floating width and style of both arguments.",
+            "IEEE signed zeros, infinities, and NaNs determine the quadrant and exceptional result without host error text."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.atan2(0.0, -1.0) # 3.141592653589793"
+        },
+        {
+          "name": "exp2",
+          "syntax": "math.exp2(x)",
+          "parameters": "`x` is a floating-point number.",
+          "returns": "floating-point number",
+          "summary": "Compute two raised to a floating-point power.",
+          "details": [
+            "The result retains the input floating width and style. Finite underflow produces positive zero.",
+            "NaN and infinite inputs follow IEEE behavior; a finite input whose result overflows its retained width is rejected."
+          ],
+          "errors": "Finite overflow produces structured `out_of_range`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.exp2(10.0) # 1024"
+        },
+        {
+          "name": "trunc",
+          "syntax": "math.trunc(x)",
+          "parameters": "`x` is a floating-point number.",
+          "returns": "floating-point number",
+          "summary": "Round a floating value toward zero without changing its family.",
+          "details": [
+            "Fractional digits are discarded and the input width and bfloat style are retained.",
+            "Signed zero, NaN, and infinity are preserved according to IEEE arithmetic."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.trunc(-3.75) # -3"
+        },
+        {
+          "name": "fmod",
+          "syntax": "math.fmod(dividend, divisor)",
+          "parameters": "Both arguments are floating-point numbers; `divisor` must be non-zero.",
+          "returns": "floating-point number",
+          "summary": "Return the truncating floating-point remainder.",
+          "details": [
+            "The result is `dividend - trunc(dividend / divisor) * divisor`, carries the dividend's sign, and uses the promoted floating style.",
+            "NaN and infinity otherwise follow IEEE remainder behavior."
+          ],
+          "errors": "A zero divisor produces structured `invalid_argument`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.fmod(5.5, 2.0) # 1.5"
+        },
+        {
+          "name": "remainder",
+          "syntax": "math.remainder(dividend, divisor)",
+          "parameters": "Both arguments are floating-point numbers; `divisor` must be non-zero.",
+          "returns": "floating-point number",
+          "summary": "Return the IEEE remainder using a nearest-integer quotient.",
+          "details": [
+            "The quotient is rounded to the nearest integer with ties to even before the product is subtracted.",
+            "The result uses the promoted floating width and can differ in sign from `fmod`."
+          ],
+          "errors": "A zero divisor produces structured `invalid_argument`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.remainder(5.5, 2.0) # -0.5"
+        },
+        {
+          "name": "fma",
+          "syntax": "math.fma(x, y, addend)",
+          "parameters": "All three arguments are floating-point numbers.",
+          "returns": "floating-point number",
+          "summary": "Compute `x * y + addend` with one fused rounding step.",
+          "details": [
+            "The host fused operation is evaluated once and then narrowed to the promoted Osiris floating family.",
+            "Overflow, NaN, infinity, and signed-zero results remain IEEE floating values."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.fma(2.0, 3.0, 4.0) # 10"
+        },
+        {
+          "name": "positive_difference",
+          "syntax": "math.positive_difference(x, y)",
+          "parameters": "`x` and `y` are floating-point numbers.",
+          "returns": "floating-point number",
+          "summary": "Return `x - y` when positive, otherwise positive zero.",
+          "details": [
+            "The result uses the promoted floating family and always returns `+0` for a finite non-positive difference.",
+            "If subtraction is indeterminate, including equal infinities, the result is NaN."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.positive_difference(3.0, 5.0) # 0"
+        },
+        {
+          "name": "copysign",
+          "syntax": "math.copysign(magnitude, sign)",
+          "parameters": "`magnitude` and `sign` are floating-point numbers.",
+          "returns": "floating-point number",
+          "summary": "Copy only the sign bit of one floating value onto another.",
+          "details": [
+            "The absolute value comes from `magnitude`; the sign bit, including negative zero or a signed NaN, comes from `sign`.",
+            "The result uses the promoted floating width and style."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.copysign(3.0, -0.0) # -3"
+        },
+        {
+          "name": "nextafter",
+          "syntax": "math.nextafter(from, toward)",
+          "parameters": "`from` and `toward` are floating-point numbers.",
+          "returns": "floating-point number",
+          "summary": "Step from one floating value to its adjacent representable value toward another.",
+          "details": [
+            "Fully `f32` arguments use the adjacent `f32` value; default and `f64` forms use the adjacent binary64 value.",
+            "Equal inputs return `toward`, preserving its signed zero. NaNs propagate."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.nextafter(1.0, 2.0) # 1.0000000000000002"
+        },
+        {
+          "name": "frexp",
+          "syntax": "math.frexp(value)",
+          "parameters": "`value` is a floating-point number.",
+          "returns": "`list[floating-point, i64]`",
+          "summary": "Decompose a floating value into a binary fraction and exponent.",
+          "details": [
+            "The two-element result is `[fraction, exponent]` with `value == fraction * 2^exponent`; non-zero finite fractions have magnitude in `[0.5, 1)`.",
+            "The fraction retains the input floating family. Zero, infinity, and NaN return exponent `0i64`."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.frexp(8.0) # [0.5, 4i64]"
+        },
+        {
+          "name": "ldexp",
+          "syntax": "math.ldexp(fraction, exponent)",
+          "parameters": "`fraction` is floating-point; `exponent` is an exact default, signed, unsigned, or `bigint` integer in host range.",
+          "returns": "floating-point number",
+          "summary": "Scale a floating value by an exact power of two.",
+          "details": [
+            "The result is `fraction * 2^exponent` rounded once to the fraction's retained floating family.",
+            "Finite underflow returns a signed zero. NaN and infinity propagate."
+          ],
+          "errors": "An out-of-range exponent or finite overflow produces structured `out_of_range`; invalid kinds and arity are also structured.",
+          "example": "emit math.ldexp(0.5, 4) # 8"
+        },
+        {
+          "name": "modf",
+          "syntax": "math.modf(value)",
+          "parameters": "`value` is a floating-point number.",
+          "returns": "`list[floating-point, floating-point]`",
+          "summary": "Split a floating value into integral and fractional parts.",
+          "details": [
+            "The two-element result is `[integer, fraction]`; both elements retain the input floating family.",
+            "Both parts preserve the input sign for zero. Infinity yields `[infinity, signed zero]`; NaN yields two NaNs."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.modf(-3.25) # [-3, -0.25]"
+        },
+        {
+          "name": "isfinite",
+          "syntax": "math.isfinite(value)",
+          "parameters": "`value` is floating-point or complex.",
+          "returns": "`bool`",
+          "summary": "Report whether every component is finite.",
+          "details": [
+            "A real value is finite when it is neither infinity nor NaN.",
+            "A complex value is finite only when both real and imaginary components are finite."
+          ],
+          "errors": "Wrong arity or another value kind produces a structured error.",
+          "example": "emit math.isfinite(1.0) # true"
+        },
+        {
+          "name": "isinf",
+          "syntax": "math.isinf(value)",
+          "parameters": "`value` is floating-point or complex.",
+          "returns": "`bool`",
+          "summary": "Report whether a value contains an infinity.",
+          "details": [
+            "A real value is infinite when it is positive or negative infinity.",
+            "A complex value is infinite when either component is infinite, even if the other component is NaN."
+          ],
+          "errors": "Wrong arity or another value kind produces a structured error.",
+          "example": "emit math.isinf(1.0) # false"
+        },
+        {
+          "name": "isnan",
+          "syntax": "math.isnan(value)",
+          "parameters": "`value` is floating-point or complex.",
+          "returns": "`bool`",
+          "summary": "Report whether a value is NaN.",
+          "details": [
+            "A real value is NaN when its IEEE payload represents not-a-number.",
+            "A complex value is NaN when either component is NaN and neither component is infinite."
+          ],
+          "errors": "Wrong arity or another value kind produces a structured error.",
+          "example": "emit math.isnan(1.0) # false"
+        },
+        {
+          "name": "isnormal",
+          "syntax": "math.isnormal(value)",
+          "parameters": "`value` is a floating-point number.",
+          "returns": "`bool`",
+          "summary": "Report whether a floating value is finite, non-zero, and not subnormal.",
+          "details": [
+            "The normal threshold follows binary32 for explicit widths through `32` and binary64 for default or wider families.",
+            "Zero, subnormal values, infinities, and NaNs return `false`."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.isnormal(1.0) # true"
+        },
+        {
+          "name": "signbit",
+          "syntax": "math.signbit(value)",
+          "parameters": "`value` is a floating-point number.",
+          "returns": "`bool`",
+          "summary": "Inspect the sign bit of a floating value.",
+          "details": [
+            "Negative finite values, negative infinity, and negative zero return `true`.",
+            "The sign bit is inspected directly; the operation does not compare the value with zero."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.signbit(-0.0) # true"
+        },
+        {
+          "name": "degrees",
+          "syntax": "math.degrees(radians)",
+          "parameters": "`radians` is a floating-point number.",
+          "returns": "floating-point number",
+          "summary": "Convert an angle from radians to degrees.",
+          "details": [
+            "The conversion multiplies by `180 / Pi` and retains the input floating family.",
+            "Infinity and NaN follow ordinary IEEE multiplication."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.degrees(math.pi) # 180"
+        },
+        {
+          "name": "radians",
+          "syntax": "math.radians(degrees)",
+          "parameters": "`degrees` is a floating-point number.",
+          "returns": "floating-point number",
+          "summary": "Convert an angle from degrees to radians.",
+          "details": [
+            "The conversion multiplies by `Pi / 180` and retains the input floating family.",
+            "Infinity and NaN follow ordinary IEEE multiplication."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.radians(180.0) # 3.141592653589793"
+        },
+        {
+          "name": "sinpi",
+          "syntax": "math.sinpi(x)",
+          "parameters": "`x` is a floating-point number measured in half-turns.",
+          "returns": "floating-point number",
+          "summary": "Compute `sin(Pi * x)` with exact integer and half-integer reduction.",
+          "details": [
+            "Integer inputs return exact signed zero and half-integers return exact `-1` or `1`, avoiding multiplication-rounding noise.",
+            "Finite values are reduced modulo two before evaluation; infinity and NaN produce NaN."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.sinpi(0.5) # 1"
+        },
+        {
+          "name": "cospi",
+          "syntax": "math.cospi(x)",
+          "parameters": "`x` is a floating-point number measured in half-turns.",
+          "returns": "floating-point number",
+          "summary": "Compute `cos(Pi * x)` with exact integer and half-integer reduction.",
+          "details": [
+            "Integer inputs return exact `-1` or `1`; half-integers return exact positive zero.",
+            "Finite values are reduced modulo two before evaluation; infinity and NaN produce NaN."
+          ],
+          "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "example": "emit math.cospi(1.0) # -1"
+        },
+        {
+          "name": "tanpi",
+          "syntax": "math.tanpi(x)",
+          "parameters": "`x` is a floating-point number measured in half-turns.",
+          "returns": "floating-point number",
+          "summary": "Compute `tan(Pi * x)` with exact period reduction.",
+          "details": [
+            "Integer inputs return exact signed zero and quarter-turns return exact `-1` or `1`.",
+            "Half-integers are mathematical poles and are rejected instead of returning a platform-dependent large finite value."
+          ],
+          "errors": "A half-integer produces structured `invalid_argument`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.tanpi(0.25) # 1"
+        },
+        {
+          "name": "divmod",
+          "syntax": "math.divmod(dividend, divisor)",
+          "parameters": "Arguments are exact `int`, `uint`, `bigint`, or integral default-number values; `divisor` must be non-zero.",
+          "returns": "`list[integer, integer]`",
+          "summary": "Compute an exact integer quotient and remainder together.",
+          "details": [
+            "The two-element result is `[quotient, remainder]`, with quotient truncated toward zero and remainder carrying the dividend's sign.",
+            "Matching signed or unsigned fixed-width inputs retain their family; mixed or arbitrary-precision inputs return exact `bigint` elements."
+          ],
+          "errors": "A zero divisor produces structured `invalid_argument`; non-integral values, unsupported exact families, and wrong arity are structured errors.",
+          "example": "emit math.divmod(17, 5) # [3u64, 2u64]"
+        },
+        {
+          "name": "gcd",
+          "syntax": "math.gcd(a, b)",
+          "parameters": "`a` and `b` are exact `int`, `uint`, `bigint`, or integral default-number values.",
+          "returns": "non-negative exact integer",
+          "summary": "Compute the greatest common divisor of two exact integers.",
+          "details": [
+            "The result is always non-negative and `gcd(0, 0)` is zero.",
+            "Two unsigned fixed-width inputs retain their promoted width and packed style; other input combinations return `bigint`."
+          ],
+          "errors": "Non-integral values, unsupported exact families, or wrong arity produce a structured error.",
+          "example": "emit math.gcd(48, 18) # 6u64"
+        },
+        {
+          "name": "lcm",
+          "syntax": "math.lcm(a, b)",
+          "parameters": "`a` and `b` are exact `int`, `uint`, `bigint`, or integral default-number values.",
+          "returns": "non-negative exact integer",
+          "summary": "Compute the least common multiple of two exact integers.",
+          "details": [
+            "The result is zero when either input is zero and is otherwise `abs(a / gcd(a, b) * b)`.",
+            "Two unsigned inputs retain their promoted width when the result fits; overflow widens to `bigint` rather than wrapping."
+          ],
+          "errors": "Non-integral values, unsupported exact families, or wrong arity produce a structured error.",
+          "example": "emit math.lcm(48, 18) # 144u64"
+        },
+        {
+          "name": "count_ones",
+          "syntax": "math.count_ones(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`u64`",
+          "summary": "Count set bits across the value's declared width.",
+          "details": [
+            "The count includes every one bit from bit zero through `width - 1`.",
+            "Zero returns `0u64`; the input value and packed style are not changed."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.count_ones(0xf0u8) # 4u64"
+        },
+        {
+          "name": "count_zeros",
+          "syntax": "math.count_zeros(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`u64`",
+          "summary": "Count zero bits across the value's declared width.",
+          "details": [
+            "The result is the declared width minus `count_ones(value)`.",
+            "Zero therefore returns the full declared width."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.count_zeros(0xf0u8) # 4u64"
+        },
+        {
+          "name": "leading_zeros",
+          "syntax": "math.leading_zeros(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`u64`",
+          "summary": "Count zero bits before the highest set bit.",
+          "details": [
+            "The declared width, rather than a host machine word, defines the left edge.",
+            "Zero returns the full declared width."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.leading_zeros(0x0fu8) # 4u64"
+        },
+        {
+          "name": "trailing_zeros",
+          "syntax": "math.trailing_zeros(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`u64`",
+          "summary": "Count zero bits after the lowest set bit.",
+          "details": [
+            "Counting begins at bit zero and stops at the first one bit.",
+            "Zero returns the full declared width."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.trailing_zeros(0xf0u8) # 4u64"
+        },
+        {
+          "name": "bit_width",
+          "syntax": "math.bit_width(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`u64`",
+          "summary": "Return the number of bits needed to represent an unsigned value.",
+          "details": [
+            "A non-zero result is one more than the index of the highest set bit.",
+            "Zero has bit width `0u64`."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.bit_width(0xf0u8) # 8u64"
+        },
+        {
+          "name": "bit_floor",
+          "syntax": "math.bit_floor(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "same unsigned family as `value`",
+          "summary": "Return the greatest power of two no larger than an unsigned value.",
+          "details": [
+            "Zero returns zero. Every non-zero result contains exactly one set bit.",
+            "The declared width and packed/native style are retained."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.bit_floor(129u8) # 128u8"
+        },
+        {
+          "name": "bit_ceil",
+          "syntax": "math.bit_ceil(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "same unsigned family as `value`",
+          "summary": "Return the least power of two no smaller than an unsigned value.",
+          "details": [
+            "Zero and one return one. Existing powers of two are unchanged.",
+            "The declared width and packed/native style are retained; a next power outside that width never wraps."
+          ],
+          "errors": "An unrepresentable next power produces structured `out_of_range`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.bit_ceil(65u8) # 128u8"
+        },
+        {
+          "name": "has_single_bit",
+          "syntax": "math.has_single_bit(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "`bool`",
+          "summary": "Report whether an unsigned value is a non-zero power of two.",
+          "details": [
+            "Exactly one bit must be set inside the declared width.",
+            "Zero returns `false`."
+          ],
+          "errors": "Wrong arity or a non-unsigned value produces a structured error.",
+          "example": "emit math.has_single_bit(128u8) # true"
+        },
+        {
+          "name": "byte_swap",
+          "syntax": "math.byte_swap(value)",
+          "parameters": "`value` is a byte-aligned fixed-width unsigned value, including packed `ufN` families.",
+          "returns": "same unsigned family as `value`",
+          "summary": "Reverse byte order across an unsigned value's full declared width.",
+          "details": [
+            "Bits inside each byte keep their order; only the byte positions are reversed.",
+            "The result preserves width and packed/native style, including widths greater than 64 bits."
+          ],
+          "errors": "Non-byte-aligned widths produce structured `unsupported`; wrong arity or kind also produces a structured error.",
+          "example": "emit math.byte_swap(0x1234u16) # 13330u16"
+        },
+        {
+          "name": "phase",
+          "syntax": "math.phase(value)",
+          "parameters": "`value` is a complex scalar.",
+          "returns": "floating-point number",
+          "summary": "Return a complex value's phase angle in radians.",
+          "details": [
+            "The result lies in `[-Pi, Pi]` and retains the complex component width.",
+            "Signed imaginary zero selects the side of the negative-real branch cut: `-1+0i` has phase `Pi`, while `-1-0i` has phase `-Pi`."
+          ],
+          "errors": "Wrong arity or a non-complex value produces a structured error.",
+          "example": "emit math.phase(complex(0.0, 1.0)) # 1.5707963267948966"
+        }
+      ]
+    },
+    {
+      "id": "tensor",
+      "items": [
+        {
+          "name": "clone",
+          "syntax": "clone(tensor)",
+          "returns": "`tensor`",
+          "summary": "Create a tensor with independent shape and element storage.",
+          "details": [
+            "`clone` preserves the source tensor's shape and values while allocating independent backing slices.",
+            "Use it at an ownership boundary when subsequent implementation-level mutation must not alias the original tensor."
+          ],
+          "errors": "Exactly one `tensor` argument is required.",
+          "example": "emit clone(tensor([[1, 2], [3, 4]]))\n# tensor[2x2]([1u64, 2u64, 3u64, 4u64])"
+        },
+        {
+          "name": "view",
+          "syntax": "view(tensor)",
+          "returns": "`tensor`",
+          "summary": "Create a tensor value that shares shape and element storage.",
+          "details": [
+            "`view` is the explicit aliasing counterpart to `clone`: it returns the same logical shape and values but shares backing slices.",
+            "Osiris source operations are value-oriented today; the alias remains relevant to optimizer, host-integration, and future mutable-buffer ownership analysis."
+          ],
+          "errors": "Exactly one `tensor` argument is required.",
+          "example": "emit view(tensor([1, 2, 3]))\n# tensor[3]([1u64, 2u64, 3u64])"
+        }
+      ]
+    },
+    {
+      "id": "io",
+      "items": [
+        {
+          "name": "read_async",
+          "members": [
+            "readbytes_async",
+            "write_async",
+            "lines_async",
+            "csv_async",
+            "jsonparse_async"
+          ],
+          "syntax": "read_async(path)\nreadbytes_async(path)\nwrite_async(path, data)\nlines_async(data)\ncsv_async(data)\njsonparse_async(data)",
+          "returns": "`task`",
+          "summary": "Run one blocking file or data helper inside an explicit task.",
+          "details": [
+            "Arguments are evaluated before the task is created. The matching blocking operation then runs inside the task and its value or structured failure is observed with `await`.",
+            "These wrappers do not change the underlying file format or parsing contract. They provide task composition; they do not expose an operating-system asynchronous file API."
+          ],
+          "errors": "Arity, type, file, encoding, and parse failures are retained by the task and propagate from `await`. An active session is required.",
+          "example": "let pending = read_async(\"__OSIRIS_DOC_TMP__/input.txt\")\nemit await(pending) # \"first line\\nsecond line\\n\""
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "items": [
+        {
+          "name": "json",
+          "syntax": "json(value)",
+          "returns": "`string`",
+          "summary": "Serialize one Osiris value to JSON text.",
+          "details": [
+            "`json` uses the public value codec for scalars and supported aggregate values, including structured enum and error records.",
+            "Use `jsonparse` for the inverse text-to-value direction. Some runtime resources such as tasks, streams, functions, and modules are not serializable values."
+          ],
+          "errors": "Exactly one serializable value is required; unsupported runtime resources produce an error.",
+          "example": "emit json([1, true, \"osiris\"])\n# \"[1,true,\\\"osiris\\\"]\""
+        },
+        {
+          "name": "band",
+          "members": [
+            "bor",
+            "bxor"
+          ],
+          "syntax": "band(a, b, values...)\nbor(a, b, values...)\nbxor(a, b, values...)",
+          "returns": "fixed-width unsigned integer",
+          "summary": "Fold bitwise AND, OR, or XOR across two or more unsigned values.",
+          "details": [
+            "The result preserves the selected unsigned width and packed style. Every operation is masked to that width.",
+            "The infix spellings `&`, `|`, and `^` perform the corresponding binary operation."
+          ],
+          "errors": "At least two unsigned integer-compatible arguments are required.",
+          "example": "emit band(0xf0u8, 0x3cu8)\nemit bor(0x10u8, 0x03u8)\nemit bxor(0xffu8, 0x0fu8)"
+        },
+        {
+          "name": "bnot",
+          "syntax": "bnot(value)",
+          "returns": "fixed-width unsigned integer",
+          "summary": "Invert every bit inside an unsigned value's declared width.",
+          "details": [
+            "`bnot` preserves width and packed style and is equivalent to the unary `~` operator.",
+            "Bits outside the declared width are discarded."
+          ],
+          "errors": "Exactly one unsigned integer-compatible value is required.",
+          "example": "emit bnot(0x0fu8)\n# 240u8"
+        },
+        {
+          "name": "shl",
+          "members": [
+            "shr"
+          ],
+          "syntax": "shl(value, count)\nshr(value, count)",
+          "returns": "fixed-width unsigned integer",
+          "summary": "Shift an unsigned value left or right within its declared width.",
+          "details": [
+            "`shl` and `shr` are function spellings for `<<` and `>>`. Results retain the left operand's width and packed style.",
+            "For the ordinary width-at-most-64 path, the shift count is reduced modulo 64; values are masked after a left shift."
+          ],
+          "errors": "Exactly two unsigned integer-compatible arguments are required; an unrepresentable wide shift count is rejected.",
+          "example": "emit shl(1u8, 3)\nemit shr(128u8, 2)"
+        },
+        {
+          "name": "rotl",
+          "members": [
+            "rotr"
+          ],
+          "syntax": "rotl(value, count)\nrotr(value, count)",
+          "returns": "fixed-width unsigned integer",
+          "summary": "Rotate an unsigned value left or right inside its declared bit width.",
+          "details": [
+            "Rotation wraps displaced bits around the other edge and preserves the input width and packed style.",
+            "The count is reduced modulo the declared width, so rotating by a full width returns the same value."
+          ],
+          "errors": "Exactly two unsigned integer-compatible arguments are required; an unrepresentable wide count is rejected.",
+          "example": "emit rotl(129u8, 1)\nemit rotr(3u8, 1)"
+        },
+        {
+          "kind": "guide",
+          "name": "fixed-width bit inspection",
+          "syntax": "math.count_ones(value)  math.bit_width(value)  math.bit_floor(value)  math.byte_swap(value)",
+          "parameters": "`value` is an explicit fixed-width unsigned or packed unsigned value.",
+          "returns": "a `u64` count, `bool`, or width-preserving unsigned result, depending on the selected operation",
+          "summary": "Inspect bit populations and boundaries or transform byte order without losing declared width.",
+          "details": [
+            "The complete family is `count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`, `bit_width`, `bit_floor`, `bit_ceil`, `has_single_bit`, and `byte_swap`.",
+            "Their individual `std/math` listings define zero, overflow, packed-style, and byte-alignment behavior. These helpers never substitute the host machine word width."
+          ],
+          "errors": "Invalid kinds, wrong arity, an unrepresentable `bit_ceil`, or a non-byte-aligned `byte_swap` produce structured errors.",
+          "example": "emit math.count_ones(0xf0u8) # 4u64"
+        }
+      ]
+    },
+    {
+      "id": "constants",
+      "title": "Constants and Units",
+      "summary": "Global mathematical constants, physical constants, metric prefixes, units, and structured-error kind values.",
+      "items": [
+        {
+          "name": "SI base units",
+          "members": [
+            "Meter",
+            "meter",
+            "m",
+            "Second",
+            "second",
+            "s",
+            "Kilogram",
+            "kilogram",
+            "kg",
+            "Ampere",
+            "ampere",
+            "A",
+            "Kelvin",
+            "kelvin",
+            "K",
+            "Mole",
+            "mole",
+            "mol",
+            "Candela",
+            "candela",
+            "cd"
+          ],
+          "syntax": "Meter | meter | m\nSecond | second | s\nKilogram | kilogram | kg\nAmpere | ampere | A\nKelvin | kelvin | K\nMole | mole | mol\nCandela | candela | cd",
+          "returns": "`quantity`",
+          "summary": "Use the seven SI base-unit values in long, lowercase, or symbol form.",
+          "details": [
+            "Each spelling denotes a unit-magnitude `quantity` with a canonical dimension. Aliases are equal values; choose the spelling that is clearest in the surrounding expression.",
+            "Multiply or divide numeric values and units explicitly, for example `3 * meter` or `10 * m / s`."
+          ],
+          "example": "emit 3 * meter\nemit 10 * m / s"
+        },
+        {
+          "name": "SI derived units",
+          "members": [
+            "Hertz",
+            "hertz",
+            "Hz",
+            "Newton",
+            "newton",
+            "N",
+            "Pascal",
+            "pascal",
+            "Pa",
+            "Joule",
+            "joule",
+            "J",
+            "Watt",
+            "watt",
+            "W",
+            "Coulomb",
+            "coulomb",
+            "C",
+            "Volt",
+            "volt",
+            "V",
+            "Farad",
+            "farad",
+            "F",
+            "Ohm",
+            "ohm",
+            "Siemens",
+            "siemens",
+            "S",
+            "Weber",
+            "weber",
+            "Wb",
+            "Tesla",
+            "tesla",
+            "T",
+            "Henry",
+            "henry",
+            "H",
+            "Lumen",
+            "lumen",
+            "lm",
+            "Lux",
+            "lux",
+            "lx",
+            "Becquerel",
+            "becquerel",
+            "Bq",
+            "Gray",
+            "gray",
+            "Gy",
+            "Sievert",
+            "sievert",
+            "Sv",
+            "Katal",
+            "katal",
+            "kat"
+          ],
+          "syntax": "Hertz | Hz; Newton | N; Pascal | Pa; Joule | J; Watt | W; Coulomb | C; Volt | V; Farad | F; Ohm; Siemens | S; Weber | Wb; Tesla | T; Henry | H; Lumen | lm; Lux | lx; Becquerel | Bq; Gray | Gy; Sievert | Sv; Katal | kat",
+          "returns": "`quantity`",
+          "summary": "Use named SI derived-unit values with their canonical dimension vectors.",
+          "details": [
+            "Long names also have lowercase aliases. Symbols are case-sensitive: `Pa`, `Wb`, `Gy`, and `Sv` are distinct identifiers.",
+            "Derived units participate in the same exact quantity arithmetic and compatibility checks as products of base units."
+          ],
+          "example": "emit 12 * newton\nemit 60 * Hz"
+        },
+        {
+          "name": "time and volume units",
+          "members": [
+            "Liter",
+            "liter",
+            "litre",
+            "L",
+            "Minute",
+            "minute",
+            "min",
+            "Hour",
+            "hour",
+            "h",
+            "Day",
+            "day",
+            "d",
+            "Week",
+            "week"
+          ],
+          "syntax": "Liter | liter | litre | L\nMinute | minute | min\nHour | hour | h\nDay | day | d\nWeek | week",
+          "returns": "`quantity`",
+          "summary": "Use common scaled volume and time quantities.",
+          "details": [
+            "`Liter` is exactly one thousandth of a cubic `Meter`; the time units are exact multiples of `Second`.",
+            "These names are ordinary immutable global values, not numeric suffixes."
+          ],
+          "example": "emit 2 * liter\nemit 3 * hour"
+        },
+        {
+          "name": "mathematical constants",
+          "members": [
+            "Pi",
+            "pi",
+            "Tau",
+            "tau",
+            "E",
+            "e",
+            "Phi",
+            "phi",
+            "Percent",
+            "percent"
+          ],
+          "syntax": "Pi | pi; Tau | tau; E | e; Phi | phi; Percent | percent",
+          "returns": "`number`",
+          "summary": "Use built-in circle, exponential, golden-ratio, and percentage constants.",
+          "details": [
+            "`Pi`, `Tau`, `E`, and `Phi` use the runtime's default floating `number` representation. `Percent` is `0.01`.",
+            "Uppercase and lowercase spellings are equal immutable values. `std/math` also exports qualified `pi` and `tau`."
+          ],
+          "example": "emit Pi\nemit 25 * Percent"
+        },
+        {
+          "name": "physical constants",
+          "members": [
+            "SpeedOfLight",
+            "speedOfLight",
+            "c0",
+            "Planck",
+            "planck",
+            "ReducedPlanck",
+            "reducedPlanck",
+            "hbar",
+            "Avogadro",
+            "avogadro",
+            "NA",
+            "Boltzmann",
+            "boltzmann",
+            "kB",
+            "GasConstant",
+            "gasConstant",
+            "R",
+            "ElementaryCharge",
+            "elementaryCharge",
+            "q_e",
+            "GravitationalConstant",
+            "gravitationalConstant",
+            "G",
+            "StandardGravity",
+            "standardGravity",
+            "g0",
+            "FineStructure",
+            "fineStructure",
+            "alpha"
+          ],
+          "syntax": "SpeedOfLight | speedOfLight | c0\nPlanck | planck; ReducedPlanck | reducedPlanck | hbar\nAvogadro | avogadro | NA; Boltzmann | boltzmann | kB\nGasConstant | gasConstant | R; ElementaryCharge | elementaryCharge | q_e\nGravitationalConstant | gravitationalConstant | G\nStandardGravity | standardGravity | g0; FineStructure | fineStructure | alpha",
+          "returns": "`number` or dimensioned `quantity`",
+          "summary": "Use checked-in mathematical representations of common physical constants.",
+          "details": [
+            "Constants with dimensions are exact decimal `quantity` values; dimensionless constants are `number` values. Names and aliases are case-sensitive identifiers.",
+            "These values are deterministic language constants, not a metrology database. Code requiring a particular standards edition should record that requirement alongside its inputs."
+          ],
+          "example": "emit SpeedOfLight\nemit Planck"
+        },
+        {
+          "name": "metric prefixes",
+          "members": [
+            "kilo",
+            "mega",
+            "giga",
+            "tera",
+            "peta",
+            "exa",
+            "milli",
+            "micro",
+            "nano",
+            "pico",
+            "centi",
+            "deci",
+            "deca",
+            "hecto"
+          ],
+          "syntax": "kilo mega giga tera peta exa\nmilli micro nano pico centi deci deca hecto",
+          "returns": "`number`",
+          "summary": "Scale values with immutable decimal metric-prefix factors.",
+          "details": [
+            "The factors range from `pico` (`10^-12`) through `exa` (`10^18`) and combine with quantities through ordinary multiplication.",
+            "A prefix is an ordinary value: write `3 * kilo * meter`; juxtaposed unit literals are not a separate grammar."
+          ],
+          "example": "emit 3 * kilo * meter\nemit 250 * micro * second"
+        },
+        {
+          "name": "error kind constants",
+          "members": [
+            "UnknownError",
+            "InvalidArgument",
+            "NotFound",
+            "AlreadyExists",
+            "PermissionDenied",
+            "Unauthenticated",
+            "Unavailable",
+            "Timeout",
+            "Cancelled",
+            "Conflict",
+            "ResourceExhausted",
+            "OutOfMemory",
+            "OutOfRange",
+            "Unsupported",
+            "NotImplemented",
+            "ParseError",
+            "TypeError",
+            "EncodingError",
+            "IOError",
+            "NetworkError",
+            "DatabaseError",
+            "InternalError"
+          ],
+          "syntax": "UnknownError | InvalidArgument | NotFound | AlreadyExists | PermissionDenied | Unauthenticated | Unavailable | Timeout | Cancelled | Conflict | ResourceExhausted | OutOfMemory | OutOfRange | Unsupported | NotImplemented | ParseError | TypeError | EncodingError | IOError | NetworkError | DatabaseError | InternalError",
+          "returns": "canonical error-kind `string` value",
+          "summary": "Construct and classify structured errors without spelling unstable message text.",
+          "details": [
+            "Each constant evaluates to its canonical lowercase kind code, for example `InvalidArgument` becomes `\"invalid_argument\"`.",
+            "Pass these values to `error`, `wrap`, `matches`, or `is`; compare kinds rather than parsing user-facing messages."
+          ],
+          "example": "emit InvalidArgument\nemit matches(error(NotFound, \"missing\"), NotFound)"
+        }
+      ]
+    }
+  ],
+  "types": [
+    {
+      "name": "null",
+      "summary": "The single absence/no-value scalar."
+    },
+    {
+      "name": "string",
+      "summary": "Immutable UTF-8 text."
+    },
+    {
+      "name": "list",
+      "summary": "An ordered, heterogeneous value sequence."
+    },
+    {
+      "name": "error",
+      "summary": "An immutable structured failure record."
+    },
+    {
+      "name": "stream",
+      "summary": "An owned host-backed readable, writable, or duplex stream handle."
+    },
+    {
+      "name": "task",
+      "summary": "A handle to one explicit concurrent evaluation."
+    },
+    {
+      "name": "function",
+      "summary": "A callable value with positional parameters and optional lexical captures."
+    },
+    {
+      "name": "module",
+      "summary": "A named, versioned namespace of exported values."
+    },
+    {
+      "name": "enum",
+      "summary": "A nominal closed case value with optional payload fields."
+    },
+    {
+      "name": "tcp_listener",
+      "summary": "An owned host TCP listening resource."
+    },
+    {
+      "name": "duration",
+      "summary": "An immutable, exact signed 64-bit nanosecond interval used for elapsed-time arithmetic."
+    },
+    {
+      "name": "datetime",
+      "summary": "An immutable nanosecond-precision instant with retained UTC, fixed-offset, or IANA location identity."
+    },
+    {
+      "name": "location",
+      "summary": "An immutable UTC, fixed-offset, or IANA timezone rule set used to interpret and display datetimes."
+    }
+  ],
+  "languageSections": [
+    {
+      "title": "Lexical structure and expressions",
+      "entries": [
+        {
+          "kind": "construct",
+          "name": "comments and statement separators",
+          "aliases": [
+            "#",
+            "//",
+            ";"
+          ],
+          "signature": "# comment\n// comment\nstatement; statement",
+          "description": "Separate statements with whitespace or semicolons and attach line comments with either supported marker.",
+          "parameters": "Unicode whitespace is ignored. `#` and `//` consume through the end of the current line. `;` may separate statements explicitly and repeated semicolons are ignored.",
+          "returns": "No runtime value.",
+          "returnValue": "Comments are discarded by the lexer; separators only delimit syntax.",
+          "details": [
+            "A newline is whitespace rather than a token, so the parser uses complete statement and expression shapes to determine boundaries.",
+            "There are no block comments."
+          ],
+          "example": "let left = 2; let right = 3 // second binding\n# the next statement emits the sum\nemit left + right\n# 5u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "kind": "construct",
+          "name": "identifiers and keywords",
+          "aliases": [
+            "let",
+            "emit",
+            "macro",
+            "func",
+            "return",
+            "try",
+            "catch",
+            "while",
+            "for",
+            "in",
+            "break",
+            "continue",
+            "package",
+            "export",
+            "enum",
+            "import",
+            "match",
+            "switch",
+            "as",
+            "true",
+            "false",
+            "null"
+          ],
+          "signature": "identifier := letter-or-underscore { letter | digit | underscore }",
+          "description": "Name bindings with Unicode-aware identifiers while reserving the language's declaration, control-flow, and literal words.",
+          "parameters": "Reserved words are `let`, `emit`, `macro`, `func`, `return`, `try`, `catch`, `while`, `for`, `in`, `break`, `continue`, `package`, `export`, `enum`, `import`, `match`, `switch`, `as`, `true`, `false`, and `null`.",
+          "returns": "An identifier token or a reserved keyword token.",
+          "returnValue": "Pattern words `default`, `when`, `and`, and `not` are contextual identifiers rather than globally reserved keywords.",
+          "details": [
+            "Identifiers may start with `_` or any Unicode letter. Following characters may also be Unicode digits.",
+            "Names are case-sensitive."
+          ],
+          "example": "let Δ = 4\nlet _offset = 2\nemit Δ + _offset\n# 6u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "kind": "construct",
+          "name": "literal and aggregate expressions",
+          "aliases": [
+            "string literal",
+            "list literal",
+            "block expression"
+          ],
+          "signature": "number | \"string\" | true | false | null | [expressions…] | { statements…; tail }",
+          "description": "Construct scalar literals, ordered lists, and lexical block expressions directly in source.",
+          "parameters": "Strings recognize `\\n`, `\\r`, `\\t`, `\\\\`, and `\\\"`; an unknown escape contributes the escaped character. Lists evaluate items in source order. A block contains statements and an optional final expression.",
+          "returns": "The literal value, a `list`, or the block's tail value.",
+          "returnValue": "A block without a tail expression evaluates to `null`; its bindings remain local to that block.",
+          "details": [
+            "List values may contain mixed runtime kinds.",
+            "Numeric literal bases, separators, families, and suffixes are specified on the Types page and in the technical reference."
+          ],
+          "example": "let record = [\"line\\nfeed\", true, null]\nlet total = { let x = 4; x + 3 }\nemit record, total",
+          "exampleStatus": "checked"
+        },
+        {
+          "kind": "construct",
+          "name": "operators and evaluation order",
+          "aliases": [
+            "+",
+            "-",
+            "*",
+            "/",
+            "%",
+            "==",
+            "!=",
+            "<",
+            "<=",
+            ">",
+            ">=",
+            "&",
+            "|",
+            "^",
+            "~",
+            "<<",
+            ">>",
+            "&&",
+            "||",
+            "!"
+          ],
+          "signature": "unary: - ! ~\nbinary: * / % + - < <= > >= == != << >> & ^ | && ||",
+          "description": "Apply arithmetic, comparison, bitwise, shift, and logical operations with deterministic left-to-right operand evaluation.",
+          "parameters": "Binary operators are left-associative. From weakest to strongest: `||`; `&&`; `|`; `^`; `&`; `<<`/`>>`; prefix `-`/`!`/`~` in the current parser; `==`/`!=`; `<`/`<=`/`>`/`>=`; `+`/`-`; `*`/`/`/`%`; then calls, members, and postfix `?`.",
+          "returns": "An operator-specific scalar, aggregate, or `bool` value.",
+          "returnValue": "`&&` and `||` short-circuit and return `bool`. Numeric operators preserve width/style according to the operand rules.",
+          "details": [
+            "The current parser's prefix tier is intentionally reported exactly: `-1 + 2` parses as `-(1 + 2)` and evaluates to `-3`. Parenthesize unary operands when combining them with equality, comparison, additive, or multiplicative operators.",
+            "The named special forms `and(left, right)` and `or(left, right)` have the same lazy boolean behavior as `&&` and `||`."
+          ],
+          "example": "emit 2 + 3 * 4\nemit false && panic(\"not evaluated\")\nemit 0xf0u8 & 0x3cu8",
+          "exampleStatus": "checked"
+        },
+        {
+          "kind": "construct",
+          "name": "calls, members, and propagation",
+          "aliases": [
+            "call expression",
+            "member expression",
+            "postfix ?"
+          ],
+          "signature": "callee(arguments…)\nvalue.member\nfallible?",
+          "description": "Call functions and special forms, resolve module or record members, and propagate fallible values.",
+          "parameters": "Ordinary call arguments evaluate in source order. Member access resolves modules, enums, and supported structured values. Postfix `?` accepts a `Result` or `Option`.",
+          "returns": "The callee result, selected member, or unwrapped success/present payload.",
+          "returnValue": "A failed `Result` or empty `Option` exits the current function boundary with its structured failure.",
+          "details": [
+            "Calls, members, and postfix propagation form the strongest postfix expression tier and may be chained.",
+            "`let? name = expression` is the statement-level unwrapping form."
+          ],
+          "example": "func add1(value) => value + 1\nlet? value = some(4)\nemit add1(value)\n# 5u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "kind": "construct",
+          "name": "truthiness",
+          "signature": "if(value, when_truthy, when_falsey)",
+          "description": "Convert any runtime value to the boolean condition used by control-flow and logical forms.",
+          "parameters": "Falsey values are `null`, `false`, numeric zero, empty text/list/tensor, structured errors, failed `Result` values, and `ok` whose payload is falsey. An empty `Option` is falsey; every present `Option` is truthy even when its payload is falsey.",
+          "returns": "`bool` when observed through `!`, `&&`, `||`, `and`, or `or`; branch forms use the conversion without returning it.",
+          "returnValue": "Functions and modules are always truthy. Live streams, tasks, and TCP listeners are truthy.",
+          "details": [
+            "Zero tests preserve each numeric family's representation, including decimal, fixed, interval, modular, complex, dual, bigint, bigfloat, signed, unsigned, and quantity values.",
+            "An interval is falsey only when both endpoints are zero."
+          ],
+          "example": "emit if([], \"truthy\", \"falsey\")\nemit if(some(false), \"present\", \"absent\")",
+          "exampleStatus": "checked"
+        }
+      ]
+    },
+    {
+      "title": "Logical special forms",
+      "entries": [
+        {
+          "name": "and",
+          "aliases": [
+            "or"
+          ],
+          "signature": "and(left, right)\nor(left, right)",
+          "description": "Evaluate lazy boolean conjunction or disjunction in call-shaped syntax.",
+          "parameters": "Both forms accept exactly two expressions. `and` skips `right` when `left` is falsey; `or` skips it when `left` is truthy.",
+          "returns": "`bool`.",
+          "returnValue": "The result is the truthiness of the selected evaluation path, not either original operand.",
+          "details": [
+            "`and` and `or` are evaluator special forms, so the skipped expression is never evaluated.",
+            "They correspond to infix `&&` and `||`."
+          ],
+          "errors": "Wrong arity is an error; an error from an expression that is actually evaluated propagates.",
+          "example": "emit and(false, panic(\"skipped\"))\nemit or(true, panic(\"skipped\"))",
+          "exampleStatus": "checked"
+        }
+      ]
+    },
+    {
+      "title": "Result and Option operations",
+      "entries": [
+        {
+          "name": "ok",
+          "aliases": [
+            "err"
+          ],
+          "signature": "ok(value)\nerr(error-or-message)",
+          "description": "Construct successful and failed `Result` values.",
+          "parameters": "`ok` takes one payload. `err` takes one structured error or one `string` message; a message creates an `unknown_error` record.",
+          "returns": "`Result`.",
+          "returnValue": "`ok(value)` retains the payload; `err(value)` retains or constructs the structured failure.",
+          "details": [
+            "Result records are immutable and preserve must-handle metadata through supported combinators.",
+            "Use `error(kind, message)` when the failure requires a stable non-unknown kind."
+          ],
+          "errors": "Wrong arity or an `err` argument that is neither an error nor string-compatible is an error.",
+          "example": "emit ok(41)\nemit err(error(InvalidArgument, \"bad\"))",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "some",
+          "aliases": [
+            "none"
+          ],
+          "signature": "some(value)\nnone()",
+          "description": "Construct present and absent `Option` values.",
+          "parameters": "`some` accepts exactly one payload. `none` accepts no arguments.",
+          "returns": "`Option`.",
+          "returnValue": "`some(value)` is present even when `value` is falsey; `none()` is absent.",
+          "details": [
+            "Option records are immutable.",
+            "Unwrapping `none()` produces a structured `not_found` failure."
+          ],
+          "errors": "Wrong arity is an error.",
+          "example": "emit some(false)\nemit none()",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "isok",
+          "aliases": [
+            "iserr",
+            "issome",
+            "isnone"
+          ],
+          "signature": "isok(value)\niserr(value)\nissome(value)\nisnone(value)",
+          "description": "Inspect fallibility containers without unwrapping them.",
+          "parameters": "Each predicate accepts exactly one value. `iserr` also returns `true` for a bare structured error.",
+          "returns": "`bool`.",
+          "returnValue": "A value of the wrong container family produces `false`, not a type error.",
+          "details": [
+            "`isnone` returns `true` only for an empty `Option`; ordinary non-option values return `false`.",
+            "Payload truthiness does not affect these structural predicates."
+          ],
+          "errors": "Only wrong arity is an error.",
+          "example": "emit isok(ok(1)), iserr(err(\"bad\")), issome(some(null)), isnone(none())",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "unwrap",
+          "aliases": [
+            "expect",
+            "or_else"
+          ],
+          "signature": "unwrap(result-or-option-or-error)\nexpect(result-or-option, message)\nor_else(result-or-option, fallback)",
+          "description": "Extract a fallible payload, replace failure with context, or supply a plain fallback value.",
+          "parameters": "`unwrap` takes one `Result`, `Option`, or error. `expect` and `or_else` take a container plus a message or fallback.",
+          "returns": "The contained payload, selected fallback, or an error value when unwrapping an error cause.",
+          "returnValue": "`unwrap` propagates a failed `Result` or absent `Option`; `expect` replaces that failure with the supplied message; `or_else` returns its fallback without evaluating a callback.",
+          "details": [
+            "For a structured error, `unwrap` returns its cause when present and otherwise returns the error itself as a value.",
+            "`expect` uses `invalid_argument` for a failed `Result` and `not_found` for an empty `Option`."
+          ],
+          "errors": "Wrong arity and unsupported input kinds are errors.",
+          "example": "emit unwrap(ok(7))\nemit or_else(none(), 9)",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "map",
+          "aliases": [
+            "map_error",
+            "flat_map"
+          ],
+          "signature": "map(result, function)\nmap_error(result, function)\nflat_map(result, function)",
+          "description": "Transform successful payloads, failed errors, or chain fallible computations lazily.",
+          "parameters": "Each form takes one `Result` expression and one function. `map` calls it only for success; `map_error` only for failure; `flat_map` only for success.",
+          "returns": "`Result`.",
+          "returnValue": "`map` wraps the callback value in `ok`; `map_error` expects an error or message; `flat_map` expects a `Result` or `Option`.",
+          "details": [
+            "A skipped callback is not invoked. Existing failures and must-handle metadata are preserved.",
+            "An empty `Option` returned by `flat_map` becomes `err(not_found)`."
+          ],
+          "errors": "Wrong arity, a non-`Result` input, a non-callable callback, or a callback result of the wrong family is an error.",
+          "example": "func double(value) => value * 2\nfunc next(value) => some(value + 1)\nemit map(ok(3), double)\nemit flat_map(ok(4), next)",
+          "exampleStatus": "checked"
+        }
+      ]
+    },
+    {
+      "title": "Structured error operations",
+      "entries": [
+        {
+          "name": "error",
+          "aliases": [
+            "wrap",
+            "cause"
+          ],
+          "signature": "error(kind, message)\nwrap(cause, kind, message)\ncause(error)",
+          "description": "Construct a structured error, add a causal wrapper, or inspect the immediate cause.",
+          "parameters": "`kind` and `message` are string-compatible values. `wrap` accepts an error or `null` cause. `cause` accepts one error.",
+          "returns": "`error` for construction or `error | null` for `cause`.",
+          "returnValue": "Construction preserves stable kind/code and message fields; `cause` returns `null` when no cause is attached.",
+          "details": [
+            "Errors are immutable. Wrapping constructs a new record and leaves the cause unchanged.",
+            "Use named error-kind constants instead of parsing or depending on display text."
+          ],
+          "errors": "Wrong arity or values that cannot satisfy the error/string contracts are errors.",
+          "example": "let root = error(NotFound, \"record\")\nlet outer = wrap(root, InvalidArgument, \"lookup failed\")\nemit outer.kind\nemit cause(outer).kind",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "withmeta",
+          "aliases": [
+            "withdebug",
+            "errmeta",
+            "redact"
+          ],
+          "signature": "withmeta(error, key, value)\nwithdebug(error, key, value)\nerrmeta(error)\nredact(error)",
+          "description": "Attach immutable public or debug metadata, inspect public fields, and remove sensitive error details.",
+          "parameters": "Mutation-like helpers take an error, string key, and value. `errmeta` and `redact` each take one error.",
+          "returns": "A copied `error`, or a public key/value `list` from `errmeta`.",
+          "returnValue": "`redact` strips stack and debug-only metadata recursively while preserving the public cause chain.",
+          "details": [
+            "Recognized public keys update canonical fields; other public keys remain in the generic metadata map.",
+            "Debug metadata is excluded from `errmeta` and ordinary serialization."
+          ],
+          "errors": "Wrong arity, non-error inputs, and non-string metadata keys are errors.",
+          "example": "let detailed = withmeta(error(InvalidArgument, \"bad\"), \"operation\", \"decode\")\nemit errmeta(detailed)\nemit redact(withdebug(detailed, \"token\", \"secret\"))",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "matches",
+          "aliases": [
+            "is"
+          ],
+          "signature": "matches(error, kind)\nis(error, kind)",
+          "description": "Compare a structured error's stable kind or code without inspecting message text.",
+          "parameters": "One structured error and one string-compatible kind/code value.",
+          "returns": "`bool`.",
+          "returnValue": "Comparison is case-insensitive against both the record kind and code.",
+          "details": [
+            "`is` is an exact alias for `matches`.",
+            "Named error-kind constants provide the canonical values."
+          ],
+          "errors": "Wrong arity, a non-error first argument, or a non-string-compatible kind is an error.",
+          "example": "emit matches(error(NotFound, \"missing\"), NotFound)\nemit is(error(IOError, \"read\"), \"io_error\")",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "panic",
+          "aliases": [
+            "trap",
+            "assert"
+          ],
+          "signature": "panic(message)\ntrap(message)\nassert(condition, message)",
+          "description": "Raise a fatal structured internal error or assert an invariant.",
+          "parameters": "`panic` and `trap` take one string-compatible message. `assert` takes a condition and message.",
+          "returns": "`assert` returns `true` when its condition is truthy; the failing paths do not return normally.",
+          "returnValue": "A failure has `internal_error` kind and fatal severity and bypasses ordinary `catch` recovery.",
+          "details": [
+            "`trap` is an alias for `panic`.",
+            "Use these for impossible states, not expected recoverable failures."
+          ],
+          "errors": "Wrong arity or a non-string-compatible message is an error; a falsey assertion deliberately raises a fatal error.",
+          "example": "assert(true, \"invariant holds\")",
+          "exampleStatus": "illustrative"
+        }
+      ]
+    },
+    {
+      "title": "Concurrency special forms",
+      "entries": [
+        {
+          "name": "spawn",
+          "signature": "spawn(expression)",
+          "description": "Start evaluating one expression in an explicit task.",
+          "parameters": "Exactly one unevaluated expression and an active runtime session.",
+          "returns": "`task`.",
+          "returnValue": "The task handle is returned immediately; its value, output, error, or cancellation is observed by `await`.",
+          "details": [
+            "The expression runs with the current lexical scope and cooperative session context.",
+            "Use `parallel` for a fixed group whose results and output must be committed in argument order."
+          ],
+          "errors": "Wrong arity or use without an active session is an error.",
+          "example": "let pending = spawn({ let value = 5; value + 7 })\nemit await(pending)\n# 12u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "await",
+          "signature": "await(task)",
+          "description": "Wait for a task and merge its ordered output into the current session.",
+          "parameters": "Exactly one expression that evaluates to a `task`.",
+          "returns": "The task's runtime value.",
+          "returnValue": "Task errors and cancellation propagate as structured failures.",
+          "details": [
+            "`await` is a suspension and error-propagation boundary.",
+            "Awaiting does not erase value kind, numeric width, tensor shape, or error metadata."
+          ],
+          "errors": "Wrong arity, a non-task value, or the task's own failure is an error.",
+          "example": "let pending = spawn(6 * 7)\nemit await(pending)\n# 42u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "cancel",
+          "signature": "cancel(task)",
+          "description": "Request cooperative cancellation of one task.",
+          "parameters": "Exactly one expression that evaluates to a `task`.",
+          "returns": "`bool`.",
+          "returnValue": "`true` only when this call newly requested cancellation; repeated or already-complete cancellation returns `false`.",
+          "details": [
+            "Cancellation is observed at runtime safe points and task-aware waits.",
+            "A blocking host operation is cancellable only when its documented implementation observes the session context."
+          ],
+          "errors": "Wrong arity or a non-task value is an error.",
+          "example": "let pending = spawn(42)\nemit cancel(pending)",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "parallel",
+          "signature": "parallel(expressions…)",
+          "description": "Evaluate a fixed set of branches concurrently and preserve source-visible ordering.",
+          "parameters": "Zero or more unevaluated expressions and an active session.",
+          "returns": "`list`.",
+          "returnValue": "Result positions and branch `emit` output are committed in argument order, regardless of completion order.",
+          "details": [
+            "A branch failure cancels sibling work and propagates.",
+            "`parallel()` returns an empty list."
+          ],
+          "errors": "A branch error or use without an active session is an error.",
+          "example": "emit parallel(1 + 1, 3 + 4, 5 + 6)\n# [2u64, 7u64, 11u64]",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "timeout",
+          "signature": "timeout(milliseconds, expression)",
+          "description": "Evaluate one expression under a cooperative deadline.",
+          "parameters": "A non-negative integer millisecond duration and one unevaluated expression.",
+          "returns": "The expression's value.",
+          "returnValue": "Output is committed only after successful completion before the deadline.",
+          "details": [
+            "The body runs in a child session with a deadline-bearing context.",
+            "Timeout cannot forcibly interrupt host work that does not observe cancellation."
+          ],
+          "errors": "Wrong arity, an invalid duration, body failure, or deadline expiry is an error.",
+          "example": "emit timeout(1000, 6 * 7)\n# 42u64",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "race",
+          "aliases": [
+            "select"
+          ],
+          "signature": "race(expressions…)\nselect(expressions…)",
+          "description": "Return the first completed branch, optionally with its source index.",
+          "parameters": "One or more unevaluated expressions and an active session.",
+          "returns": "The winning value from `race`; `[index, value]` from `select`.",
+          "returnValue": "Only the winning branch's buffered output is committed. The remaining branches receive cooperative cancellation.",
+          "details": [
+            "In ordinary execution, completion order chooses the winner. In deterministic task-debug mode, the first source branch wins.",
+            "`select` reports a zero-based `u64` source index."
+          ],
+          "errors": "No arguments, use without a session, or a winning branch failure is an error.",
+          "example": "emit race(40 + 2, 6 * 7)\nemit select(\"first\", \"second\")",
+          "exampleStatus": "checked"
+        }
+      ]
+    },
+    {
+      "title": "Numeric conversion built-ins",
+      "entries": [
+        {
+          "name": "number",
+          "signature": "number(value)",
+          "description": "Explicitly convert one numeric-compatible value to the default floating `number` family.",
+          "parameters": "Exactly one value accepted by floating conversion.",
+          "returns": "`number`.",
+          "returnValue": "The conversion uses the `f64` numeric conversion path and clears the explicit-width marker.",
+          "details": [
+            "This is an explicit conversion. A typed `let` annotation is a constraint and does not perform the same cast.",
+            "Precision loss is possible when converting exact or wide values to the default floating family."
+          ],
+          "errors": "Wrong arity or a value without a numeric conversion is an error.",
+          "example": "let value number = 4\nemit value\nemit number(4)\n# 4\n# 4",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "dec",
+          "signature": "dec(value)",
+          "description": "Convert one numeric or textual value to the exact decimal family.",
+          "parameters": "Exactly one `decimal`, numeric-compatible value, or decimal `string`.",
+          "returns": "`decimal`.",
+          "returnValue": "`dec` is the global short spelling used by `decimal`, `rat`, and `rational` conversion paths.",
+          "details": [
+            "String input is parsed as exact decimal text; existing decimal input is copied.",
+            "Use the longer constructor names when they communicate intent better."
+          ],
+          "errors": "Wrong arity, malformed decimal text, or an unsupported input kind is an error.",
+          "example": "emit dec(\"1.25\")\n# 1.25d",
+          "exampleStatus": "checked"
+        }
+      ]
+    }
+  ]
+}

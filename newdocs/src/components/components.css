@@ -2,6 +2,14 @@
 .code-block.signature { margin:10px 0 12px; padding:0 0 0 14px; border-left:3px solid var(--accent); background:#faf9fd; }
 .code-block.signature .example-label { display:none; }
 .code-block.signature > pre { margin:0; padding:11px 14px 11px 0; background:transparent; color:#342a50; }
-.code-block .example-label { margin:16px 0 -8px; color:#717786; }
+.code-block.signature .token { color:inherit; }
+.code-block .example-label { margin:16px 0 3px; color:#717786; }
 .code-block:not(.signature) > pre { border-top-left-radius:0; }
 .api-details { margin:8px 0; padding-left:20px; color:var(--muted); }
+.token.comment { color:#9a94aa; }
+.token.string { color:#b8d68b; }
+.token.keyword { color:#d9a7ff; }
+.token.type-name { color:#7ed5ff; }
+.token.builtin { color:#f4c98a; }
+.token.number { color:#ffbd8b; }
+.token.operator,.token.punctuation { color:#d7d1e4; }

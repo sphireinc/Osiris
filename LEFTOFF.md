@@ -1,21 +1,122 @@
 # Native lowering handoff
 
-Last updated: 2026-07-27.
+Last updated: 2026-07-30.
+
+## Hosted filesystem I/O boundary — 2026-07-30
+
+- Task 102 adds 17 bounded file, directory, metadata, path-mutation, and
+  seekable-stream built-ins shared by the interpreter and VM. Ownership,
+  cancellation, memory ceilings, symlinks, portability, and structured errors
+  are fixed in `docs/design/FILESYSTEM-IO.md`.
+- Native C does not claim filesystem ownership/error parity. IR retains the
+  builtin source span and `CompileC` rejects each new filesystem name there;
+  there is no compile-time evaluator fallback.
+- Focused normal/race tests, full normal/race/vet suites, Linux and Windows
+  build-only checks, 32 sandboxed I/O reference examples, exact reference
+  indexing, and the production Vite build pass with Go 1.26.1 and Node 24.
+
+## Expanded mathematical and bit surface — 2026-07-30
+
+- Task 100 adds 35 shared global/`std/math` operations covering real
+  arithmetic, floating decomposition and classification, angle conversion,
+  exact integer helpers, fixed-width unsigned bit inspection, and complex
+  phase.
+- `exp`, `log`, `sqrt`, `pow`/`expt`, `sin`, `cos`, `tan`, `sinh`, `cosh`,
+  and `tanh` now accept their mathematically valid complex forms through one
+  interpreter/VM implementation. Principal branches and signed-zero sides of
+  the negative-real cut are characterized in
+  `internal/osiris/math_ext_test.go`.
+- No new operation is claimed by native C. New callables reject as unsupported
+  at compile time, and complex transcendental inputs are tracked through SSA
+  copies, CFG block arguments, closures, and direct function parameters so
+  they cannot fall into a real-only tagged C helper. Existing parity-proven
+  real scalar lowerings remain intact.
+- `newdocs/` has an individual detailed listing for every addition, an exact
+  181-name `std/math` export index, checked examples, search coverage, and an
+  updated partial-native support statement. Normal, race, vet, reference,
+  example, and production-build validations pass with Go 1.26.1 and Node 24.
+
+## Unicode-aware `std/text` expansion — 2026-07-29
+
+- Task 103 adds 24 qualified comparison, predicate, search, cut, tokenization,
+  trim, and bounded replacement functions while preserving the original ten
+  exports.
+- Search results use `option<u64>` and Unicode code-point indexes. Empty
+  needles, Unicode code-point sets, simple case folding, split limits, and
+  absent cuts have explicit contracts shared by the interpreter and VM.
+- Native C rejects `std/text` imports at the import source span until the
+  backend has a parity-safe UTF-8 representation and ownership contract. The
+  compiler never evaluates text calls to synthesize output.
+- `internal/osiris/text_test.go` holds table-driven parity/error/inference/IR
+  evidence and bounded cut/split fuzz properties. The canonical page documents
+  all 34 exports, and the Technical Reference export index is checked exactly
+  against the module table.
+
+## Global constants and measurement units — 2026-07-29
+
+- Task 104 expands the immutable named catalog to 159 canonical concepts and
+  375 public spellings, including exact metric/customary/astronomical units,
+  dimensionless angle scales, binary64 mathematical constants, and pinned
+  2022 CODATA physical values.
+- Exact quantity definitions are parsed directly into `big.Rat`; aliases share
+  one definition and retain identical inference and codec behavior. The
+  detailed and technical references are exact-set audited against the ordered
+  implementation catalog.
+- Native C now lowers default-number globals as compile-time IR constants with
+  executable parity. Dimensioned named quantities remain an explicit
+  compile-time rejection until the C ABI can retain arbitrary rational
+  magnitudes and dimension vectors.
+- Focused evidence is in `internal/osiris/named_test.go`; full normal, race,
+  vet, reference, checked-example, and production-docs validations pass.
+
+## Native enum and match completion — 2026-07-28
+
+- Task 018 replaced the former blanket enum
+  rejection has been replaced by a tagged `O_ENUM` C ABI value carrying the
+  nominal type name, case name, and owned payload list.
+- IR treats declarations as compile-time metadata and lowers qualified unit
+  cases and payload constructors into `enum` instructions. It does not call
+  the interpreter during compilation. Generated C implements truthiness,
+  recursive nominal/payload equality, and rendering.
+- `match` lowers unit enum arms plus a final `default`, and payload enum arms
+  with recursive enum/list, literal, relational, type, conjunction, negation,
+  grouped, and guarded patterns into ordinary C CFG branches. The tagged C
+  helpers are `oenumis`/`oenumpayload`, `olistis`/`olistitem`, and
+  `omatchtype`; repeated pattern bindings emit strict `oequal` checks. Focused
+  executable parity evidence is
+  `TestCBackendEnumValueParity`, `TestCBackendUnitEnumMatchParity`, and
+  `TestCBackendPayloadEnumMatchBindingParity`. Guarded payload arms now bind
+  before evaluating their guard and resume the next arm when it is false;
+  `TestCBackendGuardedEnumMatchParity` covers this branch behavior.
+- `TestCBackendNestedListEnumMatchParity`,
+  `TestCBackendRepeatedPatternBindingParity`, and
+  `TestCBackendRelationalTypeAndLogicalPatternParity` cover recursive list
+  extraction, duplicate-binding equality, and the non-enum C#-style forms.
+- Backed `string` and fixed-width integer declarations now validate literal
+  values, uniqueness, and no-payload rules, and survive parse-format-parse;
+  they remain nominal enum values in every execution engine with no implicit
+  primitive conversion. `TestBackedEnumDeclarationsRoundTripAndNativeParity`
+  and `TestBackedEnumDeclarationDiagnostics` cover the boundary.
+- Task 018 is complete. The final C-ABI audit added recursive rendering for
+  enum payloads, closure-identity equality inside enum payload equality, and
+  executable parity for nested enum/function payloads and function patterns.
+  JSON serialization retains the explicit nominal `{enum:{type,case,payload}}`
+  envelope; no implicit backing-value conversion or evaluator fallback exists.
 
 ## Documentation and network queue update — 2026-07-25
 
 - `newdocs/` is the canonical public React language reference, including its
   API data, examples, and support matrix. `docs/` is frozen compatibility plus
   durable design material; do not reintroduce a static-to-React migration path.
-- Tasks 011 and 012 are complete. Task 049 owns measured TCP tuning; its
-  baseline harness, portable configuration boundary, and bounded transfer are
-  implemented. The default 15-sample baseline is recorded; the remaining
-  measurement gate is an allowed-host comparison including the explicit bulk
-  override before changing defaults or claiming a performance result.
+- Tasks 011, 012, and 049 are complete. Task 049's baseline harness, portable
+  configuration boundary, bounded transfer, and same-host default-versus-bulk
+  comparison are recorded. The explicit bulk override was approximately 3.8%
+  slower with identical allocation counts, so the low-latency defaults remain
+  unchanged.
 - `scripts/bench-tcp-loopback.sh` prints a compact median/range/throughput/
   allocation table and retains raw Go rows in `TCP_BENCH_OUT`. Use
   `TCP_BENCH_SHOW_RAW=1` only when stdout copies of those rows are needed.
-  The required next command is:
+  The completed comparison command was:
 
   ```sh
   TCP_RUNS=15 TCP_BENCH_TIME=1s \
@@ -23,8 +124,9 @@ Last updated: 2026-07-27.
     ./scripts/bench-tcp-loopback.sh
   ```
 
-  Compare the default and `BenchmarkTCPLoopbackBulkRoundTrip64KiB` medians on
-  the same host; do not alter `DefaultSocketConfig` until that evidence exists.
+  The default median was 237,576 ns/op and the explicit bulk median was
+  246,530 ns/op (approximately 3.8% slower), so `DefaultSocketConfig` remains
+  unchanged.
 - `TestSocketConfigBulkBatchAppliesToBothEndpoints` locks the benchmark's
   explicit policy to both endpoints' observable 64 KiB writer buffers; its
   focused normal and race checks pass (loopback remains unavailable here).
@@ -35,6 +137,21 @@ Osiris now uses real IR-to-C lowering in `internal/osiris/cbackend_native.go`.
 `CompileC` builds IR and emits executable C; it does not evaluate the program
 through `Session.ExecProgram` to create an output snapshot. The system C
 compiler remains the first native code-generation backend.
+
+The native C pipeline performs a narrow proof-gated LICM pass before emission:
+in canonical while loops, numeric constant and invariant arithmetic/comparison
+IR moves from the body to a unique preheader only when it cannot depend on
+loop-carried state or introduce an error. Calls, allocation, division,
+indexing, mutation, and aliases are deliberately not hoisted. The next task-003
+slice completed range-proven bounds-check elimination followed by bounded,
+profitability-gated unrolling.
+
+The first bounds-elimination proof is now implemented for canonical `for`
+loops over a directly constructed list. The loop header establishes the index
+range before body entry, so only that exact `at(iter, index)` becomes
+`olistatunchecked`; all dynamic/direct indexing remains checked. Evidence is
+`TestCBackendProofGatedForListBoundsEliminationParity` and
+`TestCBackendBoundsEliminationLeavesDirectAtChecked`.
 
 Implemented and covered by native executable parity tests:
 
@@ -279,8 +396,8 @@ this increment.
 5. Add static lowering for other standard modules only with an explicit native
    ABI. Dynamic imports, escaping module values, and host/FFI calls remain
    unsupported and should report compile-time diagnostics.
-6. Continue `tasks/003-native-loop-optimization.md`: general LICM, provably
-   safe bounds-check elimination, profitable unrolling, and benchmark gates.
+6. Task 003 is complete; defer general LICM, fusion, and tiling to a newly
+   scoped optimization task rather than extending its bounded proof slice.
 7. Continue `tasks/004-native-numeric-and-tensor-lowering.md`: mixed-width
    integer operations, complete scalar coverage, higher-rank tensors,
    broadcasting, alias-aware mutation, and kernel benchmarks.

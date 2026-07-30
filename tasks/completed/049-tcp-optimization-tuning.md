@@ -2,7 +2,8 @@
 
 **Priority:** P1 after network correctness  
 **Dependencies:** 011, 012, 043, 045  
-**Status:** Active. The TCP resource contract and portable polling boundary are complete; the reproducible baseline harness is in place and socket tuning must wait for its first allowed-host sample set.
+**Status:** Complete. The TCP resource contract, portable configuration boundary,
+transfer semantics, and same-host default-versus-bulk measurement are complete.
 
 ## Objective
 
@@ -136,6 +137,39 @@ TCP_RUNS=15 TCP_BENCH_TIME=1s \
 The artifact includes both default workloads and
 `BenchmarkTCPLoopbackBulkRoundTrip64KiB`, so it is the only valid input for a
 default-selection decision.
+
+## Completion record — 2026-07-29
+
+The final allowed-host comparison was collected on the same Apple M1 Pro
+(`Darwin/arm64`, Go `go1.26.1`) with 15 samples and one-second benchmark
+windows. The default 64 KiB workload measured a 237,576 ns/op median
+(235,071--246,101; 275.86 MB/s at the median), 574,880 B/op, and 46
+allocs/op. The explicit bulk override measured a 246,530 ns/op median
+(215,202--250,784; 265.84 MB/s at the median), 574,881 B/op, and 46
+allocs/op. The override is approximately 3.8% slower on this matching host,
+well below the documented 15% investigation threshold, and does not improve
+allocation behavior.
+
+The measured decision is therefore to retain `DefaultSocketConfig` as the
+low-latency configuration (`TCP_NODELAY` enabled and 4 KiB user-space write
+batching) and retain the 64 KiB no-delay-disabled policy as an explicit bulk
+override. No portable default change is justified by the evidence. The
+complete raw rows were collected with the benchmark command documented above;
+the generated artifacts remain ignored benchmark evidence.
+
+Validation:
+
+```sh
+go test ./internal/osiris -run \
+  'Test(SocketConfig|Transfer|TCPLoopback)' -count=1
+go test -race ./internal/osiris -run \
+  'Test(SocketConfig|Transfer|TCPLoopback)' -count=1
+```
+
+The focused normal and race suites pass; loopback integration tests skip only
+on hosts that forbid loopback listeners. The canonical React reference,
+support matrix, task evidence, and TCP design documents describe the defaults,
+portability boundary, transfer contract, and native-C unsupported status.
 
 ## Checkpoint: readable benchmark report (2026-07-26)
 

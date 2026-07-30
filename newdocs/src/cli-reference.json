@@ -1,0 +1,360 @@
+{
+  "sections": [
+    {
+      "title": "Running Programs",
+      "entries": [
+        {
+          "kind": "command",
+          "name": "osiris run",
+          "aliases": ["run"],
+          "signature": "osiris run [-f file] [file]",
+          "description": "Parses and executes an Osiris program with the tree-walking interpreter.",
+          "parameters": "Pass one source file, use `-f file`, or omit the path to read source from standard input.",
+          "returns": "process exit status and program output",
+          "returnValue": "Successful execution writes each `emit` value to standard output and exits with status `0`.",
+          "details": ["Parse, module, and runtime failures are reported as diagnostics and produce a nonzero exit status."],
+          "example": "osiris run program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris vm",
+          "aliases": ["vm"],
+          "signature": "osiris vm [-f file] [file]",
+          "description": "Compiles an Osiris program to bytecode and executes it with the virtual machine.",
+          "parameters": "Pass one source file, use `-f file`, or omit the path to read source from standard input.",
+          "returns": "process exit status and program output",
+          "returnValue": "Successful execution writes VM-produced `emit` values to standard output and exits with status `0`.",
+          "details": ["Use this command when checking interpreter and VM behavior against the same source."],
+          "example": "osiris vm program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris eval",
+          "aliases": ["eval"],
+          "signature": "osiris eval <expression>",
+          "description": "Evaluates one Osiris expression without creating a source file.",
+          "parameters": "The remaining command-line text is parsed as one expression.",
+          "returns": "process exit status and one formatted value",
+          "returnValue": "The expression value is written to standard output on success.",
+          "details": ["Declarations and multi-statement programs belong in a source file passed to `osiris run` or `osiris vm`."],
+          "example": "osiris eval \"6 * 7\""
+        },
+        {
+          "kind": "command",
+          "name": "osiris demo",
+          "aliases": ["demo"],
+          "signature": "osiris demo",
+          "description": "Runs the small demonstration program bundled into the CLI.",
+          "parameters": "This command accepts no arguments.",
+          "returns": "process exit status and demonstration output",
+          "returnValue": "The built-in program's emitted values are written to standard output.",
+          "details": ["The demo is a quick installation check; it is not a benchmark or a conformance suite."],
+          "example": "osiris demo"
+        },
+        {
+          "kind": "command",
+          "name": "osiris debug",
+          "aliases": ["debug"],
+          "signature": "osiris debug [-json] [-break line[:column]] [file]",
+          "description": "Runs a source-level debugging session with optional breakpoints.",
+          "parameters": "Use `-break line[:column]` to add a source breakpoint and `-json` for machine-readable events. Pass a file or read source from standard input.",
+          "returns": "process exit status and debugger events",
+          "returnValue": "The command reports stops, source locations, and execution state until the program completes or the session ends.",
+          "details": ["Breakpoint lines are one-based; the optional column narrows the stop location."],
+          "example": "osiris debug -break 12:5 program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris repl",
+          "aliases": ["repl"],
+          "signature": "osiris repl",
+          "description": "Starts an interactive session that preserves bindings between inputs.",
+          "parameters": "This command accepts no arguments and reads expressions or statements from standard input.",
+          "returns": "process exit status and interactive values",
+          "returnValue": "Each completed input is evaluated in the persistent session until end-of-file or termination.",
+          "details": ["Use a source file for reproducible programs and the REPL for exploratory work."],
+          "example": "osiris repl"
+        }
+      ]
+    },
+    {
+      "title": "Source and Compiler Inspection",
+      "entries": [
+        {
+          "kind": "command",
+          "name": "osiris fmt",
+          "aliases": ["fmt"],
+          "signature": "osiris fmt [-w] [file]",
+          "description": "Formats source using the canonical Osiris layout.",
+          "parameters": "Pass a file or read from standard input. `-w` writes the formatted result back to the named file.",
+          "returns": "formatted source or process exit status",
+          "returnValue": "Without `-w`, formatted source is written to standard output.",
+          "details": ["A parse error prevents formatting and leaves an input file unchanged."],
+          "example": "osiris fmt -w program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris ir",
+          "aliases": ["ir"],
+          "signature": "osiris ir [file]",
+          "description": "Prints the compiler's lowered intermediate representation.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual intermediate representation",
+          "returnValue": "Functions, blocks, instructions, operands, and terminators are written in deterministic order.",
+          "details": ["The output is an inspection format, not a stable serialized artifact contract."],
+          "example": "osiris ir program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris ssa",
+          "aliases": ["ssa"],
+          "signature": "osiris ssa [file]",
+          "description": "Prints static single-assignment form with explicit definitions and uses.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual SSA report",
+          "returnValue": "The report shows renamed values and phi-like block flow produced by SSA construction.",
+          "details": ["Use this view to inspect optimization inputs rather than source-level formatting."],
+          "example": "osiris ssa program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris cfg",
+          "aliases": ["cfg"],
+          "signature": "osiris cfg [file]",
+          "description": "Prints the program's control-flow graph.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual control-flow graph",
+          "returnValue": "Basic blocks and their successor edges are written in deterministic order.",
+          "details": ["The graph reflects lowered control flow, including branches and loop backedges."],
+          "example": "osiris cfg program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris dom",
+          "aliases": ["dom"],
+          "signature": "osiris dom [file]",
+          "description": "Prints dominator information for the lowered control-flow graph.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual dominator report",
+          "returnValue": "The report identifies each block's immediate dominator and dominator-tree relationships.",
+          "details": ["Dominance is computed from reachable control-flow blocks."],
+          "example": "osiris dom program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris loop",
+          "aliases": ["loop"],
+          "signature": "osiris loop [file]",
+          "description": "Reports canonical loop shapes discovered in lowered IR.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual loop-analysis report",
+          "returnValue": "Headers, latches, exits, induction information, and proven trip counts are reported when available.",
+          "details": ["A missing fact is left unproven rather than guessed."],
+          "example": "osiris loop program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris pure",
+          "aliases": ["pure"],
+          "signature": "osiris pure [file]",
+          "description": "Analyzes functions and expressions for observable side effects.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual purity report",
+          "returnValue": "The report classifies analyzed code and records the effects that prevent a purity proof.",
+          "details": ["Unknown calls remain conservative and are not silently marked pure."],
+          "example": "osiris pure program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris closure",
+          "aliases": ["closure"],
+          "signature": "osiris closure [file]",
+          "description": "Shows closure conversion and captured environments.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual closure report",
+          "returnValue": "Each closure and its captured bindings are written in stable source order.",
+          "details": ["The report distinguishes local bindings from values that must cross a function boundary."],
+          "example": "osiris closure program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris infer",
+          "aliases": ["infer"],
+          "signature": "osiris infer [file]",
+          "description": "Reports inferred value kinds, numeric widths, tensor shapes, and units.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual inference report",
+          "returnValue": "Each inferred binding is printed with the most specific type information the analysis can prove.",
+          "details": ["Dynamic or incompatible facts remain unknown rather than receiving a speculative type."],
+          "example": "osiris infer program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris alias",
+          "aliases": ["alias"],
+          "signature": "osiris alias [file]",
+          "description": "Reports alias classes and escape information.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "textual alias-analysis report",
+          "returnValue": "Bindings that may share storage or escape their defining scope are grouped conservatively.",
+          "details": ["Uncertain ownership is reported as possible aliasing rather than treated as independent storage."],
+          "example": "osiris alias program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris viz",
+          "aliases": ["viz"],
+          "signature": "osiris viz [-imports] [file]",
+          "description": "Renders an abstract-syntax tree or import graph as Graphviz DOT.",
+          "parameters": "Pass `-imports` to select the import graph; otherwise the command renders the syntax tree. Source comes from a file or standard input.",
+          "returns": "Graphviz DOT text",
+          "returnValue": "The graph is written to standard output for inspection or piping into Graphviz.",
+          "details": ["Node and edge ordering is deterministic for stable diffs."],
+          "example": "osiris viz program.osr > program.dot"
+        },
+        {
+          "kind": "command",
+          "name": "osiris map",
+          "aliases": ["map"],
+          "signature": "osiris map [file]",
+          "description": "Emits source-map information used by debugging and stepping tools.",
+          "parameters": "Pass one source file or omit it to read source from standard input.",
+          "returns": "source-map report",
+          "returnValue": "Generated locations are associated with their original source spans.",
+          "details": ["Locations retain stable file, line, and column information."],
+          "example": "osiris map program.osr"
+        }
+      ]
+    },
+    {
+      "title": "Compilation and Artifacts",
+      "entries": [
+        {
+          "kind": "command",
+          "name": "osiris c",
+          "aliases": ["c"],
+          "signature": "osiris c [-o out.c] [file]",
+          "description": "Lowers the supported native subset to readable C source.",
+          "parameters": "Use `-o` to write a file; otherwise generated C is written to standard output. Source comes from a file or standard input.",
+          "returns": "generated C source",
+          "returnValue": "Unsupported native constructs fail during compilation with a source-aware diagnostic.",
+          "details": ["The backend lowers program behavior; it never runs the program at compile time to manufacture output."],
+          "example": "osiris c -o program.c program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris obj",
+          "aliases": ["obj"],
+          "signature": "osiris obj -o out.o [file]",
+          "description": "Compiles native C lowering into an object file.",
+          "parameters": "`-o` names the required object output. Source comes from a file or standard input.",
+          "returns": "native object file and process exit status",
+          "returnValue": "The selected system C compiler produces the object file after successful Osiris lowering.",
+          "details": ["Compiler discovery and native feature limits match the other C-backend commands."],
+          "example": "osiris obj -o program.o program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris build",
+          "aliases": ["build"],
+          "signature": "osiris build -o out [file]",
+          "description": "Builds a native executable through the C backend.",
+          "parameters": "`-o` names the executable. Source comes from a file or standard input; native-cache and compiler options may further configure the build.",
+          "returns": "native executable and process exit status",
+          "returnValue": "The executable evaluates the lowered program when it runs.",
+          "details": ["Only programs fully supported by native lowering can be built."],
+          "example": "osiris build -o program program.osr\n./program"
+        },
+        {
+          "kind": "command",
+          "name": "osiris compile",
+          "aliases": ["compile"],
+          "signature": "osiris compile -o out [file]",
+          "description": "Builds a native executable as an alias of `osiris build`.",
+          "parameters": "Accepts the same output, source, compiler, and cache options as `osiris build`.",
+          "returns": "native executable and process exit status",
+          "returnValue": "Its behavior and output are identical to the corresponding `osiris build` invocation.",
+          "details": ["Prefer `osiris build` in new scripts because it names the standard compilation path directly."],
+          "example": "osiris compile -o program program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris wasm",
+          "aliases": ["wasm"],
+          "signature": "osiris wasm [-binary] [-o out.wat|out.wasm] [file]",
+          "description": "Compiles the supported subset to a WebAssembly artifact.",
+          "parameters": "Use `-binary` for binary WebAssembly and `-o` for a file; the default output is WebAssembly text.",
+          "returns": "WebAssembly text or binary artifact",
+          "returnValue": "The artifact is written to the selected file or standard output after validation.",
+          "details": ["Unsupported operations are rejected instead of being replaced with interpreter output."],
+          "example": "osiris wasm -binary -o program.wasm program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris gpu",
+          "aliases": ["gpu"],
+          "signature": "osiris gpu [-json] [-o out.cl|out.json] [file]",
+          "description": "Emits GPU kernel source or a machine-readable kernel plan.",
+          "parameters": "Use `-json` for a kernel plan and `-o` to select the destination file; otherwise source is written to standard output.",
+          "returns": "GPU kernel source or JSON plan",
+          "returnValue": "Supported kernels are emitted deterministically; unsupported programs produce a compile diagnostic.",
+          "details": ["The JSON form is for inspection and tooling; execution still requires an appropriate host GPU environment."],
+          "example": "osiris gpu -json -o kernel.json program.osr"
+        }
+      ]
+    },
+    {
+      "title": "Modules and Runtime Diagnostics",
+      "entries": [
+        {
+          "kind": "command",
+          "name": "osiris deps",
+          "aliases": ["deps"],
+          "signature": "osiris deps [-json] [file]",
+          "description": "Reports resolved module dependencies and dependency cycles.",
+          "parameters": "Pass `-json` for machine-readable output and a source file or standard input as the dependency root.",
+          "returns": "dependency report",
+          "returnValue": "Modules and edges are written in deterministic order; detected cycles are reported explicitly.",
+          "details": ["Resolution follows the same project, lock, cache, and version rules as program execution."],
+          "example": "osiris deps -json program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris heap",
+          "aliases": ["heap"],
+          "signature": "osiris heap [-json] [-query expression] [file]",
+          "description": "Inspects live scopes, modules, and dependency state.",
+          "parameters": "Use `-json` for structured output and `-query expression` to limit the inspected state. Source comes from a file or standard input.",
+          "returns": "heap and scope inspection report",
+          "returnValue": "The report describes reachable runtime state without changing the program.",
+          "details": ["Queries are inspection expressions, not arbitrary mutation hooks."],
+          "example": "osiris heap -json program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris trace",
+          "aliases": ["trace"],
+          "signature": "osiris trace [-json] [file]",
+          "description": "Executes a program while recording source-aware trace frames.",
+          "parameters": "Use `-json` for machine-readable frames. Pass a source file or read source from standard input.",
+          "returns": "execution trace and process exit status",
+          "returnValue": "Trace frames are emitted in execution order with their source locations.",
+          "details": ["Tracing preserves ordinary runtime errors and does not change program semantics."],
+          "example": "osiris trace -json program.osr"
+        },
+        {
+          "kind": "command",
+          "name": "osiris help",
+          "aliases": ["help"],
+          "signature": "osiris help [command]",
+          "description": "Prints the command catalog or concise help for one command.",
+          "parameters": "Omit the command name for the complete usage list, or pass one recognized command name.",
+          "returns": "help text and process exit status",
+          "returnValue": "Recognized help requests exit successfully; an unknown command name produces a usage error.",
+          "details": ["The short forms `-h` and `--help` print the top-level command list."],
+          "example": "osiris help build"
+        }
+      ]
+    }
+  ]
+}

@@ -1,20 +1,76 @@
-import languageSections from './language-reference.json' with { type: 'json' };
+import baseLanguageSections from './language-reference.json' with { type: 'json' };
 import manual from './legacy-reference.json' with { type: 'json' };
+import supplemental from './supplemental-reference.json' with { type: 'json' };
+import timeReference from './time-reference.json' with { type: 'json' };
+import technicalReference from './technical-reference.json' with { type: 'json' };
+import constantReference from './constant-reference.json' with { type: 'json' };
+import cliReference from './cli-reference.json' with { type: 'json' };
 
-export { languageSections };
+export const languageSections = [...baseLanguageSections, ...supplemental.languageSections];
+
+const typeExamples = {
+  number: 'let foo number = 4\nlet bar = number(4)\nemit foo # 4\nemit bar # 4',
+  bool: 'let enabled bool = true\nemit enabled # true',
+  byte: 'let value = byte(65)\nemit value # 65u8',
+  decimal: 'let value = decimal("1.25")\nemit value # 1.25d',
+  rational: 'let value = rational("3/4")\nemit value # 0.75d',
+  rat: 'let value = rat("3/4")\nemit value # 0.75d',
+  complex: 'let value = complex(3, 4)\nemit value # 3+4i',
+  bigint: 'let value = bigint("9007199254740993")\nemit value # 9007199254740993n',
+  bigfloat: 'let value = bigfloat("1.25")\nemit value # 1.25bf',
+  interval: 'let value = interval(1, 2)\nemit value # [1, 2]',
+  modint: 'let value = modint(7, 3)\nemit value # 1 mod 3',
+  fixed: 'let value = fixed(1.5)\nemit value # 1.5fixed',
+  result: 'let value = ok(4)\nemit value # ok(4)',
+  option: 'let value = some(4)\nemit value # some(4)',
+  f32: 'let value f32 = f32(4)\nemit value # 4f32',
+  f64: 'let value f64 = f64(4)\nemit value # 4f64',
+  bf: 'let value = bf16(4)\nemit value # 4bf16',
+  i: 'let value = i64(4)\nemit value # 4i64',
+  u: 'let value = u64(4)\nemit value # 4u64',
+  uf: 'let value = uf64(4)\nemit value # 4uf64',
+  tensor: 'let value tensor = tensor([1, 2])\nemit value # tensor([1, 2])',
+  matrix: 'let value = matrix([[1, 2], [3, 4]])\nemit value # matrix([[1, 2], [3, 4]])',
+  vector: 'let value = vector(1, 2, 3)\nemit value # tensor([1, 2, 3])',
+  dual: 'let value = dual(3, 1)\nemit value # dual(3, 1)',
+  duration: 'import "std/time" as time\nlet value duration = time.parse_duration("1.5s")\nemit time.duration_string(value) # "1.5s"',
+  datetime: 'import "std/time" as time\nlet value datetime = time.date(2024, 2, 29, 0, 0, 0, 0)\nemit time.format(value, time.rfc3339) # "2024-02-29T00:00:00Z"',
+  location: 'import "std/time" as time\nlet value location = time.fixed_zone("EST", -18000)\nemit value # fixed_zone("EST", -18000)',
+  quantity: '# Quantities are constructed with an explicit unit-bearing expression.\nlet distance = 3 * m\nemit distance # 3m',
+  null: 'let empty null = null\nemit empty # null',
+  string: 'let label string = "ready"\nemit label # "ready"',
+  list: 'let values list = [1, 2, 3]\nemit values # [1u64, 2u64, 3u64]',
+  error: 'let problem = error(InvalidArgument, "bad input")\nemit problem.kind # "invalid_argument"',
+  stream: 'let input = openread("input.txt")\n# close(input) after use',
+  task: 'let pending = spawn(40 + 2)\nemit await(pending) # 42u64',
+  function: 'func double(value) => value * 2\nlet callable function = double\nemit callable(3) # 6u64',
+  module: 'import "std/math" as math\nemit math.pi',
+  enum: 'enum Status { Ready, Done }\nlet status enum = Status.Ready\nemit status # Status.Ready',
+  tcp_listener: 'import "std/net" as net\nlet listener = net.tcp_listen("127.0.0.1:0")\n# close(listener) after use',
+  simd: '# Reserved for a future SIMD value family; not a current runtime kind.',
+  quat: '# Reserved for a future quaternion value family; not a current runtime kind.',
+  sparse_matrix: '# Reserved for a future sparse-matrix value family; not a current runtime kind.',
+  sparse_tensor: '# Reserved for a future sparse-tensor value family; not a current runtime kind.',
+  poly: '# Reserved for a future polynomial value family; not a current runtime kind.',
+};
 
 function entryFromLegacy(groupID, item) {
   return {
     kind: item.kind || 'function',
     name: item.name,
-	aliases: item.members || [],
+    aliases: item.members || [],
     signature: item.syntax,
     description: item.summary,
-    parameters: item.parameters || (item.members?.length ? `Supported family members: ${item.members.join(', ')}.` : `Arguments and their order are defined by ${item.syntax}.`),
+    parameters: item.parameters || (
+      item.members?.length
+        ? `Supported family members: ${item.members.map((member) => `\`${member}\``).join(', ')}.`
+        : `Arguments and their order are defined by \`${item.syntax}\`.`
+    ),
     returns: item.returns,
     returnValue: item.details?.[0],
     details: item.details,
     errors: item.errors,
+    native: item.native,
     example: item.example,
     exampleStatus: groupID === 'io' ? 'sandbox-required' : item.example.startsWith('emit ') ? 'checked' : 'illustrative',
   };
@@ -23,12 +79,70 @@ function entryFromLegacy(groupID, item) {
 // This is the canonical React reference data. It was migrated from the old
 // static manual as a checked-in snapshot, so the app never fetches or executes
 // legacy documentation at runtime.
-const apiModules = manual.groups.map((group) => ({
+const supplementalGroups = new Map(supplemental.groups.filter((group) => group.id !== 'constants').map((group) => [group.id, group]));
+const combinedGroups = manual.groups.map((group) => ({
+  ...group,
+  items: [...group.items, ...(supplementalGroups.get(group.id)?.items || [])],
+}));
+for (const group of supplemental.groups.filter((candidate) => candidate.id !== 'constants')) {
+  if (!combinedGroups.some((candidate) => candidate.id === group.id)) combinedGroups.push(group);
+}
+combinedGroups.push(timeReference);
+
+const apiModules = combinedGroups.map((group) => ({
   id: group.id,
   label: group.title,
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
   sections: [{ title: group.title, entries: group.items.map((item) => entryFromLegacy(group.id, item)) }],
+}));
+
+const plannedTypeNames = new Set(['simd', 'quat', 'sparse_matrix', 'sparse_tensor', 'poly']);
+const typeDefinitions = [...manual.types, ...supplemental.types];
+const typeEntry = (type, planned = false) => ({
+  kind: 'type',
+  name: type.name,
+  aliases: type.name === 'i' ? ['int'] : [],
+  signature: type.name,
+  description: planned ? `${type.summary} This name is reserved documentation, not an implemented runtime kind.` : type.summary,
+  returns: 'not applicable (type definition)',
+  returnValue: planned ? 'No current expression, constructor, annotation, or backend produces this runtime kind.' : 'Use this type name to understand the value family returned by language forms and constructors.',
+  example: typeExamples[type.name] || `# ${type.name}: ${type.summary}`,
+});
+
+const constantEntry = (entry, errorKind = false, section = {}) => ({
+  kind: 'constant',
+  name: entry.names[0],
+  aliases: entry.names.slice(1),
+  signature: entry.names.join(' | '),
+  description: entry.description,
+  returns: errorKind ? 'error-kind string' : entry.type,
+  returnValue: errorKind ? `The canonical error-kind code \`${entry.code}\`.` : entry.value,
+  details: errorKind
+    ? [
+        `The constant evaluates to \`${entry.code}\`.`,
+        `Use \`${entry.names[0]}\` with \`error\`, \`wrap\`, \`matches\`, or \`is\` instead of comparing display text.`,
+      ]
+    : [
+        entry.value,
+        section.exactness ? `Representation: ${section.exactness}` : undefined,
+        section.source ? `Source: ${section.source}` : undefined,
+      ].filter(Boolean),
+  example: errorKind
+    ? `let problem = error(${entry.names[0]}, "example failure")\nemit problem.kind # "${entry.code}"`
+    : entry.example,
+  exampleStatus: 'checked',
+});
+
+const constantModules = [constantReference.global, constantReference.errors].map((reference) => ({
+  id: reference.id,
+  label: reference.title,
+  summary: reference.summary,
+  importLine: reference.importLine,
+  sections: reference.sections.map((section) => ({
+    title: section.title,
+    entries: section.entries.map((entry) => constantEntry(entry, reference.id === 'error-constants', section)),
+  })),
 }));
 
 const typeModule = {
@@ -42,9 +156,9 @@ const typeModule = {
       name: 'numeric literals',
       signature: '42  0xffu8  -7i16  1.25  1.25f32  1.25bf16  1.25d  2i',
       description: 'Unsuffixed integers are uint64; unsuffixed fractional or exponent values are the default number family. A suffix selects an exact numeric family and remains visible to inference, formatting, codecs, and supported native lowering.',
-      parameters: 'Bases: decimal, 0b binary, 0o octal, and 0x hexadecimal. _ separates digits. Suffixes include u/u8/u16/u32/u64, i8/i16/i32/i64, b, f32/f64, bf16, d, and i.',
+      parameters: 'Bases: `decimal`, `0b` binary, `0o` octal, and `0x` hexadecimal. `_` separates digits. Integer widths are `8`, `16`, `32`, `64`, `128`, `256`, `512`, and `1024`: use `uN`, `iN`, or packed `ufN`; `u` means `u64`, `b` means `u8`, and `ufnum` selects the native packed family. Floating suffixes are `f8` through `f1024` at those widths and `bf8` through `bf1024`; constructors are narrower than literal syntax. `d` selects decimal and `i` selects a pure imaginary value.',
       returns: 'A runtime numeric value with its declared family and width metadata.',
-      returnValue: 'osiris infer reports uint64, uint8, int16, number, f32, bf16, decimal, or complex as appropriate.',
+      returnValue: '`osiris infer` reports `u64`, `u8`, `i16`, `number`, `f32`, `bf16`, `decimal`, or `complex` as appropriate.',
       details: ['Unary - applies after literal parsing; -7i16 is a signed integer expression.', 'Malformed suffixes and digits are parser errors at the numeric token. Explicit suffixes are never silently reinterpreted as another family.'],
       example: 'let count = 42\nlet mask = 0xffu8\nlet ratio = 1.25f32\nlet exact = 1.25d\nemit count, mask, ratio, exact\n# 42u64, 255u8, 1.25f32, 1.25d',
       exampleStatus: 'checked',
@@ -60,16 +174,11 @@ const typeModule = {
       exampleStatus: 'checked',
     }],
   }, {
-    title: 'Type reference',
-    entries: manual.types.map((type) => ({
-      kind: 'type',
-      name: type.name,
-      signature: type.name,
-      description: type.summary,
-      returns: 'not applicable (type definition)',
-      returnValue: 'Use this type name to understand the value family returned by language forms and constructors.',
-      example: `# ${type.name}: ${type.summary}`,
-    })),
+    title: 'Runtime type reference',
+    entries: typeDefinitions.filter((type) => !plannedTypeNames.has(type.name)).map((type) => typeEntry(type)),
+  }, {
+    title: 'Reserved future type names',
+    entries: typeDefinitions.filter((type) => plannedTypeNames.has(type.name)).map((type) => typeEntry(type, true)),
   }],
 };
 
@@ -100,6 +209,7 @@ const toolingModule = {
       example: 'OSIRIS_SUPPRESS_WARNINGS=OSIRIS-D001 osiris run program.osr\n# Suppresses only warning OSIRIS-D001 for this invocation environment.',
     }, {
       name: 'osiris version',
+      aliases: ['version'],
       signature: 'osiris version',
       description: 'Prints the provenance of the installed CLI for release verification and actionable bug reports.',
       parameters: 'No arguments. Release builds inject version, commit, and build date at link time; development builds state unknown metadata explicitly.',
@@ -112,6 +222,7 @@ const toolingModule = {
     title: 'Editor protocol',
     entries: [{
       name: 'osiris lsp',
+      aliases: ['lsp'],
       signature: 'osiris lsp',
       description: 'Starts the Osiris Language Server Protocol endpoint over standard input and output. It provides conservative source-aware hover and go-to-definition support for open documents without claiming a full IDE feature set.',
       parameters: 'No command arguments. The client sends JSON-RPC 2.0 messages framed with Content-Length headers. Standard output is reserved for protocol messages; diagnostics and malformed-change notices use the server log stream.',
@@ -137,6 +248,7 @@ const toolingModule = {
     title: 'Optimization reporting',
     entries: [{
       name: 'osiris mod',
+      aliases: ['mod'],
       signature: 'osiris mod sync [file]\nosiris mod clean <file>',
       description: 'Manages generated local module state without hand-editing .osiris.lock or .osiris/cache. sync resolves imports and refreshes the lock/cache; clean removes only the generated state associated with a source project.',
       parameters: 'sync accepts an optional source path or standard input. clean requires a source file path so Osiris can derive the exact project-root lock and cache paths.',
@@ -175,6 +287,7 @@ const toolingModule = {
       example: 'osiris --diagnostics=json run broken.osr 1>result.txt 2>diagnostic.json\n# diagnostic.json: {"schema_version":1,"command":"run","category":"compile","exit_code":65,"message":"…"}',
     }, {
       name: 'osiris opt',
+      aliases: ['opt'],
       signature: 'osiris opt [-w] [-report|-json] [file]',
       description: 'Formats the conservative source-optimizer result, writes it back with -w, or reports the ordered optimizer pipeline. The report is designed for review and automation; it does not claim speculative transformations ran.',
       parameters: 'file is an Osiris source path, or standard input when omitted. -report writes stable text. -json writes a versioned JSON object. -w requires a file path and cannot be combined with report output.',
@@ -187,10 +300,10 @@ const toolingModule = {
       ],
       example: 'osiris opt -report program.osr\nosiris opt -json program.osr\n# {"version":1,"source_name":"program.osr","optimized_source":"…","passes":[…]}',
     }],
-  }],
+  }, ...cliReference.sections],
 };
 
-export const modules = [...apiModules, typeModule, toolingModule];
+export const modules = [...apiModules, typeModule, ...constantModules, toolingModule];
 
 export const chapters = manual.sections.map((chapter) => ({
   ...chapter,
@@ -204,8 +317,31 @@ const languageSearchModule = {
   sections: languageSections,
 };
 
+const technicalSearchModule = {
+  id: 'technical',
+  label: technicalReference.title,
+  summary: technicalReference.summary,
+  sections: [{
+    title: 'Technical reference',
+    entries: technicalReference.sections.map((section) => ({
+      name: section.title,
+      signature: section.syntax?.map((item) => item.code).join('\n') || `#technical-${section.id}`,
+      description: section.summary,
+      searchText: [
+        section.summary,
+        ...(section.paragraphs || []),
+        ...(section.tables || []).flatMap((table) => [table.title, ...table.rows.flat()]),
+        ...(section.indexes || []).flatMap((index) => [
+          index.title,
+          ...(index.source ? technicalReference[index.source] : index.items),
+        ]),
+      ].join(' '),
+    })),
+  }],
+};
+
 export function searchEntries(query) {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
-  return [...modules, languageSearchModule].flatMap((module) => module.sections.flatMap((section) => section.entries.map((entry) => ({ module, section, entry })))).filter(({ module, section, entry }) => [module.label, module.summary, section.title, entry.name, entry.aliases?.join(' '), entry.signature, entry.description, entry.parameters, entry.returns, entry.returnValue, entry.details?.join(' '), entry.errors, entry.native, entry.example].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  return [...modules, languageSearchModule, technicalSearchModule].flatMap((module) => module.sections.flatMap((section) => section.entries.map((entry) => ({ module, section, entry })))).filter(({ module, section, entry }) => [module.label, module.summary, section.title, entry.name, entry.aliases?.join(' '), entry.signature, entry.description, entry.searchText, entry.parameters, entry.returns, entry.returnValue, entry.details?.join(' '), entry.errors, entry.native, entry.example].filter(Boolean).join(' ').replaceAll('`', '').toLowerCase().includes(needle));
 }

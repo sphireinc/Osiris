@@ -61,12 +61,22 @@ func formatStmt(stmt Stmt) string {
 			if len(item.Params) > 0 {
 				cases[i] += "(" + strings.Join(item.Params, ", ") + ")"
 			}
+			if item.BackingValue != nil {
+				cases[i] += " = " + item.BackingValue.String()
+			}
 		}
-		return "enum " + s.Name + " { " + strings.Join(cases, ", ") + " }"
+		backing := ""
+		if s.Backing != "" {
+			backing = ": " + s.Backing
+		}
+		return "enum " + s.Name + backing + " { " + strings.Join(cases, ", ") + " }"
 	case letStmt:
 		prefix := "let "
 		if s.Unwrap {
 			prefix = "let? "
+		}
+		if s.Type != "" {
+			return prefix + s.Name + " " + s.Type + " = " + formatExpr(s.Expr, 0)
 		}
 		return prefix + s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:

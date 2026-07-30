@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -154,7 +155,7 @@ func TestTryCatchPreservesStructuredErrors(t *testing.T) {
 emit try {
   read("/definitely/not-found-osiris.txt")
 } catch err {
-  [err.kind, err.code, err.message, err.source]
+  [err.kind, err.code, err.message, err.resource, err.source]
 }
 `)
 	if err != nil {
@@ -168,7 +169,10 @@ emit try {
 	if got, want := len(out), 1; got != want {
 		t.Fatalf("len(out) = %d, want %d", got, want)
 	}
-	if got := out[0].String(); !strings.Contains(got, `"not_found"`) || !strings.Contains(got, `/definitely/not-found-osiris.txt`) || !strings.Contains(got, `"<test>"`) {
+	if got := out[0].String(); !strings.Contains(got, `"not_found"`) ||
+		!strings.Contains(got, `"read could not complete"`) ||
+		!strings.Contains(got, `/definitely/not-found-osiris.txt`) ||
+		!strings.Contains(got, `"<test>"`) {
 		t.Fatalf("output = %s, want structured error capture", got)
 	}
 }
@@ -2328,6 +2332,125 @@ func TestFormatSource(t *testing.T) {
 	}
 }
 
+func TestTypedLetBindingsHaveCheckedCanonicalKinds(t *testing.T) {
+	source := "let a = u64(3)\nlet b u32 = 3\nlet name string = \"something\"\nemit a, b, name\n"
+	prog, err := Parse("<typed-let>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := FormatProgram(prog)
+	if !strings.Contains(formatted, "let b u32 = 3u32") || !strings.Contains(formatted, "let name string = \"something\"") {
+		t.Fatalf("formatted typed lets = %q", formatted)
+	}
+	for _, run := range []struct {
+		name string
+		fn   func(*Runtime, *Program) ([]Value, error)
+	}{
+		{"interpreter", func(rt *Runtime, p *Program) ([]Value, error) { return rt.Run(context.Background(), p) }},
+		{"vm", func(rt *Runtime, p *Program) ([]Value, error) { return rt.RunVM(context.Background(), p) }},
+	} {
+		t.Run(run.name, func(t *testing.T) {
+			out, err := run.fn(NewRuntime(), prog)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, want := valuesOutput(out), "\"3u64, 3u32, something\"\n"; got != want {
+				t.Fatalf("output = %q, want %q", got, want)
+			}
+		})
+	}
+	for _, source := range []string{
+		"let value u32 = 3u64\n",
+		"let value u8 = 256\n",
+		"let value string = 3\n",
+		"let value uint32 = 3\n",
+	} {
+		if _, err := Parse("<bad-typed-let>", source); err == nil {
+			t.Fatalf("Parse(%q) succeeded", source)
+		}
+	}
+	bad, err := Parse("<typed-let-dynamic>", "let a = u64(3)\nlet b u32 = a\nemit b\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range []func(*Runtime, *Program) ([]Value, error){
+		func(rt *Runtime, p *Program) ([]Value, error) { return rt.Run(context.Background(), p) },
+		func(rt *Runtime, p *Program) ([]Value, error) { return rt.RunVM(context.Background(), p) },
+	} {
+		if _, err := run(NewRuntime(), bad); err == nil || !strings.Contains(err.Error(), "binding type u32 requires u32") {
+			t.Fatalf("dynamic type mismatch error = %v", err)
+		}
+	}
+}
+
+func TestCBackendTypedLetBindingParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<native-typed-let>", "let value u32 = 3\nemit value\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := NewRuntime().Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(artifact.Source, "oasserttype(") {
+		t.Fatalf("generated C omitted typed let check:\n%s", artifact.Source)
+	}
+	exe := filepath.Join(t.TempDir(), "typed-let")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exe); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(exe).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run native: %v\n%s", err, out)
+	}
+	if got := string(out); got != valuesOutput(want) {
+		t.Fatalf("native output = %q, want %q", got, valuesOutput(want))
+	}
+}
+
+func TestNumberBindingAnnotationAndConstructorParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	prog, err := Parse("<number-binding>", "let foo number = 4\nlet bar = number(4)\nemit foo\nemit bar\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	interpreter, err := NewRuntime().Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := NewRuntime().RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := valuesOutput(vm), valuesOutput(interpreter); got != want {
+		t.Fatalf("VM output = %q, want %q", got, want)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "number-binding")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exe); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(exe).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run native: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(interpreter); got != want {
+		t.Fatalf("native output = %q, want %q", got, want)
+	}
+}
+
 func TestEnumDeclarationParseAndFormat(t *testing.T) {
 	source := "enum Status { Ready, Running, Done }\n"
 	prog, err := Parse("<enum>", source)
@@ -2558,6 +2681,40 @@ func TestRelationalTypeAndLogicalPatternsHaveInterpreterVMParity(t *testing.T) {
 	}
 }
 
+func TestCBackendRelationalTypeAndLogicalPatternParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "let value = 7\nemit match value { number n and >= 0 => n, not null => 0 }\nemit match -3 { < 0 => 1, _ => 0 }\n"
+	prog, err := Parse("<native-advanced-pattern>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "advanced-pattern")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "omatchtype(") || !strings.Contains(artifact.Source, "block_main_match_and") {
+		t.Fatalf("generated C did not lower type/logical patterns:\n%s", artifact.Source)
+	}
+}
+
 func TestEnumMatchRejectsRedundantArmsWithSourceLocations(t *testing.T) {
 	fixtures := []string{
 		"enum Status { Ready, Done }\nemit match Status.Ready { Status.Ready => 1, Status.Ready => 2, Status.Done => 3 }\n",
@@ -2619,20 +2776,376 @@ func TestEnumMatchRejectsUnknownCaseAndReportsNonExhaustiveCase(t *testing.T) {
 			})
 		}
 	}
+	prog, err := Parse("<native-nonexhaustive-enum-match>", nonExhaustive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil || !strings.Contains(err.Error(), "non-exhaustive match for enum Status") {
+		t.Fatalf("native compiler non-exhaustive diagnostic = %v", err)
+	}
 }
 
-func TestNativeLoweringRejectsEnumsExplicitly(t *testing.T) {
+func TestCBackendNestedListEnumMatchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Result { Ok(value), Err(message) }\nlet result = Result.Ok([2, [3, 4]])\nemit match result { Result.Ok([left, [middle, right]]) => left + middle + right, Result.Err(_) => 0 }\n"
+	prog, err := Parse("<native-nested-list-enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "nested-list-enum-match")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "olistis(") || !strings.Contains(artifact.Source, "olistitem(") {
+		t.Fatalf("generated C did not lower nested list patterns:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendRepeatedPatternBindingParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Result { Ok(value), Err(message) }\nemit match Result.Ok([2, 2]) { Result.Ok([same, same]) => 1, default => 0 }\nemit match Result.Ok([2, 3]) { Result.Ok([same, same]) => 1, default => 0 }\n"
+	prog, err := Parse("<native-repeated-pattern-binding>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "repeated-pattern-binding")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "oequal(") {
+		t.Fatalf("generated C did not test repeated bindings:\n%s", artifact.Source)
+	}
+}
+
+func TestBackedEnumDeclarationsRoundTripAndNativeParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Status: string { Draft = \"draft\", Published = \"published\" }\nenum Code: i32 { Ok = 200i32, Missing = 404i32 }\nemit Status.Draft\nemit match Code.Missing { Code.Ok => \"ok\", Code.Missing => \"missing\" }\n"
+	prog, err := Parse("<backed-enum>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formatted := FormatProgram(prog)
+	if !strings.Contains(formatted, "enum Status: string { Draft = \"draft\", Published = \"published\" }") || !strings.Contains(formatted, "enum Code: i32 { Ok = 200i32, Missing = 404i32 }") {
+		t.Fatalf("formatted backed enums = %q", formatted)
+	}
+	if _, err := Parse("<backed-enum-formatted>", formatted); err != nil {
+		t.Fatalf("formatted backed enums did not parse: %v\n%s", err, formatted)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "backed-enum")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestBackedEnumDeclarationDiagnostics(t *testing.T) {
 	for _, source := range []string{
-		"enum Status { Ready, Done }\nemit Status.Ready\n",
-		"enum Result { Ok(value), Err(message) }\nemit match Result.Ok(1) { Result.Ok(value) => value, Result.Err(message) => 0 }\n",
+		"enum Status: bool { Draft = true }\n",
+		"enum Status: string { Draft = \"draft\", Again = \"draft\" }\n",
+		"enum Status: string { Draft }\n",
+		"enum Status: string { Draft(value) = \"draft\" }\n",
+		"enum Status { Draft = \"draft\" }\n",
 	} {
-		prog, err := Parse("<enum>", source)
-		if err != nil {
-			t.Fatal(err)
+		if _, err := Parse("<invalid-backed-enum>", source); err == nil {
+			t.Fatalf("Parse(%q) succeeded", source)
 		}
-		if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil || !strings.Contains(err.Error(), "native lowering does not yet support enum") {
-			t.Fatalf("native error = %v, want explicit enum lowering rejection", err)
-		}
+	}
+}
+
+func TestCBackendEnumValueParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Status { Ready, Done }\nenum Result { Ok(value), Err(message) }\nemit Status.Ready\nemit Status.Ready == Status.Ready\nemit Status.Ready == Status.Done\nemit Result.Ok(7)\nemit Result.Ok(7) == Result.Ok(7)\nemit Result.Ok(7) == Result.Ok(8)\n"
+	prog, err := Parse("<native-unit-enum>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unit-enum")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "O_ENUM") || !strings.Contains(artifact.Source, "oenum(\"Status\", \"Ready\"") {
+		t.Fatalf("generated C did not lower enum values:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendEnumNestedPayloadAndFunctionKindParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Inner { Value }\nenum Box { Wrap(value) }\nfunc identity(value) => value\nemit Box.Wrap(Inner.Value)\nemit Box.Wrap(identity) == Box.Wrap(identity)\nemit match Box.Wrap(identity) { Box.Wrap(function fn) => true, default => false }\n"
+	prog, err := Parse("<native-enum-kind-parity>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "enum-kind-parity")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "case O_ENUM:") || !strings.Contains(artifact.Source, "a.as.closure.call==b.as.closure.call") {
+		t.Fatalf("generated C lacks recursive enum rendering or closure equality:\n%s", artifact.Source)
+	}
+}
+
+func TestEnumJSONSerializationIsNominalAndRecursive(t *testing.T) {
+	prog, err := Parse("<enum-json>", "enum Inner { Value }\nenum Box { Wrap(value) }\nemit Box.Wrap(Inner.Value)\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := NewRuntime().Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(out[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"enum":{"case":"Wrap","payload":[{"enum":{"case":"Value","payload":[],"type":"Inner"}}],"type":"Box"}}`
+	if got := string(encoded); got != want {
+		t.Fatalf("enum JSON = %s, want %s", got, want)
+	}
+}
+
+func TestCBackendUnitEnumMatchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Status { Ready, Running, Done }\nlet status = Status.Running\nemit match status { Status.Ready => 1, Status.Running => 2, default => 3 }\n"
+	prog, err := Parse("<native-unit-enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "unit-enum-match")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "oenumis(") {
+		t.Fatalf("generated C did not dispatch on enum tags:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendPayloadEnumMatchBindingParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Result { Ok(value), Err(message) }\nlet result = Result.Ok(7)\nemit match result { Result.Ok(value) => value, Result.Err(message) => 0 }\n"
+	prog, err := Parse("<native-payload-enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "payload-enum-match")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "oenumpayload(") {
+		t.Fatalf("generated C did not bind enum payload values:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendGuardedEnumMatchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Result { Ok(value), Err(message) }\nlet result = Result.Ok(7)\nemit match result { Result.Ok(value) when value > 10 => value, Result.Ok(value) => value, default => 0 }\n"
+	prog, err := Parse("<native-guarded-enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "guarded-enum-match")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "block_main_match_guard") {
+		t.Fatalf("generated C did not keep a separate guarded-match block:\n%s", artifact.Source)
+	}
+}
+
+func TestCBackendGroupedEnumMatchParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "enum Result { Ok(value), Err(value) }\nlet result = Result.Err(7)\nemit match result { Result.Ok(value) | Result.Err(value) => value, default => 0 }\n"
+	prog, err := Parse("<native-grouped-enum-match>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	exePath := filepath.Join(t.TempDir(), "grouped-enum-match")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+	if !strings.Contains(artifact.Source, "block_main_match_alternative") {
+		t.Fatalf("generated C did not retain grouped-alternative branches:\n%s", artifact.Source)
 	}
 }
 
@@ -3107,7 +3620,7 @@ emit transpose(values)
 		t.Fatal("runtime components were not emitted in the required base-then-complex order")
 	}
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
-	const want = "0b60fbe66d45d7a6697429cd4f764cfe8708020bd671c1ab6315f1c678c0a0fd"
+	const want = "d92caf20f311ae98146a54d782d47cbdc4fafe7c078ce18155491cba80e172a5"
 	if got != want {
 		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
 	}
@@ -3136,8 +3649,8 @@ func TestCBackendRejectsUnsupportedIROperation(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 	_, err = CompileC(context.Background(), NewRuntime(), prog)
-	if err == nil || !strings.Contains(err.Error(), `unsupported IR operation "global"`) {
-		t.Fatalf("CompileC error = %v, want unsupported global IR diagnostic", err)
+	if err == nil || !strings.Contains(err.Error(), `named quantity "Meter"`) {
+		t.Fatalf("CompileC error = %v, want unsupported named-quantity diagnostic", err)
 	}
 }
 
@@ -3192,6 +3705,30 @@ emit total
 		b.Fatal(err)
 	}
 	exePath := filepath.Join(b.TempDir(), "loop")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := exec.Command(exePath).Run(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkCBackendSmallStaticForListUnrolled(b *testing.B) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		b.Skip("cc not available")
+	}
+	prog, err := Parse("<benchmark>", "let values = [2, 3, 5, 7]\nlet total = 0\nfor value in values { let total = total + value }\nemit total\n")
+	if err != nil {
+		b.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		b.Fatal(err)
+	}
+	exePath := filepath.Join(b.TempDir(), "small-static-for")
 	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
 		b.Fatal(err)
 	}
@@ -3435,6 +3972,202 @@ emit total
 	}
 	if got, want := string(out), "4950u64\n"; got != want {
 		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendProofGatedLoopInvariantCodeMotionParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "let i = 0\nlet total = 0\nwhile i < 4 {\n  let scale = 2 + 3\n  let total = total + scale\n  let i = i + 1\n}\nemit total\n"
+	prog, err := Parse("<native-licm>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 {
+		t.Fatalf("generated C has no main:\n%s", artifact.Source)
+	}
+	mainSource := artifact.Source[mainAt:]
+	entryAt := strings.Index(mainSource, "block_main_entry")
+	headerAt := strings.Index(mainSource, "block_main_while_header")
+	bodyAt := strings.Index(mainSource, "block_main_while_body")
+	if entryAt < 0 || headerAt < entryAt || bodyAt < headerAt {
+		t.Fatalf("generated C lost canonical loop shape:\n%s", mainSource)
+	}
+	if strings.Contains(mainSource[bodyAt:], "ouintbits(2uLL, 64)") || strings.Contains(mainSource[bodyAt:], "ouintbits(3uLL, 64)") {
+		t.Fatalf("numeric invariant literals remained in loop body:\n%s", mainSource)
+	}
+	exePath := filepath.Join(t.TempDir(), "native-licm")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendProofGatedForListBoundsEliminationParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "let values = [2, 3, 5, 7]\nlet total = 0\nfor value in values {\n  let total = total + value\n}\nemit total\n"
+	prog, err := Parse("<native-for-bounds>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 {
+		t.Fatalf("generated C has no main:\n%s", artifact.Source)
+	}
+	bodyAt := strings.Index(artifact.Source[mainAt:], "block_main_for_body")
+	if bodyAt < 0 {
+		t.Fatalf("generated C lost canonical for loop:\n%s", artifact.Source)
+	}
+	body := artifact.Source[mainAt+bodyAt:]
+	if !strings.Contains(body, "olistatunchecked(") {
+		t.Fatalf("proved list iteration did not remove dynamic bounds check:\n%s", body)
+	}
+	exePath := filepath.Join(t.TempDir(), "native-for-bounds")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendSmallStaticForListUnrollingParity(t *testing.T) {
+	if _, err := exec.LookPath("cc"); err != nil {
+		t.Skip("cc not available")
+	}
+	source := "let values = [2, 3, 5, 7]\nlet total = 0\nfor value in values {\n  let total = total + value\n}\nemit total\n"
+	prog, err := Parse("<native-for-unroll>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := NewRuntime()
+	want, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vm, err := rt.RunVM(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesOutput(vm); got != valuesOutput(want) {
+		t.Fatalf("VM output = %q, want %q", got, valuesOutput(want))
+	}
+	ir, err := rt.BuildIR(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optimizeNativeLoops(ir)
+	optimized := FormatIRProgram(ir)
+	if !strings.Contains(optimized, ".unroll0") || !strings.Contains(optimized, "jump main.for.exit") {
+		t.Fatalf("small fixed-trip loop was not unrolled:\n%s", optimized)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 {
+		t.Fatalf("generated C lost canonical for labels:\n%s", artifact.Source)
+	}
+	headerAt := strings.Index(artifact.Source[mainAt:], "block_main_for_header")
+	if headerAt < 0 {
+		t.Fatalf("generated C lost canonical for labels:\n%s", artifact.Source)
+	}
+	entry := artifact.Source[mainAt : mainAt+headerAt]
+	if !strings.Contains(entry, "goto block_main_for_exit") || strings.Contains(entry, "goto block_main_for_header") {
+		t.Fatalf("generated C entry did not bypass the unrolled loop header:\n%s", entry)
+	}
+	exePath := filepath.Join(t.TempDir(), "native-for-unroll")
+	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
+		t.Fatalf("compile executable: %v\n--- C ---\n%s", err, artifact.Source)
+	}
+	out, err := exec.Command(exePath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("run executable: %v\n%s", err, out)
+	}
+	if got, want := string(out), valuesOutput(want); got != want {
+		t.Fatalf("native output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
+	}
+}
+
+func TestCBackendSmallStaticForListUnrollingIsProfitabilityGated(t *testing.T) {
+	prog, err := Parse("<native-for-unroll-gate>", "let values = [1, 2, 3, 4, 5]\nlet total = 0\nfor value in values { let total = total + value }\nemit total\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, err := NewRuntime().BuildIR(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optimizeNativeLoops(ir)
+	optimized := FormatIRProgram(ir)
+	if strings.Contains(optimized, ".unroll") || !strings.Contains(optimized, "jump main.for.header") {
+		t.Fatalf("unrolling ignored the bounded profitability gate:\n%s", optimized)
+	}
+}
+
+func TestCBackendBoundsEliminationLeavesDirectAtChecked(t *testing.T) {
+	prog, err := Parse("<native-direct-at>", "let values = [2, 3]\nemit at(values, 4)\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("compile C: %v", err)
+	}
+	mainAt := strings.LastIndex(artifact.Source, "int main(void) {")
+	if mainAt < 0 {
+		t.Fatalf("generated C has no main:\n%s", artifact.Source)
+	}
+	mainSource := artifact.Source[mainAt:]
+	if !strings.Contains(mainSource, "= oat(") || strings.Contains(mainSource, "olistatunchecked(") {
+		t.Fatalf("direct at lost its checked lowering:\n%s", mainSource)
 	}
 }
 
@@ -6381,8 +7114,8 @@ emit root(81.0)
 func TestCBackendRejectsConflictingModuleMerge(t *testing.T) {
 	prog, err := Parse("<conflicting-static-module>", `
 import "std/math" as math
-import "std/text" as text
-let selected = if(true, math, text)
+import "std/crypto" as crypto
+let selected = if(true, math, crypto)
 emit selected.sqrt(81)
 `)
 	if err != nil {

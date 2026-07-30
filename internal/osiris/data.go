@@ -20,13 +20,13 @@ func readValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("read expects 1 argument")
 	}
-	path, err := args[0].AsString()
+	path, err := filesystemPathArgument(args[0], "read")
 	if err != nil {
 		return nullValue(), err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nullValue(), err
+		return nullValue(), filesystemHostFailure("read", path, err)
 	}
 	return stringValue(string(data)), nil
 }
@@ -40,19 +40,15 @@ func readBytesValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("readbytes expects 1 argument")
 	}
-	path, err := args[0].AsString()
+	path, err := filesystemPathArgument(args[0], "readbytes")
 	if err != nil {
 		return nullValue(), err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nullValue(), err
+		return nullValue(), filesystemHostFailure("readbytes", path, err)
 	}
-	out := make([]Value, len(data))
-	for i, b := range data {
-		out[i] = uintValue(uint64(b), 8)
-	}
-	return listValue(out), nil
+	return bytesListValue(data), nil
 }
 
 // writeValue handles the write value step in the surrounding package and
@@ -64,16 +60,16 @@ func writeValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("write expects 2 arguments")
 	}
-	path, err := args[0].AsString()
+	path, err := filesystemPathArgument(args[0], "write")
 	if err != nil {
 		return nullValue(), err
 	}
 	data, err := bytesFromValue(args[1])
 	if err != nil {
-		return nullValue(), err
+		return nullValue(), filesystemFailure(ErrorKindType, "write", path, "write expects string or byte-compatible data", nil)
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return nullValue(), err
+		return nullValue(), filesystemHostFailure("write", path, err)
 	}
 	return boolValue(true), nil
 }

@@ -1,9 +1,9 @@
 # id|path|status|owner|depends_on|evidence_or_next
-001|tasks/001-c-backend-real-lowering.md|historical|unassigned|-|Delivered executable C foundation; successor: 033
-002|tasks/002-native-value-abi.md|superseded|unassigned|-|Split into ownership/runtime tasks 028 and 029
-003|tasks/003-native-loop-optimization.md|superseded|unassigned|-|Successors: 034 and 044
-004|tasks/004-native-numeric-and-tensor-lowering.md|active|unassigned|001,002|Native kernel expansion; successors 030,031,032
-005|tasks/005-native-tooling-validation.md|superseded|unassigned|001|Successors: 024,025,027,034,043
+001|tasks/completed/001-c-backend-real-lowering.md|complete|unassigned|-|IR-to-C executable foundation audited 2026-07-28; focused source, parity, and diagnostic tests pass
+002|tasks/completed/002-native-value-abi.md|complete|unassigned|-|ABI acceptance audited 2026-07-28; successors 028,029,032,047 and focused executable parity evidence
+003|tasks/completed/003-native-loop-optimization.md|complete|unassigned|001,002,004,005|Proof-gated LICM, direct-list bounds elimination, SSA-edge-rewritten bounded unrolling, generated-C/parity tests, and benchmark evidence audited 2026-07-28
+004|tasks/completed/004-native-numeric-and-tensor-lowering.md|complete|unassigned|001,002|Audited 2026-07-28; focused successors 030,031,032 complete the native numeric/tensor contract
+005|tasks/completed/005-native-tooling-validation.md|complete|unassigned|001|Audited 2026-07-28; successors 024,025,027,034,043 complete validation/tooling contract
 006|tasks/completed/006-numeric-literal-contract.md|complete|unassigned|032|Numeric literal defaults/suffixes/inference/codec contract documented and characterized
 007|tasks/completed/007-numeric-type-expansion.md|complete|unassigned|006|Shape inference, complex<f32>/complex<f64>, dual scalar contract, sparse-storage design, and named-unit design complete
 008|tasks/completed/008-scientific-stdlib.md|complete|unassigned|007,047|Pure seeded random helper, std/signal reference kernels, executable parity tests, and canonical React documentation complete
@@ -14,9 +14,9 @@
 013|tasks/completed/013-error-language-tools.md|complete|unassigned|046|Result binding/combinators/conversions/collect, must-handle metadata, discard, conservative span diagnostics, and canonical reference complete
 014|tasks/completed/014-os-task-error-semantics.md|complete|unassigned|045,046|Cross-platform host mapping, would-block debug errno, deterministic scheduler, recursive redaction, and public reference evidence
 015|tasks/completed/015-refactoring-tools.md|complete|unassigned|038|Scope-aware formatted dry-run rename, LSP WorkspaceEdit, import/shadowing coverage, and reference documentation complete
-016|tasks/016-ffi-boundary-design.md|superseded|unassigned|-|Successor: 047
-017|tasks/017-documentation-consolidation.md|superseded|unassigned|022|Successors: 039 and 040
-018|tasks/018-enums-and-pattern-matching.md|superseded|unassigned|048|Implemented and completed by task 048
+016|tasks/completed/016-ffi-boundary-design.md|complete|unassigned|-|Audited 2026-07-28; task 047 supplies approved design-only FFI boundary
+017|tasks/completed/017-documentation-consolidation.md|complete|unassigned|022|Audited 2026-07-28; tasks 039 and 040 establish canonical React reference and checked examples
+018|tasks/completed/018-enums-and-pattern-matching.md|complete|unassigned|001,002,048|Tagged enum/match lowering, C-ABI type-kind audit, recursive rendering/equality, serialization/diagnostic/documentation audit, and focused parity evidence complete 2026-07-28
 019|tasks/completed/019-reconcile-and-checkpoint-the-current-worktree.md|complete|unassigned|-|Completion record and full test evidence in task file
 020|tasks/completed/020-establish-a-supported-go-toolchain-policy.md|complete|unassigned|019|docs/development/GO-TOOLCHAIN.md; completion record
 021|tasks/completed/021-harden-repository-ignore-and-generated-artifact-policy.md|complete|unassigned|019|docs/development/GENERATED-ARTIFACTS.md; completion record
@@ -47,4 +47,11 @@
 046|tasks/completed/046-threat-model-native-compilation-modules-lsp-and-codecs.md|complete|unassigned|037,038|Threat model, LSP/codec limits, private temp fixture, malicious corpus, and validation
 047|tasks/completed/047-define-an-ffi-boundary-before-implementation.md|complete|unassigned|028,046|Versioned capability-gated FFI design, value/ownership/security contract, public reference, and validation
 048|tasks/completed/048-gate-enums-and-pattern-matching-behind-a-complete-semantic-contract.md|complete|unassigned|025,032,033|Enum/pattern semantic contract complete; native C explicitly rejects enums pending tagged lowering
-049|tasks/049-tcp-optimization-tuning.md|active|unassigned|011,012,043,045|Measure and tune TCP now that cancellation/error and portable polling contracts are complete
+049|tasks/completed/049-tcp-optimization-tuning.md|complete|unassigned|011,012,043,045|Same-host 15-sample default/bulk benchmark completed; defaults retained with no measured regression 2026-07-29
+100|tasks/completed/100-add-new-math-funcs.md|complete|codex|025,032,039,040|35 shared operations, complex-family extensions, exact integer/bit contracts, inference/native gates, exact std/math docs audit, and full validation
+101|tasks/completed/101-add-date-funcs.md|complete|unassigned|014,025,035,039,040,045|docs/design/TIME.md; exact std/time values and API; interpreter/VM/codec/inference/native-gate/reference evidence; full validation
+102|tasks/completed/102-expand-io.md|complete|codex|014,025,039,040,045,046|17 bounded filesystem/stream operations; parity, race, native source gate, cross-platform build, design, and exact docs evidence
+103|tasks/completed/103-expand-strings.md|complete|unassigned|025,032,039,040|24 Unicode-aware std/text additions; interpreter/VM/inference parity, option/code-point contracts, native source gate, fuzz and exact reference evidence
+104|tasks/completed/104-expand-global-constants-and-measurement-units.md|complete|unassigned|007,025,032,039,040|159 canonical concepts and 375 spellings; exact quantities, inference/codec/VM parity, native global gate, sourced dual-reference audit, and full validation
+105|tasks/105-order-reference-page-entries.md|ready|unassigned|039,040,100,101,102,103,104|Define and enforce one deterministic per-section order for all canonical reference-page entries
+106|tasks/106-add-reference-page-tables-of-contents-and-deep-links.md|blocked|unassigned|039,040,105|After task 105, add #page/entry routing and accessible per-page tables of contents

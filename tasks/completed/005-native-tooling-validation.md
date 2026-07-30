@@ -23,3 +23,14 @@ interpreter/VM/native output parity, warms each path, samples repeated
 execution runs, and reports native compile time separately from an
 average/best/worst execution table. Optimization reports, benchmark JSON, and
 CI commands remain open.
+
+## Completion record — 2026-07-28
+
+This umbrella is complete through tasks 024, 025, 027, 034, and 043. The
+repository now has deterministic generated-C checks, differential
+interpreter/VM/native fixtures, a bounded parser-to-IR-to-C fuzz target,
+versioned content-addressed native executable manifests, optimization reports,
+benchmark JSON/raw-sample policy, and CI validation. `bench.sh` remains a
+parity-checked benchmark harness with build time reported separately from
+execution samples. New tooling additions must be independently scoped rather
+than reopening this historical record.

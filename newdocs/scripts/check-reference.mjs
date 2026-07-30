@@ -2,6 +2,8 @@ import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { chapters, languageSections, modules, searchEntries } from '../src/api-data.js';
+import technical from '../src/technical-reference.json' with { type: 'json' };
+import constants from '../src/constant-reference.json' with { type: 'json' };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const legacyDocs = resolve(here, '..', '..', 'docs');
@@ -9,13 +11,21 @@ const redirects = resolve(here, '..', 'public', 'docs');
 const pages = (await readdir(legacyDocs)).filter((name) => name.endsWith('.html'));
 const support = JSON.parse(await readFile(resolve(here, '..', 'src', 'support-matrix.json'), 'utf8'));
 const moduleSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'module.go'), 'utf8');
+const timeSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'time_value.go'), 'utf8');
+const runtimeSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'runtime.go'), 'utf8');
+const namedSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'named.go'), 'utf8');
+const lexerSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'lexer.go'), 'utf8');
+const valueSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'value.go'), 'utf8');
+const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'main.go'), 'utf8');
 
-if (modules.length !== 14 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
+if (modules.length !== 17 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 if (!support.features?.length || !support.backends?.length) throw new Error('Migrated support matrix is incomplete.');
 const referenceModules = [...modules, { id: 'language', sections: languageSections }];
 for (const module of referenceModules) for (const section of module.sections) for (const entry of section.entries) {
   for (const field of ['name', 'signature', 'description', 'returns', 'returnValue', 'example']) if (!entry[field]) throw new Error(`Incomplete API entry ${module.id}/${entry.name}: ${field}`);
-  if (entry.kind !== 'construct' && entry.kind !== 'type' && (!entry.parameters || !entry.details?.length)) throw new Error(`Function reference entry lacks parameter or behavioral detail: ${module.id}/${entry.name}.`);
+  if ((entry.kind === undefined || entry.kind === 'function' || entry.kind === 'family') && (!entry.parameters || !entry.returns || !entry.details?.length)) {
+    throw new Error(`Function reference entry lacks accepted values, return type, or behavioral detail: ${module.id}/${entry.name}.`);
+  }
 
   // The UI uses this same index. Every published API entry must be reachable
   // by searching its documented name, not merely by a handful of examples.
@@ -27,16 +37,131 @@ for (const module of referenceModules) for (const section of module.sections) fo
 	}
 }
 const documentedNames = new Set(modules.flatMap((module) => module.sections.flatMap((section) => section.entries.flatMap((entry) => [entry.name, ...(entry.aliases || [])]))));
-const stdlibTables = [...moduleSource.matchAll(/case "(std\/[^"]+)"[\s\S]*?return makeModule\([^,]+,[\s\S]*?map\[string\]Value\{([\s\S]*?)\}\), nil/g)];
+for (const section of languageSections) for (const entry of section.entries) {
+	documentedNames.add(entry.name);
+	for (const alias of entry.aliases || []) documentedNames.add(alias);
+}
+const stdlibTables = [...moduleSource.matchAll(/case "(std\/[^"]+)":([\s\S]*?)(?=\n\tcase "std\/|\n\tdefault:)/g)]
+	.map(([, moduleName, block]) => {
+		const table = block.match(/return makeModule\([^,]+,[\s\S]*?map\[string\]Value\{([\s\S]*?)\}\), nil/);
+		return table ? [table[0], moduleName, table[1]] : null;
+	})
+	.filter(Boolean);
+const timeTable = timeSource.match(/func stdlibTimeModule[\s\S]*?return makeModule\([^,]+,[\s\S]*?map\[string\]Value\{([\s\S]*?)\}\), nil/);
+if (timeTable) stdlibTables.push([timeTable[0], 'std/time', timeTable[1]]);
 if (!stdlibTables.length) throw new Error('Cannot locate stdlib export tables for reference coverage.');
+const implementedStdlibExports = new Map();
 for (const [, moduleName, table] of stdlibTables) {
-	const exports = [...table.matchAll(/^\s*"([^"]+)":\s+functionValueOf/gm)].map((match) => match[1]);
+	const exports = [...table.matchAll(/^\s*"([^"]+)":\s+(?:functionValueOf|contextFunctionValueOf|numberValue|durationValue|stringValue|timeLocationValueOf)/gm)].map((match) => match[1]);
+	implementedStdlibExports.set(moduleName, exports);
 	const undocumented = exports.filter((name) => !documentedNames.has(name));
 	if (undocumented.length) throw new Error(`Canonical reference is missing ${moduleName} exports: ${undocumented.join(', ')}.`);
 }
-for (const query of ['cholesky', 'readchunk', 'end-of-file', 'uint64 byte count', 'non-byte-compatible', 'transfer', 'fixed-width integer', 'optimization report', 'convolve', 'tcp_dial', 'tcp_nodelay', 'let?', 'to_option', 'collect', 'discard', 'must_handle', 'permission_denied', 'redact']) if (!searchEntries(query).length) throw new Error(`Search does not find ${query}.`);
+
+function sortedUnique(values) {
+	return [...new Set(values)].sort((left, right) => left.localeCompare(right));
+}
+
+function assertNoDuplicates(label, values) {
+	const seen = new Set();
+	const duplicates = new Set();
+	for (const value of values) {
+		if (seen.has(value)) duplicates.add(value);
+		seen.add(value);
+	}
+	if (duplicates.size) throw new Error(`${label} contains duplicates: ${sortedUnique(duplicates).join(', ')}.`);
+}
+
+function assertExactIndex(label, documented, implemented) {
+	const wanted = sortedUnique(implemented);
+	const got = sortedUnique(documented);
+	const missing = wanted.filter((name) => !got.includes(name));
+	const stale = got.filter((name) => !wanted.includes(name));
+	if (missing.length || stale.length) {
+		throw new Error(`${label} is out of sync.${missing.length ? ` Missing: ${missing.join(', ')}.` : ''}${stale.length ? ` Stale: ${stale.join(', ')}.` : ''}`);
+	}
+}
+
+const runtimeBuiltins = [...runtimeSource.matchAll(/dst\["([^"]+)"\]\s*=/g)].map((match) => match[1]);
+const undocumentedBuiltins = sortedUnique(runtimeBuiltins).filter((name) => !documentedNames.has(name));
+if (undocumentedBuiltins.length) throw new Error(`Canonical reference is missing runtime built-ins: ${undocumentedBuiltins.join(', ')}.`);
+assertExactIndex('Technical runtime built-in index', technical.runtimeBuiltins, runtimeBuiltins);
+
+const namedConstants = [];
+for (const match of namedSource.matchAll(/namedDefinition\("([^"]+)",\s*(?:nil|\[\]string\{([^}]*)\})/g)) {
+	namedConstants.push(match[1]);
+	for (const alias of (match[2] || '').matchAll(/"([^"]+)"/g)) namedConstants.push(alias[1]);
+}
+assertNoDuplicates('Implementation named-constant catalog', namedConstants);
+const documentedConstantNames = [constants.global, constants.errors]
+	.flatMap((page) => page.sections.flatMap((section) => section.entries.flatMap((entry) => entry.names)));
+assertNoDuplicates('Detailed named-constant reference', documentedConstantNames);
+assertExactIndex('Detailed named-constant reference', documentedConstantNames, namedConstants);
+const undocumentedConstants = sortedUnique(namedConstants).filter((name) => !documentedNames.has(name));
+if (undocumentedConstants.length) throw new Error(`Canonical reference is missing named constants: ${undocumentedConstants.join(', ')}.`);
+assertExactIndex('Technical named-constant index', technical.namedConstants, namedConstants);
+const collidingConstants = sortedUnique(namedConstants).filter((name) => runtimeBuiltins.includes(name));
+if (collidingConstants.length) throw new Error(`Named constants collide with global callables or type constructors: ${collidingConstants.join(', ')}.`);
+for (const section of constants.global.sections) {
+	if (!section.source || !section.exactness) throw new Error(`Global constant section ${section.title} lacks source or representation metadata.`);
+	for (const entry of section.entries) {
+		for (const field of ['names', 'type', 'description', 'value', 'example']) if (!entry[field]?.length) {
+			throw new Error(`Incomplete global constant entry ${section.title}/${entry.names?.[0] || '<unnamed>'}: ${field}.`);
+		}
+	}
+}
+
+const specialFormBlock = runtimeSource.slice(runtimeSource.indexOf('func specialFormName'), runtimeSource.indexOf('func builtinHasTaskEffect'));
+const specialForms = [...specialFormBlock.matchAll(/case ([^:]+):/g)].flatMap((line) => [...line[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
+const technicalIndexes = technical.sections.find((section) => section.id === 'surface-indexes')?.indexes || [];
+for (const moduleName of ['std/math', 'std/text', 'std/time']) {
+	const index = technicalIndexes.find((candidate) => candidate.title === `${moduleName} exports`);
+	const documented = index?.source ? technical[index.source] : index?.items || [];
+	assertExactIndex(`Technical ${moduleName} export index`, documented, implementedStdlibExports.get(moduleName) || []);
+}
+const documentedSpecialForms = technicalIndexes.find((index) => index.title === 'Evaluator special forms')?.items || [];
+assertExactIndex('Technical special-form index', documentedSpecialForms, specialForms);
+const undocumentedSpecialForms = sortedUnique(specialForms).filter((name) => !documentedNames.has(name));
+if (undocumentedSpecialForms.length) throw new Error(`Canonical reference is missing evaluator special forms: ${undocumentedSpecialForms.join(', ')}.`);
+
+const keywordBlock = lexerSource.slice(lexerSource.indexOf('func (l *lexer) scanIdent'), lexerSource.indexOf('func (l *lexer) scanNumber'));
+const keywords = [...keywordBlock.matchAll(/case "([^"]+)":/g)].map((match) => match[1]);
+const documentedKeywords = technicalIndexes.find((index) => index.title === 'Reserved keywords')?.items || [];
+assertExactIndex('Technical keyword index', documentedKeywords, keywords);
+
+const valueKindBlock = valueSource.slice(valueSource.indexOf('func (k valueKind) String()'), valueSource.indexOf('func (v Value) Truthy()'));
+const runtimeKinds = [...valueKindBlock.matchAll(/return "([a-z_]+)"/g)].map((match) => match[1]);
+assertExactIndex('Technical runtime-kind index', technical.runtimeKinds, runtimeKinds);
+
+const commandBlock = cliSource.slice(cliSource.indexOf('func run(ctx'), cliSource.indexOf('func runVersion'));
+const commands = [...commandBlock.matchAll(/case "([a-z]+)"/g)].map((match) => match[1]);
+const documentedCommands = technicalIndexes.find((index) => index.title === 'CLI commands')?.items || [];
+assertExactIndex('Technical CLI command index', documentedCommands, commands);
+
+const detailedEntriesByName = new Map();
+for (const module of referenceModules) for (const section of module.sections) for (const entry of section.entries) {
+	for (const name of [entry.name, ...(entry.aliases || [])]) {
+		if (!detailedEntriesByName.has(name)) detailedEntriesByName.set(name, []);
+		detailedEntriesByName.get(name).push(entry);
+	}
+}
+for (const index of technicalIndexes) {
+	const names = index.source ? technical[index.source] : index.items;
+	for (const name of names) {
+		const entries = detailedEntriesByName.get(name) || [];
+		if (!entries.length) throw new Error(`${index.title} entry ${name} has no detailed reference outside the technical index.`);
+		if (!entries.some((entry) => entry.signature && entry.description && entry.example)) {
+			throw new Error(`${index.title} entry ${name} lacks a listing, description, or code example.`);
+		}
+		if ((index.title === 'Global built-in functions' || index.title === 'Evaluator special forms') && !entries.some((entry) => entry.parameters && entry.returns)) {
+			throw new Error(`${index.title} entry ${name} lacks accepted values or a return type.`);
+		}
+	}
+}
+
+for (const query of ['cholesky', 'readchunk', 'end-of-file', 'uint64 byte count', 'non-byte-compatible', 'transfer', 'fixed-width integer', 'optimization report', 'convolve', 'tcp_dial', 'tcp_nodelay', 'let?', 'to_option', 'collect', 'discard', 'must_handle', 'permission_denied', 'redact', 'precedence', 'truthiness', 'race', 'read_async', 'Planck', 'InvalidArgument', 'clone', 'rotl', 'parse_duration', 'rfc3339_nano', 'timezone gap', 'datetime', 'equal_fold', 'split_after_n', 'Unicode code-point index']) if (!searchEntries(query).length) throw new Error(`Search does not find ${query}.`);
 for (const page of pages) {
   const redirect = await readFile(resolve(redirects, page), 'utf8');
   if (!redirect.includes('url=../#')) throw new Error(`Missing React redirect for ${page}.`);
 }
-console.log(`Reference checks passed: ${modules.length} API groups, ${chapters.length} chapters, ${pages.length} redirects.`);
+console.log(`Reference checks passed: ${modules.length} API groups, ${chapters.length} chapters, ${sortedUnique(runtimeBuiltins).length} built-ins, ${sortedUnique(specialForms).length} special forms, ${sortedUnique(namedConstants).length} named constants, ${pages.length} redirects.`);

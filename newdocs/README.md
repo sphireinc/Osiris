@@ -14,6 +14,17 @@ material, not an alternate reference to edit.
   types, API signatures, return types, detail notes, and examples. Edit it (or
   the small component-specific entries in `api-data.js`) for public-reference
   changes; do not regenerate it from `docs/`.
+- `src/supplemental-reference.json` records implementation-audit additions:
+  runtime helpers, special forms, runtime kinds, and the original grouped
+  constant audit that were absent from the migrated snapshot.
+- `src/constant-reference.json` owns the detailed **Global Constants** and
+  **Error Constants** language pages, including aliases, meanings, values,
+  return types, and checked examples.
+- `src/cli-reference.json` provides the per-command entries that supplement the
+  deeper tooling contracts in `api-data.js`.
+- `src/technical-reference.json` owns the dense lexical, grammar, precedence,
+  value-model, backend, CLI, and exhaustive surface indexes rendered by the
+  final **Technical Reference** page.
 - `src/support-matrix.json` is the checked-in backend-support contract.
 - `src/api-data.js` derives navigation and global search records from that
   source data and holds small component-specific reference entries such as CLI
@@ -36,9 +47,11 @@ npm run build
 
 `check-reference` verifies API metadata completeness, that every published API
 entry and documented family member is discoverable through global search, that
-every current standard-library export has canonical reference coverage,
-representative cross-reference searches, and a redirect destination for every
-former static page. `build`
+every current runtime built-in, evaluator special form, named constant,
+reserved keyword, CLI command, and standard-library export has canonical
+reference coverage outside the exhaustive technical index, representative
+cross-reference searches, and a redirect destination for every former static
+page. `build`
 also generates ignored `public/docs/*.html` compatibility redirects, then
 emits the publishable site to ignored `dist/`.
 

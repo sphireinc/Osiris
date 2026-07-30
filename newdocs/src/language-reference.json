@@ -7,9 +7,9 @@
         "name": "let",
         "signature": "let name = expression",
         "description": "Create an immutable lexical binding.",
-        "parameters": "name must be a valid identifier; expression is evaluated once before binding.",
+        "parameters": "`name` must be a valid identifier; `expression` is evaluated once before binding.",
         "returns": "No standalone value; the binding is available in the remaining lexical scope.",
-        "returnValue": "let answer = 42 binds answer to 42u64.",
+        "returnValue": "`let answer = 42` binds `answer` to `42u64`.",
         "details": [
           "A later assignment to the same binding is rejected. Inner scopes may deliberately shadow an outer binding."
         ],
@@ -20,15 +20,15 @@
         "kind": "construct",
         "name": "let?",
         "signature": "let? name = Result-or-Option expression",
-        "description": "Extract a successful Result or present Option into an immutable binding.",
-        "parameters": "The expression must evaluate to Result or Option.",
+        "description": "Extract a successful `Result` or present `Option` into an immutable binding.",
+        "parameters": "The expression must evaluate to `Result` or `Option`.",
         "returns": "No standalone value; the binding is available to the remaining block or scope.",
-        "returnValue": "ok(41) binds 41; none() produces not_found; err(error(InvalidArgument, \"bad\")) produces invalid_argument.",
+        "returnValue": "`ok(41)` binds `41`; `none()` produces `not_found`; `err(error(InvalidArgument, \"bad\"))` produces `invalid_argument`.",
         "details": [
-          "Result metadata and causes remain intact. Native C lowering rejects let? until structured Result lowering is implemented."
+          "`Result` metadata and causes remain intact. Native C lowering rejects `let?` until structured `Result` lowering is implemented."
         ],
-        "errors": "A non-Result/non-Option operand is an argument error; an absent or failed container propagates its structured error.",
-        "example": "let? value = ok(41)\nemit value + 1\n# 42",
+        "errors": "A non-`Result`/non-`Option` operand is an argument error; an absent or failed container propagates its structured error.",
+        "example": "let? value = ok(41)\nemit value + 1 # 42",
         "exampleStatus": "checked"
       },
       {
@@ -36,9 +36,9 @@
         "name": "func",
         "signature": "func name(parameters…) => expression",
         "description": "Declare a callable lexical function.",
-        "parameters": "Each parameter is an immutable local binding. A block-bodied function may use return and nested control flow.",
-        "returns": "Calling the function returns its selected expression or explicit return value.",
-        "returnValue": "func double(x) => x * 2; double(21) returns 42u64.",
+        "parameters": "Each parameter is an immutable local binding. A block-bodied function may use `return` and nested control flow.",
+        "returns": "Calling the function returns its selected expression or explicit `return` value.",
+        "returnValue": "`func double(x) => x * 2`; `double(21)` returns `42u64`.",
         "details": [
           "Functions may capture lexical bindings. Supported native programs lower direct functions and proven closures; unsupported captures fail native compilation clearly."
         ],
@@ -53,42 +53,42 @@
       {
         "name": "to_option",
         "signature": "to_option(result)",
-        "description": "Convert a Result into an Option without discarding success payloads.",
-        "parameters": "One Result.",
-        "returns": "Option.",
-        "returnValue": "to_option(ok(11)) is some(11); to_option(err(error(InvalidArgument, \"bad\"))) is none().",
+        "description": "Convert a `Result` into an `Option` without discarding success payloads.",
+        "parameters": "One `Result`.",
+        "returns": "`Option`.",
+        "returnValue": "`to_option(ok(11))` is `some(11)`; `to_option(err(error(InvalidArgument, \"bad\")))` is `none()`.",
         "details": [
-          "The error payload is intentionally not carried into Option. Use Result when the failure reason must remain observable."
+          "The error payload is intentionally not carried into `Option`. Use `Result` when the failure reason must remain observable."
         ],
-        "errors": "A non-Result argument is an error.",
+        "errors": "A non-`Result` argument is an error.",
         "example": "emit to_option(ok(11))\n# some(11)",
         "exampleStatus": "checked"
       },
       {
         "name": "to_result",
         "signature": "to_result(option[, message])",
-        "description": "Convert an Option into a Result.",
-        "parameters": "One Option and an optional message used when it is empty.",
-        "returns": "Result.",
-        "returnValue": "to_result(some(12)) is ok(12); to_result(none(), \"missing\") is err(not_found: missing).",
+        "description": "Convert an `Option` into a `Result`.",
+        "parameters": "One `Option` and an optional message used when it is empty.",
+        "returns": "`Result`.",
+        "returnValue": "`to_result(some(12))` is `ok(12)`; `to_result(none(), \"missing\")` is `err(not_found: missing)`.",
         "details": [
-          "An empty Option becomes a structured not_found error. A supplied message changes that error message, not its stable kind."
+          "An empty `Option` becomes a structured `not_found` error. A supplied message changes that error message, not its stable kind."
         ],
-        "errors": "A non-Option argument is an error.",
+        "errors": "A non-`Option` argument is an error.",
         "example": "emit to_result(some(12))\n# ok(12)",
         "exampleStatus": "checked"
       },
       {
         "name": "collect",
         "signature": "collect([Result-or-Option…])",
-        "description": "Collect successful Result or Option items into one Result list.",
-        "parameters": "One list whose items are Result or Option values.",
-        "returns": "Result<List>.",
-        "returnValue": "collect([ok(1), some(2)]) is ok([1, 2]).",
+        "description": "Collect successful `Result` or `Option` items into one `Result` containing a `list`.",
+        "parameters": "One `list` whose items are `Result` or `Option` values.",
+        "returns": "`Result<List>`.",
+        "returnValue": "`collect([ok(1), some(2)])` is `ok([1, 2])`.",
         "details": [
-          "Evaluation stops at the first failure or absent Option. A failed Result retains its kind, message, metadata, and cause."
+          "Evaluation stops at the first failure or absent `Option`. A failed `Result` retains its kind, message, metadata, and cause."
         ],
-        "errors": "An empty Option becomes not_found; a non-container item is an argument error.",
+        "errors": "An empty `Option` becomes `not_found`; a non-container item is an argument error.",
         "example": "emit collect([ok(1), some(2), ok(3)])\n# ok([1, 2, 3])",
         "exampleStatus": "checked"
       },
@@ -96,13 +96,13 @@
         "name": "discard",
         "signature": "discard(result-or-option-or-error)",
         "description": "Mark deliberate non-handling of a fallible value.",
-        "parameters": "Exactly one Result, Option, or structured error.",
-        "returns": "null.",
-        "returnValue": "discard(err(error(InvalidArgument, \"optional telemetry\"))) evaluates to null.",
+        "parameters": "Exactly one `Result`, `Option`, or structured error.",
+        "returns": "`null`.",
+        "returnValue": "`discard(err(error(InvalidArgument, \"optional telemetry\")))` evaluates to `null`.",
         "details": [
-          "discard does not unwrap, rewrite, log, or inspect the supplied payload."
+          "`discard` does not unwrap, rewrite, log, or inspect the supplied payload."
         ],
-        "errors": "An ordinary value is rejected so discard cannot hide arbitrary expressions.",
+        "errors": "An ordinary value is rejected so `discard` cannot hide arbitrary expressions.",
         "example": "discard(err(error(InvalidArgument, \"optional telemetry\")))\n# null",
         "exampleStatus": "checked"
       }
@@ -114,28 +114,28 @@
       {
         "name": "must_handle",
         "signature": "must_handle(result)",
-        "description": "Mark a Result as carrying an explicit fallibility contract.",
-        "parameters": "One Result.",
-        "returns": "The same logical Result with immutable metadata.",
-        "returnValue": "must_handle(ok(1)) remains ok(1) and is marked for is_must_handle.",
+        "description": "Mark a `Result` as carrying an explicit fallibility contract.",
+        "parameters": "One `Result`.",
+        "returns": "The same logical `Result` with immutable metadata.",
+        "returnValue": "`must_handle(ok(1))` remains `ok(1)` and is marked for `is_must_handle`.",
         "details": [
-          "Result-preserving combinators retain the marker. discard is the explicit intentional-consumption boundary."
+          "`Result`-preserving combinators retain the marker. `discard` is the explicit intentional-consumption boundary."
         ],
-        "errors": "A non-Result argument is an error. Native C lowering does not yet support Result operations.",
+        "errors": "A non-`Result` argument is an error. Native C lowering does not yet support `Result` operations.",
         "example": "emit is_must_handle(must_handle(ok(1)))\n# true",
         "exampleStatus": "checked"
       },
       {
         "name": "is_must_handle",
         "signature": "is_must_handle(result)",
-        "description": "Inspect a Result’s must-handle marker.",
-        "parameters": "One Result.",
-        "returns": "bool.",
-        "returnValue": "is_must_handle(must_handle(ok(1))) is true.",
+        "description": "Inspect a `Result`’s must-handle marker.",
+        "parameters": "One `Result`.",
+        "returns": "`bool`.",
+        "returnValue": "`is_must_handle(must_handle(ok(1)))` is `true`.",
         "details": [
-          "The marker is metadata rather than a wrapper, so the underlying Result payload and error contract are unchanged."
+          "The marker is metadata rather than a wrapper, so the underlying `Result` payload and error contract are unchanged."
         ],
-        "errors": "A non-Result argument is an error.",
+        "errors": "A non-`Result` argument is an error.",
         "example": "emit is_must_handle(ok(1))\n# false",
         "exampleStatus": "checked"
       }
@@ -149,11 +149,11 @@
         "name": "try/catch",
         "signature": "try { expression } catch err { expression }",
         "description": "Handle a structured failure as an expression.",
-        "parameters": "The catch binding receives the structured error when the try expression fails.",
-        "returns": "The successful try value or the catch expression value.",
-        "returnValue": "A missing file can produce err.kind equal to \"not_found\".",
+        "parameters": "The `catch` binding receives the structured error when the `try` expression fails.",
+        "returns": "The successful `try` value or the `catch` expression value.",
+        "returnValue": "A missing file can produce `err.kind` equal to `\"not_found\"`.",
         "details": [
-          "Portable kinds include cancelled, timeout, not_found, permission_denied, already_exists, io_error, invalid_argument, unavailable, network_error, and out_of_range for EOF."
+          "Portable kinds include `cancelled`, `timeout`, `not_found`, `permission_denied`, `already_exists`, `io_error`, `invalid_argument`, `unavailable`, `network_error`, and `out_of_range` for `EOF`."
         ],
         "example": "emit try { read(\"/definitely/missing.osiris\") } catch err { err.kind }\n# \"not_found\"",
         "exampleStatus": "checked"
@@ -162,11 +162,11 @@
         "name": "redact",
         "signature": "redact(error)",
         "description": "Remove sensitive details before a structured error crosses a trust boundary.",
-        "parameters": "One structured error; Result and Option containers are not accepted directly.",
+        "parameters": "One structured error; `Result` and `Option` containers are not accepted directly.",
         "returns": "A structured error with safe public fields.",
-        "returnValue": "redact removes stack/debug details and conventional secret-bearing metadata recursively through causes.",
+        "returnValue": "`redact` removes stack/debug details and conventional secret-bearing metadata recursively through causes.",
         "details": [
-          "Public kind and safe public fields remain available for programmatic handling. Native errno data is debug-only and never a portable message contract."
+          "Public kind and safe public fields remain available for programmatic handling. Native `errno` data is debug-only and never a portable message contract."
         ],
         "errors": "A non-error argument is an error.",
         "example": "let safe = redact(withdebug(error(InvalidArgument, \"bad input\"), \"token\", \"secret\"))\nemit safe.debug\n# []",
@@ -174,12 +174,27 @@
       },
       {
         "kind": "construct",
+        "name": "typed let",
+        "signature": "let name Type = expression",
+        "description": "Bind a value while requiring one canonical runtime type.",
+        "parameters": "`Type` is one of `number`, `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `string`, `bool`, `null`, `list`, `tensor`, `enum`, or `function`.",
+        "returns": "The declaration emits no value.",
+        "returnValue": "An unsuffixed non-negative integer literal may be checked and fitted to an annotated integer width.",
+        "details": [
+          "Annotations are checked constraints, never implicit casts. `let size u32 = 3` is valid; `let size u32 = 3u64` and `let size u32 = anotherU64` are errors. Use `u32(value)` for an explicit conversion. Bare `let size = 3` continues to infer `u64`."
+        ],
+        "errors": "Unknown annotations, incompatible values, and out-of-range inferred integer literals are errors.",
+        "example": "let total u32 = 3\nlet label string = \"ready\"\nemit total, label\n# 3u32\n# \"ready\"",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
         "name": "if",
         "signature": "if(condition, then, else)",
         "description": "Select one expression from a boolean condition.",
-        "parameters": "condition is evaluated first; then and else are the two branch expressions.",
+        "parameters": "`condition` is evaluated first; `then` and `else` are the two branch expressions.",
         "returns": "The selected branch value.",
-        "returnValue": "if(true, 1, 2) is 1u64.",
+        "returnValue": "`if(true, 1, 2)` is `1u64`.",
         "details": [
           "Only the selected branch is evaluated."
         ],
@@ -191,13 +206,13 @@
         "name": "match",
         "signature": "match subject { pattern => expression, ... }",
         "description": "Evaluate a subject once and select the first matching pattern arm.",
-        "parameters": "Patterns may be literals, wildcards, bindings, lists, or qualified enum cases.",
+        "parameters": "Patterns may be literals, wildcards, bindings, lists, or qualified `enum` cases.",
         "returns": "The selected arm value.",
-        "returnValue": "match [1, 2] { [x, y] => x + y, _ => 0 } is 3u64.",
+        "returnValue": "`match [1, 2] { [x, y] => x + y, _ => 0 }` is `3u64`.",
         "details": [
-          "Use _ or default for a catch-all. Enum matches without one are checked for missing cases."
+          "Use `_` or `default` for a catch-all. `Enum` matches without one are checked for missing cases."
         ],
-        "errors": "Dynamic unmatched values and invalid, unreachable, or non-exhaustive enum arms are errors.",
+        "errors": "Dynamic unmatched values and invalid, unreachable, or non-exhaustive `enum` arms are errors.",
         "example": "emit match [1, 2] { [x, y] => x + y, _ => 0 }\n# 3u64",
         "exampleStatus": "checked"
       },
@@ -205,14 +220,14 @@
         "kind": "construct",
         "name": "switch",
         "signature": "switch subject { pattern => expression, ... }",
-        "description": "Use match semantics with switch-oriented branch-table spelling.",
-        "parameters": "The subject and patterns follow the match contract.",
+        "description": "Use `match` semantics with `switch`-oriented branch-table spelling.",
+        "parameters": "The subject and patterns follow the `match` contract.",
         "returns": "The selected arm value.",
-        "returnValue": "switch 0 { 0 => \"zero\", _ => \"other\" } is \"zero\".",
+        "returnValue": "`switch 0 { 0 => \"zero\", _ => \"other\" }` is `\"zero\"`.",
         "details": [
-          "switch evaluates its subject once and does not alter pattern or return semantics."
+          "`switch` evaluates its subject once and does not alter pattern or return semantics."
         ],
-        "errors": "It has the same unmatched and enum-exhaustiveness errors as match.",
+        "errors": "It has the same unmatched-value and exhaustiveness errors for `enum` arms as `match`.",
         "example": "emit switch 0 { 0 => \"zero\", _ => \"other\" }\n# \"zero\"",
         "exampleStatus": "checked"
       },
@@ -223,9 +238,9 @@
         "description": "Declare a closed nominal enumeration.",
         "parameters": "Each case has zero or more declared payload fields.",
         "returns": "The declaration itself emits no value; cases are values or checked constructors.",
-        "returnValue": "Name.Case evaluates to a zero-payload enum value; Name.PayloadCase(1) constructs a payload case.",
+        "returnValue": "`Name.Case` evaluates to a zero-payload `enum` value; `Name.PayloadCase(1)` constructs a payload case.",
         "details": [
-          "Enum equality compares declared enum, case, and payload without primitive coercion. Interpreter and VM support enums; native C currently rejects them pending tagged enum lowering."
+          "`Enum` equality compares declared `enum`, case, and payload without primitive coercion. A backed declaration uses explicit unique `string` or fixed-width integer literals, remains nominal, and never implicitly converts to its backing primitive. JSON serialization keeps that identity as `{\"enum\": {\"type\": \"Name\", \"case\": \"Case\", \"payload\": [...]}}`; this is serialization, not a cast to the backing value. Native C lowers nominal unit and payload `enum` construction, recursive equality/rendering, truthiness, and `match` dispatch for nested `enum`/`list` payloads, literal, type, relational, logical, grouped, guarded, and repeated-binding patterns through its tagged `ABI`."
         ],
         "errors": "Empty or duplicate declarations and invalid constructor arity are source-located errors.",
         "example": "enum Status { Ready, Done }\nemit Status.Ready\n# Status.Ready",
@@ -236,13 +251,13 @@
         "name": "guarded match",
         "signature": "match subject { Pattern when condition => value, default => value }",
         "description": "Refine a matching pattern with a condition evaluated only after that pattern succeeds.",
-        "parameters": "A guard may use bindings introduced by its preceding pattern. default must be final and cannot be guarded.",
+        "parameters": "A guard may use bindings introduced by its preceding pattern. `default` must be final and cannot be guarded.",
         "returns": "The first arm whose pattern and guard both succeed.",
-        "returnValue": "A false guard falls through to later arms.",
+        "returnValue": "A `false` guard falls through to later arms.",
         "details": [
-          "Grouped alternatives use | and must bind exactly the same names. Relational, type, logical, and negated patterns follow the language pattern contract."
+          "Grouped alternatives use `|` and must bind exactly the same names. Relational, type, logical, and negated patterns follow the language pattern contract."
         ],
-        "errors": "Invalid grouped bindings, a guarded default, and an unreachable arm are errors.",
+        "errors": "Invalid grouped bindings, a guarded `default`, and an unreachable arm are errors.",
         "example": "let value = 7\nemit match value { number n when n > 0 => n, _ => 0 }\n# 7u64",
         "exampleStatus": "checked"
       }

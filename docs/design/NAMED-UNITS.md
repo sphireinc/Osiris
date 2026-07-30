@@ -1,38 +1,67 @@
-# Named units design
+# Named units and global constants
 
-Named units are a planned layer over the existing dimension-aware quantity
-values. A name is not merely display text: it selects a normalized scale and
-dimension while preserving deterministic arithmetic and conversion rules.
+Osiris exposes an immutable built-in catalog of unit quantities, mathematical
+scales, physical constants, and error-kind names. The ordered
+`namedConstantDefinitions` table in `internal/osiris/named.go` is the
+implementation source for canonical names and aliases. Registration rejects
+duplicate names during package initialization, and documentation checks compare
+the complete table with both public constant references.
 
-## Declaration and registry
+## Quantity representation
 
-The proposed declaration is `unit Name = scale * dimensions`, for example
-`unit meter = 1 * length` and `unit kilometer = 1000 * meter`. Declarations
-are module-scoped, immutable, and versioned with the module that exports them.
-A registry resolves aliases to one canonical definition and rejects cycles,
-zero/non-finite scales, incompatible redefinitions, and ambiguous imports.
+A quantity stores an exact normalized `big.Rat` magnitude and a dimension
+vector over the seven SI base dimensions. Aliases are lookup names only:
+`Foot`, `foot`, and `ft` construct indistinguishable values. The runtime does
+not retain a display-unit label, so equal normalized quantities format using
+their dimensions rather than whichever alias created them.
 
-Quantities continue to store a normalized exact magnitude plus a dimension
-vector. The chosen named-unit presentation is metadata, not a second numeric
-value: `3 kilometer` and `3000 meter` compare equal after normalization while
-formatting can retain an explicitly requested display unit.
+Exact decimal and rational definitions enter the catalog through
+`quantityFactoryText`; they never pass through `float64`. Addition and
+subtraction require identical dimensions. Multiplication and division compose
+dimension exponents, and comparisons reject incompatible dimensions. The
+binary codec records the exact rational magnitude and sorted dimensions.
 
-## Arithmetic and conversion
+Plane angle remains dimensionless. `Radian`, `Degree`, `Arcminute`,
+`Arcsecond`, and `Revolution` are default-number scales rounded to binary64,
+not quantities with a fictitious angle dimension. Affine temperature scales
+are not multiplicative constants and are excluded.
 
-Addition and subtraction require equal dimensions and normalize scales before
-arithmetic. Multiplication, division, and powers compose dimensions; a named
-derived unit is displayed only when the resulting dimensions and scale match
-an unambiguous registered name. `convert(value, Unit)` requires compatible
-dimensions and returns a quantity displayed in the target unit. Affine units
-(such as Celsius) require an explicit, separately designed conversion model
-and are excluded from the first release.
+## Naming and standards
 
-## Compiler and ABI gate
+Each concept has one canonical PascalCase name, normally a readable lower- or
+camel-case alias, and only unambiguous conventional symbols. Names are
+case-sensitive. The catalog deliberately omits ambiguous spellings such as
+`in`, `ton`, and unqualified `fluidOunce`; `Gallon` means the U.S. liquid
+gallon, while imperial measures are explicitly prefixed.
 
-Inference tracks dimension vectors and may retain a named display unit for
-literals/conversions, but it must not infer a preferred name from an ambiguous
-derived dimension. The codec includes the normalized magnitude, dimensions,
-and optional registry-qualified display name; decoding validates the referenced
-definition. Native lowering may support a quantity only when it preserves
-scale/dimensions and reports an unsupported diagnostic otherwise. No named-unit
-syntax is currently implemented or advertised.
+Definitions are pinned to:
+
+- BIPM, *The International System of Units (SI Brochure)*, 9th edition,
+  version 4.01 (June 2026), for SI and accepted non-SI units;
+- NIST Special Publication 811, 2008 edition, Web version 3.2, Appendix B,
+  for international and U.S. customary conversions;
+- the UK Weights and Measures Act 1985 for the exact 4.54609 L imperial
+  gallon;
+- IAU 2012 Resolution B2 and IAU 2015 Resolution B2 for astronomical-unit and
+  parsec definitions; and
+- NIST's 2022 CODATA recommended values, database version 9.0 (May 2024), for
+  physical constants.
+
+The detailed public reference distinguishes exact definitions from measured
+concise CODATA values and from irrational definitions stored at a stated
+decimal precision.
+
+## Compiler boundary
+
+Inference derives a quantity's dimension vector directly from its registered
+value. Interpreter and VM lookup use the same runtime table, and codecs
+preserve exact normalized values. Native C directly lowers supported
+default-number globals. It rejects named quantities at compile time with a
+specific diagnostic until the C ABI can preserve arbitrary rational
+magnitudes and dimension vectors; compilation never evaluates the program to
+manufacture output.
+
+User-defined `unit` declaration syntax, automatic display-unit selection, and
+affine conversion remain future work. Any such design must build on the same
+normalization and collision rules rather than changing the meaning of the
+built-in catalog.

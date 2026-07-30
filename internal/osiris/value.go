@@ -41,6 +41,9 @@ const (
 	kindEnum
 	kindDual
 	kindTCPListener
+	kindDuration
+	kindDateTime
+	kindTimeLocation
 )
 
 type callable = Builtin
@@ -117,6 +120,9 @@ type Value struct {
 	enum     *enumValue
 	dual     *dualValue
 	listener *tcpListener
+	duration int64
+	datetime *dateTimeValue
+	location *timeLocationValue
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -240,6 +246,18 @@ func dualValueOf(primal, tangent float64) Value {
 
 func tcpListenerValueOf(listener *tcpListener) Value {
 	return Value{kind: kindTCPListener, listener: listener}
+}
+
+func durationValue(nanoseconds int64) Value {
+	return Value{kind: kindDuration, duration: nanoseconds}
+}
+
+func dateTimeValueOf(value *dateTimeValue) Value {
+	return Value{kind: kindDateTime, datetime: value.clone()}
+}
+
+func timeLocationValueOf(value *timeLocationValue) Value {
+	return Value{kind: kindTimeLocation, location: value.clone()}
 }
 
 // errorValue handles the error value step in the surrounding package and
@@ -544,6 +562,12 @@ func (k valueKind) String() string {
 		return "dual"
 	case kindTCPListener:
 		return "tcp_listener"
+	case kindDuration:
+		return "duration"
+	case kindDateTime:
+		return "datetime"
+	case kindTimeLocation:
+		return "location"
 	default:
 		return "<?>"
 	}
@@ -577,6 +601,10 @@ func (v Value) Truthy() bool {
 		return v.dual != nil && (v.dual.primal != 0 || v.dual.tangent != 0)
 	case kindTCPListener:
 		return v.listener != nil && v.listener.listener != nil
+	case kindDuration:
+		return v.duration != 0
+	case kindDateTime, kindTimeLocation:
+		return true
 	case kindError:
 		return false
 	case kindResult:
@@ -1184,6 +1212,12 @@ func (v Value) Equal(other Value) bool {
 		}
 	case kindDual:
 		return other.kind == kindDual && v.dual != nil && other.dual != nil && v.dual.primal == other.dual.primal && v.dual.tangent == other.dual.tangent
+	case kindDuration:
+		return other.kind == kindDuration && v.duration == other.duration
+	case kindDateTime:
+		return other.kind == kindDateTime && compareDateTimeValues(v.datetime, other.datetime) == 0
+	case kindTimeLocation:
+		return other.kind == kindTimeLocation && equalTimeLocations(v.location, other.location)
 	case kindUint:
 		switch other.kind {
 		case kindUint:
@@ -1609,6 +1643,16 @@ func (v Value) Compare(other Value) (int, error) {
 		}
 	case kindString:
 		return strings.Compare(v.str, other.str), nil
+	case kindDuration:
+		if other.kind != kindDuration {
+			return 0, fmt.Errorf("duration ordering requires another duration")
+		}
+		return compareInt64(v.duration, other.duration), nil
+	case kindDateTime:
+		if other.kind != kindDateTime {
+			return 0, fmt.Errorf("datetime ordering requires another datetime")
+		}
+		return compareDateTimeValues(v.datetime, other.datetime), nil
 	case kindUint:
 		switch other.kind {
 		case kindUint:
@@ -1694,6 +1738,12 @@ func (v Value) String() string {
 			return "<tcp-listener>"
 		}
 		return "<tcp-listener " + v.listener.address() + ">"
+	case kindDuration:
+		return `duration(` + strconv.Quote(formatDuration(v.duration)) + `)`
+	case kindDateTime:
+		return formatDateTimeValue(v.datetime)
+	case kindTimeLocation:
+		return formatTimeLocation(v.location)
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.String()
@@ -1844,6 +1894,12 @@ func (v Value) toInterface() any {
 			return map[string]any{"dual": []float64{0, 0}}
 		}
 		return map[string]any{"dual": []float64{v.dual.primal, v.dual.tangent}}
+	case kindDuration:
+		return map[string]any{"duration": map[string]any{"nanoseconds": strconv.FormatInt(v.duration, 10)}}
+	case kindDateTime:
+		return dateTimeInterface(v.datetime)
+	case kindTimeLocation:
+		return timeLocationInterface(v.location)
 	case kindTCPListener:
 		if v.listener == nil {
 			return nil
@@ -2074,6 +2130,12 @@ func textify(v Value) string {
 		return formatComplex(v.cx)
 	case kindDual:
 		return v.String()
+	case kindDuration:
+		return formatDuration(v.duration)
+	case kindDateTime:
+		return formatDateTimeText(v.datetime)
+	case kindTimeLocation:
+		return formatTimeLocation(v.location)
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.displayMessage()

@@ -31,6 +31,10 @@ type Runtime struct {
 	taskTrace       []TaskTraceEvent
 	taskTraceOn     bool
 	taskDebug       bool
+	clockMu         sync.RWMutex
+	clock           func() time.Time
+	locationMu      sync.RWMutex
+	locationLoader  func(string) (*time.Location, error)
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -46,11 +50,69 @@ func NewRuntime() *Runtime {
 		Constants:       make(map[string]Value),
 		modules:         make(map[string]Value),
 		registries:      make(map[string]*moduleRegistry),
+		clock:           time.Now,
+		locationLoader:  time.LoadLocation,
 	}
 	registerBuiltins(r.Builtins)
 	registerContextBuiltins(r.ContextBuiltins)
 	registerConstants(r.Constants)
 	return r
+}
+
+// SetClock installs the source used by std/time.now. Passing nil restores the
+// host clock. The function is read for each call, so cached modules never
+// snapshot a time value.
+func (r *Runtime) SetClock(clock func() time.Time) {
+	if r == nil {
+		return
+	}
+	if clock == nil {
+		clock = time.Now
+	}
+	r.clockMu.Lock()
+	r.clock = clock
+	r.clockMu.Unlock()
+}
+
+func (r *Runtime) clockNow() time.Time {
+	if r == nil {
+		return time.Now()
+	}
+	r.clockMu.RLock()
+	clock := r.clock
+	r.clockMu.RUnlock()
+	if clock == nil {
+		return time.Now()
+	}
+	return clock()
+}
+
+// SetTimeLocationLoader installs the IANA database lookup used by
+// std/time.load_location. Passing nil restores the embedded/default loader.
+// It exists so deterministic hosts and tests can pin or deny named zones.
+func (r *Runtime) SetTimeLocationLoader(loader func(string) (*time.Location, error)) {
+	if r == nil {
+		return
+	}
+	if loader == nil {
+		loader = time.LoadLocation
+	}
+	r.locationMu.Lock()
+	r.locationLoader = loader
+	r.locationMu.Unlock()
+}
+
+func (r *Runtime) loadTimeLocation(name string) (*time.Location, error) {
+	if r == nil {
+		return time.LoadLocation(name)
+	}
+	r.locationMu.RLock()
+	loader := r.locationLoader
+	r.locationMu.RUnlock()
+	if loader == nil {
+		loader = time.LoadLocation
+	}
+	return loader(name)
 }
 
 // SetTaskTrace enables or disables task lifecycle tracing on the runtime.
@@ -578,10 +640,22 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 	for _, stmt := range n.stmts {
 		switch st := stmt.(type) {
 		case letStmt:
+			expr := st.Expr
+			if st.Type != "" {
+				value, err := ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), err
+				}
+				value, err = checkBindingType(st.Type, value, false)
+				if err != nil {
+					return nullValue(), fmt.Errorf("let %s: %w", st.Name, err)
+				}
+				expr = &literalExpr{value: value}
+			}
 			cur = &scope{
 				parent: cur,
 				items: map[string]binding{
-					st.Name: {expr: st.Expr, env: cur},
+					st.Name: {expr: expr, env: cur},
 				},
 			}
 		case importStmt:
@@ -947,6 +1021,18 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
+	sourceName := ""
+	if ev.session != nil {
+		sourceName = ev.session.sourceName
+	}
+	if callee.kind == kindDuration {
+		args, err := evalMany(ev, n.args, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		value, err := callDurationComponent(callee, args)
+		return value, structuredErrorAt(err, sourceName, n.Span)
+	}
 	if callee.kind == kindFunction && callee.fn != nil {
 		args, err := evalMany(ev, n.args, curScope)
 		if err != nil {
@@ -955,10 +1041,12 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		ev.pushCall(callee.fn.name)
 		defer ev.popCall()
 		if callee.fn.builtin != nil {
-			return callee.fn.builtin(args)
+			value, err := callee.fn.builtin(args)
+			return value, structuredErrorAt(err, sourceName, n.Span)
 		}
 		if callee.fn.contextBuiltin != nil {
-			return callee.fn.contextBuiltin(ev.ctx, args)
+			value, err := callee.fn.contextBuiltin(ev.ctx, args)
+			return value, structuredErrorAt(err, sourceName, n.Span)
 		}
 		if callee.fn.body == nil {
 			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
@@ -1086,6 +1174,8 @@ func specialFormName(expr Expr) (string, bool) {
 func builtinHasTaskEffect(name string) bool {
 	switch name {
 	case "read", "readbytes", "write", "openread", "openwrite", "readline", "readchunk", "writechunk", "transfer", "flush", "close", "tcp_listen", "tcp_accept", "tcp_dial":
+		return true
+	case "append", "read_limit", "copy_file", "truncate_file", "exists", "file_size", "is_file", "is_dir", "mkdir", "mkdir_all", "read_dir", "rename", "remove", "openappend", "seek", "tell", "truncate":
 		return true
 	default:
 		return false
@@ -2211,6 +2301,14 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["uf1024"] = func(args []Value) (Value, error) { return castPackedUnsignedWidthValue(args, 1024, false) }
 	dst["f32"] = func(args []Value) (Value, error) { return castFloatWidthValue(args, 32) }
 	dst["f64"] = func(args []Value) (Value, error) { return castFloatWidthValue(args, 64) }
+	dst["number"] = func(args []Value) (Value, error) {
+		value, err := castFloatWidthValue(args, 64)
+		if err != nil {
+			return nullValue(), err
+		}
+		value.fbits = 0
+		return value, nil
+	}
 	dst["bf8"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 8) }
 	dst["bf16"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 16) }
 	dst["bf32"] = func(args []Value) (Value, error) { return castBFloatWidthValue(args, 32) }
@@ -2248,6 +2346,41 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["asin"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "asin", math.Asin, true) }
 	dst["acos"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "acos", math.Acos, true) }
 	dst["atan"] = func(args []Value) (Value, error) { return mathUnaryValue(args, "atan", math.Atan, false) }
+	dst["atan2"] = atan2Value
+	dst["exp2"] = exp2Value
+	dst["trunc"] = truncValue
+	dst["fmod"] = fmodValue
+	dst["remainder"] = remainderValue
+	dst["fma"] = fmaValue
+	dst["positive_difference"] = positiveDifferenceValue
+	dst["copysign"] = copySignValue
+	dst["nextafter"] = nextAfterValue
+	dst["frexp"] = frexpValue
+	dst["ldexp"] = ldexpValue
+	dst["modf"] = modfValue
+	dst["isfinite"] = isFiniteValue
+	dst["isinf"] = isInfValue
+	dst["isnan"] = isNaNValue
+	dst["isnormal"] = isNormalValue
+	dst["signbit"] = signBitValue
+	dst["degrees"] = degreesValue
+	dst["radians"] = radiansValue
+	dst["sinpi"] = sinPiValue
+	dst["cospi"] = cosPiValue
+	dst["tanpi"] = tanPiValue
+	dst["divmod"] = divmodValue
+	dst["gcd"] = gcdValue
+	dst["lcm"] = lcmValue
+	dst["count_ones"] = countOnesValue
+	dst["count_zeros"] = countZerosValue
+	dst["leading_zeros"] = leadingZerosValue
+	dst["trailing_zeros"] = trailingZerosValue
+	dst["bit_width"] = bitWidthValue
+	dst["bit_floor"] = bitFloorValue
+	dst["bit_ceil"] = bitCeilValue
+	dst["has_single_bit"] = hasSingleBitValue
+	dst["byte_swap"] = byteSwapValue
+	dst["phase"] = phaseValue
 	dst["hypot"] = func(args []Value) (Value, error) { return hypotValue(args) }
 	dst["norm"] = func(args []Value) (Value, error) { return normValue(args) }
 	dst["vector"] = func(args []Value) (Value, error) { return vectorValueFromArgs(args) }
@@ -2445,6 +2578,31 @@ func registerContextBuiltins(dst map[string]contextCallable) {
 	dst["readline"] = readLineContextValue
 	dst["readchunk"] = readChunkContextValue
 	dst["transfer"] = transferContextValue
+	dst["append"] = appendContextValue
+	dst["read_limit"] = readLimitContextValue
+	dst["copy_file"] = copyFileContextValue
+	dst["truncate_file"] = truncateFileContextValue
+	dst["exists"] = func(ctx context.Context, args []Value) (Value, error) {
+		return filesystemContextCall(ctx, args, "exists", existsValue)
+	}
+	dst["file_size"] = func(ctx context.Context, args []Value) (Value, error) {
+		return filesystemContextCall(ctx, args, "file_size", fileSizeValue)
+	}
+	dst["is_file"] = func(ctx context.Context, args []Value) (Value, error) {
+		return filesystemContextCall(ctx, args, "is_file", isFileValue)
+	}
+	dst["is_dir"] = func(ctx context.Context, args []Value) (Value, error) {
+		return filesystemContextCall(ctx, args, "is_dir", isDirValue)
+	}
+	dst["mkdir"] = mkdirContextValue
+	dst["mkdir_all"] = mkdirAllContextValue
+	dst["read_dir"] = readDirContextValue
+	dst["rename"] = renameContextValue
+	dst["remove"] = removeContextValue
+	dst["openappend"] = openAppendStreamContextValue
+	dst["seek"] = seekContextValue
+	dst["tell"] = tellContextValue
+	dst["truncate"] = truncateStreamContextValue
 }
 
 // hashValue handles the hash value step in the surrounding package and returns

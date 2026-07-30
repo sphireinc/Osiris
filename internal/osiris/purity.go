@@ -608,7 +608,7 @@ func purityBuiltinCall(name string, args []Expr, scope *purityScope, out *Purity
 			_ = analyzePurityExpr(arg, scope, out)
 		}
 		return purityInfo{known: true, pure: false, kind: "bool", reason: "filesystem I/O"}, true
-	case "openread", "openwrite":
+	case "openread", "openwrite", "openappend":
 		for _, arg := range args {
 			_ = analyzePurityExpr(arg, scope, out)
 		}
@@ -618,17 +618,17 @@ func purityBuiltinCall(name string, args []Expr, scope *purityScope, out *Purity
 			_ = analyzePurityExpr(arg, scope, out)
 		}
 		return purityInfo{known: true, pure: false, kind: "string", reason: "filesystem I/O"}, true
-	case "readchunk":
+	case "readchunk", "read_limit", "read_dir":
 		for _, arg := range args {
 			_ = analyzePurityExpr(arg, scope, out)
 		}
 		return purityInfo{known: true, pure: false, kind: "list", reason: "filesystem I/O"}, true
-	case "writechunk":
+	case "writechunk", "append", "copy_file", "file_size", "seek", "tell":
 		for _, arg := range args {
 			_ = analyzePurityExpr(arg, scope, out)
 		}
 		return purityInfo{known: true, pure: false, kind: "uint", reason: "filesystem I/O"}, true
-	case "flush", "close":
+	case "flush", "close", "truncate_file", "exists", "is_file", "is_dir", "mkdir", "mkdir_all", "rename", "remove", "truncate":
 		for _, arg := range args {
 			_ = analyzePurityExpr(arg, scope, out)
 		}

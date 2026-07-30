@@ -411,3 +411,19 @@ covers negative, ordinary, cutoff, and above-cutoff values without fallback.
 the generated `main` has no scalar `OValue` fallback locals and the loop body
 contains the direct C `sqrt` call. Its executable output matches the
 interpreter, so the scalar-math work is not limited to straight-line samples.
+
+## Completion record — 2026-07-28
+
+The original numeric/tensor umbrella has been completed by the focused kernel,
+provider, and numeric-semantics tasks 030, 031, and 032. The current ABI has
+direct rank-aware f64 and complex tensor kernels, owned shape/data handling,
+broadcasting, indexing/slicing/copy-on-write replacement, matrix operations,
+and provider-backed decomposition boundaries. Scalar lowering preserves proven
+kind/width/overflow behavior and rejects unsupported bigint, decimal, mixed,
+or libm-parity-unsafe cases rather than silently changing the language result.
+
+The historic “remaining” notes above predate those successor tasks. They are
+not a claim that every mathematical type has a direct C representation; the
+documented contract intentionally rejects semantics that cannot yet retain
+interpreter parity. Any new element family or numerical algorithm requires a
+new scoped task with ownership, error, parity, and benchmark evidence.

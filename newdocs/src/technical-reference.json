@@ -1,0 +1,1821 @@
+{
+  "title": "Technical Reference",
+  "summary": "A compact, implementation-aligned specification of Osiris tokens, grammar, declarations, expressions, values, runtime names, modules, backends, and command-line surface.",
+  "sections": [
+    {
+      "id": "source-and-tokens",
+      "title": "Source Text, Tokens, and Keywords",
+      "summary": "Osiris source is UTF-8 text. The lexer tracks one-based line and Unicode-column positions and rejects an unexpected character at its source location.",
+      "paragraphs": [
+        "Unicode whitespace separates tokens. `#` and `//` introduce line comments; there is no block-comment token. A semicolon is an explicit statement separator, while newlines are otherwise whitespace.",
+        "Identifiers begin with `_` or a Unicode letter and continue with `_`, Unicode letters, or Unicode digits. Names are case-sensitive."
+      ],
+      "syntax": [
+        {
+          "label": "LEXICAL GRAMMAR",
+          "code": "identifier  := (\"_\" | UnicodeLetter) { \"_\" | UnicodeLetter | UnicodeDigit }\ncomment     := \"#\" { nonNewline } | \"//\" { nonNewline }\nstring      := '\"' { character | escape } '\"'\nescape      := \"\\\\n\" | \"\\\\r\" | \"\\\\t\" | \"\\\\\\\\\" | \"\\\\\\\"\" | \"\\\\\" character\nseparator   := whitespace | \";\""
+        }
+      ],
+      "tables": [
+        {
+          "title": "Token classes",
+          "columns": [
+            "Class",
+            "Spellings",
+            "Notes"
+          ],
+          "rows": [
+            [
+              "Reserved keywords",
+              "`let emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
+              "These always lex as keyword tokens."
+            ],
+            [
+              "Contextual words",
+              "`default when and not`",
+              "These lex as identifiers and acquire special meaning only inside patterns or match arms."
+            ],
+            [
+              "Delimiters",
+              "`( ) { } [ ] . , : ;`",
+              "`:` currently introduces an enum backing type; typed `let` deliberately has no colon."
+            ],
+            [
+              "Operators",
+              "`+ - * / % ! ? = => == != < <= > >= & | ^ ~ << >> && ||`",
+              "`?` is postfix propagation except immediately after `let`, where it forms `let?`."
+            ]
+          ]
+        },
+        {
+          "title": "String escapes",
+          "columns": [
+            "Source",
+            "Value"
+          ],
+          "rows": [
+            [
+              "`\\n`",
+              "line feed"
+            ],
+            [
+              "`\\r`",
+              "carriage return"
+            ],
+            [
+              "`\\t`",
+              "horizontal tab"
+            ],
+            [
+              "`\\\\`",
+              "backslash"
+            ],
+            [
+              "`\\\"`",
+              "double quote"
+            ],
+            [
+              "other escaped character",
+              "the character itself; the backslash is discarded"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "declarations",
+      "title": "Declarations and Bindings",
+      "summary": "Declarations introduce immutable lexical names, module metadata, imports/exports, functions, macros, and nominal enums.",
+      "paragraphs": [
+        "`let` binds the value of its initializer. `let?` first unwraps a `Result` or `Option`. A typed binding checks a canonical runtime kind; it is not an implicit conversion.",
+        "Functions close over lexical scope. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module."
+      ],
+      "syntax": [
+        {
+          "label": "DECLARATION GRAMMAR",
+          "code": "packageDecl := \"package\" identifier [ number | string ]\nexportDecl  := \"export\" identifier { \",\" identifier }\nimportDecl  := \"import\" string \"as\" identifier\nletDecl     := \"let\" [ \"?\" ] identifier [ bindingType ] \"=\" expression\nfuncDecl    := \"func\" identifier \"(\" [ names ] \")\" ( \"=>\" expression | block )\nmacroDecl   := \"macro\" identifier \"(\" [ names ] \")\" \"=>\" expression\nenumDecl    := \"enum\" identifier [ \":\" enumBacking ] \"{\" enumCases \"}\"\nnames       := identifier { \",\" identifier }"
+        },
+        {
+          "label": "ENUM CASE GRAMMAR",
+          "code": "enumCase         := identifier [ \"(\" [ names ] \")\" ]\nbackedEnumCase   := identifier \"=\" literal\nbackingType      := string | int | integer | byte | i8 | i16 | i32 | i64 | u8 | u16 | u32 | u64"
+        }
+      ],
+      "tables": [
+        {
+          "title": "Canonical binding annotations",
+          "columns": [
+            "Family",
+            "Names",
+            "Initialization rule"
+          ],
+          "rows": [
+            [
+              "Default floating",
+              "`number`",
+              "Requires `number`; an unsuffixed non-negative integer literal may be fitted by the declaration."
+            ],
+            [
+              "Unsigned integers",
+              "`u8 u16 u32 u64`",
+              "Requires the exact unpacked width; an in-range unsuffixed non-negative integer literal may be fitted."
+            ],
+            [
+              "Signed integers",
+              "`i8 i16 i32 i64`",
+              "Requires the exact width; an in-range unsuffixed non-negative integer literal may be fitted."
+            ],
+            [
+              "Explicit floats",
+              "`f32 f64`",
+              "Requires the exact explicit float width."
+            ],
+            [
+              "Scalar/value kinds",
+              "`string bool null list tensor enum function duration datetime location`",
+              "Requires the exact runtime kind."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "initialization",
+      "title": "Initialization and Conversion",
+      "summary": "Every `let` initializer is evaluated before the binding is installed. An annotation validates that value; an explicit constructor performs a conversion.",
+      "paragraphs": [
+        "`let size u32 = 3` is accepted because the initializer is a default unsuffixed integer literal that fits `u32`. `let size u32 = 3u64` and binding an existing `u64` to `u32` are type errors.",
+        "Write `let size u32 = u32(existing)` to request an explicit conversion. Conversion behavior, range checks, wrapping, and precision follow the named constructor's documented numeric family."
+      ],
+      "syntax": [
+        {
+          "label": "INITIALIZATION EXAMPLES",
+          "code": "let inferred = 3             # u64\nlet fitted u32 = 3           # u32\nlet explicit = u32(inferred) # u32\nlet label string = \"ready\""
+        }
+      ]
+    },
+    {
+      "id": "expressions",
+      "title": "Expressions and Operators",
+      "summary": "Expressions include literals, names, lists, blocks, calls, member access, unary/binary operators, `try`/`catch`, `match`/`switch`, and postfix propagation.",
+      "paragraphs": [
+        "Ordinary operands and call arguments evaluate from left to right. `if`, `and`, `or`, task forms, result combinators, and async wrappers are special forms because they control whether or where argument expressions evaluate.",
+        "Calls, member selection, and postfix `?` may chain. A block evaluates statements in lexical scope and returns its optional tail expression, or `null` when no tail is present."
+      ],
+      "syntax": [
+        {
+          "label": "EXPRESSION GRAMMAR",
+          "code": "expression := prefix { binaryOp prefix }\nprefix     := literal | identifier | list | block | tryExpr | matchExpr\n            | ( \"-\" | \"!\" | \"~\" ) expression | \"(\" expression \")\"\npostfix    := expression { \"(\" [ arguments ] \")\" | \".\" identifier | \"?\" }\nlist       := \"[\" [ expression { \",\" expression } ] \"]\"\nblock      := \"{\" { statement [ \";\" ] } [ expression ] \"}\""
+        }
+      ],
+      "tables": [
+        {
+          "title": "Precedence from weakest to strongest",
+          "columns": [
+            "Tier",
+            "Operators/forms",
+            "Associativity or behavior"
+          ],
+          "rows": [
+            [
+              "1",
+              "`||`",
+              "left-associative, short-circuit"
+            ],
+            [
+              "2",
+              "`&&`",
+              "left-associative, short-circuit"
+            ],
+            [
+              "3",
+              "`|`",
+              "left-associative bitwise OR"
+            ],
+            [
+              "4",
+              "`^`",
+              "left-associative bitwise XOR"
+            ],
+            [
+              "5",
+              "`&`",
+              "left-associative bitwise AND"
+            ],
+            [
+              "6",
+              "`<< >>`",
+              "left-associative shifts"
+            ],
+            [
+              "between 6 and 7",
+              "prefix `- ! ~`",
+              "The current parser consumes an operand at minimum tier 7. Consequently `-1 + 2` means `-(1 + 2)`; parenthesize unary operands in larger arithmetic."
+            ],
+            [
+              "7",
+              "`== !=`",
+              "left-associative equality"
+            ],
+            [
+              "8",
+              "`< <= > >=`",
+              "left-associative ordering"
+            ],
+            [
+              "9",
+              "`+ -`",
+              "left-associative addition/subtraction"
+            ],
+            [
+              "10",
+              "`* / %`",
+              "left-associative multiplication/division/remainder"
+            ],
+            [
+              "postfix",
+              "call, member `.`, propagation `?`",
+              "chain from left to right"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "functions",
+      "title": "Functions, Closures, and Macros",
+      "summary": "A function is a runtime callable with immutable positional parameters and lexical captures. A macro rewrites syntax before ordinary evaluation.",
+      "paragraphs": [
+        "Expression-bodied functions return the expression. Block-bodied functions return an explicit `return` value, their tail expression, or `null`. A bare `return` returns `null`.",
+        "Nested functions may capture bindings from surrounding scopes. Backend support for closure conversion is feature-specific; unsupported native captures are compile-time diagnostics.",
+        "Macros use call syntax at their use site but substitute AST arguments into the declared expression body. Recursive expansion, wrong arity, and invalid expansion are diagnosed before execution."
+      ],
+      "syntax": [
+        {
+          "label": "FUNCTION AND MACRO FORMS",
+          "code": "func double(value) => value * 2\nfunc choose(flag, left, right) {\n  if flag { return left }\n  right\n}\nmacro twice(value) => value + value"
+        }
+      ]
+    },
+    {
+      "id": "statements",
+      "title": "Statements and Control Flow",
+      "summary": "The statement grammar is deliberately small: declarations, output, loops, and explicit flow transfer.",
+      "tables": [
+        {
+          "title": "Statement forms",
+          "columns": [
+            "Form",
+            "Contract"
+          ],
+          "rows": [
+            [
+              "`let` / `let?`",
+              "Install an immutable lexical binding, optionally after fallibility propagation."
+            ],
+            [
+              "`emit expression {, expression}`",
+              "Append one output value. Multiple expressions are rendered through `cat` with `\", \"` separators."
+            ],
+            [
+              "`while condition block`",
+              "Repeat while the condition is truthy; observe cooperative cancellation at loop boundaries."
+            ],
+            [
+              "`for name in iterable block`",
+              "Iterate strings, lists, tensors, and other supported iterables in their defined order."
+            ],
+            [
+              "`return [expression]`",
+              "Leave the nearest function/block execution boundary with a value or `null`."
+            ],
+            [
+              "`break` / `continue`",
+              "Leave or advance the nearest loop; use outside a loop is an error."
+            ],
+            [
+              "`package` / `export` / `import`",
+              "Describe or connect module boundaries."
+            ],
+            [
+              "`func` / `macro` / `enum`",
+              "Introduce callable, syntactic, or nominal type names."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "matching",
+      "title": "Pattern Matching",
+      "summary": "`match` and `switch` evaluate their subject exactly once and select the first arm whose pattern and optional guard succeed.",
+      "paragraphs": [
+        "A catch-all may be `_` or contextual `default`; `default` must be final and cannot have a guard. A guard follows contextual `when` and may use names bound by its pattern.",
+        "Closed enum matches are checked for duplicate, unreachable, invalid, and non-exhaustive arms. Alternative patterns must bind the same names."
+      ],
+      "syntax": [
+        {
+          "label": "MATCH GRAMMAR",
+          "code": "matchExpr   := ( \"match\" | \"switch\" ) expression \"{\" arm { (\",\" | \";\") arm } \"}\"\narm         := ( pattern | \"default\" ) [ \"when\" expression ] \"=>\" expression\npattern     := conjunction { \"|\" conjunction }\nconjunction := atom { \"and\" atom }\natom        := \"_\" | identifier | typeName identifier | literal\n             | enumType \".\" caseName [ \"(\" [ pattern { \",\" pattern } ] \")\" ]\n             | ( \"<\" | \"<=\" | \">\" | \">=\" ) literal\n             | \"not\" atom | \"[\" [ pattern { \",\" pattern } ] \"]\"\n             | \"(\" pattern \")\""
+        }
+      ],
+      "tables": [
+        {
+          "title": "Pattern categories",
+          "columns": [
+            "Category",
+            "Example",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "Wildcard/catch-all",
+              "`_`, `default`",
+              "Matches without binding."
+            ],
+            [
+              "Binding",
+              "`value`",
+              "Matches and binds the entire subject."
+            ],
+            [
+              "Literal",
+              "`0`, `\"ready\"`, `true`, `null`",
+              "Uses runtime structural/numeric equality."
+            ],
+            [
+              "List",
+              "`[head, tail]`",
+              "Matches exactly the listed length and recursively matches elements."
+            ],
+            [
+              "Enum",
+              "`Result.Ok(value)`",
+              "Matches nominal enum type, case, arity, and payload patterns."
+            ],
+            [
+              "Type",
+              "`number n`",
+              "Matches the named runtime kind and binds the value."
+            ],
+            [
+              "Relational",
+              "`>= 0`",
+              "Compares the subject with a literal."
+            ],
+            [
+              "Logical",
+              "`left | right`, `left and right`, `not pattern`",
+              "Combines, intersects, or negates pattern tests."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "types-and-values",
+      "title": "Types, Runtime Kinds, and Truthiness",
+      "summary": "`Value` is the language boundary. Runtime values preserve kind, width/style, shape, ownership/resource state, nominal identity, and structured metadata where applicable.",
+      "tables": [
+        {
+          "title": "Numeric literal forms",
+          "columns": [
+            "Form",
+            "Suffixes",
+            "Result"
+          ],
+          "rows": [
+            [
+              "Unsuffixed integer",
+              "none",
+              "`u64`; bases `0b`, `0o`, `0x`, and decimal are accepted"
+            ],
+            [
+              "Unsigned integer",
+              "`u`, `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `u512`, `u1024`, `b`",
+              "exact unsigned width; `u` is `u64`, `b` is `u8`"
+            ],
+            [
+              "Signed integer",
+              "`i8`, `i16`, `i32`, `i64`, `i128`, `i256`, `i512`, `i1024`",
+              "exact signed width"
+            ],
+            [
+              "Packed unsigned",
+              "`uf8`, `uf16`, `uf32`, `uf64`, `uf128`, `uf256`, `uf512`, `uf1024`, `ufnum`",
+              "packed unsigned width/style"
+            ],
+            [
+              "Floating",
+              "`f8`, `f16`, `f32`, `f64`, `f128`, `f256`, `f512`, `f1024`",
+              "explicit floating style; unsuffixed fraction/exponent is `number`"
+            ],
+            [
+              "Bfloat",
+              "`bf8`, `bf16`, `bf32`, `bf64`, `bf128`, `bf256`, `bf512`, `bf1024`",
+              "explicit bfloat style"
+            ],
+            [
+              "Decimal",
+              "`d` or `D`",
+              "exact `decimal`"
+            ],
+            [
+              "Imaginary",
+              "`i` or `I` after a scalar literal",
+              "pure imaginary `complex` retaining component style where supported"
+            ]
+          ]
+        },
+        {
+          "title": "Runtime kind strings",
+          "columns": [
+            "Kind",
+            "Role",
+            "Falsey condition"
+          ],
+          "rows": [
+            [
+              "`null`",
+              "absence/no value",
+              "always"
+            ],
+            [
+              "`bool`",
+              "boolean scalar",
+              "`false`"
+            ],
+            [
+              "`number`, `fN`, `bfN`",
+              "floating families",
+              "numeric zero"
+            ],
+            [
+              "`decimal`, `fixed[W,F]`, `interval`, `modint`",
+              "exact/special numeric families",
+              "zero; interval requires both endpoints zero"
+            ],
+            [
+              "`complex`, `complex<fN>`, `dual`",
+              "compound numeric scalars",
+              "all components zero"
+            ],
+            [
+              "`int`, `uint`, `uN`, `iN`, `ufN`, `ufnum`",
+              "signed, unsigned, and packed integer families",
+              "numeric zero"
+            ],
+            [
+              "`bigint`, `bigfloat`, `quantity`",
+              "wide and unit-aware numeric values",
+              "numeric magnitude zero"
+            ],
+            [
+              "`duration`",
+              "signed exact nanosecond interval",
+              "zero nanoseconds"
+            ],
+            [
+              "`datetime`",
+              "nanosecond-precision instant with retained location identity",
+              "never"
+            ],
+            [
+              "`location`",
+              "UTC, fixed-offset, or IANA timezone rules",
+              "never"
+            ],
+            [
+              "`string`",
+              "UTF-8 text",
+              "empty"
+            ],
+            [
+              "`list`, `tensor`",
+              "ordered aggregate and shaped dense aggregate",
+              "no elements"
+            ],
+            [
+              "`error`",
+              "structured failure record",
+              "always"
+            ],
+            [
+              "`result`",
+              "success/failure container",
+              "failed, missing, or successful with a falsey payload"
+            ],
+            [
+              "`option`",
+              "present/absent container",
+              "absent only"
+            ],
+            [
+              "`stream`, `task`, `tcp_listener`",
+              "host/resource handles",
+              "missing/invalid internal handle"
+            ],
+            [
+              "`function`, `module`",
+              "callable and namespace values",
+              "never"
+            ],
+            [
+              "`enum`",
+              "nominal case plus payload",
+              "currently truthy only where the owning runtime path supplies an enum truthiness rule; use explicit matching for portable intent"
+            ]
+          ]
+        }
+      ],
+      "paragraphs": [
+        "Equality is structural for strings, lists, tensors, errors, results, options, enums, and compatible aggregates. Numeric equality performs the documented cross-family exact or floating conversion only where the runtime has a defined comparison.",
+        "Resources and callables do not have a general serialization or value-copy contract. `clone` and `view` make tensor ownership intent explicit."
+      ]
+    },
+    {
+      "id": "modules",
+      "title": "Packages, Modules, Imports, and Exports",
+      "summary": "File and standard-library modules expose ordered public member maps through an explicit alias.",
+      "paragraphs": [
+        "`package name [version]` records module identity. `export a, b` defines the public names in stable source order. `import \"reference\" as alias` binds a module namespace.",
+        "A reference may include an exact, caret, or tilde semantic-version selector after `@`. Relative file imports are canonicalized beneath the project root, and generated lock/cache state is managed by `osiris mod`."
+      ],
+      "syntax": [
+        {
+          "label": "MODULE FORMS",
+          "code": "package geometry \"1.2.0\"\nexport area, perimeter\nimport \"std/math@^1.0\" as math\nimport \"./shapes.osr\" as shapes"
+        }
+      ],
+      "tables": [
+        {
+          "title": "Standard modules",
+          "columns": [
+            "Module",
+            "Purpose"
+          ],
+          "rows": [
+            [
+              "`std/text`",
+              "Unicode-aware string comparison, search, cutting, splitting, trimming, replacement, and text shaping."
+            ],
+            [
+              "`std/math`",
+              "Numeric constructors, elementary/special functions, tensors, linear algebra, reductions, and `pi`/`tau`."
+            ],
+            [
+              "`std/crypto`",
+              "Stable hashing, mixing, deterministic noise, and seeded pseudo-random samples."
+            ],
+            [
+              "`std/net`",
+              "Context-aware TCP listen, accept, and dial."
+            ],
+            [
+              "`std/signal`",
+              "Reference Hann-window and convolution operations."
+            ],
+            [
+              "`std/time`",
+              "Exact durations, civil/Unix datetime construction, timezone conversion, parsing, formatting, arithmetic, components, comparison, and injected clock access."
+            ],
+            [
+              "`std/list`",
+              "Length, range, take, sum, and product."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fallibility",
+      "title": "Errors, Result, Option, and Propagation",
+      "summary": "Recoverable failures use immutable structured errors and explicit `Result`/`Option` containers; fatal invariant failures use fatal structured errors.",
+      "paragraphs": [
+        "`try expression catch name expression` catches recoverable failures. Postfix `?` and `let?` unwrap success/presence and propagate failure or absence. `unwrap`, `expect`, and the result combinators expose explicit functional alternatives.",
+        "An error record may carry kind/code, message, cause, source/location, stack, severity, public metadata, and separate debug metadata. `redact` removes stack/debug details before a trust boundary."
+      ],
+      "syntax": [
+        {
+          "label": "FALLIBILITY FORMS",
+          "code": "let result = ok(value)\nlet? unwrapped = result\nlet direct = result?\nlet recovered = try operation() catch err { err.kind }\nlet safe = redact(withdebug(error(IOError, \"read\"), \"path\", secret))"
+        }
+      ]
+    },
+    {
+      "id": "tasks",
+      "title": "Tasks, Scheduling, Cancellation, and Async I/O",
+      "summary": "Concurrency is explicit through evaluator special forms. Cancellation is cooperative and context-based.",
+      "tables": [
+        {
+          "title": "Task special forms",
+          "columns": [
+            "Form",
+            "Result",
+            "Ordering/cancellation contract"
+          ],
+          "rows": [
+            [
+              "`spawn(expr)`",
+              "`task`",
+              "Starts one child evaluation and buffers its output."
+            ],
+            [
+              "`await(task)`",
+              "task value",
+              "Waits, merges ordered output, and propagates task failure/cancellation."
+            ],
+            [
+              "`cancel(task)`",
+              "`bool`",
+              "Requests cooperative cancellation; `true` only for a new request."
+            ],
+            [
+              "`parallel(exprs…)`",
+              "`list`",
+              "Computes concurrently, returns and commits output in source argument order."
+            ],
+            [
+              "`timeout(ms, expr)`",
+              "body value",
+              "Runs with a child deadline; commits output only on success."
+            ],
+            [
+              "`race(exprs…)`",
+              "winner value",
+              "Ordinary mode chooses first completion and cancels siblings."
+            ],
+            [
+              "`select(exprs…)`",
+              "`[u64 index, value]`",
+              "Like `race`, with the source index. Task-debug mode deterministically chooses index 0."
+            ],
+            [
+              "`*_async` I/O",
+              "`task`",
+              "Evaluates arguments first, then runs the blocking helper in a task."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "backend-contract",
+      "title": "Execution and Backend Contract",
+      "summary": "The interpreter is the broad semantic implementation. VM and artifact backends support explicitly measured subsets recorded in the Backend Support matrix.",
+      "paragraphs": [
+        "The bytecode VM must preserve interpreter-observable values, output order, errors, numeric style, and source behavior for supported programs.",
+        "The native path lowers Osiris IR to readable portable C and invokes a system C compiler. Unsupported lowering is a compile-time error; compilation never runs the program to manufacture output.",
+        "WASM and GPU commands emit artifacts for narrower documented subsets. A parser accepting syntax is not evidence that every execution backend supports it."
+      ],
+      "tables": [
+        {
+          "title": "Backend roles",
+          "columns": [
+            "Backend/tool",
+            "Role"
+          ],
+          "rows": [
+            [
+              "`run`",
+              "Tree-walking interpreter and broad runtime semantics."
+            ],
+            [
+              "`vm`",
+              "Bytecode compiler and virtual machine."
+            ],
+            [
+              "`c`, `obj`, `build`, `compile`",
+              "IR-to-C inspection, object compilation, and native executable production."
+            ],
+            [
+              "`wasm`",
+              "WebAssembly text/binary artifact emission."
+            ],
+            [
+              "`gpu`",
+              "GPU kernel source or versioned kernel-plan emission."
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "command-line",
+      "title": "Command-Line Reference",
+      "summary": "The CLI separates successful command payloads on standard output from diagnostics on standard error and uses stable categorized exit codes.",
+      "tables": [
+        {
+          "title": "Exit status",
+          "columns": [
+            "Code",
+            "Category",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "`0`",
+              "`success`",
+              "The command completed successfully."
+            ],
+            [
+              "`64`",
+              "`usage`",
+              "Invalid command, flag, or invocation."
+            ],
+            [
+              "`65`",
+              "`compile`",
+              "Parse, type, analysis, or lowering failure."
+            ],
+            [
+              "`66`",
+              "`input`",
+              "Host input/path failure."
+            ],
+            [
+              "`70`",
+              "`runtime`",
+              "Program execution failure."
+            ],
+            [
+              "`71`",
+              "`internal`",
+              "Unclassified internal CLI failure."
+            ]
+          ]
+        }
+      ],
+      "syntax": [
+        {
+          "label": "MACHINE-READABLE FAILURES",
+          "code": "osiris --diagnostics=json <command> [arguments…]\n# JSON schema v1 is written to stderr only when the command fails."
+        }
+      ]
+    },
+    {
+      "id": "surface-indexes",
+      "title": "Complete Surface Indexes",
+      "summary": "A complete alphabetical index of Osiris keywords, runtime kinds, special forms, built-in functions, named constants, and command-line tools.",
+      "indexes": [
+        {
+          "title": "Reserved keywords",
+          "items": [
+            "as",
+            "break",
+            "catch",
+            "continue",
+            "emit",
+            "enum",
+            "export",
+            "false",
+            "for",
+            "func",
+            "import",
+            "in",
+            "let",
+            "macro",
+            "match",
+            "null",
+            "package",
+            "return",
+            "switch",
+            "true",
+            "try",
+            "while"
+          ]
+        },
+        {
+          "title": "Evaluator special forms",
+          "items": [
+            "and",
+            "await",
+            "cancel",
+            "csv_async",
+            "flat_map",
+            "if",
+            "jsonparse_async",
+            "lines_async",
+            "map",
+            "map_error",
+            "or",
+            "parallel",
+            "race",
+            "read_async",
+            "readbytes_async",
+            "select",
+            "spawn",
+            "timeout",
+            "write_async"
+          ]
+        },
+        {
+          "title": "Runtime value kinds",
+          "source": "runtimeKinds"
+        },
+        {
+          "title": "std/text exports",
+          "items": [
+            "cat",
+            "chunks",
+            "compare",
+            "contains",
+            "contains_any",
+            "count",
+            "cut",
+            "cut_prefix",
+            "cut_suffix",
+            "equal_fold",
+            "fields",
+            "has_prefix",
+            "has_suffix",
+            "index",
+            "index_any",
+            "join",
+            "last_index",
+            "last_index_any",
+            "lower",
+            "repeat",
+            "replace",
+            "replace_n",
+            "slug",
+            "split",
+            "split_after",
+            "split_after_n",
+            "split_n",
+            "trim",
+            "trim_left",
+            "trim_prefix",
+            "trim_right",
+            "trim_space",
+            "trim_suffix",
+            "upper"
+          ]
+        },
+        {
+          "title": "std/time exports",
+          "items": [
+            "add",
+            "add_date",
+            "after",
+            "before",
+            "compare",
+            "date",
+            "day",
+            "duration",
+            "duration_string",
+            "equal",
+            "fixed_zone",
+            "format",
+            "hour",
+            "in_location",
+            "load_location",
+            "microsecond",
+            "millisecond",
+            "minute",
+            "month",
+            "nanosecond",
+            "now",
+            "parse",
+            "parse_duration",
+            "rfc3339",
+            "rfc3339_nano",
+            "round",
+            "second",
+            "sub",
+            "truncate",
+            "unix",
+            "unix_micro",
+            "unix_milli",
+            "utc",
+            "utc_location",
+            "weekday",
+            "year",
+            "year_day",
+            "zone"
+          ]
+        },
+        {
+          "title": "std/math exports",
+          "source": "stdMathExports"
+        },
+        {
+          "title": "Global built-in functions",
+          "source": "runtimeBuiltins"
+        },
+        {
+          "title": "Global named constants",
+          "source": "namedConstants"
+        },
+        {
+          "title": "CLI commands",
+          "items": [
+            "version",
+            "run",
+            "vm",
+            "eval",
+            "demo",
+            "fmt",
+            "opt",
+            "ir",
+            "ssa",
+            "cfg",
+            "dom",
+            "loop",
+            "c",
+            "obj",
+            "build",
+            "compile",
+            "pure",
+            "closure",
+            "infer",
+            "alias",
+            "viz",
+            "wasm",
+            "gpu",
+            "lsp",
+            "map",
+            "deps",
+            "mod",
+            "heap",
+            "trace",
+            "debug",
+            "repl",
+            "help"
+          ]
+        }
+      ]
+    }
+  ],
+  "stdMathExports": [
+    "abs",
+    "acos",
+    "acosh",
+    "all",
+    "any",
+    "arange",
+    "argmax",
+    "argmin",
+    "asin",
+    "asinh",
+    "atan",
+    "atan2",
+    "atanh",
+    "bf1024",
+    "bf128",
+    "bf16",
+    "bf256",
+    "bf32",
+    "bf512",
+    "bf64",
+    "bf8",
+    "bigfloat",
+    "bigint",
+    "bit_ceil",
+    "bit_floor",
+    "bit_width",
+    "broadcast_to",
+    "byte",
+    "byte_swap",
+    "cbrt",
+    "ceil",
+    "cholesky",
+    "clamp",
+    "clip",
+    "complex",
+    "concat",
+    "conjugate",
+    "copysign",
+    "cos",
+    "cosh",
+    "cospi",
+    "count_ones",
+    "count_zeros",
+    "cumprod",
+    "cumsum",
+    "degrees",
+    "det",
+    "divmod",
+    "dot",
+    "dual",
+    "eig",
+    "eigh",
+    "erf",
+    "erfc",
+    "exp",
+    "exp2",
+    "expand_dims",
+    "expm1",
+    "expt",
+    "eye",
+    "f32",
+    "f64",
+    "fixed",
+    "flatten",
+    "floor",
+    "fma",
+    "fmod",
+    "frexp",
+    "full",
+    "gamma",
+    "gather",
+    "gcd",
+    "has_single_bit",
+    "heaviside",
+    "hypot",
+    "i1024",
+    "i128",
+    "i16",
+    "i256",
+    "i32",
+    "i512",
+    "i64",
+    "i8",
+    "identity",
+    "imag",
+    "interval",
+    "inv",
+    "isfinite",
+    "isinf",
+    "isnan",
+    "isnormal",
+    "lcm",
+    "ldexp",
+    "leading_zeros",
+    "lgamma",
+    "linspace",
+    "log",
+    "log10",
+    "log1p",
+    "log2",
+    "logspace",
+    "magnitude",
+    "matmul",
+    "matrix",
+    "max",
+    "mean",
+    "median",
+    "min",
+    "modf",
+    "modint",
+    "nextafter",
+    "norm",
+    "ones",
+    "outer",
+    "pad",
+    "percentile",
+    "phase",
+    "pi",
+    "positive_difference",
+    "pow",
+    "primal",
+    "qr",
+    "quantile",
+    "radians",
+    "rat",
+    "rational",
+    "real",
+    "relu",
+    "remainder",
+    "reshape",
+    "round",
+    "scatter",
+    "shape",
+    "sigmoid",
+    "sign",
+    "signbit",
+    "sin",
+    "sinh",
+    "sinpi",
+    "softplus",
+    "solve",
+    "sqrt",
+    "squeeze",
+    "stack",
+    "std",
+    "step",
+    "svd",
+    "tan",
+    "tangent",
+    "tanh",
+    "tanpi",
+    "tau",
+    "tensor",
+    "tile",
+    "trace",
+    "trailing_zeros",
+    "transpose",
+    "trunc",
+    "u1024",
+    "u128",
+    "u16",
+    "u256",
+    "u32",
+    "u512",
+    "u64",
+    "u8",
+    "uf1024",
+    "uf128",
+    "uf16",
+    "uf256",
+    "uf32",
+    "uf512",
+    "uf64",
+    "uf8",
+    "ufnum",
+    "uint",
+    "var",
+    "vec",
+    "vector",
+    "where",
+    "zeros"
+  ],
+  "runtimeKinds": [
+    "null",
+    "bool",
+    "number",
+    "decimal",
+    "fixed",
+    "interval",
+    "modint",
+    "complex",
+    "error",
+    "result",
+    "option",
+    "bigint",
+    "bigfloat",
+    "int",
+    "quantity",
+    "uint",
+    "string",
+    "list",
+    "tensor",
+    "stream",
+    "task",
+    "function",
+    "module",
+    "enum",
+    "dual",
+    "tcp_listener",
+    "duration",
+    "datetime",
+    "location"
+  ],
+  "runtimeBuiltins": [
+    "abs",
+    "acos",
+    "acosh",
+    "all",
+    "any",
+    "append",
+    "arange",
+    "argmax",
+    "argmin",
+    "asin",
+    "asinh",
+    "assert",
+    "at",
+    "atan",
+    "atan2",
+    "atanh",
+    "band",
+    "bf1024",
+    "bf128",
+    "bf16",
+    "bf256",
+    "bf32",
+    "bf512",
+    "bf64",
+    "bf8",
+    "bigfloat",
+    "bigint",
+    "bin",
+    "bit_ceil",
+    "bit_floor",
+    "bit_width",
+    "bnot",
+    "bor",
+    "broadcast_to",
+    "bxor",
+    "byte",
+    "byte_swap",
+    "bytes",
+    "cat",
+    "cause",
+    "cbrt",
+    "cholesky",
+    "chunks",
+    "clip",
+    "clone",
+    "close",
+    "collect",
+    "complex",
+    "concat",
+    "conjugate",
+    "copysign",
+    "copy_file",
+    "cos",
+    "cosh",
+    "cospi",
+    "count_ones",
+    "count_zeros",
+    "csv",
+    "cumprod",
+    "cumsum",
+    "dec",
+    "decimal",
+    "decode",
+    "degrees",
+    "det",
+    "discard",
+    "divmod",
+    "dot",
+    "dual",
+    "eig",
+    "eigh",
+    "encode",
+    "erf",
+    "erfc",
+    "err",
+    "errmeta",
+    "error",
+    "exists",
+    "exp",
+    "exp2",
+    "expand_dims",
+    "expect",
+    "expm1",
+    "expt",
+    "eye",
+    "f32",
+    "f64",
+    "file_size",
+    "fixed",
+    "flatten",
+    "flush",
+    "fma",
+    "fmod",
+    "format",
+    "frexp",
+    "full",
+    "gamma",
+    "gather",
+    "gcd",
+    "hash",
+    "has_single_bit",
+    "heaviside",
+    "hex",
+    "hypot",
+    "i1024",
+    "i128",
+    "i16",
+    "i256",
+    "i32",
+    "i512",
+    "i64",
+    "i8",
+    "identity",
+    "imag",
+    "interval",
+    "inv",
+    "is",
+    "is_dir",
+    "is_file",
+    "is_must_handle",
+    "isfinite",
+    "iserr",
+    "isinf",
+    "isnan",
+    "isnone",
+    "isnormal",
+    "isok",
+    "issome",
+    "join",
+    "json",
+    "jsonparse",
+    "lcm",
+    "ldexp",
+    "leading_zeros",
+    "len",
+    "lgamma",
+    "lines",
+    "linspace",
+    "log",
+    "log10",
+    "log1p",
+    "log2",
+    "logspace",
+    "lower",
+    "magnitude",
+    "matches",
+    "matmul",
+    "matrix",
+    "mean",
+    "median",
+    "mix",
+    "mkdir",
+    "mkdir_all",
+    "modf",
+    "modint",
+    "must_handle",
+    "nextafter",
+    "noise",
+    "none",
+    "norm",
+    "number",
+    "ok",
+    "ones",
+    "openappend",
+    "openread",
+    "openwrite",
+    "or_else",
+    "outer",
+    "pack",
+    "pad",
+    "panic",
+    "percentile",
+    "phase",
+    "positive_difference",
+    "pow",
+    "primal",
+    "product",
+    "qr",
+    "quantile",
+    "radians",
+    "random",
+    "range",
+    "rat",
+    "rational",
+    "read",
+    "read_dir",
+    "read_limit",
+    "readbytes",
+    "readchunk",
+    "readline",
+    "real",
+    "redact",
+    "relu",
+    "remainder",
+    "remove",
+    "rename",
+    "repeat",
+    "replace",
+    "reshape",
+    "rotl",
+    "rotr",
+    "scatter",
+    "seek",
+    "setat",
+    "shape",
+    "shl",
+    "shr",
+    "sigmoid",
+    "sign",
+    "signbit",
+    "sin",
+    "sinh",
+    "sinpi",
+    "slice",
+    "slug",
+    "softplus",
+    "solve",
+    "some",
+    "split",
+    "squeeze",
+    "stack",
+    "std",
+    "step",
+    "sum",
+    "svd",
+    "take",
+    "tan",
+    "tangent",
+    "tanh",
+    "tanpi",
+    "tcp_accept",
+    "tcp_dial",
+    "tcp_listen",
+    "tell",
+    "tensor",
+    "tile",
+    "to_option",
+    "to_result",
+    "trace",
+    "trailing_zeros",
+    "transfer",
+    "transpose",
+    "trap",
+    "trim",
+    "trunc",
+    "truncate",
+    "truncate_file",
+    "u1024",
+    "u128",
+    "u16",
+    "u256",
+    "u32",
+    "u512",
+    "u64",
+    "u8",
+    "uf1024",
+    "uf128",
+    "uf16",
+    "uf256",
+    "uf32",
+    "uf512",
+    "uf64",
+    "uf8",
+    "ufnum",
+    "uint",
+    "unpack",
+    "unwrap",
+    "upper",
+    "var",
+    "vec",
+    "vector",
+    "view",
+    "where",
+    "withdebug",
+    "withmeta",
+    "wrap",
+    "write",
+    "writechunk",
+    "zeros"
+  ],
+  "namedConstants": [
+    "A",
+    "Acre",
+    "AlreadyExists",
+    "Ampere",
+    "Angstrom",
+    "Apery",
+    "Arcminute",
+    "Arcsecond",
+    "AstronomicalUnit",
+    "Atmosphere",
+    "AtomicMassConstant",
+    "Avogadro",
+    "BTU",
+    "Bar",
+    "Becquerel",
+    "BohrMagneton",
+    "BohrRadius",
+    "Boltzmann",
+    "Bq",
+    "BritishThermalUnit",
+    "C",
+    "Calorie",
+    "Cancelled",
+    "Candela",
+    "Catalan",
+    "Conflict",
+    "Coulomb",
+    "CubicCentimeter",
+    "Da",
+    "Dalton",
+    "DatabaseError",
+    "Day",
+    "Degree",
+    "E",
+    "ElectronMass",
+    "Electronvolt",
+    "ElementaryCharge",
+    "EncodingError",
+    "EulerGamma",
+    "F",
+    "Farad",
+    "FaradayConstant",
+    "FineStructure",
+    "Foot",
+    "G",
+    "Gallon",
+    "GasConstant",
+    "Gram",
+    "GravitationalConstant",
+    "Gray",
+    "Gy",
+    "H",
+    "Hectare",
+    "Henry",
+    "Hertz",
+    "Hour",
+    "Hz",
+    "IOError",
+    "ImperialFluidOunce",
+    "ImperialGallon",
+    "ImperialPint",
+    "ImperialQuart",
+    "Inch",
+    "InternalError",
+    "InvalidArgument",
+    "J",
+    "Joule",
+    "JulianYear",
+    "K",
+    "Katal",
+    "Kelvin",
+    "Kilocalorie",
+    "Kilogram",
+    "KilometerPerHour",
+    "KilowattHour",
+    "Knot",
+    "L",
+    "LightYear",
+    "Liter",
+    "Ln10",
+    "Ln2",
+    "Log10E",
+    "Log2E",
+    "LongTon",
+    "Lumen",
+    "Lux",
+    "MechanicalHorsepower",
+    "Meter",
+    "MetricTonne",
+    "Microsecond",
+    "Mile",
+    "MilePerHour",
+    "Millibar",
+    "Milliliter",
+    "Millisecond",
+    "Minute",
+    "Mole",
+    "N",
+    "NA",
+    "Nanosecond",
+    "NauticalMile",
+    "NetworkError",
+    "NeutronMass",
+    "Newton",
+    "NotFound",
+    "NotImplemented",
+    "NuclearMagneton",
+    "Ohm",
+    "Ounce",
+    "OutOfMemory",
+    "OutOfRange",
+    "Pa",
+    "ParseError",
+    "Parsec",
+    "Pascal",
+    "Percent",
+    "PermissionDenied",
+    "Phi",
+    "Pi",
+    "Planck",
+    "Pound",
+    "PoundsPerSquareInch",
+    "ProtonMass",
+    "R",
+    "Radian",
+    "ReducedPlanck",
+    "ResourceExhausted",
+    "Revolution",
+    "RevolutionPerMinute",
+    "Rinf",
+    "RydbergConstant",
+    "S",
+    "Second",
+    "ShortTon",
+    "Siemens",
+    "Sievert",
+    "SpeedOfLight",
+    "Sqrt2",
+    "SqrtHalf",
+    "StandardGravity",
+    "StefanBoltzmannConstant",
+    "Stone",
+    "Sv",
+    "T",
+    "Tau",
+    "Tesla",
+    "Timeout",
+    "Torr",
+    "TypeError",
+    "USCup",
+    "USFluidOunce",
+    "USPint",
+    "USQuart",
+    "USTablespoon",
+    "USTeaspoon",
+    "Unauthenticated",
+    "Unavailable",
+    "UnknownError",
+    "Unsupported",
+    "V",
+    "VacuumPermeability",
+    "VacuumPermittivity",
+    "Volt",
+    "W",
+    "Watt",
+    "Wb",
+    "Weber",
+    "Week",
+    "Yard",
+    "a0",
+    "acre",
+    "alpha",
+    "ampere",
+    "angstrom",
+    "apery",
+    "arcminute",
+    "arcsecond",
+    "astronomicalUnit",
+    "atm",
+    "atmosphere",
+    "atomicMassConstant",
+    "au",
+    "avogadro",
+    "bar",
+    "becquerel",
+    "bohrMagneton",
+    "bohrRadius",
+    "boltzmann",
+    "britishThermalUnit",
+    "c0",
+    "cal",
+    "calorie",
+    "candela",
+    "catalan",
+    "cc",
+    "cd",
+    "centi",
+    "coulomb",
+    "cubicCentimeter",
+    "cup",
+    "d",
+    "dalton",
+    "day",
+    "deca",
+    "deci",
+    "deg",
+    "degree",
+    "e",
+    "eV",
+    "electronMass",
+    "electronvolt",
+    "elementaryCharge",
+    "epsilon0",
+    "eulerGamma",
+    "exa",
+    "farad",
+    "faradayConstant",
+    "fineStructure",
+    "fl_oz",
+    "foot",
+    "ft",
+    "g",
+    "g0",
+    "gal",
+    "gallon",
+    "gasConstant",
+    "giga",
+    "gram",
+    "gravitationalConstant",
+    "gray",
+    "h",
+    "ha",
+    "hbar",
+    "hectare",
+    "hecto",
+    "henry",
+    "hertz",
+    "hour",
+    "hp",
+    "imp_gal",
+    "imperialFluidOunce",
+    "imperialGallon",
+    "imperialPint",
+    "imperialQuart",
+    "inch",
+    "joule",
+    "julianYear",
+    "kB",
+    "kWh",
+    "kat",
+    "katal",
+    "kcal",
+    "kelvin",
+    "kg",
+    "kilo",
+    "kilocalorie",
+    "kilogram",
+    "kilometerPerHour",
+    "kilowattHour",
+    "kn",
+    "knot",
+    "kph",
+    "lb",
+    "lightYear",
+    "liter",
+    "litre",
+    "lm",
+    "ln10",
+    "ln2",
+    "log10E",
+    "log2E",
+    "longTon",
+    "lumen",
+    "lux",
+    "lx",
+    "ly",
+    "m",
+    "mL",
+    "m_e",
+    "m_n",
+    "m_p",
+    "m_u",
+    "mbar",
+    "mechanicalHorsepower",
+    "mega",
+    "meter",
+    "metricTonne",
+    "mi",
+    "micro",
+    "microsecond",
+    "mile",
+    "milePerHour",
+    "milli",
+    "millibar",
+    "milliliter",
+    "millisecond",
+    "min",
+    "minute",
+    "mol",
+    "mole",
+    "mph",
+    "ms",
+    "mu0",
+    "muB",
+    "muN",
+    "nano",
+    "nanosecond",
+    "nauticalMile",
+    "neutronMass",
+    "newton",
+    "nmi",
+    "ns",
+    "nuclearMagneton",
+    "ohm",
+    "ounce",
+    "oz",
+    "parsec",
+    "pascal",
+    "pc",
+    "percent",
+    "peta",
+    "phi",
+    "pi",
+    "pico",
+    "planck",
+    "pound",
+    "poundsPerSquareInch",
+    "protonMass",
+    "psi",
+    "pt",
+    "q_e",
+    "qt",
+    "rad",
+    "radian",
+    "reducedPlanck",
+    "revolution",
+    "revolutionPerMinute",
+    "rpm",
+    "rydbergConstant",
+    "s",
+    "second",
+    "shortTon",
+    "siemens",
+    "sievert",
+    "sigmaSB",
+    "speedOfLight",
+    "sqrt2",
+    "sqrtHalf",
+    "st",
+    "standardGravity",
+    "stefanBoltzmannConstant",
+    "stone",
+    "tau",
+    "tbsp",
+    "tera",
+    "tesla",
+    "tonne",
+    "torr",
+    "tsp",
+    "turn",
+    "us",
+    "usCup",
+    "usFluidOunce",
+    "usPint",
+    "usQuart",
+    "usTablespoon",
+    "usTeaspoon",
+    "vacuumPermeability",
+    "vacuumPermittivity",
+    "volt",
+    "watt",
+    "weber",
+    "week",
+    "yard",
+    "yd"
+  ]
+}

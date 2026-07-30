@@ -180,6 +180,17 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			}
 			expr = &literalExpr{value: value}
 		}
+		if st.Type != "" {
+			value, err := s.ev.eval(expr, s.scope)
+			if err != nil {
+				return nil, false, err
+			}
+			value, err = checkBindingType(st.Type, value, false)
+			if err != nil {
+				return nil, false, fmt.Errorf("let %s: %w", st.Name, err)
+			}
+			expr = &literalExpr{value: value}
+		}
 		s.scope = &scope{
 			parent: s.scope,
 			items: map[string]binding{

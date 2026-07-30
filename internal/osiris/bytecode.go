@@ -13,6 +13,7 @@ const (
 	vmOpLoadName
 	vmOpBind
 	vmOpResultBind
+	vmOpTypeAssert
 	vmOpUnary
 	vmOpBinary
 	vmOpCall
@@ -49,6 +50,7 @@ type vmInstr struct {
 	body  *vmChunk
 	alt   *vmChunk
 	arms  []vmMatchArm
+	span  sourceSpan
 }
 
 type vmMatchArm struct {
@@ -158,6 +160,11 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			c.emit(vmInstr{op: vmOpResultBind, dst: unwrapped, a: reg})
 			reg = unwrapped
 		}
+		if st.Type != "" {
+			checked := c.alloc()
+			c.emit(vmInstr{op: vmOpTypeAssert, dst: checked, a: reg, text: st.Type})
+			reg = checked
+		}
 		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
 		return nil
 	case importStmt:
@@ -250,7 +257,7 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 			args[i] = reg
 		}
 		dst := c.alloc()
-		c.emit(vmInstr{op: vmOpCall, dst: dst, a: callee, args: args})
+		c.emit(vmInstr{op: vmOpCall, dst: dst, a: callee, args: args, span: n.Span})
 		return dst, nil
 	case *listExpr:
 		items := make([]int, len(n.items))
@@ -543,6 +550,12 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				return nullValue(), err
 			}
 			regs[instr.dst] = value
+		case vmOpTypeAssert:
+			value, err := checkBindingType(instr.text, regs[instr.a], false)
+			if err != nil {
+				return nullValue(), err
+			}
+			regs[instr.dst] = value
 		case vmOpUnary:
 			v, err := applyUnary(instr.tok, regs[instr.a])
 			if err != nil {
@@ -566,6 +579,18 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			regs[instr.dst] = v
 		case vmOpCall:
 			callee := regs[instr.a]
+			if callee.kind == kindDuration {
+				args := make([]Value, len(instr.args))
+				for i, reg := range instr.args {
+					args[i] = regs[reg]
+				}
+				out, err := callDurationComponent(callee, args)
+				if err != nil {
+					return nullValue(), structuredErrorAt(err, r.source, instr.span)
+				}
+				regs[instr.dst] = out
+				continue
+			}
 			if callee.kind != kindFunction || callee.fn == nil {
 				if callee.kind == kindModule {
 					return nullValue(), fmt.Errorf("cannot call module %s", callee.String())
@@ -579,7 +604,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			if callee.fn.builtin != nil {
 				out, err := callee.fn.builtin(args)
 				if err != nil {
-					return nullValue(), err
+					return nullValue(), structuredErrorAt(err, r.source, instr.span)
 				}
 				regs[instr.dst] = out
 				continue
@@ -587,7 +612,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			if callee.fn.contextBuiltin != nil {
 				out, err := callee.fn.contextBuiltin(r.ctx, args)
 				if err != nil {
-					return nullValue(), err
+					return nullValue(), structuredErrorAt(err, r.source, instr.span)
 				}
 				regs[instr.dst] = out
 				continue

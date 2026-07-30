@@ -186,6 +186,7 @@ type inferTypeInfo struct {
 	bits     uint16
 	frac     uint16
 	function *InferFunction
+	module   string
 }
 
 // inferProgram handles the infer program step in the surrounding package and
@@ -237,7 +238,8 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 		return info
 	case importStmt:
 		bind := &InferBinding{Name: st.Alias, Scope: scope.name, Kind: "module"}
-		scope.items[st.Alias] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "module"}, owner: scope.fn}
+		moduleName, _ := splitModuleRef(st.Path)
+		scope.items[st.Alias] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "module", module: moduleName}, owner: scope.fn}
 		out.Bindings = append(out.Bindings, *bind)
 		return inferTypeInfo{known: true, kind: "module"}
 	case enumStmt:
@@ -461,12 +463,34 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 			}
 		}
 		if name, ok := calledShapeName(n.callee); ok {
+			if member, ok := n.callee.(*memberExpr); ok {
+				object := inferExpr(member.object, scope, out)
+				if object.module == "std/time" {
+					return inferStdTimeCall(name, n.args, scope, out)
+				}
+				if object.module == "std/text" {
+					return inferStdTextCall(name, n.args, scope, out)
+				}
+			}
 			if info, ok := inferBuiltinCall(name, n.args, scope, out); ok {
 				return info
 			}
 		}
 		for _, arg := range n.args {
 			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{kind: "unknown"}
+	case *memberExpr:
+		object := inferExpr(n.object, scope, out)
+		if object.module == "std/time" {
+			switch n.name {
+			case "nanosecond", "microsecond", "millisecond", "second", "minute", "hour":
+				return inferTypeInfo{known: true, kind: "duration"}
+			case "rfc3339", "rfc3339_nano":
+				return inferTypeInfo{known: true, kind: "string"}
+			case "utc_location":
+				return inferTypeInfo{known: true, kind: "location"}
+			}
 		}
 		return inferTypeInfo{kind: "unknown"}
 	case *listExpr:
@@ -629,15 +653,15 @@ func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 		return inferTypeInfo{known: true, kind: "bigfloat"}, true
 	case "shape":
 		return inferTypeInfo{known: true, kind: "list", shape: []int{1}}, true
-	case "openread", "openwrite":
+	case "openread", "openwrite", "openappend":
 		return inferTypeInfo{known: true, kind: "stream"}, true
 	case "readline":
 		return inferTypeInfo{known: true, kind: "string"}, true
-	case "readchunk":
+	case "readchunk", "read_limit", "read_dir":
 		return inferTypeInfo{known: true, kind: "list"}, true
-	case "writechunk":
+	case "writechunk", "append", "copy_file", "file_size", "seek", "tell":
 		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
-	case "flush", "close":
+	case "flush", "close", "truncate_file", "exists", "is_file", "is_dir", "mkdir", "mkdir_all", "rename", "remove", "truncate":
 		return inferTypeInfo{known: true, kind: "bool"}, true
 	case "vector", "vec", "tensor", "matrix", "reshape", "transpose", "flatten", "view", "clone", "dot", "matmul":
 		return inferTypeInfo{known: true, kind: "tensor"}, true
@@ -654,8 +678,132 @@ func inferBuiltinInfo(name string) (inferTypeInfo, bool) {
 //
 // It returns inferTypeInfo, bool so callers can continue with the next stage
 // of the pipeline without re-deriving the same information.
+func inferStdTimeCall(name string, args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
+	switch name {
+	case "duration", "parse_duration", "sub":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "duration"}
+	case "date", "unix", "unix_milli", "unix_micro", "parse", "add_date", "utc", "in_location", "now":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "datetime"}
+	case "add":
+		if len(args) > 0 {
+			first := inferExpr(args[0], scope, out)
+			for _, arg := range args[1:] {
+				_ = inferExpr(arg, scope, out)
+			}
+			if first.kind == "datetime" {
+				return inferTypeInfo{known: true, kind: "datetime"}
+			}
+		}
+		return inferTypeInfo{known: true, kind: "duration"}
+	case "round", "truncate":
+		if len(args) > 0 {
+			first := inferExpr(args[0], scope, out)
+			for _, arg := range args[1:] {
+				_ = inferExpr(arg, scope, out)
+			}
+			if first.kind == "duration" || first.kind == "datetime" {
+				return first
+			}
+		}
+		return inferTypeInfo{kind: "unknown"}
+	case "duration_string", "format", "weekday":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "string"}
+	case "fixed_zone", "load_location":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "location"}
+	case "equal", "before", "after":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "bool"}
+	case "compare":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "int", bits: 64}
+	case "year", "month", "day", "hour", "minute", "second", "nanosecond", "year_day":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}
+	case "zone":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "list", shape: []int{2}}
+	default:
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{kind: "unknown"}
+	}
+}
+
+func inferStdTextCall(name string, args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
+	for _, arg := range args {
+		_ = inferExpr(arg, scope, out)
+	}
+	switch name {
+	case "compare":
+		return inferTypeInfo{known: true, kind: "int", bits: 64}
+	case "equal_fold", "contains", "contains_any", "has_prefix", "has_suffix":
+		return inferTypeInfo{known: true, kind: "bool"}
+	case "count":
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}
+	case "index", "index_any", "last_index", "last_index_any", "cut", "cut_prefix", "cut_suffix":
+		return inferTypeInfo{known: true, kind: "option"}
+	case "fields", "split_after", "split_n", "split_after_n":
+		return inferTypeInfo{known: true, kind: "list"}
+	case "trim", "upper", "lower", "replace", "repeat", "join", "slug", "cat",
+		"trim_space", "trim_left", "trim_right", "trim_prefix", "trim_suffix", "replace_n":
+		return inferTypeInfo{known: true, kind: "string"}
+	case "split", "chunks":
+		return inferTypeInfo{known: true, kind: "list"}
+	default:
+		return inferTypeInfo{kind: "unknown"}
+	}
+}
+
 func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferProgram) (inferTypeInfo, bool) {
 	switch name {
+	case "openappend":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "stream"}, true
+	case "read_limit", "read_dir":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "list"}, true
+	case "append", "copy_file", "file_size", "seek", "tell":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
+	case "truncate_file", "exists", "is_file", "is_dir", "mkdir", "mkdir_all", "rename", "remove", "truncate":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "bool"}, true
+	case "round":
+		return inferUnaryLikeBuiltin(args, scope, out, "number"), true
+	case "format":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "string"}, true
 	case "repeat":
 		if len(args) > 0 {
 			info := inferExpr(args[0], scope, out)
@@ -849,9 +997,68 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 		return inferTypeInfo{known: true, kind: "list"}, true
 	case "eig", "eigh", "svd":
 		return inferTypeInfo{known: true, kind: "list"}, true
+	case "atan2", "fmod", "remainder", "fma", "positive_difference", "copysign", "nextafter":
+		return inferMathFloatResult(args, scope, out), true
+	case "exp2", "trunc", "degrees", "radians", "sinpi", "cospi", "tanpi", "ldexp":
+		return inferMathFloatResult(args[:min(len(args), 1)], scope, out), true
+	case "frexp", "modf", "divmod":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "list", shape: []int{2}}, true
+	case "isfinite", "isinf", "isnan", "isnormal", "signbit", "has_single_bit":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "bool"}, true
+	case "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "bit_width":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
+	case "bit_floor", "bit_ceil", "byte_swap":
+		if len(args) == 1 {
+			return inferExpr(args[0], scope, out), true
+		}
+		return inferTypeInfo{kind: "unknown"}, true
+	case "gcd", "lcm":
+		infos := make([]inferTypeInfo, 0, len(args))
+		for _, arg := range args {
+			infos = append(infos, inferExpr(arg, scope, out))
+		}
+		if len(infos) == 2 && (infos[0].kind == "uint" || infos[0].kind == "packeduint") &&
+			(infos[1].kind == "uint" || infos[1].kind == "packeduint") {
+			kind := "uint"
+			if infos[0].kind == "packeduint" || infos[1].kind == "packeduint" {
+				kind = "packeduint"
+			}
+			return inferTypeInfo{known: true, kind: kind, bits: max(infos[0].bits, infos[1].bits)}, true
+		}
+		return inferTypeInfo{known: true, kind: "bigint"}, true
+	case "phase":
+		if len(args) == 1 {
+			info := inferExpr(args[0], scope, out)
+			if info.bits == 32 || info.bits == 64 {
+				return inferTypeInfo{known: true, kind: "float", bits: info.bits}, true
+			}
+		}
+		return inferTypeInfo{known: true, kind: "number"}, true
 	case "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "sign", "step", "heaviside", "relu", "sigmoid", "softplus":
+		if (name == "sinh" || name == "cosh" || name == "tanh") && inferAnyComplexArgument(args, scope, out) {
+			return inferTypeInfo{known: true, kind: "complex", bits: inferCallBits(args, scope, out)}, true
+		}
 		return inferUnaryLikeBuiltin(args, scope, out, "number"), true
-	case "mean", "var", "std", "median", "quantile", "percentile", "dot", "norm", "sum", "product", "len", "hypot", "abs", "sqrt", "pow", "expt", "exp", "log", "log10", "log2", "noise", "real", "imag", "magnitude":
+	case "sqrt", "pow", "expt", "exp", "log":
+		if inferAnyComplexArgument(args, scope, out) {
+			return inferTypeInfo{known: true, kind: "complex", bits: inferCallBits(args, scope, out)}, true
+		}
+		return inferMathFloatResult(args, scope, out), true
+	case "sin", "cos", "tan":
+		if inferAnyComplexArgument(args, scope, out) {
+			return inferTypeInfo{known: true, kind: "complex", bits: inferCallBits(args, scope, out)}, true
+		}
+		return inferMathFloatResult(args, scope, out), true
+	case "mean", "var", "std", "median", "quantile", "percentile", "dot", "norm", "sum", "product", "len", "hypot", "abs", "log10", "log2", "noise", "real", "imag", "magnitude":
 		return inferTypeInfo{known: true, kind: "number"}, true
 	case "argmin", "argmax":
 		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
@@ -1146,6 +1353,58 @@ func inferUnaryLikeBuiltin(args []Expr, scope *inferScope, out *InferProgram, sc
 	}
 }
 
+func inferMathFloatResult(args []Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
+	if len(args) == 0 {
+		return inferTypeInfo{known: true, kind: "number"}
+	}
+	sawDefault := false
+	sawFloat := false
+	sawBFloat := false
+	var bits uint16
+	for _, arg := range args {
+		info := inferExpr(arg, scope, out)
+		switch info.kind {
+		case "float":
+			sawFloat = true
+		case "bfloat":
+			sawBFloat = true
+		case "number":
+			sawDefault = true
+		}
+		if info.bits > bits {
+			bits = info.bits
+		}
+	}
+	if !sawFloat && !sawBFloat {
+		return inferTypeInfo{known: true, kind: "number"}
+	}
+	if sawDefault && bits < 64 {
+		bits = 64
+	}
+	kind := "float"
+	if sawBFloat {
+		kind = "bfloat"
+	}
+	return inferTypeInfo{known: true, kind: kind, bits: bits}
+}
+
+func inferAnyComplexArgument(args []Expr, scope *inferScope, out *InferProgram) bool {
+	for _, arg := range args {
+		if inferExpr(arg, scope, out).kind == "complex" {
+			return true
+		}
+	}
+	return false
+}
+
+func inferCallBits(args []Expr, scope *inferScope, out *InferProgram) uint16 {
+	infos := make([]inferTypeInfo, 0, len(args))
+	for _, arg := range args {
+		infos = append(infos, inferExpr(arg, scope, out))
+	}
+	return inferComplexResultBits(infos...)
+}
+
 // inferPreserveContainerBuiltin handles the infer preserve container builtin
 // step in the surrounding package and returns inferTypeInfo.
 //
@@ -1308,7 +1567,7 @@ func promoteNumeric(left, right inferTypeInfo) inferTypeInfo {
 // It returns inferTypeInfo so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func inferJoinType(a, b inferTypeInfo) inferTypeInfo {
-	if a.kind == b.kind && a.ShapeString() == b.ShapeString() && formatDims(a.units) == formatDims(b.units) && a.bits == b.bits && a.frac == b.frac {
+	if a.kind == b.kind && a.ShapeString() == b.ShapeString() && formatDims(a.units) == formatDims(b.units) && a.bits == b.bits && a.frac == b.frac && a.module == b.module {
 		return a
 	}
 	if a.kind == "unknown" {
@@ -1355,6 +1614,12 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 		info.bits = v.fbits
 	case kindDual:
 		info.kind = "dual"
+	case kindDuration:
+		info.kind = "duration"
+	case kindDateTime:
+		info.kind = "datetime"
+	case kindTimeLocation:
+		info.kind = "location"
 	case kindError:
 		info.kind = "error"
 	case kindBigInt:
@@ -1392,6 +1657,9 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 		info.kind = "function"
 	case kindModule:
 		info.kind = "module"
+		if v.mod != nil {
+			info.module = v.mod.name
+		}
 	default:
 		info.kind = "unknown"
 	}

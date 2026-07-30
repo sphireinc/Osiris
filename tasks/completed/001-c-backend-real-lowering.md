@@ -56,3 +56,28 @@ precompute their outputs.
   runtime input changes executable behavior without recompilation.
 - Unsupported nodes produce a precise compile-time diagnostic.
 - Generated C remains readable enough to inspect in code review.
+
+## Completion record — 2026-07-28
+
+The executable C foundation is complete. `CompileCWithOptions` builds Osiris
+IR through `Runtime.BuildIR` and emits that IR with `emitCIRWithOptions`; it
+does not call `Session.ExecProgram`. The generated source has an inspectable
+tagged runtime plus direct scalar specialization, functions, closures,
+branches, loops, and runtime `emit` operations. Unsupported IR is rejected at
+compile time with the operation named in the diagnostic.
+
+Validation on 2026-07-28:
+
+```sh
+GOCACHE=/private/tmp/osiris-gocache GOMODCACHE=/private/tmp/osiris-gomodcache \
+  go test ./internal/osiris -run \
+  'TestCBackend(Lowering|DeterministicSource|RejectsUnsupportedIROperation|ControlFlowParity|DirectFunctionParity|DirectClosureParity|FunctionBranchParity|FunctionLoopParity)$' \
+  -count=1
+```
+
+Passed (`ok github.com/sphireinc/osiris/internal/osiris`, 9.360s). The tests
+assert the absence of the historical snapshot output table, deterministic
+readable C, executable interpreter/native parity for the supported control-flow
+and function subset, and a precise unsupported-IR diagnostic. Follow-on native
+coverage belongs to the completed focused tasks 028–033 and the remaining
+numeric/task-specific queue, not this foundation record.

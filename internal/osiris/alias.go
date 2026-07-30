@@ -868,17 +868,17 @@ func aliasBuiltinCall(name string, args []aliasInfo, scope *aliasScope, out *Ali
 		return freshAliasInfo("tensor", "builtin "+name), true
 	case "zeros", "ones", "full", "eye", "identity", "arange", "linspace", "logspace":
 		return freshAliasInfo("tensor", "builtin "+name), true
-	case "flatten", "shape", "split", "chunks", "range", "bytes", "unpack", "lines", "csv", "readbytes", "qr", "eig", "eigh", "svd":
+	case "flatten", "shape", "split", "chunks", "range", "bytes", "unpack", "lines", "csv", "readbytes", "read_limit", "read_dir", "qr", "eig", "eigh", "svd":
 		return freshAliasInfo("list", "builtin "+name), true
-	case "openread", "openwrite":
+	case "openread", "openwrite", "openappend":
 		return freshAliasInfo("stream", "builtin "+name), true
 	case "readline":
 		return freshAliasInfo("string", "builtin "+name), true
 	case "readchunk":
 		return freshAliasInfo("list", "builtin "+name), true
-	case "writechunk":
+	case "writechunk", "append", "copy_file", "file_size", "seek", "tell":
 		return freshAliasInfo("scalar", "builtin "+name), true
-	case "flush", "close":
+	case "flush", "close", "truncate_file", "exists", "is_file", "is_dir", "mkdir", "mkdir_all", "rename", "remove", "truncate":
 		return freshAliasInfo("scalar", "builtin "+name), true
 	case "pack", "cat", "join", "hash", "mix", "slug", "upper", "lower", "trim", "replace", "json", "format", "read":
 		return freshAliasInfo("string", "builtin "+name), true

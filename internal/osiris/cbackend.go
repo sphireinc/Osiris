@@ -57,15 +57,56 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 	if rt == nil {
 		rt = NewRuntime()
 	}
+	for _, statement := range prog.Statements {
+		if imported, ok := statement.(importStmt); ok {
+			moduleName, _ := splitModuleRef(imported.Path)
+			if moduleName == "std/time" || moduleName == "std/text" {
+				return nil, fmt.Errorf("%s:%d:%d: native C backend: static module %q is not supported", prog.SourceName, imported.PathSpan.start.line, imported.PathSpan.start.col, moduleName)
+			}
+		}
+	}
 	ir, err := rt.BuildIR(ctx, prog)
 	if err != nil {
 		return nil, err
 	}
+	if name, span, ok := nativeUnsupportedFilesystemBuiltin(ir); ok {
+		return nil, fmt.Errorf(
+			"%s:%d:%d: native C backend: filesystem builtin %q is not supported",
+			prog.SourceName,
+			span.start.line,
+			span.start.col,
+			name,
+		)
+	}
+	optimizeNativeLoops(ir)
 	source, err := emitCIRWithOptions(ir, options)
 	if err != nil {
 		return nil, err
 	}
 	return &CArtifact{Source: source}, nil
+}
+
+func nativeUnsupportedFilesystemBuiltin(program *IRProgram) (string, sourceSpan, bool) {
+	if program == nil {
+		return "", sourceSpan{}, false
+	}
+	unsupported := make(map[string]struct{})
+	for _, name := range filesystemBuiltinNames() {
+		unsupported[name] = struct{}{}
+	}
+	for _, function := range program.Functions {
+		for _, block := range function.Blocks {
+			for _, instruction := range block.Instrs {
+				if instruction.Op != "builtin" {
+					continue
+				}
+				if _, ok := unsupported[instruction.Text]; ok {
+					return instruction.Text, instruction.Span, true
+				}
+			}
+		}
+	}
+	return "", sourceSpan{}, false
 }
 
 // cEscapeString handles the c escape string step in the surrounding package

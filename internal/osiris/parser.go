@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Program struct {
@@ -15,6 +16,7 @@ type Stmt interface {
 
 type letStmt struct {
 	Name     string
+	Type     string
 	Expr     Expr
 	Unwrap   bool
 	Span     sourceSpan
@@ -189,18 +191,46 @@ func (exportStmt) stmtNode() {}
 
 type enumStmt struct {
 	Name     string
+	Backing  string
 	Cases    []enumCase
 	Span     sourceSpan
 	NameSpan sourceSpan
 }
 
 type enumCase struct {
-	Name   string
-	Params []string
-	Span   sourceSpan
+	Name         string
+	Params       []string
+	BackingValue *Value
+	Span         sourceSpan
 }
 
 func (c enumCase) Arity() int { return len(c.Params) }
+
+func isEnumBackingType(name string) bool {
+	switch name {
+	case "string", "int", "integer", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "byte":
+		return true
+	default:
+		return false
+	}
+}
+
+func matchesEnumBackingType(backing string, value Value) bool {
+	if backing == "string" {
+		return value.kind == kindString
+	}
+	return value.kind == kindInt || value.kind == kindUint
+}
+
+func isDefaultIntegerLiteral(text string) bool {
+	lower := strings.ToLower(text)
+	for _, suffix := range []string{"u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "bf16", "bf32", "bf64", "n"} {
+		if strings.HasSuffix(lower, suffix) {
+			return false
+		}
+	}
+	return !strings.ContainsAny(lower, ".e")
+}
 
 func (enumStmt) stmtNode() {}
 
@@ -209,8 +239,9 @@ type Expr interface {
 }
 
 type literalExpr struct {
-	value Value
-	Span  sourceSpan
+	value          Value
+	defaultInteger bool
+	Span           sourceSpan
 }
 
 // exprNode operates on literalExpr values and keeps the literalexpr-specific
@@ -541,6 +572,14 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		typeName := ""
+		if p.peek().kind == tokenIdent {
+			typeTok := p.next()
+			if !isBindingTypeName(typeTok.text) {
+				return nil, p.errorf(typeTok, "unknown binding type %q", typeTok.text)
+			}
+			typeName = typeTok.text
+		}
 		if _, err := p.expect(tokenEqual); err != nil {
 			return nil, err
 		}
@@ -553,7 +592,17 @@ func (p *parser) parseStmt() (Stmt, error) {
 				return nil, p.errorf(nameTok, "let? requires a result or option expression")
 			}
 		}
-		return letStmt{Name: nameTok.text, Expr: expr, Unwrap: unwrap, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		if typeName != "" {
+			if literal, ok := expr.(*literalExpr); ok {
+				value, typeErr := checkBindingType(typeName, literal.value, literal.defaultInteger)
+				if typeErr != nil {
+					return nil, p.errorf(nameTok, "%v", typeErr)
+				}
+				literal.value = value
+				literal.defaultInteger = false
+			}
+		}
+		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
 	case tokenEmit:
 		start := p.next()
 		expr, err := p.parseExpr(0)
@@ -715,11 +764,23 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		backing := ""
+		if p.match(tokenColon) {
+			backingTok, err := p.expect(tokenIdent)
+			if err != nil {
+				return nil, err
+			}
+			if !isEnumBackingType(backingTok.text) {
+				return nil, p.errorf(backingTok, "enum backing type must be string or an integer family")
+			}
+			backing = backingTok.text
+		}
 		if _, err := p.expect(tokenLBrace); err != nil {
 			return nil, err
 		}
 		var cases []enumCase
 		seen := make(map[string]struct{})
+		backedValues := make([]Value, 0, 4)
 		for p.peek().kind != tokenRBrace {
 			caseTok, err := p.expect(tokenIdent)
 			if err != nil {
@@ -731,11 +792,37 @@ func (p *parser) parseStmt() (Stmt, error) {
 			seen[caseTok.text] = struct{}{}
 			item := enumCase{Name: caseTok.text, Span: spanFromToken(caseTok)}
 			if p.match(tokenLParen) && !p.match(tokenRParen) {
+				if backing != "" {
+					return nil, p.errorf(caseTok, "backed enum case %s.%s cannot declare a payload", name.text, caseTok.text)
+				}
 				params, err := p.parseNameListAllowEmpty()
 				if err != nil {
 					return nil, err
 				}
 				item.Params = params
+			}
+			if backing != "" {
+				if _, err := p.expect(tokenEqual); err != nil {
+					return nil, p.errorf(caseTok, "backed enum case %s.%s requires a value", name.text, caseTok.text)
+				}
+				expr, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				literal, ok := expr.(*literalExpr)
+				if !ok || !matchesEnumBackingType(backing, literal.value) {
+					return nil, p.errorf(caseTok, "backed enum case %s.%s value must be a %s literal", name.text, caseTok.text, backing)
+				}
+				for _, previous := range backedValues {
+					if previous.Equal(literal.value) {
+						return nil, p.errorf(caseTok, "backed enum %s reuses value %s", name.text, literal.value.String())
+					}
+				}
+				value := literal.value
+				item.BackingValue = &value
+				backedValues = append(backedValues, value)
+			} else if p.peek().kind == tokenEqual {
+				return nil, p.errorf(caseTok, "enum case values require an enum backing type")
 			}
 			cases = append(cases, item)
 			if !p.match(tokenComma) {
@@ -749,7 +836,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if len(cases) == 0 {
 			return nil, p.errorf(name, "enum %q must declare at least one case", name.text)
 		}
-		return enumStmt{Name: name.text, Cases: cases, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
+		return enumStmt{Name: name.text, Backing: backing, Cases: cases, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
 	case tokenImport:
 		start := p.next()
 		pathTok, err := p.expect(tokenString)
@@ -812,11 +899,12 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	for {
 		switch p.peek().kind {
 		case tokenLParen:
+			span := exprSpan(left)
 			args, err := p.parseCallArgs()
 			if err != nil {
 				return nil, err
 			}
-			left = &callExpr{callee: left, args: args}
+			left = &callExpr{callee: left, args: args, Span: span}
 		case tokenDot:
 			p.next()
 			nameTok, err := p.expect(tokenIdent)
@@ -862,7 +950,7 @@ func (p *parser) parsePrefix() (Expr, error) {
 		if err != nil {
 			return nil, p.errorf(tok, "%v", err)
 		}
-		return &literalExpr{value: v, Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: v, defaultInteger: isDefaultIntegerLiteral(tok.text), Span: spanFromToken(tok)}, nil
 	case tokenString:
 		p.next()
 		return &literalExpr{value: stringValue(tok.text), Span: spanFromToken(tok)}, nil

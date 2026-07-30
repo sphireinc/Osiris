@@ -19,11 +19,11 @@
         },
         {
           "title": "Default numeric model",
-          "text": "The default literal type remains number, while specialized constructors handle exact, wide, packed, tensor, and fixed-precision forms."
+          "text": "The default literal type remains `number`, while specialized constructors handle exact, wide, packed, `tensor`, and fixed-precision forms."
         },
         {
           "title": "Control flow",
-          "text": "if, while, for, match, switch, try/catch, return, break, and continue make the core language expressive without hiding the flow of computation."
+          "text": "`if`, `while`, `for`, `match`, `switch`, `try`/`catch`, `return`, `break`, and `continue` make the core language expressive without hiding the flow of computation."
         },
         {
           "title": "Native build",
@@ -35,21 +35,21 @@
       "id": "semantics",
       "eyebrow": "Chapter",
       "title": "Language semantics",
-      "summary": "Programs are statement lists with lexical scope, explicit imports, exact math where possible, and controlled output through emit.",
+      "summary": "Programs are statement lists with lexical scope, explicit imports, exact math where possible, and controlled output through `emit`.",
       "paragraphs": [
-        "A file is normally a list of statements separated by newlines or semicolons. The usual shape is package, export, import, macro, let, and emit, but that order is a convention rather than a law.",
+        "A file is normally a list of statements separated by newlines or semicolons. The usual shape is `package`, `export`, `import`, `macro`, `let`, and `emit`, but that order is a convention rather than a law.",
         "Values are inspected through the runtime rather than hidden behind magic. The runtime preserves exactness, width metadata, tensor shape, module identity, and other structural information wherever it can.",
-        "Imports are alias-based and version-aware. File modules, std modules, and local module graphs are resolved explicitly, and the loader records manifests for repeatable builds.",
-        "Ordinary expressions execute in source order and emit appends values in production order. Tasks make concurrency explicit through spawn, await, parallel, cancel, and timeout; file and data helpers remain deliberately visible host operations."
+        "Imports are alias-based and version-aware. File modules, `std` modules, and local module graphs are resolved explicitly, and the loader records manifests for repeatable builds.",
+        "Ordinary expressions execute in source order and `emit` appends values in production order. Tasks make concurrency explicit through `spawn`, `await`, `parallel`, `cancel`, and `timeout`; file and data helpers remain deliberately visible host operations."
       ],
       "cards": [
         {
           "title": "Scoping",
-          "text": "let introduces lexical bindings. Shadowing is allowed, and loop-local state is carried forward by the execution model when needed."
+          "text": "`let` introduces lexical bindings. Shadowing is allowed, and loop-local state is carried forward by the execution model when needed."
         },
         {
           "title": "Control flow",
-          "text": "if, while, for, return, break, continue, match, switch, and try/catch are the visible control-flow tools."
+          "text": "`if`, `while`, `for`, `return`, `break`, `continue`, `match`, `switch`, and `try`/`catch` are the visible control-flow tools."
         },
         {
           "title": "Exactness",
@@ -61,15 +61,15 @@
         },
         {
           "title": "Output stream",
-          "text": "emit writes values into the program output stream in execution order, which makes the observable result of a script easy to reason about and easy to test."
+          "text": "`emit` writes values into the program output stream in execution order, which makes the observable result of a script easy to reason about and easy to test."
         },
         {
           "title": "Error propagation",
-          "text": "Use try/catch for explicit handling and the postfix ? operator for early propagation from fallible expressions when you want the current function to return the failure directly."
+          "text": "Use `try`/`catch` for explicit handling and the postfix `?` operator for early propagation from fallible expressions when you want the current function to return the failure directly."
         },
         {
           "title": "Blocking I/O",
-          "text": "I/O is host-backed and explicit. Use read, write, readbytes, csv, jsonparse, lines, and stream handles for visible file/data flow; task-aware behavior is documented with each API."
+          "text": "I/O is host-backed and explicit. Use `read`, `write`, `readbytes`, `csv`, `jsonparse`, `lines`, and stream handles for visible file/data flow; task-aware behavior is documented with each API."
         },
         {
           "title": "Memory management",
@@ -81,7 +81,7 @@
         },
         {
           "title": "Hosted runtime and native boundary",
-          "text": "The interpreter and VM are currently Go-hosted: streams, task state, and temporary buffers use host-managed memory. close releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend is a compute-focused subset and rejects networking and task-runtime programs at compile time. A future native async runtime must establish its own ownership, buffer-pinning, cleanup, and platform-polling contracts before Osiris can promise no-GC network behavior."
+          "text": "The interpreter and VM are currently Go-hosted: streams, task state, and temporary buffers use host-managed memory. `close` releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend is a compute-focused subset and rejects networking and task-runtime programs at compile time. A future native async runtime must establish its own ownership, buffer-pinning, cleanup, and platform-polling contracts before Osiris can promise no-GC network behavior."
         }
       ]
     },
@@ -91,22 +91,22 @@
       "title": "Writing Osiris programs",
       "summary": "Write programs as explicit, deterministic pipelines: input, named transforms, and output.",
       "paragraphs": [
-        "Source files normally use the .osr extension. Statements are separated by newlines or semicolons; both // and # introduce line comments.",
-        "The readable default order is package, export, import, macro, let, and emit. It is a convention, not a restriction: use functions for named repeated work, loops for iteration, and match or switch for shape-driven branches.",
+        "Source files normally use the `.osr` extension. Statements are separated by newlines or semicolons; both `//` and `#` introduce line comments.",
+        "The readable default order is `package`, `export`, `import`, `macro`, `let`, and `emit`. It is a convention, not a restriction: use functions for named repeated work, loops for iteration, and `match` or `switch` for shape-driven branches.",
         "Keep module surfaces narrow, name intermediate transforms, distinguish text from bytes, and leave output visible. Good Osiris code should be easy to trace when read later."
       ],
       "cards": [
         {
           "title": "Program shape",
-          "text": "Put package metadata and exports first when a file is importable; use alias-based imports and finish with a visible emit when practical."
+          "text": "Put `package` metadata and `export` declarations first when a file is importable; use alias-based `import` declarations and finish with a visible `emit` when practical."
         },
         {
           "title": "Data flow",
-          "text": "Prefer read -> transform -> write. Use bytes and fixed-width conversions for binary work instead of treating strings as hidden numbers."
+          "text": "Prefer `read` → transform → `write`. Use `bytes` and fixed-width conversions for binary work instead of treating strings as hidden numbers."
         },
         {
           "title": "Tools",
-          "text": "Use fmt, run, vm, trace, debug, infer, ir, ssa, cfg, and deps to make program behavior and compiler analysis inspectable."
+          "text": "Use `fmt`, `run`, `vm`, `trace`, `debug`, `infer`, `ir`, `ssa`, `cfg`, and `deps` to make program behavior and compiler analysis inspectable."
         }
       ]
     },
@@ -127,11 +127,11 @@
         },
         {
           "title": "Taxonomy",
-          "text": "The standard kinds stay intentionally small: InvalidArgument, NotFound, AlreadyExists, PermissionDenied, Unauthenticated, Unavailable, Timeout, Cancelled, Conflict, ResourceExhausted, OutOfMemory, OutOfRange, Unsupported, NotImplemented, ParseError, TypeError, EncodingError, IOError, NetworkError, DatabaseError, InternalError, and UnknownError."
+          "text": "The standard kinds stay intentionally small: `InvalidArgument`, `NotFound`, `AlreadyExists`, `PermissionDenied`, `Unauthenticated`, `Unavailable`, `Timeout`, `Cancelled`, `Conflict`, `ResourceExhausted`, `OutOfMemory`, `OutOfRange`, `Unsupported`, `NotImplemented`, `ParseError`, `TypeError`, `EncodingError`, `IOError`, `NetworkError`, `DatabaseError`, `InternalError`, and `UnknownError`."
         },
         {
           "title": "Metadata",
-          "text": "Public metadata covers operation, resource, retryability, severity, user_message, correlation_id, component, remediation, source, location, timestamp, and any extra public key/value pairs. Debug metadata is kept separate so sensitive details do not leak into ordinary output."
+          "text": "Public metadata covers `operation`, `resource`, `retryability`, `severity`, `user_message`, `correlation_id`, `component`, `remediation`, `source`, `location`, `timestamp`, and any extra public key/value pairs. Debug metadata is kept separate so sensitive details do not leak into ordinary output."
         },
         {
           "title": "Debug data",
@@ -139,15 +139,15 @@
         },
         {
           "title": "Helpers",
-          "text": "Use error, wrap, cause, unwrap, withmeta, withdebug, errmeta, and redact to create, inspect, and sanitize error records. `matches` and `is` are the standard kind checks, while `try/catch` handles recoverable failures explicitly."
+          "text": "Use `error`, `wrap`, `cause`, `unwrap`, `withmeta`, `withdebug`, `errmeta`, and `redact` to create, inspect, and sanitize error records. `matches` and `is` are the standard kind checks, while `try`/`catch` handles recoverable failures explicitly."
         },
         {
           "title": "Result and option",
-          "text": "Result values use ok and err constructors. Option values use some and none. unwrap extracts payloads, expect attaches a user-facing failure, or_else supplies a fallback value, and the postfix ? operator propagates a recoverable failure to the current function boundary."
+          "text": "`Result` values use `ok` and `err` constructors. `Option` values use `some` and `none`. `unwrap` extracts payloads, `expect` attaches a user-facing failure, `or_else` supplies a fallback value, `map`/`map_error`/`flat_map` transform fallible computations lazily, and the postfix `?` operator propagates a recoverable failure to the current function boundary."
         },
         {
           "title": "Fatal errors",
-          "text": "panic, trap, and assert raise fatal structured errors. They are treated as unrecoverable, bypass ordinary catch handling, and are intended for impossible states rather than expected branching."
+          "text": "`panic`, `trap`, and `assert` raise fatal structured errors. They are treated as unrecoverable, bypass ordinary `catch` handling, and are intended for impossible states rather than expected branching."
         },
         {
           "title": "Boundaries",
@@ -159,32 +159,42 @@
       "id": "concurrency",
       "eyebrow": "Chapter",
       "title": "Tasks, cancellation, and streams",
-      "summary": "Explicit structured concurrency and host-backed streaming I/O with deterministic observable ordering.",
+      "summary": "Explicit structured concurrency and host-backed streaming I/O with defined result and output-ordering contracts.",
       "paragraphs": [
-        "Task behavior is explicit. spawn starts a task from one expression, await waits for its result, cancel requests cooperative cancellation, parallel evaluates a fixed group, and timeout evaluates one expression under an integer-millisecond deadline.",
-        "Ordinary run uses goroutines for task and parallel work. The runtime's task-debug mode executes scheduler work deterministically for inspection and tests; programs must not depend on wall-clock completion order in either mode.",
-        "Stream handles are explicit blocking file operations. openread/openwrite create handles; readline/readchunk and writechunk perform the visible I/O; flush and close complete it. Use the *_async wrappers only when a task value is required."
+        "Task behavior is explicit. `spawn` starts a task from one expression, `await` waits for its result, `cancel` requests cooperative cancellation, `parallel` evaluates a fixed ordered group, `race`/`select` choose the first completed branch, and `timeout` evaluates one expression under an integer-millisecond deadline.",
+        "Ordinary `run` uses goroutines for task and `parallel` work. The runtime's task-debug mode executes scheduler work deterministically for inspection and tests; programs must not depend on wall-clock completion order in either mode.",
+        "Stream handles are explicit blocking file operations. `openread`/`openwrite` create handles; `readline`/`readchunk` and `writechunk` perform the visible I/O; `flush` and `close` complete it. Use the `*_async` wrappers only when a task value is required."
       ],
       "cards": [
         {
           "title": "spawn and await",
-          "text": "let task = spawn({ let value = 5; value + 7 })\nemit await(task)\n# 12u64\nspawn returns a task immediately. await is the suspension point and either returns the task value or propagates the task error/cancellation."
+          "code": "let task = spawn({ let value = 5; value + 7 })\nemit await(task)\n# 12u64",
+          "text": "`spawn` returns a task immediately. `await` is the suspension point and either returns the task value or propagates the task error/cancellation."
         },
         {
           "title": "cancel",
-          "text": "let task = spawn({ while true { let tick = 1 }; 0 })\nemit cancel(task)\nemit await(task)\n# cancel returns true only when cancellation was newly requested; await then reports cancellation. Cancellation is cooperative and is observed at runtime safe points such as loop evaluation and task waits."
+          "code": "let task = spawn({ while true { let tick = 1 }; 0 })\nemit cancel(task)\nemit await(task)",
+          "text": "`cancel` returns `true` only when cancellation was newly requested; `await` then reports cancellation. Cancellation is cooperative and is observed at runtime safe points such as loop evaluation and task waits."
         },
         {
           "title": "parallel and deterministic output",
-          "text": "let values = parallel(1 + 1, 3 + 4, 5 + 6)\nemit values\n# [2u64, 7u64, 11u64]\nBranches may compute concurrently, but result positions and branch emit output are committed in argument order. A branch error cancels sibling work and propagates the failure."
+          "code": "let values = parallel(1 + 1, 3 + 4, 5 + 6)\nemit values\n# [2u64, 7u64, 11u64]",
+          "text": "Branches may compute concurrently, but result positions and branch `emit` output are committed in argument order. A branch error cancels sibling work and propagates the failure."
+        },
+        {
+          "title": "race and select",
+          "code": "let winner = race(first(), second())\nlet indexed = select(first(), second())",
+          "text": "`race` returns the first completed branch value. `select` returns `[source_index, value]`, where the index is `u64`. Only the winner's buffered output is committed and sibling work is cancelled cooperatively; deterministic task-debug mode chooses the first source branch."
         },
         {
           "title": "timeout",
-          "text": "emit timeout(50, { read(path) })\n# Returns the body result if it finishes before 50ms; otherwise fails with timeout after 50ms.\nThe duration is a non-negative integer number of milliseconds. timeout does not turn a blocking host call into nonblocking I/O; cancellation is cooperative."
+          "code": "emit timeout(50, { read(path) })",
+          "text": "The duration is a non-negative integer number of milliseconds. `timeout` returns the body result if it finishes before the deadline, otherwise it fails with `timeout`. It does not turn a blocking host call into nonblocking I/O; cancellation is cooperative."
         },
         {
           "title": "task-aware I/O",
-          "text": "let write = write_async(path, \"alpha\\nbeta\")\nemit await(write)\nlet contents = read_async(path)\nemit await(contents)\n# Async wrappers return tasks; their I/O work begins in the spawned task and errors propagate through await. Use openread/readline/readchunk for explicit incremental streaming."
+          "code": "let write = write_async(path, \"alpha\\nbeta\")\nemit await(write)\nlet contents = read_async(path)\nemit await(contents)",
+          "text": "Async wrappers return tasks; their I/O work begins in the spawned task and errors propagate through `await`. Use `openread`/`readline`/`readchunk` for explicit incremental streaming."
         },
         {
           "title": "deterministic mode",
@@ -198,15 +208,15 @@
       "title": "Native interop and build flow",
       "summary": "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; FFI remains future work.",
       "paragraphs": [
-        "The native build path lowers a tested AST/IR subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback.",
+        "The native build path lowers a tested `AST`/`IR` subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback.",
         "C is the first backend because it is inspectable, portable, and lets mature toolchains handle instruction selection, register allocation, linking, and target-specific optimization. The backend support matrix names the supported subset and its evidence; native parity and measured performance are required before claims of C-level speed.",
-        "C libraries are the proposed first native interop target because their ABI model can support explicit wrappers and build-time linking. No public FFI exists yet.",
-        "Go-backed std modules already use a host-wrapper pattern: Osiris imports a named module supplied by the Go runtime, not arbitrary Go source at runtime."
+        "C libraries are the proposed first native interop target because their `ABI` model can support explicit wrappers and build-time linking. No public `FFI` exists yet.",
+        "Go-backed `std` modules already use a host-wrapper pattern: Osiris imports a named module supplied by the Go runtime, not arbitrary Go source at runtime."
       ],
       "cards": [
         {
           "title": "C libraries",
-          "text": "Use explicit wrappers and build-time linking for native libraries such as libm, libc-style helpers, codecs, databases, or math backends."
+          "text": "Use explicit wrappers and build-time linking for native libraries such as `libm`, `libc`-style helpers, codecs, databases, or math backends."
         },
         {
           "title": "Go host modules",
@@ -218,7 +228,7 @@
   "types": [
     {
       "name": "number",
-      "summary": "Default numeric literal type."
+      "summary": "Default floating numeric type; unsuffixed integer literals use `u64`."
     },
     {
       "name": "bool",
@@ -230,19 +240,19 @@
     },
     {
       "name": "decimal",
-      "summary": "Exact decimal-backed numeric type."
+      "summary": "Exact `decimal`-backed numeric type."
     },
     {
       "name": "rational",
-      "summary": "Exact rational numeric form."
+      "summary": "Exact `rational` numeric form."
     },
     {
       "name": "rat",
-      "summary": "Alias-shaped exact rational numeric form."
+      "summary": "Alias-shaped exact `rational` numeric form."
     },
     {
       "name": "complex",
-      "summary": "Complex numeric type with real and imaginary parts; explicit f32 and f64 component families are retained."
+      "summary": "Complex numeric type with real and imaginary parts; explicit `f32` and `f64` component families are retained."
     },
     {
       "name": "bigint",
@@ -258,7 +268,7 @@
     },
     {
       "name": "interval",
-      "summary": "Exact interval with lower and upper bounds."
+      "summary": "Exact `interval` with lower and upper bounds."
     },
     {
       "name": "fixed",
@@ -351,19 +361,19 @@
     },
     {
       "name": "tensor",
-      "summary": "Dense, shape-aware tensor value."
+      "summary": "Dense, shape-aware `tensor` value."
     },
     {
       "name": "matrix",
-      "summary": "Dense matrix value with shape metadata."
+      "summary": "Dense `matrix` value with shape metadata."
     },
     {
       "name": "vector",
-      "summary": "One-dimensional tensor alias."
+      "summary": "One-dimensional `tensor` alias."
     },
     {
       "name": "simd",
-      "summary": "Packed vector type for vectorized lowering."
+      "summary": "Packed `vector` type for vectorized lowering."
     },
     {
       "name": "quat",
@@ -371,7 +381,7 @@
     },
     {
       "name": "dual",
-      "summary": "First-order dual number for scalar automatic differentiation; native lowering is not yet available."
+      "summary": "First-order `dual` number for scalar automatic differentiation; native lowering is not yet available."
     },
     {
       "name": "sparse_matrix",
@@ -424,8 +434,8 @@
           "summary": "Load a file module or a std module and bind it to an alias.",
           "details": [
             "Imports are always aliased.",
-            "Version selectors are supported for both local and std modules.",
-            "Std modules are backed by the host runtime, while file modules are parsed and executed as Osiris source."
+            "Version selectors are supported for both local and `std` modules.",
+            "`std` modules are backed by the host runtime, while file modules are parsed and executed as Osiris source."
           ],
           "example": "import \"std/text@1\" as text"
         },
@@ -445,7 +455,7 @@
           "kind": "construct",
           "name": "func",
           "syntax": "func name(params) { ... }",
-          "returns": "function value",
+          "returns": "`function` value",
           "summary": "Define a user function with lexical capture and recursion support.",
           "details": [
             "Functions can be declared in block or expression form depending on the surrounding syntax.",
@@ -458,7 +468,7 @@
           "name": "macro",
           "syntax": "macro name(args) => expression",
           "returns": "expanded syntax",
-          "summary": "Define a compile-time macro.",
+          "summary": "Define a compile-time `macro`.",
           "details": [
             "Macros expand before normal execution and are guarded by an expansion budget.",
             "This keeps accidental infinite expansion from hanging the compiler and tooling."
@@ -472,7 +482,7 @@
           "returns": "emitted output",
           "summary": "Append a value to the program output stream.",
           "details": [
-            "Emit is the visible output primitive used by scripts and tests.",
+            "`emit` is the visible output primitive used by scripts and tests.",
             "It is designed to keep data flow obvious rather than hidden behind implicit printing."
           ],
           "example": "emit text.upper(\"osiris\")"
@@ -485,7 +495,7 @@
           "summary": "Select a branch based on a truthy or falsey condition.",
           "details": [
             "Conditional expressions are part of the core language, not a library trick.",
-            "The false branch is optional."
+            "The `false` branch is optional."
           ],
           "example": "if x > 0 { emit x } else { emit 0 }"
         },
@@ -494,10 +504,10 @@
           "name": "while",
           "syntax": "while condition { ... }",
           "returns": "loop result",
-          "summary": "Repeat a block while a condition remains true.",
+          "summary": "Repeat a block `while` a condition remains `true`.",
           "details": [
             "The loop body can carry state forward explicitly through bindings.",
-            "Use while when the stop condition is naturally predicate-based."
+            "Use `while` when the stop condition is naturally predicate-based."
           ],
           "example": "while i < n { let i = i + 1 }"
         },
@@ -519,7 +529,7 @@
           "returns": "function result",
           "summary": "Exit a function early and yield a result.",
           "details": [
-            "Return is only meaningful inside function bodies.",
+            "`return` is only meaningful inside function bodies.",
             "It keeps recursive and branching code readable."
           ],
           "example": "return total"
@@ -531,7 +541,7 @@
           "returns": "loop exit",
           "summary": "Exit the nearest loop.",
           "details": [
-            "Break is used for early loop termination when the stopping condition is data-dependent."
+            "`break` is used for early loop termination when the stopping condition is data-dependent."
           ],
           "example": "break"
         },
@@ -542,7 +552,7 @@
           "returns": "loop control",
           "summary": "Skip to the next loop iteration.",
           "details": [
-            "Continue is useful when the loop body contains filtering or guard logic."
+            "`continue` is useful when the loop body contains filtering or guard logic."
           ],
           "example": "continue"
         },
@@ -553,7 +563,7 @@
           "returns": "handled value or fallback",
           "summary": "Catch runtime failures explicitly.",
           "details": [
-            "The catch binding receives the error value.",
+            "The `catch` binding receives the error value.",
             "This keeps failures visible and local to the source that handles them."
           ],
           "example": "emit try { uint(\"not-a-number\") } catch err { err }"
@@ -566,7 +576,7 @@
           "summary": "Evaluate a value once and select an expression by pattern.",
           "details": [
             "Patterns may be literals, wildcards, bindings, fixed-length lists, or qualified enum cases. An arm expression runs only after its pattern matches.",
-            "Use _ or default for a catch-all arm. Enum matches without a catch-all are checked for missing cases before execution."
+            "Use `_` or `default` for a catch-all arm. `enum` matches without a catch-all are checked for missing cases before execution."
           ],
           "errors": "A dynamic unmatched value reports an error. Invalid, duplicate, unreachable, or non-exhaustive enum arms are source-located diagnostics.",
           "example": "emit match [1, 2] { [left, right] => left + right, _ => 0 }\n# 3u64"
@@ -576,10 +586,10 @@
           "name": "switch",
           "syntax": "switch value { pattern => expression, ... }",
           "returns": "The value of the first matching arm.",
-          "summary": "Use match semantics with switch-oriented spelling for a multi-branch expression.",
+          "summary": "Use `match` semantics with `switch`-oriented spelling for a multi-branch expression.",
           "details": [
-            "switch evaluates its subject once and accepts the same patterns, guards, wildcard, and enum-exhaustiveness rules as match.",
-            "Choose switch when its branch-table presentation makes the surrounding code easier to scan; it does not change matching or return semantics."
+            "`switch` evaluates its subject once and accepts the same patterns, guards, wildcard, and enum-exhaustiveness rules as `match`.",
+            "Choose `switch` when its branch-table presentation makes the surrounding code easier to scan; it does not change matching or return semantics."
           ],
           "errors": "A dynamic unmatched value reports an error. Invalid, duplicate, unreachable, or non-exhaustive enum arms are source-located diagnostics.",
           "example": "emit switch 0 { 0 => \"zero\", _ => \"other\" }\n# \"zero\""
@@ -589,107 +599,137 @@
     {
       "id": "text",
       "title": "std/text",
-      "summary": "String transforms, normalization, and lightweight text shaping.",
+      "summary": "Unicode-aware string comparison, search, cutting, splitting, trimming, replacement, and text shaping.",
       "items": [
         {
           "name": "trim",
-          "syntax": "trim(text)",
-          "returns": "text",
-          "summary": "Remove surrounding whitespace from a string.",
+          "syntax": "text.trim(value)",
+          "parameters": "`value` is one UTF-8 `string`.",
+          "returns": "`string`",
+          "summary": "Remove leading and trailing Unicode whitespace from a string.",
           "details": [
-            "Useful before comparisons, tokenization, or slug generation."
+            "`trim` is the original spelling of `trim_space`; both recognize Unicode whitespace rather than only ASCII spaces.",
+            "An empty string and a string containing only whitespace both produce an empty string."
           ],
-          "example": "emit text.trim(\"  osiris  \")"
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.trim(\"  osiris\\u2003\") # \"osiris\""
         },
         {
           "name": "upper",
-          "syntax": "upper(text)",
-          "returns": "text",
-          "summary": "Convert a string to uppercase.",
+          "syntax": "text.upper(value)",
+          "parameters": "`value` is one UTF-8 `string`.",
+          "returns": "`string`",
+          "summary": "Convert Unicode letters in a string to uppercase.",
           "details": [
-            "Good for normalization and presentation output."
+            "Conversion uses Unicode case mappings and is locale-independent.",
+            "Non-letter code points and the empty string are preserved."
           ],
-          "example": "emit text.upper(\"sigil\")"
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.upper(\"Straße\") # \"STRAßE\""
         },
         {
           "name": "lower",
-          "syntax": "lower(text)",
-          "returns": "text",
-          "summary": "Convert a string to lowercase.",
+          "syntax": "text.lower(value)",
+          "parameters": "`value` is one UTF-8 `string`.",
+          "returns": "`string`",
+          "summary": "Convert Unicode letters in a string to lowercase.",
           "details": [
-            "Good for canonicalization and case folding."
+            "Conversion uses Unicode case mappings and is locale-independent.",
+            "Use `equal_fold` for case-insensitive equality; lowercasing is not a general normalization or collation operation."
           ],
-          "example": "emit text.lower(\"SIGIL\")"
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.lower(\"ΟΣΙΡΙΣ\") # \"οσιρισ\""
         },
         {
           "name": "replace",
-          "syntax": "replace(text, old, new)",
-          "returns": "text",
+          "syntax": "text.replace(value, old, replacement)",
+          "parameters": "`value`, `old`, and `replacement` are UTF-8 strings.",
+          "returns": "`string`",
           "summary": "Replace all occurrences of one substring with another.",
           "details": [
-            "Use it for simple normalization and templated rewriting."
+            "Matches are non-overlapping and replacement proceeds from left to right.",
+            "An empty `old` value matches before the first code point and after each code point, including in an empty input."
           ],
-          "example": "emit text.replace(\"a-b-c\", \"-\", \":\")"
+          "errors": "Wrong arity, a non-string argument, or a result too large for the host allocation limit produces a structured error.",
+          "example": "emit text.replace(\"a-b-c\", \"-\", \":\") # \"a:b:c\""
         },
         {
           "name": "repeat",
-          "syntax": "repeat(text, count)",
-          "returns": "text",
-          "summary": "Repeat a string a fixed number of times.",
+          "syntax": "text.repeat(value, count)",
+          "parameters": "`value` is a UTF-8 string; `count` is an exact integer-compatible value that fits the host allocation index width and is at least zero.",
+          "returns": "`string`",
+          "summary": "Repeat a `string` a fixed number of times.",
           "details": [
-            "Useful for separators, banners, and test fixtures."
+            "A zero count or an empty input returns an empty string.",
+            "The result remains immutable UTF-8 text."
           ],
-          "example": "emit text.repeat(\"=\", 24)"
+          "errors": "Wrong arity, invalid kinds, a negative count, or a result too large for the host allocation limit produces a structured error.",
+          "example": "emit text.repeat(\"世\", 3) # \"世世世\""
         },
         {
           "name": "split",
-          "syntax": "split(text, sep)",
-          "returns": "list",
+          "syntax": "text.split(value, separator)",
+          "parameters": "`value` and `separator` are UTF-8 strings.",
+          "returns": "`list<string>`",
           "summary": "Split text into parts around a delimiter.",
           "details": [
-            "Splitting preserves the text/data boundary and returns Osiris values."
+            "Every non-overlapping separator is removed and the surrounding substrings are returned; adjacent or trailing separators therefore produce empty elements.",
+            "An empty separator splits after each Unicode code point. Splitting an empty string on an empty separator returns an empty list."
           ],
-          "example": "emit text.split(\"a,b,c\", \",\")"
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.split(\"a,,世,\", \",\") # [\"a\", \"\", \"世\", \"\"]"
         },
         {
           "name": "join",
-          "syntax": "join(parts, sep)",
-          "returns": "text",
-          "summary": "Join a list of strings with a separator.",
+          "syntax": "text.join(separator, parts)",
+          "parameters": "`separator` is a UTF-8 string and `parts` is a list. Each list value is rendered with the ordinary text conversion.",
+          "returns": "`string`",
+          "summary": "Join a list of rendered values with a separator.",
           "details": [
-            "This is the inverse of split for common text pipelines."
+            "The separator appears only between elements; an empty or one-element list adds no separator.",
+            "For a non-empty separator, `join(separator, split(value, separator))` reconstructs `value`."
           ],
-          "example": "emit text.join(\",\", [\"a\", \"b\"])"
+          "errors": "Wrong arity, a non-string separator, or a non-list second argument produces a structured error.",
+          "example": "emit text.join(\"·\", [\"a\", \"世\"]) # \"a·世\""
         },
         {
           "name": "chunks",
-          "syntax": "chunks(text, size)",
-          "returns": "list",
+          "syntax": "text.chunks(value, size)",
+          "parameters": "`value` is a UTF-8 string; `size` is a positive exact integer-compatible code-point count that fits the host allocation index width.",
+          "returns": "`list<string>`",
           "summary": "Break text into fixed-width pieces.",
           "details": [
-            "Useful for wrapping, formatting, and byte-oriented inspection."
+            "Chunk widths count Unicode code points, never UTF-8 bytes. The final chunk may be shorter.",
+            "An empty input returns an empty list."
           ],
-          "example": "emit text.chunks(\"abcdef\", 2)"
+          "errors": "Wrong arity, invalid kinds, a non-positive size, or an out-of-range size produces a structured error.",
+          "example": "emit text.chunks(\"a世界b\", 2) # [\"a世\", \"界b\"]"
         },
         {
           "name": "slug",
-          "syntax": "slug(text)",
-          "returns": "text",
+          "syntax": "text.slug(value)",
+          "parameters": "`value` is one UTF-8 `string`.",
+          "returns": "`string`",
           "summary": "Turn text into a predictable slug form.",
           "details": [
-            "Useful for filenames, stable identifiers, and presentation-safe keys."
+            "Unicode letters and digits are lowercased and preserved. Each run of other code points becomes one ASCII hyphen, with leading and trailing hyphens removed.",
+            "An input without letters or digits produces an empty string."
           ],
-          "example": "emit text.slug(\"Hello, World\")"
+          "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
+          "example": "emit text.slug(\"Hello, 世界!\") # \"hello-世界\""
         },
         {
           "name": "cat",
-          "syntax": "cat(parts...)",
-          "returns": "text",
+          "syntax": "text.cat(values…)",
+          "parameters": "Zero or more values of any runtime kind accepted by ordinary text rendering.",
+          "returns": "`string`",
           "summary": "Concatenate values as text.",
           "details": [
-            "This is the flexible text joiner used heavily in reference examples."
+            "Values are rendered in source order without a separator.",
+            "With no values, `cat()` returns an empty string."
           ],
-          "example": "emit text.cat(\"osiris\", \"::\", \"demo\")"
+          "errors": "The function itself accepts every arity; an unrenderable future runtime kind would produce a structured error.",
+          "example": "emit text.cat(\"osiris\", \"::\", 3) # \"osiris::3\""
         }
       ]
     },
@@ -705,7 +745,7 @@
           "returns": "signed integer",
           "summary": "Construct an explicit signed fixed-width integer.",
           "details": [
-            "This family includes i8, i16, i32, i64, i128, i256, i512, i1024.",
+            "This family includes `i8`, `i16`, `i32`, `i64`, `i128`, `i256`, `i512`, `i1024`.",
             "Osiris keeps the width explicit so the compiler, encoder, and runtime can preserve it through analysis and native lowering."
           ],
           "members": [
@@ -727,7 +767,7 @@
           "returns": "unsigned integer",
           "summary": "Construct an explicit unsigned fixed-width integer.",
           "details": [
-            "This family includes u8, u16, u32, u64, u128, u256, u512, u1024; uint is the u64 constructor and byte is the u8 constructor.",
+            "This family includes `u8`, `u16`, `u32`, `u64`, `u128`, `u256`, `u512`, `u1024`; `uint` is the `u64` constructor and `byte` is the `u8` constructor.",
             "Osiris keeps the width explicit so the compiler, encoder, and runtime can preserve it through analysis and native lowering."
           ],
           "members": [
@@ -751,7 +791,7 @@
           "returns": "packed unsigned",
           "summary": "Construct a packed unsigned numeric form for dense layouts.",
           "details": [
-            "This family includes uf8, uf16, uf32, ufnum, uf64, uf128, uf256, uf512, uf1024.",
+            "This family includes `uf8`, `uf16`, `uf32`, `ufnum`, `uf64`, `uf128`, `uf256`, `uf512`, `uf1024`.",
             "Osiris keeps the width explicit so the compiler, encoder, and runtime can preserve it through analysis and native lowering."
           ],
           "members": [
@@ -774,7 +814,7 @@
           "returns": "bfloat-style float",
           "summary": "Construct a low-precision or bfloat-style floating-point value.",
           "details": [
-            "This family includes bf8, bf16, bf32, bf64, bf128, bf256, bf512, bf1024.",
+            "This family includes `bf8`, `bf16`, `bf32`, `bf64`, `bf128`, `bf256`, `bf512`, `bf1024`.",
             "Osiris keeps the width explicit so the compiler, encoder, and runtime can preserve it through analysis and native lowering."
           ],
           "members": [
@@ -792,54 +832,54 @@
         {
           "name": "f32",
           "syntax": "f32(value)",
-          "returns": "float",
+          "returns": "`float`",
           "summary": "Construct a 32-bit explicit float.",
           "details": [
-            "f32 accepts exactly one numeric value and returns that value rounded to the language's explicit 32-bit floating representation. Non-numeric input is an error.",
-            "number remains the default literal type, but explicit float widths are useful when precision choice matters. Use f32 when you want hardware-friendly single-precision semantics and visible f32 output/inference.",
-            "Native C lowers a proven scalar floating input directly with one C float conversion. Integer, decimal, complex, tensor, and other value families retain their representation-aware native paths."
+            "`f32` accepts exactly one numeric value and returns that value rounded to the language's explicit 32-bit floating representation. Non-numeric input is an error.",
+            "`number` remains the default literal type, but explicit float widths are useful when precision choice matters. Use `f32` when you want hardware-friendly single-precision semantics and visible `f32` output/inference.",
+            "Native C lowers a proven scalar floating input directly with one C `float` conversion. Integer, `decimal`, `complex`, `tensor`, and other value families retain their representation-aware native paths."
           ],
           "example": "emit f32(3.5)"
         },
         {
           "name": "f64",
           "syntax": "f64(value)",
-          "returns": "float",
+          "returns": "`float`",
           "summary": "Construct a 64-bit explicit float.",
           "details": [
-            "f64 accepts exactly one numeric value and returns that value in the language's explicit 64-bit floating representation. Non-numeric input is an error.",
-            "number remains the default literal type, but explicit float widths are useful when precision choice matters. Use f64 when you want the familiar double-precision path and visible f64 output/inference.",
-            "Native C lowers a proven scalar floating input directly with one C double conversion. Integer, decimal, complex, tensor, and other value families retain their representation-aware native paths."
+            "`f64` accepts exactly one numeric value and returns that value in the language's explicit 64-bit floating representation. Non-numeric input is an error.",
+            "`number` remains the default literal type, but explicit float widths are useful when precision choice matters. Use `f64` when you want the familiar double-precision path and visible `f64` output/inference.",
+            "Native C lowers a proven scalar floating input directly with one C `double` conversion. Integer, `decimal`, `complex`, `tensor`, and other value families retain their representation-aware native paths."
           ],
           "example": "emit f64(3.5)"
         },
         {
           "name": "decimal",
           "syntax": "decimal(value)",
-          "returns": "exact decimal",
-          "summary": "Construct an exact decimal value.",
+          "returns": "`decimal`",
+          "summary": "Construct an exact `decimal` value.",
           "details": [
-            "Use this for decimal math that should stay exact instead of collapsing into approximate float math."
+            "Use this for `decimal` math that should stay exact instead of collapsing into approximate float math."
           ],
           "example": "emit decimal(1) / 3"
         },
         {
           "name": "rat",
           "syntax": "rat(value)",
-          "returns": "exact rational",
-          "summary": "Construct an exact rational value.",
+          "returns": "`rational`",
+          "summary": "Construct an exact `rational` value.",
           "details": [
-            "Use this as the alias-shaped rational constructor when fraction form matters."
+            "Use this as the alias-shaped `rational` constructor when fraction form matters."
           ],
           "example": "emit rat(0.28) * 25"
         },
         {
           "name": "rational",
           "syntax": "rational(value)",
-          "returns": "exact rational",
-          "summary": "Construct an exact rational value.",
+          "returns": "`rational`",
+          "summary": "Construct an exact `rational` value.",
           "details": [
-            "This is the explicit rational constructor for fraction-preserving math.",
+            "This is the explicit `rational` constructor for fraction-preserving math.",
             "It keeps arithmetic exact where possible instead of collapsing into approximate float math."
           ],
           "example": "emit rational(0.28) * 25"
@@ -860,15 +900,15 @@
           "returns": "arbitrary-precision float",
           "summary": "Construct a high-precision floating-point value.",
           "details": [
-            "Useful when float64 is not enough and exact or controlled precision matters."
+            "Useful when `float64` is not enough and exact or controlled precision matters."
           ],
           "example": "emit bigfloat(\"1.0000000000000000001\")"
         },
         {
           "name": "interval",
           "syntax": "interval(lower, upper)",
-          "returns": "interval",
-          "summary": "Construct an interval with exact lower and upper bounds.",
+          "returns": "`interval`",
+          "summary": "Construct an `interval` with exact lower and upper bounds.",
           "details": [
             "Useful for bounded numeric reasoning and conservative error tracking."
           ],
@@ -878,7 +918,7 @@
           "name": "fixed",
           "syntax": "fixed(width, frac, value)",
           "returns": "fixed-point value",
-          "summary": "Construct a signed fixed-point number.",
+          "summary": "Construct a signed `fixed`-point number.",
           "details": [
             "Good for DSP, finance, and deterministic numeric pipelines."
           ],
@@ -897,67 +937,67 @@
         {
           "name": "complex",
           "syntax": "complex(value)  complex(real, imag)  1.25f32i  1.25f64i",
-          "returns": "complex, complex<f32>, or complex<f64>",
-          "summary": "Construct a complex value from one complex-compatible value or separate real and imaginary components.",
+          "returns": "`complex`, `complex<f32>`, or `complex<f64>`",
+          "summary": "Construct a `complex` value from one `complex`-compatible value or separate real and imaginary components.",
           "details": [
-            "A pair of f32 components produces complex<f32>; f64 components produce complex<f64>. A default numeric component mixed with f32 widens to complex<f64>, so precision is never silently narrowed.",
-            "The i suffix creates an imaginary literal and preserves an f32 or f64 suffix: 1.25f32i and 1.25f64i. Width survives VM execution, inference, text rendering, and codec round trips.",
-            "The native C ABI currently lowers the default/f64 complex family. A complex<f32> literal is rejected at compile time until its dedicated native ABI is implemented; it is never widened silently."
+            "A pair of `f32` components produces `complex<f32>`; `f64` components produce `complex<f64>`. A default numeric component mixed with `f32` widens to `complex<f64>`, so precision is never silently narrowed.",
+            "The `i` suffix creates an imaginary literal and preserves an `f32` or `f64` suffix: `1.25f32i` and `1.25f64i`. Width survives VM execution, inference, text rendering, and codec round trips.",
+            "The native C `ABI` currently lowers the default/`f64` `complex` family. A `complex<f32>` literal is rejected at compile time until its dedicated native `ABI` is implemented; it is never widened silently."
           ],
           "example": "let narrow = complex(f32(1.25), f32(2.5))\nlet wide = narrow + complex(f64(0.5), f64(0))\nemit narrow\nemit wide\n# 1.25f32+2.5f32i, 1.75f64+2.5f64i"
         },
         {
           "name": "dual",
           "syntax": "dual(primal, tangent)",
-          "returns": "dual",
-          "summary": "Construct a scalar first-order dual number for automatic differentiation.",
+          "returns": "`dual`",
+          "summary": "Construct a scalar first-order `dual` number for automatic differentiation.",
           "details": [
-            "primal is the ordinary value and tangent is its derivative with respect to the chosen seed. Ordinary numeric operands are promoted to dual(value, 0) at an arithmetic boundary.",
-            "The initial scalar contract supports unary negation, +, -, *, /, equality, primal, and tangent. Tensor lifting and transcendental derivative rules are intentionally not implemented yet.",
-            "run and vm preserve the dual value; encode/decode preserves both IEEE-754 components. Native C compilation rejects dual calls until a dedicated tagged ABI exists."
+            "`primal` is the ordinary value and `tangent` is its derivative with respect to the chosen seed. Ordinary numeric operands are promoted to `dual(value, 0)` at an arithmetic boundary.",
+            "The initial scalar contract supports unary negation, `+`, `-`, `*`, `/`, equality, `primal`, and `tangent`. Tensor lifting and transcendental derivative rules are intentionally not implemented yet.",
+            "`run` and `vm` preserve the `dual` value; `encode`/`decode` preserves both IEEE-754 components. Native C compilation rejects `dual` calls until a dedicated tagged `ABI` exists."
           ],
           "example": "let x = dual(3, 1)\nlet y = dual(2, 0.5)\nemit x * y\nemit tangent(x * y)\n# dual(6, 3.5), 3.5"
         },
         {
           "name": "primal",
           "syntax": "primal(value)",
-          "returns": "number or original non-dual value",
-          "summary": "Project the ordinary value from a dual number.",
+          "returns": "`number` or original non-`dual` value",
+          "summary": "Project the ordinary value from a `dual` number.",
           "details": [
-            "For dual(primal, tangent), primal returns the first component. A non-dual input is returned unchanged, so generic code can inspect an AD result without a separate branch."
+            "For `dual(primal, tangent)`, `primal` returns the first component. A non-`dual` input is returned unchanged, so generic code can inspect an AD result without a separate branch."
           ],
           "example": "emit primal(dual(6, 3.5))\n# 6"
         },
         {
           "name": "tangent",
           "syntax": "tangent(value)",
-          "returns": "number",
-          "summary": "Project the first-order derivative from a dual number.",
+          "returns": "`number`",
+          "summary": "Project the first-order derivative from a `dual` number.",
           "details": [
-            "For dual(primal, tangent), tangent returns the derivative seed. A real numeric input has zero tangent. Non-numeric values are rejected."
+            "For `dual(primal, tangent)`, `tangent` returns the derivative seed. A real numeric input has zero tangent. Non-numeric values are rejected."
           ],
           "example": "emit tangent(dual(6, 3.5))\n# 3.5"
         },
         {
           "name": "real",
           "syntax": "real(z)",
-          "returns": "number, f32, or f64",
-          "summary": "Read the real component of a complex-compatible value.",
+          "returns": "`number`, `f32`, or `f64`",
+          "summary": "Read the `real` component of a `complex`-compatible value.",
           "details": [
-            "For complex<f32> and complex<f64>, real preserves the same component width and returns f32 or f64. A default complex returns the default number family.",
-            "A real scalar is accepted only when it is complex-compatible; a complex with a nonzero imaginary part cannot be coerced by an ordinary numeric cast.",
-            "For a real floating scalar, real returns that scalar unchanged. Native C lowers this scalar f32/f64/default-float case directly; complex, tensor, integer, and other value families retain their respective native contracts."
+            "For `complex<f32>` and `complex<f64>`, `real` preserves the same component width and returns `f32` or `f64`. A default `complex` returns the default `number` family.",
+            "A real scalar is accepted only when it is `complex`-compatible; a `complex` with a nonzero imaginary part cannot be coerced by an ordinary numeric cast.",
+            "For a real floating scalar, `real` returns that scalar unchanged. Native C lowers this scalar `f32`/`f64`/default-float case directly; `complex`, `tensor`, integer, and other value families retain their respective native contracts."
           ],
           "example": "let z = complex(f32(3), f32(4))\nemit real(z)\n# 3f32"
         },
         {
           "name": "imag",
           "syntax": "imag(z)",
-          "returns": "number, f32, or f64",
-          "summary": "Read the imaginary component of a complex-compatible value.",
+          "returns": "`number`, `f32`, or `f64`",
+          "summary": "Read the imaginary component of a `complex`-compatible value.",
           "details": [
-            "For complex<f32> and complex<f64>, imag preserves the component width. This makes it safe to split a typed complex value and reconstruct it without an implicit widening step.",
-            "For a real-compatible input, imag returns zero in that input's scalar family.",
+            "For `complex<f32>` and `complex<f64>`, `imag` preserves the component width. This makes it safe to split a typed `complex` value and reconstruct it without an implicit widening step.",
+            "For a real-compatible input, `imag` returns zero in that input's scalar family.",
             "Native C lowers real floating scalar inputs directly to a same-width zero. Complex and aggregate projections retain their separate native representation contracts."
           ],
           "example": "let z = complex(f64(3), f64(4))\nemit imag(z)\n# 4f64"
@@ -965,12 +1005,12 @@
         {
           "name": "conjugate",
           "syntax": "conjugate(value)",
-          "returns": "same scalar, complex, or tensor family as value",
-          "summary": "Return the complex conjugate while preserving real values.",
+          "returns": "same scalar, `complex`, or `tensor` family as value",
+          "summary": "Return the `complex` `conjugate` while preserving real values.",
           "details": [
-            "For a complex scalar a + bi, conjugate returns a - bi and preserves the complex component width. Applying conjugate twice returns the original value.",
-            "Real numeric values are returned unchanged. For tensors, conjugate is applied element-wise and the tensor shape is retained.",
-            "Native C lowers a proven real floating or fixed-width integer scalar as an identity assignment. Complex and tensor conjugation use their owned native value paths."
+            "For a `complex` scalar `a + bi`, `conjugate` returns `a - bi` and preserves the `complex` component width. Applying `conjugate` twice returns the original value.",
+            "Real numeric values are returned unchanged. For tensors, `conjugate` is applied element-wise and the `tensor` shape is retained.",
+            "Native C lowers a proven real floating or fixed-width integer scalar as an identity assignment. `complex` and `tensor` conjugation use their owned native value paths."
           ],
           "example": "emit conjugate(complex(3, 4))\n# 3-4i"
         },
@@ -978,11 +1018,11 @@
           "name": "magnitude",
           "syntax": "magnitude(z)",
           "returns": "numeric scalar",
-          "summary": "Read the magnitude of a complex value.",
+          "summary": "Read the `magnitude` of a `complex` value.",
           "details": [
-            "For a complex value a + bi, magnitude is sqrt(a² + b²), returned in the promoted floating component family. It is the radial length of the complex-plane representation.",
-            "For a real floating scalar, magnitude is its absolute value and preserves f32, f64, or default-float style. Unsigned integers are already non-negative, so magnitude returns the same width and value. Signed integers, decimal, quantity, bigint, and complex values follow their own representation-preserving magnitude rules.",
-            "Native C lowers a proven real floating scalar through width-aware absolute value, a proven unsigned scalar as an identity, and proven i8/i16/i32 values with width-aware bit arithmetic. Complex, i64, and other value families use their separate native contracts."
+            "For a `complex` value `a + bi`, `magnitude` is `sqrt(a² + b²)`, returned in the promoted floating component family. It is the radial length of the complex-plane representation.",
+            "For a real floating scalar, `magnitude` is its absolute value and preserves `f32`, `f64`, or default-float style. Unsigned integers are already non-negative, so `magnitude` returns the same width and value. Signed integers, `decimal`, `quantity`, `bigint`, and `complex` values follow their own representation-preserving `magnitude` rules.",
+            "Native C lowers a proven real floating scalar through width-aware absolute value, a proven unsigned scalar as an identity, and proven `i8`/`i16`/`i32` values with width-aware bit arithmetic. `complex`, `i64`, and other value families use their separate native contracts."
           ],
           "example": "emit magnitude(complex(3, 4))\n# 5"
         },
@@ -992,9 +1032,9 @@
           "returns": "numeric scalar",
           "summary": "Return the absolute value of a number.",
           "details": [
-            "For floating values, abs returns a same-width non-negative floating result. For unsigned values it returns the input unchanged, preserving its declared width and packed/native style.",
-            "Signed integers, bigint, decimal, quantity, and complex values retain their own representation-aware absolute-value rules; use magnitude when you specifically want complex-plane length.",
-            "Native C lowers proven floating scalars through width-aware absolute value, unsigned scalars as identity assignments, and i8/i16/i32 scalars with width-aware bit arithmetic. I64 remains on its separate native path."
+            "For floating values, `abs` returns a same-width non-negative floating result. For unsigned values it returns the input unchanged, preserving its declared width and packed/native style.",
+            "Signed integers, `bigint`, `decimal`, `quantity`, and `complex` values retain their own representation-aware absolute-value rules; use `magnitude` when you specifically want complex-plane length.",
+            "Native C lowers proven floating scalars through width-aware absolute value, unsigned scalars as identity assignments, and `i8`/`i16`/`i32` scalars with width-aware bit arithmetic. `i64` remains on its separate native path."
           ],
           "example": "emit abs(-3)\nemit abs(255u8)\n# 3\n# 255u8"
         },
@@ -1121,30 +1161,36 @@
         {
           "name": "sin",
           "syntax": "sin(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the sine of an angle.",
+          "parameters": "`x` is a real numeric scalar or complex scalar.",
+          "returns": "floating-point or complex scalar",
+          "summary": "Compute the real or complex sine.",
           "details": [
-            "The runtime exposes the usual transcendental math surface directly."
+            "Real inputs retain their floating width. Complex inputs use the principal analytic sine and retain component width.",
+            "Complex native-C lowering is deliberately rejected until its special-value and branch behavior has executable parity."
           ],
           "example": "emit sin(0.5)"
         },
         {
           "name": "cos",
           "syntax": "cos(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the cosine of an angle.",
+          "parameters": "`x` is a real numeric scalar or complex scalar.",
+          "returns": "floating-point or complex scalar",
+          "summary": "Compute the real or complex cosine.",
           "details": [
-            "Useful for ordinary angle math and projection work."
+            "Real inputs retain their floating width. Complex inputs use the principal analytic cosine and retain component width.",
+            "Complex native-C lowering is deliberately rejected until its special-value behavior has executable parity."
           ],
           "example": "emit cos(0.5)"
         },
         {
           "name": "tan",
           "syntax": "tan(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the tangent of an angle.",
+          "parameters": "`x` is a real numeric scalar or complex scalar.",
+          "returns": "floating-point or complex scalar",
+          "summary": "Compute the real or complex tangent.",
           "details": [
-            "Useful in geometry, control, and signal processing."
+            "Real inputs retain their floating width. Complex inputs use the principal analytic tangent and retain component width.",
+            "Poles and IEEE special values follow the shared complex implementation; complex native-C lowering is unsupported."
           ],
           "example": "emit tan(0.5)"
         },
@@ -1181,30 +1227,36 @@
         {
           "name": "sinh",
           "syntax": "sinh(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the hyperbolic sine.",
+          "parameters": "`x` is a real numeric scalar, complex scalar, or a list/tensor recursively containing supported values.",
+          "returns": "matching scalar, list, or tensor shape",
+          "summary": "Compute the real or complex hyperbolic sine.",
           "details": [
-            "Useful for geometry, transforms, and numerical analysis."
+            "Scalar results retain real floating style or complex component width; lists and tensors are mapped recursively without changing shape.",
+            "Complex native-C lowering is unsupported."
           ],
           "example": "emit sinh(0.5)"
         },
         {
           "name": "cosh",
           "syntax": "cosh(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the hyperbolic cosine.",
+          "parameters": "`x` is a real numeric scalar, complex scalar, or a list/tensor recursively containing supported values.",
+          "returns": "matching scalar, list, or tensor shape",
+          "summary": "Compute the real or complex hyperbolic cosine.",
           "details": [
-            "Useful for geometry, transforms, and numerical analysis."
+            "Scalar results retain real floating style or complex component width; lists and tensors are mapped recursively without changing shape.",
+            "Complex native-C lowering is unsupported."
           ],
           "example": "emit cosh(0.5)"
         },
         {
           "name": "tanh",
           "syntax": "tanh(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the hyperbolic tangent.",
+          "parameters": "`x` is a real numeric scalar, complex scalar, or a list/tensor recursively containing supported values.",
+          "returns": "matching scalar, list, or tensor shape",
+          "summary": "Compute the real or complex hyperbolic tangent.",
           "details": [
-            "Useful for geometry, transforms, and numerical analysis."
+            "Scalar results retain real floating style or complex component width; lists and tensors are mapped recursively without changing shape.",
+            "Complex native-C lowering is unsupported."
           ],
           "example": "emit tanh(0.5)"
         },
@@ -1241,10 +1293,12 @@
         {
           "name": "exp",
           "syntax": "exp(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the natural exponential.",
+          "parameters": "`x` is a real floating-compatible scalar or a complex scalar.",
+          "returns": "floating-point or complex scalar",
+          "summary": "Compute the natural exponential for a real or complex scalar.",
           "details": [
-            "Use this for growth, decay, and continuous transforms."
+            "Real inputs retain the existing floating-width behavior and reject an infinite or NaN result as overflow.",
+            "Complex inputs use the principal complex exponential, retain their component width, and follow deterministic IEEE special-value behavior. Complex native-C lowering is deliberately unsupported."
           ],
           "example": "emit exp(1)"
         },
@@ -1252,7 +1306,7 @@
           "name": "expm1",
           "syntax": "expm1(x)",
           "returns": "numeric scalar",
-          "summary": "Compute exp(x) - 1 with better precision near zero.",
+          "summary": "Compute `exp(x) - 1` with better precision near zero.",
           "details": [
             "This keeps small-value precision intact."
           ],
@@ -1261,38 +1315,43 @@
         {
           "name": "pow",
           "syntax": "pow(x, y)",
-          "returns": "numeric scalar",
+          "parameters": "`x` and `y` are exact integers, real numeric scalars, or complex scalars. A complex call may mix complex and floating operands.",
+          "returns": "exact integer, floating-point, or complex scalar",
           "summary": "Raise a value to a power.",
           "details": [
-            "pow first attempts exact integer exponentiation when both operands can be interpreted as integers and the exponent is non-negative. That branch preserves integer style and may produce a bigint rather than a floating value.",
-            "When exact exponentiation does not apply, pow uses floating power semantics and returns a floating numeric scalar. Fully f32 floating inputs narrow once to f32; f64 or default floating inputs retain their corresponding floating result style.",
+            "`pow` first attempts exact integer exponentiation when both operands can be interpreted as integers and the exponent is non-negative. That branch preserves integer style and may produce a `bigint` rather than a floating value.",
+            "When exact exponentiation does not apply, `pow` uses floating power semantics and returns a floating numeric scalar. Fully `f32` floating inputs narrow once to `f32`; `f64` or default floating inputs retain their corresponding floating result style.",
             "A negative or fractional exponent bypasses the exact branch. Floating exceptional values follow the underlying IEEE numeric result instead of introducing a separate Osiris domain error.",
-            "Native C lowering currently admits only statically known f32 literal operands for which the exact-integer branch is proven inapplicable. Exact, f64, mixed-width, dynamic, and unproven calls are rejected at native compile time so a C pow call cannot silently change the language result kind."
+            "When either operand is complex, `pow` uses principal complex logarithm/exponential semantics, retains the promoted component width, and bypasses exact-integer exponentiation.",
+            "Native C lowering currently admits only statically known `f32` literal operands for which the exact-integer branch is proven inapplicable. Exact, `f64`, mixed-width, dynamic, and unproven calls are rejected at native compile time so a C `pow` call cannot silently change the language result kind."
           ],
           "example": "emit pow(2.0f32, 5.75f32)"
         },
         {
           "name": "expt",
           "syntax": "expt(x, y)",
-          "returns": "numeric scalar",
+          "parameters": "`x` and `y` accept the same exact-integer, real, and complex families as `pow`.",
+          "returns": "exact integer, floating-point, or complex scalar",
           "summary": "Alias-shaped power helper for exact integer style code.",
           "details": [
-            "expt has exactly the same behavior, result type, and errors as pow; it is an alternate spelling for users who prefer exact-math terminology.",
-            "Integer-like operands with a non-negative exponent first use exact exponentiation and preserve integer style, potentially returning a bigint. Other numeric inputs use floating power semantics and return a floating numeric scalar.",
-            "Native C lowering has the same narrow contract as pow: only statically known non-exact f32 literal calls lower directly. Exact, f64, mixed-width, dynamic, and unproven calls reject at native compile time rather than losing the exact result-kind rule."
+            "`expt` has exactly the same behavior, result type, and errors as `pow`; it is an alternate spelling for users who prefer exact-math terminology.",
+            "Integer-like operands with a non-negative exponent first use exact exponentiation and preserve integer style, potentially returning a `bigint`. Other real numeric inputs use floating power semantics; a complex operand selects the same principal complex operation as `pow`.",
+            "Native C lowering has the same narrow contract as `pow`: only statically known non-exact `f32` literal calls lower directly. Exact, `f64`, mixed-width, dynamic, and unproven calls reject at native compile time rather than losing the exact result-kind rule."
           ],
           "example": "emit expt(3.0f32, 0.5f32)"
         },
         {
           "name": "log",
           "syntax": "log(x[, base])",
-          "returns": "numeric scalar",
+          "parameters": "`x` and optional `base` are real floating-compatible or complex scalars. A complex call may mix complex and floating operands.",
+          "returns": "floating-point or complex scalar",
           "summary": "Compute the natural logarithm, or a logarithm in an explicit base.",
           "details": [
-            "With one argument, log(x) is the natural logarithm. With base, log(x, base) is evaluated as log(x) / log(base).",
-            "Both forms require x > 0. The base form additionally requires base > 0 and base != 1; violations raise the log domain error.",
-            "The result is a floating numeric scalar. An f32 input produces f32 after the language's explicit narrowing boundary; f64 and default floating inputs retain their corresponding floating representation.",
-            "Native C lowering supports the one-argument floating form. The two-argument form lowers only when both operands are statically proven f32; f64, mixed-width, and unproven base-log calls are rejected at native compile time to preserve exact interpreter parity across Go and C math libraries."
+            "With one argument, `log(x)` is the natural logarithm. With a base, `log(x, base)` is evaluated as `log(x) / log(base)`.",
+            "Both forms require `x > 0`. The base form additionally requires `base > 0` and `base != 1`; violations raise the `log` domain error.",
+            "The result is a floating numeric scalar. An `f32` input produces `f32` after the language's explicit narrowing boundary; `f64` and default floating inputs retain their corresponding floating representation.",
+            "When either operand is complex, `log` uses the principal branch with phase in `[-Pi, Pi]`; complex zero is the logarithmic pole. A complex base must not be zero or one.",
+            "Native C lowering supports the one-argument floating form. The two-argument form lowers only when both operands are statically proven `f32`; `f64`, mixed-width, and unproven base-`log` calls are rejected at native compile time to preserve exact interpreter parity across Go and C math libraries."
           ],
           "example": "emit log(81.0f32, 3.0f32)"
         },
@@ -1320,7 +1379,7 @@
           "name": "log1p",
           "syntax": "log1p(x)",
           "returns": "numeric scalar",
-          "summary": "Compute log(1 + x) with better precision near zero.",
+          "summary": "Compute `log(1 + x)` with better precision near zero.",
           "details": [
             "This is the precision-friendly logarithm variant."
           ],
@@ -1329,10 +1388,12 @@
         {
           "name": "sqrt",
           "syntax": "sqrt(x)",
-          "returns": "numeric scalar",
-          "summary": "Compute the square root.",
+          "parameters": "`x` is a real numeric scalar or a complex scalar.",
+          "returns": "floating-point or complex scalar",
+          "summary": "Compute the real square root or principal complex square root.",
           "details": [
-            "This is the standard root function and is used throughout scientific code."
+            "Real negative inputs retain the existing domain error. Non-negative real inputs preserve their floating style.",
+            "Complex inputs use the principal branch with a non-negative real component; on the negative-real cut, the result's imaginary sign follows the input imaginary zero. Complex native-C lowering is unsupported."
           ],
           "example": "emit math.sqrt(9)"
         },
@@ -1362,7 +1423,7 @@
           "returns": "numeric scalar",
           "summary": "Compute a magnitude-style norm.",
           "details": [
-            "Useful for vector and tensor-style magnitude checks."
+            "Useful for `vector` and `tensor`-style magnitude checks."
           ],
           "example": "emit norm(vec(3, 4))"
         },
@@ -1372,8 +1433,8 @@
           "returns": "numeric scalar",
           "summary": "Compute the error function.",
           "details": [
-            "The error function erf(x) is the normalized integral of a Gaussian curve from 0 to x.",
-            "In standard form, erf(x) = 2 / sqrt(pi) * integral from 0 to x of e^(-t^2) dt.",
+            "The error function `erf(x)` is the normalized integral of a Gaussian curve from `0` to `x`.",
+            "In standard form, `erf(x) = 2 / sqrt(pi) * integral from 0 to x of e^(-t^2) dt`.",
             "It appears in probability theory, diffusion models, heat flow, statistics, and Gaussian tail calculations."
           ],
           "example": "emit erf(1)"
@@ -1384,8 +1445,8 @@
           "returns": "numeric scalar",
           "summary": "Compute the complementary error function.",
           "details": [
-            "The complementary error function erfc(x) is defined as 1 - erf(x).",
-            "It is written as erfc(x) = 2 / sqrt(pi) * integral from x to infinity of e^(-t^2) dt.",
+            "The complementary error function `erfc(x)` is defined as `1 - erf(x)`.",
+            "It is written as `erfc(x) = 2 / sqrt(pi) * integral from x to infinity of e^(-t^2) dt`.",
             "It is useful when a problem is expressed in terms of the tail area of a Gaussian distribution instead of the central mass."
           ],
           "example": "emit erfc(1)"
@@ -1394,13 +1455,13 @@
           "name": "gamma",
           "syntax": "gamma(x)",
           "returns": "numeric scalar",
-          "summary": "Compute the gamma function.",
+          "summary": "Compute the `gamma` function.",
           "details": [
-            "The gamma function extends the factorial to non-integer values.",
-            "For positive integers n, gamma(n) = (n - 1)! and for half-integers it connects to square roots of pi.",
-            "It returns a floating numeric scalar, preserving f32 or f64 style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
+            "The `gamma` function extends the factorial to non-integer values.",
+            "For positive integers `n`, `gamma(n) = (n - 1)!`; for half-integers it connects to square roots of pi.",
+            "It returns a floating numeric scalar, preserving `f32` or `f64` style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
             "It is used throughout combinatorics, analytic continuation, statistical distributions, and special-function identities. The function follows IEEE numeric behavior for exceptional inputs rather than defining a separate Osiris domain error.",
-            "Native C lowering supports a statically proven f32 scalar input, computed in double precision and narrowed once to f32. F64 and unproven inputs are rejected by the native compiler because Go's and a platform C library's gamma implementations do not have a bit-exact shared contract."
+            "Native C lowering supports a statically proven `f32` scalar input, computed in double precision and narrowed once to `f32`. `f64` and unproven inputs are rejected by the native compiler because Go's and a platform C library's `gamma` implementations do not have a bit-exact shared contract."
           ],
           "example": "emit gamma(4.5f32)"
         },
@@ -1408,12 +1469,12 @@
           "name": "lgamma",
           "syntax": "lgamma(x)",
           "returns": "numeric scalar",
-          "summary": "Compute the logarithm of the gamma function.",
+          "summary": "Compute the logarithm of the `gamma` function.",
           "details": [
-            "lgamma(x) returns the natural logarithm of the gamma function, which is often easier to compute safely than gamma(x) itself.",
-            "It returns a floating numeric scalar, preserving f32 or f64 style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
-            "It is especially useful when gamma(x) would overflow or when a formula needs stable log-domain arithmetic. Statistics, probability, and asymptotic analysis often use lgamma to keep large products numerically manageable.",
-            "Native C lowering supports a statically proven f32 scalar input, computed in double precision and narrowed once to f32. F64 and unproven inputs are rejected by the native compiler because Go's and a platform C library's log-gamma implementations do not have a bit-exact shared contract."
+            "`lgamma(x)` returns the natural logarithm of the gamma function, which is often easier to compute safely than `gamma(x)` itself.",
+            "It returns a floating numeric scalar, preserving `f32` or `f64` style when that is the input style; other numeric scalar inputs are converted through the normal floating result rule.",
+            "It is especially useful when `gamma(x)` would overflow or when a formula needs stable log-domain arithmetic. Statistics, probability, and asymptotic analysis often use `lgamma` to keep large products numerically manageable.",
+            "Native C lowering supports a statically proven `f32` scalar input, computed in double precision and narrowed once to `f32`. `f64` and unproven inputs are rejected by the native compiler because Go's and a platform C library's log-gamma implementations do not have a bit-exact shared contract."
           ],
           "example": "emit lgamma(4.5f32)"
         }
@@ -1421,27 +1482,27 @@
     },
     {
       "id": "arrays",
-      "title": "Array constructors and range generators",
+      "title": "Sequences and Ranges",
       "summary": "Convenience functions for building dense numeric structures and simple sequences.",
       "items": [
         {
           "name": "zeros",
           "syntax": "zeros(shape...)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Construct an array filled with zeros.",
           "details": [
-            "zeros creates a dense tensor whose entire storage is initialized to 0.",
-            "It is the standard starting point for matrix assembly, grid initialization, and buffer preparation before a computation writes real values into place."
+            "`zeros` creates a dense `tensor` whose entire storage is initialized to 0.",
+            "It is the standard starting point for `matrix` assembly, grid initialization, and buffer preparation before a computation writes real values into place."
           ],
           "example": "emit zeros(2, 3)"
         },
         {
           "name": "ones",
           "syntax": "ones(shape...)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Construct an array filled with ones.",
           "details": [
-            "ones creates a dense tensor whose storage is initialized to 1.",
+            "`ones` creates a dense `tensor` whose storage is initialized to 1.",
             "It is commonly used when a multiplicative identity-like shape is needed for normalization, accumulation, or initialization of gain factors."
           ],
           "example": "emit ones(2, 3)"
@@ -1449,10 +1510,10 @@
         {
           "name": "full",
           "syntax": "full(shape..., value)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Construct an array filled with a chosen value.",
           "details": [
-            "full creates a dense tensor whose entries are all set to the provided value.",
+            "`full` creates a dense `tensor` whose entries are all set to the provided value.",
             "This is useful when the computation needs a sentinel value, a constant field, or a prefilled buffer that will later be refined in place."
           ],
           "example": "emit full(2, 3, 7)"
@@ -1460,32 +1521,32 @@
         {
           "name": "eye",
           "syntax": "eye(n)",
-          "returns": "matrix",
-          "summary": "Construct a square identity matrix.",
+          "returns": "`matrix`",
+          "summary": "Construct a square identity `matrix`.",
           "details": [
-            "eye constructs a square matrix with ones on the main diagonal and zeros everywhere else.",
-            "This is the canonical identity matrix and is used in matrix algebra, solver setup, and as a neutral element for matrix multiplication."
+            "`eye` constructs a square `matrix` with ones on the main diagonal and zeros everywhere else.",
+            "This is the canonical identity `matrix` and is used in `matrix` algebra, solver setup, and as a neutral element for `matrix` multiplication."
           ],
           "example": "emit eye(3)"
         },
         {
           "name": "identity",
           "syntax": "identity(n)",
-          "returns": "matrix",
-          "summary": "Construct a square identity matrix.",
+          "returns": "`matrix`",
+          "summary": "Construct a square identity `matrix`.",
           "details": [
-            "identity is the alias-shaped form of eye and produces the same square identity matrix.",
-            "It exists so the language can read naturally in code that prefers the word identity over the shorter eye spelling."
+            "`identity` is the alias-shaped form of `eye` and produces the same square identity `matrix`.",
+            "It exists so the language can read naturally in code that prefers `identity` over the shorter `eye` spelling."
           ],
           "example": "emit identity(3)"
         },
         {
           "name": "arange",
           "syntax": "arange(start, stop, step)",
-          "returns": "list or tensor",
+          "returns": "`list` or `tensor`",
           "summary": "Generate a numeric range with an explicit step.",
           "details": [
-            "arange generates a sequence that advances from start toward stop using a fixed step size.",
+            "`arange` generates a sequence that advances from `start` toward `stop` using a fixed `step` size.",
             "It is the regular numeric ramp constructor and is useful for sampled grids, iteration tables, and synthetic axis data."
           ],
           "example": "emit arange(0, 10, 2)"
@@ -1493,10 +1554,10 @@
         {
           "name": "linspace",
           "syntax": "linspace(start, stop, count)",
-          "returns": "list or tensor",
+          "returns": "`list` or `tensor`",
           "summary": "Generate evenly spaced samples over an interval.",
           "details": [
-            "linspace returns a fixed number of values that divide the interval between start and stop into equal segments.",
+            "`linspace` returns a fixed number of values that divide the interval between `start` and `stop` into equal segments.",
             "It is the usual choice when you care about sample count, endpoint coverage, and predictable spacing rather than a literal step size."
           ],
           "example": "emit linspace(0, 1, 5)"
@@ -1504,10 +1565,10 @@
         {
           "name": "logspace",
           "syntax": "logspace(start, stop, count, base)",
-          "returns": "list or tensor",
+          "returns": "`list` or `tensor`",
           "summary": "Generate samples spaced on a logarithmic scale.",
           "details": [
-            "logspace returns samples whose exponents are evenly spaced, then raises the chosen base to those exponents.",
+            "`logspace` returns samples whose exponents are evenly spaced, then raises the chosen `base` to those exponents.",
             "It is useful for frequency sweeps, order-of-magnitude searches, and any workflow where logarithmic spacing is more meaningful than linear spacing."
           ],
           "example": "emit logspace(0, 2, 3, 10)"
@@ -1515,21 +1576,21 @@
         {
           "name": "vector",
           "syntax": "vector(values...)",
-          "returns": "tensor",
-          "summary": "Construct a one-dimensional tensor from values.",
+          "returns": "`tensor`",
+          "summary": "Construct a one-dimensional `tensor` from values.",
           "details": [
-            "vector turns a variadic list of values into a one-dimensional dense tensor.",
-            "It is the explicit, readable form of a small numeric vector and is useful when the data is naturally flat."
+            "`vector` turns a variadic `list` of values into a one-dimensional dense `tensor`.",
+            "It is the explicit, readable form of a small numeric `vector` and is useful when the data is naturally flat."
           ],
           "example": "emit vector(1, 2, 3)"
         },
         {
           "name": "vec",
           "syntax": "vec(values...)",
-          "returns": "tensor",
-          "summary": "Construct a one-dimensional tensor from values.",
+          "returns": "`tensor`",
+          "summary": "Construct a one-dimensional `tensor` from values.",
           "details": [
-            "vec is the compact spelling of vector and produces the same one-dimensional dense tensor.",
+            "`vec` is the compact spelling of `vector` and produces the same one-dimensional dense `tensor`.",
             "It is useful when the code wants a short, visually light constructor for small numeric sequences."
           ],
           "example": "emit vec(1, 2, 3)"
@@ -1538,60 +1599,60 @@
     },
     {
       "id": "tensor",
-      "title": "Tensor, matrix, shape, and linear algebra",
+      "title": "Tensor Computing",
       "summary": "Shape-aware dense numeric work with broadcast semantics, views, and linear algebra helpers.",
       "items": [
         {
           "name": "tensor",
           "syntax": "tensor(values...)",
-          "returns": "tensor",
-          "summary": "Construct a dense tensor with explicit shape metadata.",
+          "returns": "`tensor`",
+          "summary": "Construct a dense `tensor` with explicit shape metadata.",
           "details": [
-            "tensor is the core dense numeric container in Osiris and carries shape metadata alongside its flat storage.",
-            "The runtime, optimizer, and native lowering passes all treat shape as a first-class property so tensor code can be analyzed and specialized instead of handled as generic lists."
+            "`tensor` is the core dense numeric container in Osiris and carries shape metadata alongside its flat storage.",
+            "The runtime, optimizer, and native lowering passes all treat shape as a first-class property so `tensor` code can be analyzed and specialized instead of handled as generic lists."
           ],
           "example": "emit tensor([1, 2, 3, 4])"
         },
         {
           "name": "matrix",
           "syntax": "matrix(rows, cols, values...)",
-          "returns": "matrix",
-          "summary": "Construct a dense matrix with explicit shape metadata.",
+          "returns": "`matrix`",
+          "summary": "Construct a dense `matrix` with explicit shape metadata.",
           "details": [
-            "matrix is the two-dimensional specialization of tensor and is intended for row-column linear algebra work.",
-            "It preserves the same shape metadata and lowering benefits as tensor, but reads more naturally when the data is explicitly a matrix."
+            "`matrix` is the two-dimensional specialization of `tensor` and is intended for row-column linear algebra work.",
+            "It preserves the same shape metadata and lowering benefits as `tensor`, but reads more naturally when the data is explicitly a `matrix`."
           ],
           "example": "emit matrix(2, 2, [1, 2, 3, 4])"
         },
         {
           "name": "shape",
           "syntax": "shape(value)",
-          "returns": "tensor",
-          "summary": "Inspect the shape of a shape-aware value.",
+          "returns": "`tensor`",
+          "summary": "Inspect the `shape` of a shape-aware value.",
           "details": [
-            "shape returns the rank and dimension sizes for a tensor-like value.",
-            "It is the inspection primitive that makes it easy to reason about broadcasting, reshape safety, and matrix dimensions."
+            "`shape` returns the rank and dimension sizes for a `tensor`-like value.",
+            "It is the inspection primitive that makes it easy to reason about broadcasting, `reshape` safety, and `matrix` dimensions."
           ],
           "example": "emit shape(matrix(2, 3, [1, 2, 3, 4, 5, 6]))"
         },
         {
           "name": "flatten",
           "syntax": "flatten(value)",
-          "returns": "list",
+          "returns": "`list`",
           "summary": "Flatten a shape-aware value into a linear sequence.",
           "details": [
-            "flatten discards the shape structure and returns the underlying values in linear order.",
-            "It is useful when a tensor needs to be serialized, inspected, or passed into a routine that expects a flat sequence."
+            "`flatten` discards the shape structure and returns the underlying values in linear order.",
+            "It is useful when a `tensor` needs to be serialized, inspected, or passed into a routine that expects a flat sequence."
           ],
           "example": "emit flatten(matrix(2, 3, [1, 2, 3, 4, 5, 6]))"
         },
         {
           "name": "squeeze",
           "syntax": "squeeze(value)",
-          "returns": "tensor",
-          "summary": "Remove singleton dimensions from a tensor.",
+          "returns": "`tensor`",
+          "summary": "Remove singleton dimensions from a `tensor`.",
           "details": [
-            "squeeze removes dimensions whose extent is 1.",
+            "`squeeze` removes dimensions whose extent is 1.",
             "It is useful after broadcasting or batch construction when the code wants to recover a simpler shape without changing the underlying values."
           ],
           "example": "emit squeeze(tensor([[[1]]]))"
@@ -1599,32 +1660,32 @@
         {
           "name": "expand_dims",
           "syntax": "expand_dims(value, axis)",
-          "returns": "tensor",
-          "summary": "Add a singleton dimension to a tensor.",
+          "returns": "`tensor`",
+          "summary": "Add a singleton dimension to a `tensor`.",
           "details": [
-            "expand_dims inserts a new axis of size 1 at the requested position.",
-            "It is the opposite of squeeze and is commonly used to make a value broadcast-compatible or to make a batch axis explicit."
+            "`expand_dims` inserts a new axis of size 1 at the requested position.",
+            "It is the opposite of `squeeze` and is commonly used to make a value broadcast-compatible or to make a batch axis explicit."
           ],
           "example": "emit expand_dims(vec(1, 2, 3), 0)"
         },
         {
           "name": "concat",
           "syntax": "concat(values...)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Combine tensors along an axis.",
           "details": [
-            "concat joins compatible tensors along a shared axis so their data becomes one larger tensor.",
-            "It is useful for assembling batches, extending datasets, and combining chunks of tensor work without flattening them first."
+            "`concat` joins compatible tensors along a shared axis so their data becomes one larger `tensor`.",
+            "It is useful for assembling batches, extending datasets, and combining chunks of `tensor` work without flattening them first."
           ],
           "example": "emit concat(matrix(1, 2, [1, 2]), matrix(1, 2, [3, 4]))"
         },
         {
           "name": "stack",
           "syntax": "stack(values...)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Stack tensors by adding a new dimension.",
           "details": [
-            "stack joins tensors by creating a new axis rather than reusing an existing one.",
+            "`stack` joins tensors by creating a new axis rather than reusing an existing one.",
             "It is the direct way to build a batch dimension or any other higher-rank structure from a collection of equal-shaped inputs."
           ],
           "example": "emit stack(matrix(1, 2, [1, 2]), matrix(1, 2, [3, 4]))"
@@ -1632,32 +1693,32 @@
         {
           "name": "broadcast_to",
           "syntax": "broadcast_to(value, shape)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Broadcast a value to a requested shape.",
           "details": [
-            "broadcast_to expands a value across a larger shape according to broadcasting rules.",
-            "It is useful when a scalar or smaller tensor must participate in elementwise work alongside a larger shape."
+            "`broadcast_to` expands a value across a larger shape according to broadcasting rules.",
+            "It is useful when a scalar or smaller `tensor` must participate in elementwise work alongside a larger shape."
           ],
           "example": "emit broadcast_to(1, [2, 3])"
         },
         {
           "name": "where",
           "syntax": "where(cond, a, b)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Select values conditionally across shapes.",
           "details": [
-            "where chooses between two values elementwise based on a boolean condition.",
-            "It is the vectorized branch operator for tensor math and is the array-native equivalent of an if expression."
+            "`where` chooses between two values elementwise based on a boolean condition.",
+            "It is the vectorized branch operator for `tensor` math and is the array-native equivalent of an `if` expression."
           ],
           "example": "emit where([true, false], [1, 2], [3, 4])"
         },
         {
           "name": "clip",
           "syntax": "clip(value, lo, hi)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Clamp values to a lower and upper bound.",
           "details": [
-            "clip constrains each value into the closed interval between lo and hi.",
+            "`clip` constrains each value into the closed interval between `lo` and `hi`.",
             "It is useful for bounded activations, normalization, range safety, and any numeric pipeline that should not escape a fixed interval."
           ],
           "example": "emit clip(vec(-1, 0, 2), 0, 1)"
@@ -1665,32 +1726,32 @@
         {
           "name": "gather",
           "syntax": "gather(value, index)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Gather elements by index.",
           "details": [
-            "gather builds a new tensor by selecting entries from the source at the provided indexes.",
-            "It is the read-side companion to scatter and is common in lookup, sampling, and embedding-style workflows."
+            "`gather` builds a new `tensor` by selecting entries from the source at the provided indexes.",
+            "It is the read-side companion to `scatter` and is common in lookup, sampling, and embedding-style workflows."
           ],
           "example": "emit gather(vec(10, 20, 30), [0, 2])"
         },
         {
           "name": "scatter",
           "syntax": "scatter(base, index, values)",
-          "returns": "tensor",
-          "summary": "Scatter elements into a base tensor by index.",
+          "returns": "`tensor`",
+          "summary": "Scatter elements into a base `tensor` by index.",
           "details": [
-            "scatter writes values into a base tensor at the provided positions.",
-            "It is the write-side companion to gather and is common in indexed updates, sparse placement, and reconstruction workflows."
+            "`scatter` writes values into a base `tensor` at the provided positions.",
+            "It is the write-side companion to `gather` and is common in indexed updates, sparse placement, and reconstruction workflows."
           ],
           "example": "emit scatter(vec(0, 0, 0), [1], [9])"
         },
         {
           "name": "pad",
           "syntax": "pad(value, ...)",
-          "returns": "tensor",
-          "summary": "Pad tensor data to a larger shape.",
+          "returns": "`tensor`",
+          "summary": "Pad `tensor` data to a larger shape.",
           "details": [
-            "pad extends a tensor with additional boundary elements according to the selected padding policy.",
+            "`pad` extends a `tensor` with additional boundary elements according to the selected padding policy.",
             "It is used when windows, borders, or fixed-size kernels need data to exist past the original edge."
           ],
           "example": "emit pad(vec(1, 2), 1, 1)"
@@ -1698,10 +1759,10 @@
         {
           "name": "tile",
           "syntax": "tile(value, ...)",
-          "returns": "tensor",
-          "summary": "Repeat tensor data across dimensions.",
+          "returns": "`tensor`",
+          "summary": "Repeat `tensor` data across dimensions.",
           "details": [
-            "tile repeats tensor data across one or more axes to form a larger repeated structure.",
+            "`tile` repeats `tensor` data across one or more axes to form a larger repeated structure.",
             "It is useful for patterned expansion, grid construction, and repeated layout generation."
           ],
           "example": "emit tile(vec(1, 2), 2)"
@@ -1709,10 +1770,10 @@
         {
           "name": "transpose",
           "syntax": "transpose(value)",
-          "returns": "tensor",
-          "summary": "Transpose a tensor or matrix.",
+          "returns": "`tensor`",
+          "summary": "Transpose a `tensor` or `matrix`.",
           "details": [
-            "transpose swaps axes in a tensor and is the canonical row-column transform for matrices.",
+            "`transpose` swaps axes in a `tensor` and is the canonical row-column transform for matrices.",
             "It is a core dense layout operation and often changes how data is traversed in later linear algebra steps."
           ],
           "example": "emit transpose(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1720,21 +1781,21 @@
         {
           "name": "dot",
           "syntax": "dot(a, b)",
-          "returns": "tensor or scalar",
-          "summary": "Compute a dot product.",
+          "returns": "`tensor` or scalar",
+          "summary": "Compute a `dot` product.",
           "details": [
-            "dot computes the sum of pairwise products across matching elements.",
-            "It is the scalar-product primitive behind projections, similarity measures, and the inner loops of matrix multiplication."
+            "`dot` computes the sum of pairwise products across matching elements.",
+            "It is the scalar-product primitive behind projections, similarity measures, and the inner loops of `matrix` multiplication."
           ],
           "example": "emit dot(vec(1, 2, 3), vec(4, 5, 6))"
         },
         {
           "name": "matmul",
           "syntax": "matmul(a, b)",
-          "returns": "tensor or scalar",
-          "summary": "Compute matrix multiplication.",
+          "returns": "`tensor` or scalar",
+          "summary": "Compute `matrix` multiplication.",
           "details": [
-            "matmul performs dense matrix multiplication with shape-aware semantics.",
+            "`matmul` performs dense `matrix` multiplication with shape-aware semantics.",
             "It is the central dense linear algebra primitive for transforms, solver setup, and high-throughput numeric code."
           ],
           "example": "emit matmul(matrix(2, 2, [1, 2, 3, 4]), matrix(2, 2, [5, 6, 7, 8]))"
@@ -1742,10 +1803,10 @@
         {
           "name": "reshape",
           "syntax": "reshape(value, shape)",
-          "returns": "tensor",
-          "summary": "Reinterpret a tensor with a new shape when the data layout allows it.",
+          "returns": "`tensor`",
+          "summary": "Reinterpret a `tensor` with a new shape when the data layout allows it.",
           "details": [
-            "reshape keeps the underlying values but changes the shape metadata used to interpret them.",
+            "`reshape` keeps the underlying values but changes the shape metadata used to interpret them.",
             "It is the preferred way to present the same contiguous storage under a different view when the element count still matches."
           ],
           "example": "emit reshape(vec(1, 2, 3, 4), [2, 2])"
@@ -1753,11 +1814,11 @@
         {
           "name": "outer",
           "syntax": "outer(a, b)",
-          "returns": "tensor",
-          "summary": "Construct an outer product.",
+          "returns": "`tensor`",
+          "summary": "Construct an `outer` product.",
           "details": [
-            "outer forms a matrix or higher-rank tensor from every pairwise combination of the inputs.",
-            "It is useful for basis construction, tensor products, and diagnostics that need the full pairwise interaction table."
+            "`outer` forms a `matrix` or higher-rank `tensor` from every pairwise combination of the inputs.",
+            "It is useful for basis construction, `tensor` products, and diagnostics that need the full pairwise interaction table."
           ],
           "example": "emit outer(vec(1, 2), vec(3, 4))"
         },
@@ -1765,10 +1826,10 @@
           "name": "trace",
           "syntax": "trace(matrix)",
           "returns": "scalar",
-          "summary": "Read the diagonal trace of a matrix.",
+          "summary": "Read the diagonal `trace` of a `matrix`.",
           "details": [
-            "trace sums the entries on the main diagonal of a matrix; rectangular matrices use their shorter dimension.",
-            "It is a standard diagnostic in linear algebra and is often used in invariants, projections, and matrix summaries."
+            "`trace` sums the entries on the main diagonal of a `matrix`; rectangular matrices use their shorter dimension.",
+            "It is a standard diagnostic in linear algebra and is often used in invariants, projections, and `matrix` summaries."
           ],
           "example": "emit trace(matrix(2, 2, [1, 2, 3, 4]))"
         },
@@ -1776,9 +1837,9 @@
           "name": "det",
           "syntax": "det(matrix)",
           "returns": "scalar",
-          "summary": "Compute a matrix determinant.",
+          "summary": "Compute a `matrix` determinant.",
           "details": [
-            "det returns the determinant, which encodes scale factor and invertibility information for a square matrix.",
+            "`det` returns the determinant, which encodes scale factor and invertibility information for a square `matrix`.",
             "It is a classic dense linear algebra workhorse and is used in solving systems, geometry, and change-of-basis reasoning."
           ],
           "example": "emit det(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1786,10 +1847,10 @@
         {
           "name": "solve",
           "syntax": "solve(matrix, rhs)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Solve a linear system.",
           "details": [
-            "solve computes the vector or tensor x such that matrix * x = rhs when the system is solvable.",
+            "`solve` computes the `vector` or `tensor` `x` such that `matrix * x = rhs` when the system is solvable.",
             "It is the direct linear-system primitive used in fitting, calibration, physics, and numerical analysis."
           ],
           "example": "emit solve(matrix(2, 2, [1, 2, 3, 4]), [5, 11])"
@@ -1797,21 +1858,21 @@
         {
           "name": "inv",
           "syntax": "inv(matrix)",
-          "returns": "tensor",
-          "summary": "Invert a matrix.",
+          "returns": "`tensor`",
+          "summary": "Invert a `matrix`.",
           "details": [
-            "inv computes the multiplicative inverse of a square matrix when one exists.",
-            "It is often used in algebraic derivations, solver formulations, and analytic matrix transforms, although solve is usually preferred numerically."
+            "`inv` computes the multiplicative inverse of a square `matrix` when one exists.",
+            "It is often used in algebraic derivations, solver formulations, and analytic `matrix` transforms, although `solve` is usually preferred numerically."
           ],
           "example": "emit inv(matrix(2, 2, [1, 2, 3, 4]))"
         },
         {
           "name": "qr",
           "syntax": "qr(matrix)",
-          "returns": "[Q, R] tensors",
+          "returns": "[`Q`, `R`] tensors",
           "summary": "Compute a QR factorization.",
           "details": [
-            "qr factors a matrix into orthogonal and triangular components.",
+            "`qr` factors a `matrix` into orthogonal and triangular components.",
             "It is useful in least-squares solving, orthonormal basis construction, and numerically stable decomposition-based workflows."
           ],
           "example": "emit qr(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1819,10 +1880,10 @@
         {
           "name": "cholesky",
           "syntax": "cholesky(matrix)",
-          "returns": "tensor",
+          "returns": "`tensor`",
           "summary": "Compute a Cholesky factorization.",
           "details": [
-            "cholesky computes the lower-triangular factor from the matrix's lower triangle and requires every diagonal pivot to stay positive.",
+            "`cholesky` computes the lower-triangular factor from the `matrix`'s lower triangle and requires every diagonal pivot to stay positive.",
             "It is a preferred decomposition for covariance systems, optimization, and fast structured solves."
           ],
           "example": "emit cholesky(matrix(2, 2, [4, 2, 2, 3]))"
@@ -1830,10 +1891,10 @@
         {
           "name": "eig",
           "syntax": "eig(matrix)",
-          "returns": "[values, vectors] tensors",
+          "returns": "[`values`, `vectors`] tensors",
           "summary": "Compute an eigenvalue decomposition.",
           "details": [
-            "eig computes the eigenstructure of a matrix, returning values that describe how the matrix scales its eigenvectors.",
+            "`eig` computes the eigenstructure of a `matrix`, returning values that describe how the `matrix` scales its eigenvectors.",
             "It is central to stability analysis, modal decomposition, dynamical systems, and spectral reasoning."
           ],
           "example": "emit eig(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1841,10 +1902,10 @@
         {
           "name": "eigh",
           "syntax": "eigh(matrix)",
-          "returns": "[values, vectors] tensors",
+          "returns": "[`values`, `vectors`] tensors",
           "summary": "Compute an eigenvalue decomposition for symmetric matrices.",
           "details": [
-            "eigh is the symmetric or Hermitian-specialized eigen decomposition path.",
+            "`eigh` is the symmetric or Hermitian-specialized eigen decomposition path.",
             "It is typically preferred when the input is known to be symmetric because that structure allows more stable and efficient computation."
           ],
           "example": "emit eigh(matrix(2, 2, [1, 2, 2, 3]))"
@@ -1852,10 +1913,10 @@
         {
           "name": "svd",
           "syntax": "svd(matrix)",
-          "returns": "[U, singular_values, VT] tensors",
+          "returns": "[`U`, `singular_values`, `VT`] tensors",
           "summary": "Compute a singular value decomposition.",
           "details": [
-            "svd decomposes a matrix into orthogonal factors and singular values that measure the strength of its principal directions.",
+            "`svd` decomposes a `matrix` into orthogonal factors and singular values that measure the strength of its principal directions.",
             "It is one of the most useful numerical linear algebra tools for compression, rank analysis, pseudoinverses, and stable approximation."
           ],
           "example": "emit svd(matrix(2, 2, [1, 2, 3, 4]))"
@@ -1873,7 +1934,7 @@
           "returns": "numeric scalar",
           "summary": "Compute the average.",
           "details": [
-            "mean adds the elements of a collection and divides by their count.",
+            "`mean` adds the elements of a collection and divides by their count.",
             "It is the ordinary center-of-mass style summary used in almost every descriptive numeric workflow."
           ],
           "example": "emit mean([1, 2, 3, 4])"
@@ -1884,7 +1945,7 @@
           "returns": "numeric scalar",
           "summary": "Compute the variance.",
           "details": [
-            "var measures how far a collection spreads away from its mean.",
+            "`var` measures how far a collection spreads away from its mean.",
             "It is a primary dispersion statistic and is used throughout uncertainty estimates, modeling, and normalization."
           ],
           "example": "emit var([1, 2, 3, 4])"
@@ -1895,7 +1956,7 @@
           "returns": "numeric scalar",
           "summary": "Compute the standard deviation.",
           "details": [
-            "std is the square root of variance and expresses spread in the original units of the data.",
+            "`std` is the square root of variance and expresses spread in the original units of the data.",
             "It is often easier to interpret than variance and is one of the most common statistics in analysis and reporting."
           ],
           "example": "emit std([1, 2, 3, 4])"
@@ -1906,7 +1967,7 @@
           "returns": "numeric scalar",
           "summary": "Compute the median.",
           "details": [
-            "median returns the middle value after the data is ordered, or the midpoint between the two middle values for an even-sized collection.",
+            "`median` returns the middle value after the data is ordered, or the midpoint between the two middle values for an even-sized collection.",
             "It is more robust than the mean when the data has outliers or long tails."
           ],
           "example": "emit median([1, 2, 3, 4])"
@@ -1917,7 +1978,7 @@
           "returns": "numeric scalar",
           "summary": "Compute a quantile.",
           "details": [
-            "quantile returns the value below which a chosen fraction of the data falls.",
+            "`quantile` returns the value below which a chosen fraction of the data falls.",
             "It is the general form of percentile-based analysis and is useful for distribution thresholds and robust summaries."
           ],
           "example": "emit quantile([1, 2, 3, 4], 0.75)"
@@ -1928,7 +1989,7 @@
           "returns": "numeric scalar",
           "summary": "Compute a percentile.",
           "details": [
-            "percentile is the human-friendly quantile form expressed as a percentage from 0 to 100.",
+            "`percentile` is the human-friendly quantile form expressed as a percentage from 0 to 100.",
             "It is useful for summarizing ranks, thresholds, and distribution tails in reports and analysis pipelines."
           ],
           "example": "emit percentile([1, 2, 3, 4], 75)"
@@ -1939,7 +2000,7 @@
           "returns": "index",
           "summary": "Return the position of the smallest element.",
           "details": [
-            "argmin scans the collection and returns the index of the smallest observed value.",
+            "`argmin` scans the collection and returns the index of the smallest observed value.",
             "It is useful whenever you need the location of an extreme rather than the extreme's numeric value."
           ],
           "example": "emit argmin([3, 7, 4, 9])"
@@ -1950,7 +2011,7 @@
           "returns": "index",
           "summary": "Return the position of the largest element.",
           "details": [
-            "argmax scans the collection and returns the index of the largest observed value.",
+            "`argmax` scans the collection and returns the index of the largest observed value.",
             "It is useful whenever you need the location of an extreme rather than the extreme's numeric value."
           ],
           "example": "emit argmax([3, 7, 4, 9])"
@@ -1958,10 +2019,10 @@
         {
           "name": "any",
           "syntax": "any(value)",
-          "returns": "bool",
+          "returns": "`bool`",
           "summary": "Collapse a boolean collection to a single truth value.",
           "details": [
-            "any returns true when at least one value in the collection is true.",
+            "`any` returns `true` when at least one value in the collection is `true`.",
             "It is the standard existential reduction and is useful for validation, filtering, and guard conditions."
           ],
           "example": "emit any([true, false, false])"
@@ -1969,10 +2030,10 @@
         {
           "name": "all",
           "syntax": "all(value)",
-          "returns": "bool",
+          "returns": "`bool`",
           "summary": "Collapse a boolean collection to a single truth value.",
           "details": [
-            "all returns true only when every value in the collection is true.",
+            "`all` returns `true` only when every value in the collection is `true`.",
             "It is the standard universal reduction and is useful for validation, invariants, and guard conditions."
           ],
           "example": "emit all([true, true, false])"
@@ -1980,10 +2041,10 @@
         {
           "name": "cumsum",
           "syntax": "cumsum(value)",
-          "returns": "list or tensor",
+          "returns": "`list` or `tensor`",
           "summary": "Return cumulative sums.",
           "details": [
-            "cumsum returns the running prefix sum of a collection.",
+            "`cumsum` returns the running prefix sum of a collection.",
             "It is useful for cumulative totals, histogram-like accumulation, and any workflow that needs the trajectory of partial sums."
           ],
           "example": "emit cumsum([1, 2, 3, 4])"
@@ -1991,10 +2052,10 @@
         {
           "name": "cumprod",
           "syntax": "cumprod(value)",
-          "returns": "list or tensor",
+          "returns": "`list` or `tensor`",
           "summary": "Return cumulative products.",
           "details": [
-            "cumprod returns the running prefix product of a collection.",
+            "`cumprod` returns the running prefix product of a collection.",
             "It is useful for multiplicative growth, compounded factors, and any workflow that needs the trajectory of partial products."
           ],
           "example": "emit cumprod([1, 2, 3, 4])"
@@ -2009,52 +2070,52 @@
         {
           "name": "read",
           "syntax": "read(path)",
-          "returns": "text",
+          "returns": "`text`",
           "summary": "Read a file as text.",
           "details": [
-            "Use this when the file is text and you want a string result."
+            "Use this when the file is text and you want a `string` result."
           ],
-          "example": "emit read(\"input.txt\")"
+          "example": "emit read(\"__OSIRIS_DOC_TMP__/input.txt\")\n# \"first line\\nsecond line\\n\""
         },
         {
           "name": "readbytes",
           "syntax": "readbytes(path)",
-          "returns": "byte list",
+          "returns": "`list<byte>`",
           "summary": "Read a file as raw bytes.",
           "details": [
             "Use this when the file is binary or when you need exact byte access."
           ],
-          "example": "emit readbytes(\"input.bin\")"
+          "example": "emit readbytes(\"__OSIRIS_DOC_TMP__/input.bin\")\n# [79u8, 83u8, 82u8, 33u8]"
         },
         {
           "name": "write",
           "syntax": "write(path, data)",
-          "returns": "bool",
+          "returns": "`bool`",
           "summary": "Write text or byte-compatible data to a file.",
           "details": [
-            "The current implementation returns success as a true boolean value."
+            "The current implementation returns success as a `true` boolean value."
           ],
-          "example": "emit write(\"out.txt\", \"hello\")"
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/out.txt\", \"hello\")\n# true"
         },
         {
           "name": "lines",
           "syntax": "lines(data)",
-          "returns": "list",
+          "returns": "`list`",
           "summary": "Split text or bytes into line records.",
           "details": [
             "This is useful for line-oriented file and stream processing."
           ],
-          "example": "emit lines(read(\"input.txt\"))"
+          "example": "emit lines(read(\"__OSIRIS_DOC_TMP__/input.txt\"))\n# [\"first line\", \"second line\"]"
         },
         {
           "name": "csv",
           "syntax": "csv(data)",
-          "returns": "list",
+          "returns": "`list`",
           "summary": "Parse CSV data into nested Osiris values.",
           "details": [
-            "Each row is returned as a list of cell values."
+            "Each row is returned as a `list` of cell values."
           ],
-          "example": "emit csv(readbytes(\"input.csv\"))"
+          "example": "emit csv(readbytes(\"__OSIRIS_DOC_TMP__/input.csv\"))\n# [[\"name\", \"count\"], [\"osiris\", \"2\"]]"
         },
         {
           "name": "jsonparse",
@@ -2064,7 +2125,7 @@
           "details": [
             "JSON numbers are preserved with exactness where possible."
           ],
-          "example": "emit jsonparse(readbytes(\"input.json\"))"
+          "example": "emit jsonparse(readbytes(\"__OSIRIS_DOC_TMP__/input.json\"))\n# [[\"ok\", true]]"
         },
         {
           "name": "openread",
@@ -2072,9 +2133,9 @@
           "returns": "readable stream handle",
           "summary": "Open a file for explicit line or chunk reading.",
           "details": [
-            "Use readline or readchunk, then close the handle when processing is complete."
+            "Use `readline` or `readchunk`, then `close` the handle when processing is complete."
           ],
-          "example": "let input = openread(\"input.txt\")\nemit readline(input)\nclose(input)"
+          "example": "let input = openread(\"__OSIRIS_DOC_TMP__/input.txt\")\nemit readline(input) # \"first line\"\nemit close(input) # true"
         },
         {
           "name": "openwrite",
@@ -2082,81 +2143,330 @@
           "returns": "writable stream handle",
           "summary": "Open a file for buffered, explicit streaming writes.",
           "details": [
-            "Use writechunk, flush when required, and close the handle when processing is complete."
+            "Use `writechunk`, `flush` when required, and `close` the handle when processing is complete."
           ],
-          "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"hello\\n\")\nclose(out)"
+          "example": "let out = openwrite(\"__OSIRIS_DOC_TMP__/out.txt\")\nemit writechunk(out, \"hello\\n\") # 6u64\nemit close(out) # true"
         },
         {
           "name": "readline",
           "syntax": "readline(handle)",
-          "returns": "text or null",
+          "returns": "`text` or `null`",
           "summary": "Read one line from a readable stream without retaining its line ending.",
           "details": [
-            "The returned text excludes a trailing LF or CRLF. At end-of-file it returns null rather than an empty text value.",
+            "The returned text excludes a trailing `LF` or `CRLF`. At end-of-file it returns `null` rather than an empty text value.",
             "Each call advances the handle, allowing line-oriented processing without loading the entire input."
           ],
           "errors": "The handle must be open and readable. Wrong arity, a non-stream value, a closed stream, and host I/O failures are errors.",
-          "example": "let input = openread(\"input.txt\")\nemit readline(input)\n# \"first line\"\nclose(input)"
+          "example": "let input = openread(\"__OSIRIS_DOC_TMP__/input.txt\")\nemit readline(input) # \"first line\"\nemit close(input) # true"
         },
         {
           "name": "readchunk",
           "syntax": "readchunk(handle, size)",
-          "returns": "list<uint8> or null",
-          "summary": "Read up to size bytes from a readable stream as exact uint8 values.",
+          "returns": "`list<uint8>` or `null`",
+          "summary": "Read up to `size` bytes from a readable stream as exact `uint8` values.",
           "details": [
-            "A zero size returns an empty list. A short list is valid when fewer than size bytes are available; null means no bytes remain at end-of-file.",
-            "Each call advances the handle and bounds the temporary read buffer to the requested size."
+            "A zero `size` returns an empty `list`. A short `list` is valid when fewer than `size` bytes are available; `null` means no bytes remain at end-of-file.",
+            "Each call advances the handle and bounds the temporary read buffer to the requested `size`."
           ],
-          "errors": "size must be a non-negative integer. The handle must be open and readable; wrong arity, a non-stream value, and host I/O failures are errors.",
-          "example": "let input = openread(\"input.bin\")\nemit readchunk(input, 4)\n# [79u8, 83u8, 82u8, …]\nclose(input)"
+          "errors": "`size` must be a non-negative integer. The handle must be open and readable; wrong arity, a non-stream value, and host I/O failures are errors.",
+          "example": "let input = openread(\"__OSIRIS_DOC_TMP__/input.bin\")\nemit readchunk(input, 4) # [79u8, 83u8, 82u8, 33u8]\nemit close(input) # true"
         },
         {
           "name": "writechunk",
           "syntax": "writechunk(handle, data)",
-          "returns": "uint64 byte count",
+          "returns": "`uint64` byte count",
           "summary": "Append byte-compatible data to a writable stream's bounded user-space buffer.",
           "details": [
-            "data may be text, a byte list or tensor, or an integer encoded as bytes. The result is the number of bytes accepted by the stream writer.",
-            "writechunk does not promise that buffered bytes have reached the operating-system descriptor; call flush when that boundary matters."
+            "`data` may be text, a byte `list` or `tensor`, or an integer encoded as bytes. The result is the number of bytes accepted by the stream writer.",
+            "`writechunk` does not promise that buffered bytes have reached the operating-system descriptor; call `flush` when that boundary matters."
           ],
           "errors": "The handle must be open and writable. Non-byte-compatible data, wrong arity, a non-stream value, and host write failures are errors.",
-          "example": "let out = openwrite(\"out.txt\")\nemit writechunk(out, \"OSR\\n\")\n# 4u64\nclose(out)"
+          "example": "let out = openwrite(\"__OSIRIS_DOC_TMP__/out.txt\")\nemit writechunk(out, \"OSR\\n\") # 4u64\nemit close(out) # true"
         },
         {
           "name": "flush",
           "syntax": "flush(handle)",
-          "returns": "bool",
+          "returns": "`bool`",
           "summary": "Flush buffered stream output to its underlying descriptor.",
           "details": [
-            "flush returns true after the writer flushes successfully. It is a no-op that returns true for an open readable-only handle.",
+            "`flush` returns `true` after the writer flushes successfully. It is a no-op that returns `true` for an open readable-only handle.",
             "Flushing does not close the handle and does not promise remote receipt for a TCP stream; it only completes the local writer boundary."
           ],
-          "errors": "The handle must be open. Wrong arity, a non-stream value, a closed stream, and host flush failures are errors.",
-          "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"OSR\\n\")\nemit flush(out)\n# true\nclose(out)"
+          "errors": "The handle must be open. Wrong arity, a non-stream value, a closed stream, and host `flush` failures are errors.",
+          "example": "let out = openwrite(\"__OSIRIS_DOC_TMP__/out.txt\")\nemit writechunk(out, \"OSR\\n\") # 4u64\nemit flush(out) # true\nemit close(out) # true"
         },
         {
           "name": "close",
           "syntax": "close(handle)",
-          "returns": "bool",
+          "returns": "`bool`",
           "summary": "Flush and release the file or TCP descriptor owned by a stream handle.",
           "details": [
-            "The first successful close returns true. A later close of the same handle returns false without reopening or re-closing it.",
-            "The handle remains printable after close, but later reads, writes, and flushes fail. close flushes a writable buffer before releasing the descriptor."
+            "The first successful `close` returns `true`. A later `close` of the same handle returns `false` without reopening or re-closing it.",
+            "The handle remains printable after `close`, but later reads, writes, and flushes fail. `close` flushes a writable buffer before releasing the descriptor."
           ],
           "errors": "The argument must be a stream. A host flush or descriptor-close failure is returned as an error.",
-          "example": "let out = openwrite(\"out.txt\")\nwritechunk(out, \"OSR\\n\")\nemit close(out)\n# true\nemit close(out)\n# false"
+          "example": "let out = openwrite(\"__OSIRIS_DOC_TMP__/out.txt\")\nemit writechunk(out, \"OSR\\n\") # 4u64\nemit close(out) # true\nemit close(out) # false"
         },
         {
           "name": "transfer",
           "syntax": "transfer(source, destination[, limit])",
-          "returns": "uint64 byte count",
+          "returns": "`uint64` byte count",
           "summary": "Copy ordered bytes between two open streams through a bounded buffer.",
           "details": [
-            "source must be readable and destination writable; they must be distinct. The function borrows both handles, flushes the copied bytes before success, and never closes either one.",
-            "limit is optional and non-negative. Without it transfer continues to end-of-file using bounded memory. It preserves destination backpressure and returns only bytes accepted by the destination.",
-            "Task/session cancellation, TCP deadlines, close, and I/O failures remain structured errors. Networking is interpreter/VM host I/O only; native C lowering rejects transfer."
+            "`source` must be readable and `destination` writable; they must be distinct. The function borrows both handles, flushes the copied bytes before success, and never closes either one.",
+            "`limit` is optional and non-negative. Without it `transfer` continues to end-of-file using bounded memory. It preserves `destination` backpressure and returns only bytes accepted by the destination.",
+            "Task/session cancellation, TCP deadlines, `close`, and I/O failures remain structured errors. Networking is interpreter/`vm` host I/O only; native C lowering rejects `transfer`."
           ],
-          "example": "let source = openread(\"input.bin\")\nlet destination = openwrite(\"copy.bin\")\nemit transfer(source, destination, 4096)\nclose(source)\nclose(destination)\n# 4096u64"
+          "example": "let source = openread(\"__OSIRIS_DOC_TMP__/input.bin\")\nlet destination = openwrite(\"__OSIRIS_DOC_TMP__/copy.bin\")\nemit transfer(source, destination, 4) # 4u64\nemit close(source) # true\nemit close(destination) # true"
+        },
+        {
+          "name": "append",
+          "syntax": "append(path, data)",
+          "returns": "`uint64`",
+          "summary": "Append exact byte-compatible data without truncating the file.",
+          "parameters": "`path` is a non-empty NUL-free `string`. `data` is a `string`, byte `list` or tensor, or an exact non-negative value supported by the byte encoder.",
+          "details": [
+            "Returns the exact number of bytes appended.",
+            "The destination is created with mode `0644` before umask when absent. Existing content and permissions are preserved. Success does not imply `fsync` durability.",
+            "The call owns its temporary descriptor and closes it before returning."
+          ],
+          "errors": "Invalid paths or data are `invalid_argument` or `type_error`; missing parents, permissions, storage exhaustion, cancellation, short writes, and close failures use stable structured filesystem kinds.",
+          "native": "Unsupported. Native C compilation rejects `append` at its source location.",
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/append.txt\", \"OS\") # true\nemit append(\"__OSIRIS_DOC_TMP__/append.txt\", \"R\") # 1u64\nemit read(\"__OSIRIS_DOC_TMP__/append.txt\") # \"OSR\""
+        },
+        {
+          "name": "read_limit",
+          "syntax": "read_limit(path, limit)",
+          "returns": "`list<uint8>`",
+          "summary": "Read a byte prefix with an explicit allocation ceiling.",
+          "parameters": "`path` is a non-empty NUL-free `string`. `limit` is an exact integer from `0` through `1048576`.",
+          "details": [
+            "Returns at most `limit` exact `uint8` values; reaching the limit is a successful prefix read.",
+            "The raw read uses one fixed `32 KiB` work buffer, the returned list is capped at `1048576` width-preserving byte values, and task cancellation is checked between reads.",
+            "Use `file_size` when the caller must distinguish a complete file from a prefix."
+          ],
+          "errors": "An excessive limit is `resource_exhausted`. Invalid values, missing files, permission failures, cancellation, and host reads use stable structured filesystem kinds.",
+          "native": "Unsupported. Native C compilation rejects `read_limit` at its source location.",
+          "example": "emit read_limit(\"__OSIRIS_DOC_TMP__/input.bin\", 3) # [79u8, 83u8, 82u8]"
+        },
+        {
+          "name": "copy_file",
+          "syntax": "copy_file(source, destination)",
+          "returns": "`uint64`",
+          "summary": "Copy one regular file through a fixed-size buffer.",
+          "parameters": "`source` and `destination` are distinct non-empty NUL-free path strings. The source must resolve to a regular file.",
+          "details": [
+            "Returns the exact number of bytes accepted by the destination.",
+            "The destination is created with mode `0644` before umask or truncated if it exists. The copy uses one `32 KiB` buffer and handles short writes.",
+            "The operation is not atomic and does not preserve source permissions. On failure, a partial destination can remain."
+          ],
+          "errors": "The same resolved source/destination is `invalid_argument`. Path, permission, cancellation, storage, read, write, and close failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `copy_file` at its source location.",
+          "example": "emit copy_file(\"__OSIRIS_DOC_TMP__/input.bin\", \"__OSIRIS_DOC_TMP__/copy.bin\") # 4u64\nemit readbytes(\"__OSIRIS_DOC_TMP__/copy.bin\") # [79u8, 83u8, 82u8, 33u8]"
+        },
+        {
+          "name": "truncate_file",
+          "syntax": "truncate_file(path, size)",
+          "returns": "`bool`",
+          "summary": "Resize a file through an explicit path.",
+          "parameters": "`path` is a non-empty NUL-free `string`. `size` is an exact integer in the signed 64-bit range and must be non-negative.",
+          "details": [
+            "Returns `true` after the hosted truncate succeeds.",
+            "Shrinking discards bytes at and after `size`; growing exposes zero bytes under the host filesystem's sparse-file rules.",
+            "A final symlink is followed and its target is resized."
+          ],
+          "errors": "Invalid sizes, missing paths, permissions, directories, cancellation, and hosted truncate failures use stable structured filesystem kinds.",
+          "native": "Unsupported. Native C compilation rejects `truncate_file` at its source location.",
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/truncate.txt\", \"abcdef\") # true\nemit truncate_file(\"__OSIRIS_DOC_TMP__/truncate.txt\", 3) # true\nemit read(\"__OSIRIS_DOC_TMP__/truncate.txt\") # \"abc\""
+        },
+        {
+          "name": "exists",
+          "syntax": "exists(path)",
+          "returns": "`bool`",
+          "summary": "Report whether a path resolves to an existing target.",
+          "parameters": "`path` is a non-empty NUL-free `string`. Final symlinks are followed.",
+          "details": [
+            "Returns `true` for an existing target and `false` for a missing path or broken final symlink.",
+            "Permission and other inspection failures remain errors instead of being collapsed into `false`."
+          ],
+          "errors": "Invalid paths, permissions, cancellation, and host metadata failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `exists` at its source location.",
+          "example": "emit exists(\"__OSIRIS_DOC_TMP__/input.txt\") # true\nemit exists(\"__OSIRIS_DOC_TMP__/missing.txt\") # false"
+        },
+        {
+          "name": "file_size",
+          "syntax": "file_size(path)",
+          "returns": "`uint64`",
+          "summary": "Return the byte size of a regular file.",
+          "parameters": "`path` is a non-empty NUL-free `string` resolving to a regular file. Final symlinks are followed.",
+          "details": [
+            "Returns the non-negative hosted file size in bytes.",
+            "Directories and non-regular objects are rejected so their platform-specific metadata sizes do not enter the language contract."
+          ],
+          "errors": "Missing files, invalid file kinds, permissions, cancellation, and host metadata failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `file_size` at its source location.",
+          "example": "emit file_size(\"__OSIRIS_DOC_TMP__/input.bin\") # 4u64"
+        },
+        {
+          "name": "is_file",
+          "syntax": "is_file(path)",
+          "returns": "`bool`",
+          "summary": "Test whether a path resolves to a regular file.",
+          "parameters": "`path` is a non-empty NUL-free `string`. Final symlinks are followed.",
+          "details": [
+            "Returns `true` only for a regular file and `false` for a directory, missing path, or broken final symlink.",
+            "Inspection failures other than absence remain errors."
+          ],
+          "errors": "Invalid paths, permissions, cancellation, and host metadata failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `is_file` at its source location.",
+          "example": "emit is_file(\"__OSIRIS_DOC_TMP__/input.txt\") # true\nemit is_file(\"__OSIRIS_DOC_TMP__\") # false"
+        },
+        {
+          "name": "is_dir",
+          "syntax": "is_dir(path)",
+          "returns": "`bool`",
+          "summary": "Test whether a path resolves to a directory.",
+          "parameters": "`path` is a non-empty NUL-free `string`. Final symlinks are followed.",
+          "details": [
+            "Returns `true` only for a directory and `false` for a regular file, missing path, or broken final symlink.",
+            "Inspection failures other than absence remain errors."
+          ],
+          "errors": "Invalid paths, permissions, cancellation, and host metadata failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `is_dir` at its source location.",
+          "example": "emit is_dir(\"__OSIRIS_DOC_TMP__\") # true\nemit is_dir(\"__OSIRIS_DOC_TMP__/input.txt\") # false"
+        },
+        {
+          "name": "mkdir",
+          "syntax": "mkdir(path)",
+          "returns": "`bool`",
+          "summary": "Create one directory without creating missing parents.",
+          "parameters": "`path` is a non-empty NUL-free `string`; its parent must already exist.",
+          "details": [
+            "Returns `true` when one directory is created.",
+            "The directory uses mode `0755` before umask. An existing path is not treated as success."
+          ],
+          "errors": "Existing paths are `already_exists`; a non-directory or missing parent, permissions, cancellation, and host failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `mkdir` at its source location.",
+          "example": "emit mkdir(\"__OSIRIS_DOC_TMP__/one-directory\") # true\nemit is_dir(\"__OSIRIS_DOC_TMP__/one-directory\") # true"
+        },
+        {
+          "name": "mkdir_all",
+          "syntax": "mkdir_all(path)",
+          "returns": "`bool`",
+          "summary": "Create a directory path and any missing parent directories.",
+          "parameters": "`path` is a non-empty NUL-free `string`.",
+          "details": [
+            "Returns `true` when the full path is a directory, including when it already existed.",
+            "Every new directory uses mode `0755` before umask. This recursive creation does not imply recursive deletion."
+          ],
+          "errors": "A non-directory path component, permissions, cancellation, and hosted creation failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `mkdir_all` at its source location.",
+          "example": "emit mkdir_all(\"__OSIRIS_DOC_TMP__/parent/child\") # true\nemit is_dir(\"__OSIRIS_DOC_TMP__/parent/child\") # true"
+        },
+        {
+          "name": "read_dir",
+          "syntax": "read_dir(path[, limit])",
+          "returns": "`list<string>`",
+          "summary": "List directory entry names in deterministic lexical order.",
+          "parameters": "`path` names a directory. Optional exact non-negative `limit` defaults to `4096` and cannot exceed `65536`.",
+          "details": [
+            "Returns entry base names as strings sorted in lexical byte order.",
+            "A string name is the complete public entry representation; host `FileInfo` and `dirent` metadata are not exposed.",
+            "If entry count exceeds the selected limit, the call fails instead of returning an incomplete listing."
+          ],
+          "errors": "Excess entries are `resource_exhausted`; non-directories, invalid limits, permissions, cancellation, and hosted reads are structured.",
+          "native": "Unsupported. Native C compilation rejects `read_dir` at its source location.",
+          "example": "emit mkdir_all(\"__OSIRIS_DOC_TMP__/listing\") # true\nemit write(\"__OSIRIS_DOC_TMP__/listing/zeta\", \"z\") # true\nemit write(\"__OSIRIS_DOC_TMP__/listing/alpha\", \"a\") # true\nemit read_dir(\"__OSIRIS_DOC_TMP__/listing\") # [\"alpha\", \"zeta\"]"
+        },
+        {
+          "name": "rename",
+          "syntax": "rename(old_path, new_path)",
+          "returns": "`bool`",
+          "summary": "Rename one explicit filesystem entry without a copy fallback.",
+          "parameters": "`old_path` and `new_path` are non-empty NUL-free path strings.",
+          "details": [
+            "Returns `true` after the one hosted rename succeeds.",
+            "Destination replacement and directory rules remain platform-specific; the API makes no portable atomicity guarantee.",
+            "A cross-filesystem rename fails as `io_error` and never becomes copy-and-remove."
+          ],
+          "errors": "Missing sources, destination conflicts, permissions, cross-filesystem moves, cancellation, and hosted rename failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `rename` at its source location.",
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/before.txt\", \"data\") # true\nemit rename(\"__OSIRIS_DOC_TMP__/before.txt\", \"__OSIRIS_DOC_TMP__/after.txt\") # true\nemit exists(\"__OSIRIS_DOC_TMP__/after.txt\") # true"
+        },
+        {
+          "name": "remove",
+          "syntax": "remove(path)",
+          "returns": "`bool`",
+          "summary": "Remove one explicit file, symlink, or empty directory.",
+          "parameters": "`path` is one non-empty NUL-free path string.",
+          "details": [
+            "Returns `true` after the named entry is removed.",
+            "The operation never walks a directory. A final symlink is removed without removing its target.",
+            "Use of a non-empty directory fails; this API has no recursive-delete mode."
+          ],
+          "errors": "Missing paths, non-empty directories, permissions, cancellation, and hosted removal failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `remove` at its source location.",
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/remove.txt\", \"temporary\") # true\nemit remove(\"__OSIRIS_DOC_TMP__/remove.txt\") # true\nemit exists(\"__OSIRIS_DOC_TMP__/remove.txt\") # false"
+        },
+        {
+          "name": "openappend",
+          "syntax": "openappend(path)",
+          "returns": "`stream`",
+          "summary": "Open an owned buffered stream for end-of-file writes.",
+          "parameters": "`path` is a non-empty NUL-free `string`.",
+          "details": [
+            "Returns an owned writable file stream whose initial logical cursor is the current file size.",
+            "The file is created with mode `0644` before umask when absent and is never truncated. Hosted append mode places every descriptor write at the then-current end.",
+            "The caller must `close` the stream; the first close returns `true` and later closes return `false`."
+          ],
+          "errors": "Invalid paths, missing parents, permissions, cancellation, and hosted open failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `openappend` at its source location.",
+          "example": "emit write(\"__OSIRIS_DOC_TMP__/stream-append.txt\", \"OS\") # true\nlet output = openappend(\"__OSIRIS_DOC_TMP__/stream-append.txt\")\nemit writechunk(output, \"R\") # 1u64\nemit close(output) # true\nemit read(\"__OSIRIS_DOC_TMP__/stream-append.txt\") # \"OSR\""
+        },
+        {
+          "name": "seek",
+          "syntax": "seek(stream, offset, origin)",
+          "returns": "`uint64`",
+          "summary": "Move the logical cursor of an owned file stream.",
+          "parameters": "`stream` is an open file stream, `offset` is an exact signed-64-bit integer, and `origin` is `\"start\"`, `\"current\"`, or `\"end\"`.",
+          "details": [
+            "Returns the new non-negative byte position.",
+            "Buffered output is flushed and buffered reader look-ahead is reconciled first. A regular file may seek beyond end-of-file; a negative resulting position is rejected.",
+            "TCP and other non-file streams are unsupported."
+          ],
+          "errors": "Closed or non-file streams, invalid origins or offsets, cancellation, flush failures, and hosted seek failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `seek` at its source location.",
+          "example": "let input = openread(\"__OSIRIS_DOC_TMP__/input.bin\")\nemit seek(input, -1, \"end\") # 3u64\nemit readchunk(input, 1) # [33u8]\nemit close(input) # true"
+        },
+        {
+          "name": "tell",
+          "syntax": "tell(stream)",
+          "returns": "`uint64`",
+          "summary": "Return a file stream's logical byte position.",
+          "parameters": "`stream` is an open owned file stream.",
+          "details": [
+            "Returns the non-negative logical cursor position.",
+            "The result accounts for buffered reader look-ahead and flushes buffered writes before observing their descriptor position.",
+            "TCP and other non-file streams are unsupported."
+          ],
+          "errors": "Closed or non-file streams, cancellation, flush failures, and hosted cursor failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `tell` at its source location.",
+          "example": "let input = openread(\"__OSIRIS_DOC_TMP__/input.bin\")\nemit readchunk(input, 2) # [79u8, 83u8]\nemit tell(input) # 2u64\nemit close(input) # true"
+        },
+        {
+          "name": "truncate",
+          "syntax": "truncate(stream, size)",
+          "returns": "`bool`",
+          "summary": "Resize the file owned by a writable stream.",
+          "parameters": "`stream` is an open writable file stream. `size` is an exact non-negative integer in the signed 64-bit range.",
+          "details": [
+            "Returns `true` after buffered output is flushed and the file is resized.",
+            "The stream cursor is unchanged, including when it lies beyond the new end.",
+            "Read-only, TCP, non-file, and closed streams are rejected."
+          ],
+          "errors": "Invalid sizes or stream modes, cancellation, flush failures, permissions, and hosted truncate failures are structured.",
+          "native": "Unsupported. Native C compilation rejects `truncate` at its source location.",
+          "example": "let output = openwrite(\"__OSIRIS_DOC_TMP__/stream-truncate.txt\")\nemit writechunk(output, \"abcdef\") # 6u64\nemit truncate(output, 3) # true\nemit close(output) # true\nemit read(\"__OSIRIS_DOC_TMP__/stream-truncate.txt\") # \"abc\""
         }
       ]
     },
@@ -2168,7 +2478,7 @@
         {
           "name": "bytes",
           "syntax": "bytes(value...)",
-          "returns": "byte list",
+          "returns": "`list<byte>`",
           "summary": "Convert values into raw bytes.",
           "details": [
             "Use this when you need explicit byte-oriented work rather than text."
@@ -2178,7 +2488,7 @@
         {
           "name": "hex",
           "syntax": "hex(value)",
-          "returns": "text",
+          "returns": "`text`",
           "summary": "Format a value as hexadecimal text.",
           "details": [
             "Useful for inspection, logging, and low-level data checks."
@@ -2188,7 +2498,7 @@
         {
           "name": "bin",
           "syntax": "bin(value)",
-          "returns": "text",
+          "returns": "`text`",
           "summary": "Format a value as binary text.",
           "details": [
             "Useful for inspection, logging, and bit-level debugging."
@@ -2198,7 +2508,7 @@
         {
           "name": "pack",
           "syntax": "pack(value...)",
-          "returns": "bytes",
+          "returns": "`bytes`",
           "summary": "Pack structured values into bytes.",
           "details": [
             "Useful for binary layouts and compact encoding work."
@@ -2211,7 +2521,7 @@
           "returns": "values",
           "summary": "Recover values from packed data.",
           "details": [
-            "This is the inverse of pack for supported layouts."
+            "This is the inverse of `pack` for supported layouts."
           ],
           "example": "emit unpack(pack([1, 2, 3]))"
         },
@@ -2238,7 +2548,7 @@
         {
           "name": "encode",
           "syntax": "encode(value)",
-          "returns": "bytes",
+          "returns": "`bytes`",
           "summary": "Serialize an Osiris value.",
           "details": [
             "This is the round-trip codec path for value snapshots and binary interchange."
@@ -2251,7 +2561,7 @@
           "returns": "value",
           "summary": "Restore an Osiris value from encoded bytes.",
           "details": [
-            "This is the inverse of encode for supported value trees."
+            "This is the inverse of `encode` for supported value trees."
           ],
           "example": "emit decode(encode([1u8, 2u16, \"go\"]))"
         }
@@ -2265,10 +2575,10 @@
         {
           "name": "hash",
           "syntax": "hash(value...)",
-          "returns": "text",
+          "returns": "`text`",
           "summary": "Hash values into a stable text digest.",
           "details": [
-            "These are the current crypto-flavored helpers exposed through std/crypto."
+            "These are the current crypto-flavored helpers exposed through `std/crypto`."
           ],
           "example": "emit hash(\"osiris\")"
         },
@@ -2295,11 +2605,11 @@
         {
           "name": "random",
           "syntax": "random(seed[, counter])",
-          "returns": "number in [0, 1)",
-          "summary": "Generate one deterministic pseudo-random sample from an explicit seed and optional sequence counter.",
+          "returns": "`number` in `[0, 1)`",
+          "summary": "Generate one deterministic pseudo-random sample from an explicit `seed` and optional sequence `counter`.",
           "details": [
-            "random is pure: it has no process-global state, so the same seed/counter pair produces the same result in run and vm regardless of evaluation order.",
-            "counter defaults to zero and must be a non-negative integer. Increment it explicitly to obtain a reproducible sequence; this helper is not a cryptographic random-number generator."
+            "`random` is pure: it has no process-global state, so the same `seed`/`counter` pair produces the same result in `run` and `vm` regardless of evaluation order.",
+            "`counter` defaults to zero and must be a non-negative integer. Increment it explicitly to obtain a reproducible sequence; this helper is not a cryptographic random-number generator."
           ],
           "example": "emit random(\"osiris\", 0)\nemit random(\"osiris\", 1)\n# Stable distinct f64-backed samples in [0, 1)"
         }
@@ -2313,36 +2623,36 @@
         {
           "name": "tcp_listen",
           "syntax": "tcp_listen(address)",
-          "returns": "tcp_listener",
+          "returns": "`tcp_listener`",
           "summary": "Bind an owned TCP listener at an explicit address.",
           "details": [
-            "address uses the host:port form, including port 0 when the operating system should choose a local port. The caller must close the returned listener.",
-            "Listening is host I/O and may fail due to permissions or an occupied address. It is interpreter/VM-only; native compilation does not support networking."
+            "`address` uses the `host:port` form, including port `0` when the operating system should choose a local port. The caller must `close` the returned listener.",
+            "Listening is host I/O and may fail due to permissions or an occupied address. It is interpreter/`vm`-only; native compilation does not support networking."
           ],
           "example": "import \"std/net\" as net\nlet listener = net.tcp_listen(\"127.0.0.1:9000\")\n# close(listener) when the server is finished"
         },
         {
           "name": "tcp_accept",
           "syntax": "tcp_accept(listener[, timeout_ms])",
-          "returns": "readable/writable tcp stream",
+          "returns": "readable/writable TCP stream",
           "summary": "Accept one TCP connection as an explicit duplex stream.",
           "details": [
-            "timeout_ms is optional, non-negative, and applies only to this accept call. The result works with readline, readchunk, writechunk, flush, and close.",
-            "Every accepted TCP stream uses the portable low-latency default: TCP_NODELAY and keepalive are enabled. The language does not yet expose arbitrary socket options; platform-specific controls remain capability-gated runtime work, not silent behavior.",
+            "`timeout_ms` is optional, non-negative, and applies only to this accept call. The result works with `readline`, `readchunk`, `writechunk`, `flush`, and `close`.",
+            "Every accepted TCP stream uses the portable low-latency default: `TCP_NODELAY` and keepalive are enabled. The language does not yet expose arbitrary socket options; platform-specific controls remain capability-gated runtime work, not silent behavior.",
             "Accept blocks until a client arrives, the timeout expires, the current task/session is cancelled, or the listener is closed. Closing a listener unblocks its pending accepts but does not close already accepted streams.",
-            "A timeout is a timeout error; task/session cancellation is a cancelled error; a closed local listener is an I/O error. These remain structured errors that try/catch can inspect."
+            "A timeout is a `timeout` error; task/session cancellation is a `cancelled` error; a closed local listener is an I/O error. These remain structured errors that `try`/`catch` can inspect."
           ],
           "example": "let client = net.tcp_accept(listener, 1000)\nwritechunk(client, \"hello\\n\")\nflush(client)\nclose(client)"
         },
         {
           "name": "tcp_dial",
           "syntax": "tcp_dial(address[, timeout_ms])",
-          "returns": "readable/writable tcp stream",
+          "returns": "readable/writable TCP stream",
           "summary": "Connect to one TCP endpoint as an explicit duplex stream.",
           "details": [
-            "timeout_ms is optional and non-negative. A successful connection is a stream; reads observe the current task/session context and stop when it is cancelled or expires.",
-            "Every newly dialed TCP stream enables TCP_NODELAY and keepalive by default for low-latency request/response traffic. The current language surface intentionally has no raw arbitrary socket-option escape hatch, and native C compilation rejects networking.",
-            "Use close to release the connection. Connection refusal is unavailable, timeout is timeout, malformed addresses are invalid_argument, and closed local resources are I/O errors; all remain explicit structured errors rather than status values."
+            "`timeout_ms` is optional and non-negative. A successful connection is a stream; reads observe the current task/session context and stop when it is cancelled or expires.",
+            "Every newly dialed TCP stream enables `TCP_NODELAY` and keepalive by default for low-latency request/response traffic. The current language surface intentionally has no raw arbitrary socket-option escape hatch, and native C compilation rejects networking.",
+            "Use `close` to release the connection. Connection refusal is `unavailable`, timeout is `timeout`, malformed addresses are `invalid_argument`, and closed local resources are I/O errors; all remain explicit structured errors rather than status values."
           ],
           "example": "let peer = net.tcp_dial(\"127.0.0.1:9000\", 1000)\nwritechunk(peer, \"ping\\n\")\nflush(peer)\nemit readline(peer)\nclose(peer)"
         }
@@ -2356,21 +2666,21 @@
         {
           "name": "hann",
           "syntax": "hann(length)",
-          "returns": "tensor[length] of numbers",
+          "returns": "`tensor[length]` of numbers",
           "summary": "Create a symmetric Hann window.",
           "details": [
-            "length must be a non-negative integer. hann(0) is empty and hann(1) is [1]; longer windows use 0.5 - 0.5*cos(2πi/(length-1)).",
-            "This is a deterministic scalar reference implementation shared by run and vm. It does not currently claim SIMD, FFT, GPU, or native-provider acceleration."
+            "`length` must be a non-negative integer. `hann(0)` is empty and `hann(1)` is `[1]`; longer windows use `0.5 - 0.5*cos(2πi/(length-1))`.",
+            "This is a deterministic scalar reference implementation shared by `run` and `vm`. It does not currently claim SIMD, FFT, GPU, or native-provider acceleration."
           ],
           "example": "import \"std/signal\" as signal\nemit signal.hann(4)\n# tensor[4]([0, 0.75, 0.75, 0])"
         },
         {
           "name": "convolve",
           "syntax": "convolve(signal, kernel)",
-          "returns": "tensor[signal.length + kernel.length - 1]",
+          "returns": "`tensor[signal.length + kernel.length - 1]`",
           "summary": "Compute deterministic full one-dimensional discrete convolution.",
           "details": [
-            "Both arguments must be rank-one numeric lists or tensors. Empty input produces an empty rank-one tensor; invalid rank or non-numeric components fail clearly.",
+            "Both arguments must be rank-one numeric lists or tensors. Empty input produces an empty rank-one `tensor`; invalid rank or non-numeric components fail clearly.",
             "The result uses the full convolution shape. This reference kernel prioritizes stable semantics; accelerated backends require separately documented numerical parity and fallback behavior."
           ],
           "example": "import \"std/signal\" as signal\nemit signal.convolve([1, 2, 3], [1, 1])\n# tensor[4]([1, 3, 5, 3])"
@@ -2388,14 +2698,14 @@
           "returns": "numeric value",
           "summary": "Return the length of a collection.",
           "details": [
-            "These are the smallest list utilities and are used throughout examples and tests."
+            "These are the smallest `list` utilities and are used throughout examples and tests."
           ],
           "example": "emit len([1, 2, 3])"
         },
         {
           "name": "range",
           "syntax": "range(start, stop, step)",
-          "returns": "list",
+          "returns": "`list`",
           "summary": "Generate a numeric range.",
           "details": [
             "Useful for loops, sampling, and numeric iteration."
@@ -2405,7 +2715,7 @@
         {
           "name": "take",
           "syntax": "take(value, count)",
-          "returns": "list",
+          "returns": "`list`",
           "summary": "Take the first N values from a collection.",
           "details": [
             "Useful for slices, previews, and bounded sampling."
@@ -2415,11 +2725,11 @@
         {
           "name": "slice",
           "syntax": "slice(tensor, start, end[, axis])",
-          "returns": "tensor",
-          "summary": "Copy a half-open range from a tensor's leading axis.",
+          "returns": "`tensor`",
+          "summary": "Copy a half-open range from a `tensor`'s leading axis.",
           "details": [
-            "Without axis, slice uses the leading axis; axis selects any zero-based tensor axis.",
-            "The result preserves its other dimensions and owns its data. Bounds are non-negative; endpoints above the selected dimension are clamped, while end before start is an error."
+            "Without `axis`, `slice` uses the leading axis; `axis` selects any zero-based `tensor` axis.",
+            "The result preserves its other dimensions and owns its data. Bounds are non-negative; endpoints above the selected dimension are clamped, while `end` before `start` is an error."
           ],
           "example": "emit slice(matrix(2, 3, [1, 2, 3, 4, 5, 6]), 1, 3, 1)"
         },

@@ -5,27 +5,29 @@ human shortcut and must agree with it.
 
 ## Now
 
-1. Task 049 is active: establish a reproducible TCP benchmark baseline before
-   tuning socket behavior.
+No task is active. Tasks 001–049 and 100–104 are complete.
 
-## Then — correctness before further native surface
+## Ready — reference navigation
 
-2. 025, 026, 028, 032, 027, 029, 030, 031, 033, 034.
-4. This sequence establishes differential parity, corpus coverage, ownership,
-   numeric behavior, and module soundness before additional native claims.
+1. 105: define and enforce deterministic ordering inside every canonical
+   reference-page section.
 
-## Later product work
+## Blocked
 
-3. 035–042: stable CLI/artifacts, resolution, LSP, docs, and releases.
-4. 043–049: benchmarking, profiling, scheduler work, security, FFI, enum
-   semantics, and measured TCP tuning after their recorded dependencies are
-   complete.
+- 106: add `#page/entry` deep-link routing and accessible “On This Page”
+  navigation after task 105 fixes the canonical listing order.
 
-Legacy tasks 001–018 remain indexed for provenance. Do not select one based
-only on its old priority label; use its index status and successor instead.
+## Completed — scoped surface expansion
 
-## P2 — broaden the surface after measurement
+Task 102 completed the bounded file, directory, and seekable-stream I/O
+surface with shared runtime, native-gate, lifecycle, and documentation
+evidence.
 
-Tasks 008, 015, and 016 remain useful historical context, but they must not
-delay P0. FFI, polling backends, LLVM/JIT, sparse types, and wide/exotic
-numeric forms require the P0 ABI and lowering contracts first.
+Completed task 100 preserved task 104's exact named-constant and
+dual-reference audits.
+
+## Completed foundations
+
+Tasks 001–049 and 100–104 are complete and remain indexed for
+provenance and acceptance evidence. Use `tasks/index.tsv` as the canonical
+status/dependency source.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"math/cmplx"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,7 +44,7 @@ func (rt *Runtime) loadModule(ctx context.Context, ref, base string, stack []str
 			}
 		}
 
-		mod, err := stdlibModule(key, selector)
+		mod, err := stdlibModule(rt, key, selector)
 		if err != nil {
 			return nullValue(), err
 		}
@@ -202,24 +203,50 @@ func resolveModuleRef(ref, base string) (string, moduleKind, string, error) {
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func stdlibModule(name, selector string) (Value, error) {
+func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 	switch name {
+	case "std/time":
+		return stdlibTimeModule(rt, selector)
 	case "std/text":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
 		return makeModule(name, version, map[string]Value{
-			"trim":    functionValueOf("std/text.trim", func(args []Value) (Value, error) { return builtinTrim(args) }),
-			"upper":   functionValueOf("std/text.upper", func(args []Value) (Value, error) { return builtinUpper(args) }),
-			"lower":   functionValueOf("std/text.lower", func(args []Value) (Value, error) { return builtinLower(args) }),
-			"replace": functionValueOf("std/text.replace", func(args []Value) (Value, error) { return builtinReplace(args) }),
-			"repeat":  functionValueOf("std/text.repeat", func(args []Value) (Value, error) { return builtinRepeat(args) }),
-			"split":   functionValueOf("std/text.split", func(args []Value) (Value, error) { return builtinSplit(args) }),
-			"join":    functionValueOf("std/text.join", func(args []Value) (Value, error) { return builtinJoin(args) }),
-			"chunks":  functionValueOf("std/text.chunks", func(args []Value) (Value, error) { return builtinChunks(args) }),
-			"slug":    functionValueOf("std/text.slug", func(args []Value) (Value, error) { return builtinSlug(args) }),
-			"cat":     functionValueOf("std/text.cat", func(args []Value) (Value, error) { return builtinCat(args) }),
+			"trim":           functionValueOf("std/text.trim", builtinTrim),
+			"upper":          functionValueOf("std/text.upper", builtinUpper),
+			"lower":          functionValueOf("std/text.lower", builtinLower),
+			"replace":        functionValueOf("std/text.replace", builtinReplace),
+			"repeat":         functionValueOf("std/text.repeat", builtinRepeat),
+			"split":          functionValueOf("std/text.split", builtinSplit),
+			"join":           functionValueOf("std/text.join", builtinJoin),
+			"chunks":         functionValueOf("std/text.chunks", builtinChunks),
+			"slug":           functionValueOf("std/text.slug", builtinSlug),
+			"cat":            functionValueOf("std/text.cat", builtinCat),
+			"compare":        functionValueOf("std/text.compare", textCompareValue),
+			"equal_fold":     functionValueOf("std/text.equal_fold", textEqualFoldValue),
+			"contains":       functionValueOf("std/text.contains", textContainsValue),
+			"contains_any":   functionValueOf("std/text.contains_any", textContainsAnyValue),
+			"has_prefix":     functionValueOf("std/text.has_prefix", textHasPrefixValue),
+			"has_suffix":     functionValueOf("std/text.has_suffix", textHasSuffixValue),
+			"count":          functionValueOf("std/text.count", textCountValue),
+			"index":          functionValueOf("std/text.index", textIndexValue),
+			"index_any":      functionValueOf("std/text.index_any", textIndexAnyValue),
+			"last_index":     functionValueOf("std/text.last_index", textLastIndexValue),
+			"last_index_any": functionValueOf("std/text.last_index_any", textLastIndexAnyValue),
+			"cut":            functionValueOf("std/text.cut", textCutValue),
+			"cut_prefix":     functionValueOf("std/text.cut_prefix", textCutPrefixValue),
+			"cut_suffix":     functionValueOf("std/text.cut_suffix", textCutSuffixValue),
+			"fields":         functionValueOf("std/text.fields", textFieldsValue),
+			"split_after":    functionValueOf("std/text.split_after", textSplitAfterValue),
+			"split_n":        functionValueOf("std/text.split_n", textSplitNValue),
+			"split_after_n":  functionValueOf("std/text.split_after_n", textSplitAfterNValue),
+			"trim_space":     functionValueOf("std/text.trim_space", textTrimSpaceValue),
+			"trim_left":      functionValueOf("std/text.trim_left", textTrimLeftValue),
+			"trim_right":     functionValueOf("std/text.trim_right", textTrimRightValue),
+			"trim_prefix":    functionValueOf("std/text.trim_prefix", textTrimPrefixValue),
+			"trim_suffix":    functionValueOf("std/text.trim_suffix", textTrimSuffixValue),
+			"replace_n":      functionValueOf("std/text.replace_n", textReplaceNValue),
 		}), nil
 	case "std/math":
 		version := "1.0.0"
@@ -227,152 +254,187 @@ func stdlibModule(name, selector string) (Value, error) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
 		return makeModule(name, version, map[string]Value{
-			"pi":           numberValue(math.Pi),
-			"tau":          numberValue(math.Pi * 2),
-			"abs":          functionValueOf("std/math.abs", func(args []Value) (Value, error) { return builtinAbs(args) }),
-			"i8":           functionValueOf("std/math.i8", func(args []Value) (Value, error) { return builtinI8(args) }),
-			"i16":          functionValueOf("std/math.i16", func(args []Value) (Value, error) { return builtinI16(args) }),
-			"i32":          functionValueOf("std/math.i32", func(args []Value) (Value, error) { return builtinI32(args) }),
-			"i64":          functionValueOf("std/math.i64", func(args []Value) (Value, error) { return builtinI64(args) }),
-			"i128":         functionValueOf("std/math.i128", func(args []Value) (Value, error) { return builtinI128(args) }),
-			"i256":         functionValueOf("std/math.i256", func(args []Value) (Value, error) { return builtinI256(args) }),
-			"i512":         functionValueOf("std/math.i512", func(args []Value) (Value, error) { return builtinI512(args) }),
-			"i1024":        functionValueOf("std/math.i1024", func(args []Value) (Value, error) { return builtinI1024(args) }),
-			"u8":           functionValueOf("std/math.u8", func(args []Value) (Value, error) { return builtinU8(args) }),
-			"u16":          functionValueOf("std/math.u16", func(args []Value) (Value, error) { return builtinU16(args) }),
-			"u32":          functionValueOf("std/math.u32", func(args []Value) (Value, error) { return builtinU32(args) }),
-			"u64":          functionValueOf("std/math.u64", func(args []Value) (Value, error) { return builtinU64(args) }),
-			"u128":         functionValueOf("std/math.u128", func(args []Value) (Value, error) { return builtinU128(args) }),
-			"u256":         functionValueOf("std/math.u256", func(args []Value) (Value, error) { return builtinU256(args) }),
-			"u512":         functionValueOf("std/math.u512", func(args []Value) (Value, error) { return builtinU512(args) }),
-			"u1024":        functionValueOf("std/math.u1024", func(args []Value) (Value, error) { return builtinU1024(args) }),
-			"uint":         functionValueOf("std/math.uint", func(args []Value) (Value, error) { return builtinUint(args) }),
-			"byte":         functionValueOf("std/math.byte", func(args []Value) (Value, error) { return builtinByte(args) }),
-			"uf8":          functionValueOf("std/math.uf8", func(args []Value) (Value, error) { return builtinUF8(args) }),
-			"uf16":         functionValueOf("std/math.uf16", func(args []Value) (Value, error) { return builtinUF16(args) }),
-			"uf32":         functionValueOf("std/math.uf32", func(args []Value) (Value, error) { return builtinUF32(args) }),
-			"ufnum":        functionValueOf("std/math.ufnum", func(args []Value) (Value, error) { return builtinUFNum(args) }),
-			"uf64":         functionValueOf("std/math.uf64", func(args []Value) (Value, error) { return builtinUF64(args) }),
-			"uf128":        functionValueOf("std/math.uf128", func(args []Value) (Value, error) { return builtinUF128(args) }),
-			"uf256":        functionValueOf("std/math.uf256", func(args []Value) (Value, error) { return builtinUF256(args) }),
-			"uf512":        functionValueOf("std/math.uf512", func(args []Value) (Value, error) { return builtinUF512(args) }),
-			"uf1024":       functionValueOf("std/math.uf1024", func(args []Value) (Value, error) { return builtinUF1024(args) }),
-			"f32":          functionValueOf("std/math.f32", func(args []Value) (Value, error) { return builtinF32(args) }),
-			"f64":          functionValueOf("std/math.f64", func(args []Value) (Value, error) { return builtinF64(args) }),
-			"bf8":          functionValueOf("std/math.bf8", func(args []Value) (Value, error) { return builtinBF8(args) }),
-			"bf16":         functionValueOf("std/math.bf16", func(args []Value) (Value, error) { return builtinBF16(args) }),
-			"bf32":         functionValueOf("std/math.bf32", func(args []Value) (Value, error) { return builtinBF32(args) }),
-			"bf64":         functionValueOf("std/math.bf64", func(args []Value) (Value, error) { return builtinBF64(args) }),
-			"bf128":        functionValueOf("std/math.bf128", func(args []Value) (Value, error) { return builtinBF128(args) }),
-			"bf256":        functionValueOf("std/math.bf256", func(args []Value) (Value, error) { return builtinBF256(args) }),
-			"bf512":        functionValueOf("std/math.bf512", func(args []Value) (Value, error) { return builtinBF512(args) }),
-			"bf1024":       functionValueOf("std/math.bf1024", func(args []Value) (Value, error) { return builtinBF1024(args) }),
-			"sin":          functionValueOf("std/math.sin", func(args []Value) (Value, error) { return builtinSin(args) }),
-			"cos":          functionValueOf("std/math.cos", func(args []Value) (Value, error) { return builtinCos(args) }),
-			"tan":          functionValueOf("std/math.tan", func(args []Value) (Value, error) { return builtinTan(args) }),
-			"asin":         functionValueOf("std/math.asin", func(args []Value) (Value, error) { return builtinAsin(args) }),
-			"acos":         functionValueOf("std/math.acos", func(args []Value) (Value, error) { return builtinAcos(args) }),
-			"atan":         functionValueOf("std/math.atan", func(args []Value) (Value, error) { return builtinAtan(args) }),
-			"sinh":         functionValueOf("std/math.sinh", sinhValue),
-			"cosh":         functionValueOf("std/math.cosh", coshValue),
-			"tanh":         functionValueOf("std/math.tanh", tanhValue),
-			"asinh":        functionValueOf("std/math.asinh", asinhValue),
-			"acosh":        functionValueOf("std/math.acosh", acoshValue),
-			"atanh":        functionValueOf("std/math.atanh", atanhValue),
-			"expm1":        functionValueOf("std/math.expm1", expm1Value),
-			"log1p":        functionValueOf("std/math.log1p", log1pValue),
-			"cbrt":         functionValueOf("std/math.cbrt", cbrtValue),
-			"erf":          functionValueOf("std/math.erf", erfValue),
-			"erfc":         functionValueOf("std/math.erfc", erfcValue),
-			"gamma":        functionValueOf("std/math.gamma", gammaValue),
-			"lgamma":       functionValueOf("std/math.lgamma", lgammaValue),
-			"complex":      functionValueOf("std/math.complex", func(args []Value) (Value, error) { return builtinComplex(args) }),
-			"dual":         functionValueOf("std/math.dual", dualValueFromArgs),
-			"primal":       functionValueOf("std/math.primal", primalValue),
-			"tangent":      functionValueOf("std/math.tangent", tangentValue),
-			"real":         functionValueOf("std/math.real", func(args []Value) (Value, error) { return builtinReal(args) }),
-			"imag":         functionValueOf("std/math.imag", func(args []Value) (Value, error) { return builtinImag(args) }),
-			"conjugate":    functionValueOf("std/math.conjugate", func(args []Value) (Value, error) { return conjugateValue(args) }),
-			"magnitude":    functionValueOf("std/math.magnitude", func(args []Value) (Value, error) { return builtinMagnitude(args) }),
-			"exp":          functionValueOf("std/math.exp", func(args []Value) (Value, error) { return builtinExp(args) }),
-			"pow":          functionValueOf("std/math.pow", func(args []Value) (Value, error) { return builtinPow(args) }),
-			"expt":         functionValueOf("std/math.expt", func(args []Value) (Value, error) { return builtinExpt(args) }),
-			"log":          functionValueOf("std/math.log", func(args []Value) (Value, error) { return builtinLog(args) }),
-			"log10":        functionValueOf("std/math.log10", func(args []Value) (Value, error) { return builtinLog10(args) }),
-			"log2":         functionValueOf("std/math.log2", func(args []Value) (Value, error) { return builtinLog2(args) }),
-			"rat":          functionValueOf("std/math.rat", func(args []Value) (Value, error) { return decimalValueFromArgs(args) }),
-			"rational":     functionValueOf("std/math.rational", func(args []Value) (Value, error) { return decimalValueFromArgs(args) }),
-			"interval":     functionValueOf("std/math.interval", func(args []Value) (Value, error) { return intervalValueFromArgs(args) }),
-			"modint":       functionValueOf("std/math.modint", func(args []Value) (Value, error) { return modIntValueFromArgs(args) }),
-			"fixed":        functionValueOf("std/math.fixed", func(args []Value) (Value, error) { return fixedValueFromArgs(args) }),
-			"zeros":        functionValueOf("std/math.zeros", zerosValue),
-			"ones":         functionValueOf("std/math.ones", onesValue),
-			"full":         functionValueOf("std/math.full", fullValue),
-			"eye":          functionValueOf("std/math.eye", eyeValue),
-			"identity":     functionValueOf("std/math.identity", identityValue),
-			"arange":       functionValueOf("std/math.arange", arangeValue),
-			"linspace":     functionValueOf("std/math.linspace", linspaceValue),
-			"logspace":     functionValueOf("std/math.logspace", logspaceValue),
-			"bigint":       functionValueOf("std/math.bigint", func(args []Value) (Value, error) { return builtinBigInt(args) }),
-			"bigfloat":     functionValueOf("std/math.bigfloat", func(args []Value) (Value, error) { return builtinBigFloat(args) }),
-			"hypot":        functionValueOf("std/math.hypot", func(args []Value) (Value, error) { return builtinHypot(args) }),
-			"norm":         functionValueOf("std/math.norm", func(args []Value) (Value, error) { return builtinNorm(args) }),
-			"vector":       functionValueOf("std/math.vector", func(args []Value) (Value, error) { return builtinVector(args) }),
-			"vec":          functionValueOf("std/math.vec", func(args []Value) (Value, error) { return builtinVector(args) }),
-			"shape":        functionValueOf("std/math.shape", func(args []Value) (Value, error) { return tensorShapeValue(args) }),
-			"flatten":      functionValueOf("std/math.flatten", func(args []Value) (Value, error) { return tensorFlattenValue(args) }),
-			"squeeze":      functionValueOf("std/math.squeeze", func(args []Value) (Value, error) { return tensorSqueezeValue(args) }),
-			"expand_dims":  functionValueOf("std/math.expand_dims", func(args []Value) (Value, error) { return tensorExpandDimsValue(args) }),
-			"concat":       functionValueOf("std/math.concat", func(args []Value) (Value, error) { return tensorConcatValue(args) }),
-			"stack":        functionValueOf("std/math.stack", func(args []Value) (Value, error) { return tensorStackValue(args) }),
-			"broadcast_to": functionValueOf("std/math.broadcast_to", func(args []Value) (Value, error) { return tensorBroadcastToValue(args) }),
-			"where":        functionValueOf("std/math.where", func(args []Value) (Value, error) { return tensorWhereValue(args) }),
-			"clip":         functionValueOf("std/math.clip", func(args []Value) (Value, error) { return tensorClipValue(args) }),
-			"gather":       functionValueOf("std/math.gather", func(args []Value) (Value, error) { return tensorGatherValue(args) }),
-			"scatter":      functionValueOf("std/math.scatter", func(args []Value) (Value, error) { return tensorScatterValue(args) }),
-			"pad":          functionValueOf("std/math.pad", func(args []Value) (Value, error) { return tensorPadValue(args) }),
-			"tile":         functionValueOf("std/math.tile", func(args []Value) (Value, error) { return tensorTileValue(args) }),
-			"transpose":    functionValueOf("std/math.transpose", func(args []Value) (Value, error) { return tensorTransposeValue(args) }),
-			"dot":          functionValueOf("std/math.dot", func(args []Value) (Value, error) { return tensorDotValue(args) }),
-			"matmul":       functionValueOf("std/math.matmul", func(args []Value) (Value, error) { return tensorMatMulValue(args) }),
-			"outer":        functionValueOf("std/math.outer", func(args []Value) (Value, error) { return outerValue(args) }),
-			"trace":        functionValueOf("std/math.trace", func(args []Value) (Value, error) { return traceValue(args) }),
-			"det":          functionValueOf("std/math.det", func(args []Value) (Value, error) { return detValue(args) }),
-			"solve":        functionValueOf("std/math.solve", func(args []Value) (Value, error) { return solveValue(args) }),
-			"inv":          functionValueOf("std/math.inv", func(args []Value) (Value, error) { return invValue(args) }),
-			"qr":           functionValueOf("std/math.qr", func(args []Value) (Value, error) { return qrValue(args) }),
-			"cholesky":     functionValueOf("std/math.cholesky", func(args []Value) (Value, error) { return choleskyValue(args) }),
-			"eig":          functionValueOf("std/math.eig", func(args []Value) (Value, error) { return eigValue(args) }),
-			"eigh":         functionValueOf("std/math.eigh", func(args []Value) (Value, error) { return eighValue(args) }),
-			"svd":          functionValueOf("std/math.svd", func(args []Value) (Value, error) { return svdValue(args) }),
-			"reshape":      functionValueOf("std/math.reshape", func(args []Value) (Value, error) { return tensorReshapeValue(args) }),
-			"tensor":       functionValueOf("std/math.tensor", func(args []Value) (Value, error) { return tensorValueFromArgs(args) }),
-			"matrix":       functionValueOf("std/math.matrix", func(args []Value) (Value, error) { return matrixValueFromArgs(args) }),
-			"min":          functionValueOf("std/math.min", func(args []Value) (Value, error) { return builtinMin(args) }),
-			"max":          functionValueOf("std/math.max", func(args []Value) (Value, error) { return builtinMax(args) }),
-			"clamp":        functionValueOf("std/math.clamp", func(args []Value) (Value, error) { return builtinClamp(args) }),
-			"floor":        functionValueOf("std/math.floor", func(args []Value) (Value, error) { return builtinFloor(args) }),
-			"ceil":         functionValueOf("std/math.ceil", func(args []Value) (Value, error) { return builtinCeil(args) }),
-			"round":        functionValueOf("std/math.round", func(args []Value) (Value, error) { return builtinRound(args) }),
-			"sqrt":         functionValueOf("std/math.sqrt", func(args []Value) (Value, error) { return builtinSqrt(args) }),
-			"sign":         functionValueOf("std/math.sign", signValue),
-			"step":         functionValueOf("std/math.step", stepValue),
-			"heaviside":    functionValueOf("std/math.heaviside", heavisideValue),
-			"relu":         functionValueOf("std/math.relu", reluValue),
-			"sigmoid":      functionValueOf("std/math.sigmoid", sigmoidValue),
-			"softplus":     functionValueOf("std/math.softplus", softplusValue),
-			"mean":         functionValueOf("std/math.mean", meanValue),
-			"var":          functionValueOf("std/math.var", varValue),
-			"std":          functionValueOf("std/math.std", stdValue),
-			"median":       functionValueOf("std/math.median", medianValue),
-			"quantile":     functionValueOf("std/math.quantile", quantileValue),
-			"percentile":   functionValueOf("std/math.percentile", percentileValue),
-			"argmin":       functionValueOf("std/math.argmin", argminValue),
-			"argmax":       functionValueOf("std/math.argmax", argmaxValue),
-			"any":          functionValueOf("std/math.any", anyValue),
-			"all":          functionValueOf("std/math.all", allValue),
-			"cumsum":       functionValueOf("std/math.cumsum", cumsumValue),
-			"cumprod":      functionValueOf("std/math.cumprod", cumprodValue),
+			"pi":                  numberValue(math.Pi),
+			"tau":                 numberValue(math.Pi * 2),
+			"abs":                 functionValueOf("std/math.abs", func(args []Value) (Value, error) { return builtinAbs(args) }),
+			"i8":                  functionValueOf("std/math.i8", func(args []Value) (Value, error) { return builtinI8(args) }),
+			"i16":                 functionValueOf("std/math.i16", func(args []Value) (Value, error) { return builtinI16(args) }),
+			"i32":                 functionValueOf("std/math.i32", func(args []Value) (Value, error) { return builtinI32(args) }),
+			"i64":                 functionValueOf("std/math.i64", func(args []Value) (Value, error) { return builtinI64(args) }),
+			"i128":                functionValueOf("std/math.i128", func(args []Value) (Value, error) { return builtinI128(args) }),
+			"i256":                functionValueOf("std/math.i256", func(args []Value) (Value, error) { return builtinI256(args) }),
+			"i512":                functionValueOf("std/math.i512", func(args []Value) (Value, error) { return builtinI512(args) }),
+			"i1024":               functionValueOf("std/math.i1024", func(args []Value) (Value, error) { return builtinI1024(args) }),
+			"u8":                  functionValueOf("std/math.u8", func(args []Value) (Value, error) { return builtinU8(args) }),
+			"u16":                 functionValueOf("std/math.u16", func(args []Value) (Value, error) { return builtinU16(args) }),
+			"u32":                 functionValueOf("std/math.u32", func(args []Value) (Value, error) { return builtinU32(args) }),
+			"u64":                 functionValueOf("std/math.u64", func(args []Value) (Value, error) { return builtinU64(args) }),
+			"u128":                functionValueOf("std/math.u128", func(args []Value) (Value, error) { return builtinU128(args) }),
+			"u256":                functionValueOf("std/math.u256", func(args []Value) (Value, error) { return builtinU256(args) }),
+			"u512":                functionValueOf("std/math.u512", func(args []Value) (Value, error) { return builtinU512(args) }),
+			"u1024":               functionValueOf("std/math.u1024", func(args []Value) (Value, error) { return builtinU1024(args) }),
+			"uint":                functionValueOf("std/math.uint", func(args []Value) (Value, error) { return builtinUint(args) }),
+			"byte":                functionValueOf("std/math.byte", func(args []Value) (Value, error) { return builtinByte(args) }),
+			"uf8":                 functionValueOf("std/math.uf8", func(args []Value) (Value, error) { return builtinUF8(args) }),
+			"uf16":                functionValueOf("std/math.uf16", func(args []Value) (Value, error) { return builtinUF16(args) }),
+			"uf32":                functionValueOf("std/math.uf32", func(args []Value) (Value, error) { return builtinUF32(args) }),
+			"ufnum":               functionValueOf("std/math.ufnum", func(args []Value) (Value, error) { return builtinUFNum(args) }),
+			"uf64":                functionValueOf("std/math.uf64", func(args []Value) (Value, error) { return builtinUF64(args) }),
+			"uf128":               functionValueOf("std/math.uf128", func(args []Value) (Value, error) { return builtinUF128(args) }),
+			"uf256":               functionValueOf("std/math.uf256", func(args []Value) (Value, error) { return builtinUF256(args) }),
+			"uf512":               functionValueOf("std/math.uf512", func(args []Value) (Value, error) { return builtinUF512(args) }),
+			"uf1024":              functionValueOf("std/math.uf1024", func(args []Value) (Value, error) { return builtinUF1024(args) }),
+			"f32":                 functionValueOf("std/math.f32", func(args []Value) (Value, error) { return builtinF32(args) }),
+			"f64":                 functionValueOf("std/math.f64", func(args []Value) (Value, error) { return builtinF64(args) }),
+			"bf8":                 functionValueOf("std/math.bf8", func(args []Value) (Value, error) { return builtinBF8(args) }),
+			"bf16":                functionValueOf("std/math.bf16", func(args []Value) (Value, error) { return builtinBF16(args) }),
+			"bf32":                functionValueOf("std/math.bf32", func(args []Value) (Value, error) { return builtinBF32(args) }),
+			"bf64":                functionValueOf("std/math.bf64", func(args []Value) (Value, error) { return builtinBF64(args) }),
+			"bf128":               functionValueOf("std/math.bf128", func(args []Value) (Value, error) { return builtinBF128(args) }),
+			"bf256":               functionValueOf("std/math.bf256", func(args []Value) (Value, error) { return builtinBF256(args) }),
+			"bf512":               functionValueOf("std/math.bf512", func(args []Value) (Value, error) { return builtinBF512(args) }),
+			"bf1024":              functionValueOf("std/math.bf1024", func(args []Value) (Value, error) { return builtinBF1024(args) }),
+			"sin":                 functionValueOf("std/math.sin", func(args []Value) (Value, error) { return builtinSin(args) }),
+			"cos":                 functionValueOf("std/math.cos", func(args []Value) (Value, error) { return builtinCos(args) }),
+			"tan":                 functionValueOf("std/math.tan", func(args []Value) (Value, error) { return builtinTan(args) }),
+			"asin":                functionValueOf("std/math.asin", func(args []Value) (Value, error) { return builtinAsin(args) }),
+			"acos":                functionValueOf("std/math.acos", func(args []Value) (Value, error) { return builtinAcos(args) }),
+			"atan":                functionValueOf("std/math.atan", func(args []Value) (Value, error) { return builtinAtan(args) }),
+			"atan2":               functionValueOf("std/math.atan2", atan2Value),
+			"exp2":                functionValueOf("std/math.exp2", exp2Value),
+			"trunc":               functionValueOf("std/math.trunc", truncValue),
+			"fmod":                functionValueOf("std/math.fmod", fmodValue),
+			"remainder":           functionValueOf("std/math.remainder", remainderValue),
+			"fma":                 functionValueOf("std/math.fma", fmaValue),
+			"positive_difference": functionValueOf("std/math.positive_difference", positiveDifferenceValue),
+			"copysign":            functionValueOf("std/math.copysign", copySignValue),
+			"nextafter":           functionValueOf("std/math.nextafter", nextAfterValue),
+			"frexp":               functionValueOf("std/math.frexp", frexpValue),
+			"ldexp":               functionValueOf("std/math.ldexp", ldexpValue),
+			"modf":                functionValueOf("std/math.modf", modfValue),
+			"isfinite":            functionValueOf("std/math.isfinite", isFiniteValue),
+			"isinf":               functionValueOf("std/math.isinf", isInfValue),
+			"isnan":               functionValueOf("std/math.isnan", isNaNValue),
+			"isnormal":            functionValueOf("std/math.isnormal", isNormalValue),
+			"signbit":             functionValueOf("std/math.signbit", signBitValue),
+			"degrees":             functionValueOf("std/math.degrees", degreesValue),
+			"radians":             functionValueOf("std/math.radians", radiansValue),
+			"sinpi":               functionValueOf("std/math.sinpi", sinPiValue),
+			"cospi":               functionValueOf("std/math.cospi", cosPiValue),
+			"tanpi":               functionValueOf("std/math.tanpi", tanPiValue),
+			"divmod":              functionValueOf("std/math.divmod", divmodValue),
+			"gcd":                 functionValueOf("std/math.gcd", gcdValue),
+			"lcm":                 functionValueOf("std/math.lcm", lcmValue),
+			"count_ones":          functionValueOf("std/math.count_ones", countOnesValue),
+			"count_zeros":         functionValueOf("std/math.count_zeros", countZerosValue),
+			"leading_zeros":       functionValueOf("std/math.leading_zeros", leadingZerosValue),
+			"trailing_zeros":      functionValueOf("std/math.trailing_zeros", trailingZerosValue),
+			"bit_width":           functionValueOf("std/math.bit_width", bitWidthValue),
+			"bit_floor":           functionValueOf("std/math.bit_floor", bitFloorValue),
+			"bit_ceil":            functionValueOf("std/math.bit_ceil", bitCeilValue),
+			"has_single_bit":      functionValueOf("std/math.has_single_bit", hasSingleBitValue),
+			"byte_swap":           functionValueOf("std/math.byte_swap", byteSwapValue),
+			"phase":               functionValueOf("std/math.phase", phaseValue),
+			"sinh":                functionValueOf("std/math.sinh", sinhValue),
+			"cosh":                functionValueOf("std/math.cosh", coshValue),
+			"tanh":                functionValueOf("std/math.tanh", tanhValue),
+			"asinh":               functionValueOf("std/math.asinh", asinhValue),
+			"acosh":               functionValueOf("std/math.acosh", acoshValue),
+			"atanh":               functionValueOf("std/math.atanh", atanhValue),
+			"expm1":               functionValueOf("std/math.expm1", expm1Value),
+			"log1p":               functionValueOf("std/math.log1p", log1pValue),
+			"cbrt":                functionValueOf("std/math.cbrt", cbrtValue),
+			"erf":                 functionValueOf("std/math.erf", erfValue),
+			"erfc":                functionValueOf("std/math.erfc", erfcValue),
+			"gamma":               functionValueOf("std/math.gamma", gammaValue),
+			"lgamma":              functionValueOf("std/math.lgamma", lgammaValue),
+			"complex":             functionValueOf("std/math.complex", func(args []Value) (Value, error) { return builtinComplex(args) }),
+			"dual":                functionValueOf("std/math.dual", dualValueFromArgs),
+			"primal":              functionValueOf("std/math.primal", primalValue),
+			"tangent":             functionValueOf("std/math.tangent", tangentValue),
+			"real":                functionValueOf("std/math.real", func(args []Value) (Value, error) { return builtinReal(args) }),
+			"imag":                functionValueOf("std/math.imag", func(args []Value) (Value, error) { return builtinImag(args) }),
+			"conjugate":           functionValueOf("std/math.conjugate", func(args []Value) (Value, error) { return conjugateValue(args) }),
+			"magnitude":           functionValueOf("std/math.magnitude", func(args []Value) (Value, error) { return builtinMagnitude(args) }),
+			"exp":                 functionValueOf("std/math.exp", func(args []Value) (Value, error) { return builtinExp(args) }),
+			"pow":                 functionValueOf("std/math.pow", func(args []Value) (Value, error) { return builtinPow(args) }),
+			"expt":                functionValueOf("std/math.expt", func(args []Value) (Value, error) { return builtinExpt(args) }),
+			"log":                 functionValueOf("std/math.log", func(args []Value) (Value, error) { return builtinLog(args) }),
+			"log10":               functionValueOf("std/math.log10", func(args []Value) (Value, error) { return builtinLog10(args) }),
+			"log2":                functionValueOf("std/math.log2", func(args []Value) (Value, error) { return builtinLog2(args) }),
+			"rat":                 functionValueOf("std/math.rat", func(args []Value) (Value, error) { return decimalValueFromArgs(args) }),
+			"rational":            functionValueOf("std/math.rational", func(args []Value) (Value, error) { return decimalValueFromArgs(args) }),
+			"interval":            functionValueOf("std/math.interval", func(args []Value) (Value, error) { return intervalValueFromArgs(args) }),
+			"modint":              functionValueOf("std/math.modint", func(args []Value) (Value, error) { return modIntValueFromArgs(args) }),
+			"fixed":               functionValueOf("std/math.fixed", func(args []Value) (Value, error) { return fixedValueFromArgs(args) }),
+			"zeros":               functionValueOf("std/math.zeros", zerosValue),
+			"ones":                functionValueOf("std/math.ones", onesValue),
+			"full":                functionValueOf("std/math.full", fullValue),
+			"eye":                 functionValueOf("std/math.eye", eyeValue),
+			"identity":            functionValueOf("std/math.identity", identityValue),
+			"arange":              functionValueOf("std/math.arange", arangeValue),
+			"linspace":            functionValueOf("std/math.linspace", linspaceValue),
+			"logspace":            functionValueOf("std/math.logspace", logspaceValue),
+			"bigint":              functionValueOf("std/math.bigint", func(args []Value) (Value, error) { return builtinBigInt(args) }),
+			"bigfloat":            functionValueOf("std/math.bigfloat", func(args []Value) (Value, error) { return builtinBigFloat(args) }),
+			"hypot":               functionValueOf("std/math.hypot", func(args []Value) (Value, error) { return builtinHypot(args) }),
+			"norm":                functionValueOf("std/math.norm", func(args []Value) (Value, error) { return builtinNorm(args) }),
+			"vector":              functionValueOf("std/math.vector", func(args []Value) (Value, error) { return builtinVector(args) }),
+			"vec":                 functionValueOf("std/math.vec", func(args []Value) (Value, error) { return builtinVector(args) }),
+			"shape":               functionValueOf("std/math.shape", func(args []Value) (Value, error) { return tensorShapeValue(args) }),
+			"flatten":             functionValueOf("std/math.flatten", func(args []Value) (Value, error) { return tensorFlattenValue(args) }),
+			"squeeze":             functionValueOf("std/math.squeeze", func(args []Value) (Value, error) { return tensorSqueezeValue(args) }),
+			"expand_dims":         functionValueOf("std/math.expand_dims", func(args []Value) (Value, error) { return tensorExpandDimsValue(args) }),
+			"concat":              functionValueOf("std/math.concat", func(args []Value) (Value, error) { return tensorConcatValue(args) }),
+			"stack":               functionValueOf("std/math.stack", func(args []Value) (Value, error) { return tensorStackValue(args) }),
+			"broadcast_to":        functionValueOf("std/math.broadcast_to", func(args []Value) (Value, error) { return tensorBroadcastToValue(args) }),
+			"where":               functionValueOf("std/math.where", func(args []Value) (Value, error) { return tensorWhereValue(args) }),
+			"clip":                functionValueOf("std/math.clip", func(args []Value) (Value, error) { return tensorClipValue(args) }),
+			"gather":              functionValueOf("std/math.gather", func(args []Value) (Value, error) { return tensorGatherValue(args) }),
+			"scatter":             functionValueOf("std/math.scatter", func(args []Value) (Value, error) { return tensorScatterValue(args) }),
+			"pad":                 functionValueOf("std/math.pad", func(args []Value) (Value, error) { return tensorPadValue(args) }),
+			"tile":                functionValueOf("std/math.tile", func(args []Value) (Value, error) { return tensorTileValue(args) }),
+			"transpose":           functionValueOf("std/math.transpose", func(args []Value) (Value, error) { return tensorTransposeValue(args) }),
+			"dot":                 functionValueOf("std/math.dot", func(args []Value) (Value, error) { return tensorDotValue(args) }),
+			"matmul":              functionValueOf("std/math.matmul", func(args []Value) (Value, error) { return tensorMatMulValue(args) }),
+			"outer":               functionValueOf("std/math.outer", func(args []Value) (Value, error) { return outerValue(args) }),
+			"trace":               functionValueOf("std/math.trace", func(args []Value) (Value, error) { return traceValue(args) }),
+			"det":                 functionValueOf("std/math.det", func(args []Value) (Value, error) { return detValue(args) }),
+			"solve":               functionValueOf("std/math.solve", func(args []Value) (Value, error) { return solveValue(args) }),
+			"inv":                 functionValueOf("std/math.inv", func(args []Value) (Value, error) { return invValue(args) }),
+			"qr":                  functionValueOf("std/math.qr", func(args []Value) (Value, error) { return qrValue(args) }),
+			"cholesky":            functionValueOf("std/math.cholesky", func(args []Value) (Value, error) { return choleskyValue(args) }),
+			"eig":                 functionValueOf("std/math.eig", func(args []Value) (Value, error) { return eigValue(args) }),
+			"eigh":                functionValueOf("std/math.eigh", func(args []Value) (Value, error) { return eighValue(args) }),
+			"svd":                 functionValueOf("std/math.svd", func(args []Value) (Value, error) { return svdValue(args) }),
+			"reshape":             functionValueOf("std/math.reshape", func(args []Value) (Value, error) { return tensorReshapeValue(args) }),
+			"tensor":              functionValueOf("std/math.tensor", func(args []Value) (Value, error) { return tensorValueFromArgs(args) }),
+			"matrix":              functionValueOf("std/math.matrix", func(args []Value) (Value, error) { return matrixValueFromArgs(args) }),
+			"min":                 functionValueOf("std/math.min", func(args []Value) (Value, error) { return builtinMin(args) }),
+			"max":                 functionValueOf("std/math.max", func(args []Value) (Value, error) { return builtinMax(args) }),
+			"clamp":               functionValueOf("std/math.clamp", func(args []Value) (Value, error) { return builtinClamp(args) }),
+			"floor":               functionValueOf("std/math.floor", func(args []Value) (Value, error) { return builtinFloor(args) }),
+			"ceil":                functionValueOf("std/math.ceil", func(args []Value) (Value, error) { return builtinCeil(args) }),
+			"round":               functionValueOf("std/math.round", func(args []Value) (Value, error) { return builtinRound(args) }),
+			"sqrt":                functionValueOf("std/math.sqrt", func(args []Value) (Value, error) { return builtinSqrt(args) }),
+			"sign":                functionValueOf("std/math.sign", signValue),
+			"step":                functionValueOf("std/math.step", stepValue),
+			"heaviside":           functionValueOf("std/math.heaviside", heavisideValue),
+			"relu":                functionValueOf("std/math.relu", reluValue),
+			"sigmoid":             functionValueOf("std/math.sigmoid", sigmoidValue),
+			"softplus":            functionValueOf("std/math.softplus", softplusValue),
+			"mean":                functionValueOf("std/math.mean", meanValue),
+			"var":                 functionValueOf("std/math.var", varValue),
+			"std":                 functionValueOf("std/math.std", stdValue),
+			"median":              functionValueOf("std/math.median", medianValue),
+			"quantile":            functionValueOf("std/math.quantile", quantileValue),
+			"percentile":          functionValueOf("std/math.percentile", percentileValue),
+			"argmin":              functionValueOf("std/math.argmin", argminValue),
+			"argmax":              functionValueOf("std/math.argmax", argmaxValue),
+			"any":                 functionValueOf("std/math.any", anyValue),
+			"all":                 functionValueOf("std/math.all", allValue),
+			"cumsum":              functionValueOf("std/math.cumsum", cumsumValue),
+			"cumprod":             functionValueOf("std/math.cumprod", cumprodValue),
 		}), nil
 	case "std/crypto":
 		version := "1.0.0"
@@ -545,21 +607,27 @@ func builtinCat(args []Value) (Value, error) { return catValue(args) }
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func builtinUpper(args []Value) (Value, error) { return oneString(args, strings.ToUpper) }
+func builtinUpper(args []Value) (Value, error) {
+	return textUnaryTransformValue("upper", args, strings.ToUpper)
+}
 
 // builtinLower handles the builtin lower step in the surrounding package and
 // returns Value, error.
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func builtinLower(args []Value) (Value, error) { return oneString(args, strings.ToLower) }
+func builtinLower(args []Value) (Value, error) {
+	return textUnaryTransformValue("lower", args, strings.ToLower)
+}
 
 // builtinTrim handles the builtin trim step in the surrounding package and
 // returns Value, error.
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func builtinTrim(args []Value) (Value, error) { return oneString(args, strings.TrimSpace) }
+func builtinTrim(args []Value) (Value, error) {
+	return textUnaryTransformValue("trim", args, strings.TrimSpace)
+}
 
 // builtinReplace handles the builtin replace step in the surrounding package
 // and returns Value, error.
@@ -1139,22 +1207,6 @@ func builtinVector(args []Value) (Value, error) { return vectorValueFromArgs(arg
 // error is nil.
 func builtinNoise(args []Value) (Value, error) { return noiseValue(args), nil }
 
-// oneString handles the one string step in the surrounding package and returns
-// Value, error.
-//
-// It returns Value and an error. Callers should only trust the value when the
-// error is nil.
-func oneString(args []Value, fn func(string) string) (Value, error) {
-	if len(args) != 1 {
-		return nullValue(), fmt.Errorf("expected 1 argument")
-	}
-	s, err := args[0].AsString()
-	if err != nil {
-		return nullValue(), err
-	}
-	return stringValue(fn(s)), nil
-}
-
 // catValue handles the cat value step in the surrounding package and returns
 // Value, error.
 //
@@ -1174,22 +1226,14 @@ func catValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func replaceValue(args []Value) (Value, error) {
-	if len(args) != 3 {
-		return nullValue(), fmt.Errorf("replace expects 3 arguments")
-	}
-	s, err := args[0].AsString()
+	text, old, replacement, err := textThreeStrings("replace", args)
 	if err != nil {
 		return nullValue(), err
 	}
-	old, err := args[1].AsString()
-	if err != nil {
+	if err := textReplacementSize("replace", text, old, replacement, -1); err != nil {
 		return nullValue(), err
 	}
-	newv, err := args[2].AsString()
-	if err != nil {
-		return nullValue(), err
-	}
-	return stringValue(strings.ReplaceAll(s, old, newv)), nil
+	return stringValue(strings.ReplaceAll(text, old, replacement)), nil
 }
 
 // repeatValue handles the repeat value step in the surrounding package and
@@ -1198,19 +1242,22 @@ func replaceValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func repeatValue(args []Value) (Value, error) {
-	if len(args) != 2 {
-		return nullValue(), fmt.Errorf("repeat expects 2 arguments")
+	if err := textArity("repeat", args, 2); err != nil {
+		return nullValue(), err
 	}
-	s, err := args[0].AsString()
+	s, err := textStringArgument("repeat", args, 0)
 	if err != nil {
 		return nullValue(), err
 	}
-	n, err := args[1].Int()
+	n, err := textLimitArgument("repeat", args, 1)
 	if err != nil {
 		return nullValue(), err
 	}
 	if n < 0 {
-		return nullValue(), fmt.Errorf("repeat count must be non-negative")
+		return nullValue(), textFailure(ErrorKindOutOfRange, "repeat argument 2 must be non-negative")
+	}
+	if len(s) > 0 && n > int(^uint(0)>>1)/len(s) {
+		return nullValue(), textFailure(ErrorKindOutOfRange, "repeat result exceeds the host allocation limit")
 	}
 	return stringValue(strings.Repeat(s, n)), nil
 }
@@ -1221,23 +1268,11 @@ func repeatValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func splitValue(args []Value) (Value, error) {
-	if len(args) != 2 {
-		return nullValue(), fmt.Errorf("split expects 2 arguments")
-	}
-	s, err := args[0].AsString()
+	s, sep, err := textTwoStrings("split", args)
 	if err != nil {
 		return nullValue(), err
 	}
-	sep, err := args[1].AsString()
-	if err != nil {
-		return nullValue(), err
-	}
-	parts := strings.Split(s, sep)
-	out := make([]Value, len(parts))
-	for i := range parts {
-		out[i] = stringValue(parts[i])
-	}
-	return listValue(out), nil
+	return textStringList(strings.Split(s, sep)), nil
 }
 
 // chunksValue handles the chunks value step in the surrounding package and
@@ -1246,22 +1281,26 @@ func splitValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func chunksValue(args []Value) (Value, error) {
-	if len(args) != 2 {
-		return nullValue(), fmt.Errorf("chunks expects 2 arguments")
+	if err := textArity("chunks", args, 2); err != nil {
+		return nullValue(), err
 	}
-	s, err := args[0].AsString()
+	s, err := textStringArgument("chunks", args, 0)
 	if err != nil {
 		return nullValue(), err
 	}
-	n, err := args[1].Int()
+	n, err := textLimitArgument("chunks", args, 1)
 	if err != nil {
 		return nullValue(), err
 	}
 	if n <= 0 {
-		return nullValue(), fmt.Errorf("chunk size must be positive")
+		return nullValue(), textFailure(ErrorKindOutOfRange, "chunks argument 2 must be positive")
 	}
 	runes := []rune(s)
-	out := make([]Value, 0, (len(runes)+n-1)/n)
+	capacity := len(runes) / n
+	if len(runes)%n != 0 {
+		capacity++
+	}
+	out := make([]Value, 0, capacity)
 	for i := 0; i < len(runes); i += n {
 		j := i + n
 		if j > len(runes) {
@@ -1278,17 +1317,17 @@ func chunksValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func joinValue(args []Value) (Value, error) {
-	if len(args) != 2 {
-		return nullValue(), fmt.Errorf("join expects 2 arguments")
+	if err := textArity("join", args, 2); err != nil {
+		return nullValue(), err
 	}
-	sep, err := args[0].AsString()
+	sep, err := textStringArgument("join", args, 0)
 	if err != nil {
 		return nullValue(), err
 	}
-	items, err := args[1].AsList()
-	if err != nil {
-		return nullValue(), err
+	if args[1].kind != kindList {
+		return nullValue(), textFailure(ErrorKindType, "join argument 2 expects list, got %s", args[1].Kind())
 	}
+	items := args[1].list
 	parts := make([]string, len(items))
 	for i := range items {
 		parts[i] = textify(items[i])
@@ -1302,10 +1341,10 @@ func joinValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func slugValue(args []Value) (Value, error) {
-	if len(args) != 1 {
-		return nullValue(), fmt.Errorf("slug expects 1 argument")
+	if err := textArity("slug", args, 1); err != nil {
+		return nullValue(), err
 	}
-	s, err := args[0].AsString()
+	s, err := textStringArgument("slug", args, 0)
 	if err != nil {
 		return nullValue(), err
 	}
@@ -1606,6 +1645,9 @@ func sqrtValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("sqrt expects 1 argument")
 	}
+	if out, ok, err := complexUnaryValue(args, "sqrt", cmplx.Sqrt); ok {
+		return out, err
+	}
 	n, err := args[0].AsNumber()
 	if err != nil {
 		return nullValue(), err
@@ -1624,6 +1666,9 @@ func sqrtValue(args []Value) (Value, error) {
 func powValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("pow expects 2 arguments")
+	}
+	if out, ok, err := complexPowValue(args); ok {
+		return out, err
 	}
 	if out, ok, err := exactPowValue(args[0], args[1]); ok || err != nil {
 		return out, err
@@ -1648,6 +1693,9 @@ func expValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("exp expects 1 argument")
 	}
+	if out, ok, err := complexUnaryValue(args, "exp", cmplx.Exp); ok {
+		return out, err
+	}
 	n, err := args[0].AsNumber()
 	if err != nil {
 		return nullValue(), err
@@ -1665,6 +1713,9 @@ func expValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func logValue(args []Value) (Value, error) {
+	if out, ok, err := complexLogValue(args); ok {
+		return out, err
+	}
 	switch len(args) {
 	case 1:
 		n, err := args[0].AsNumber()
@@ -1739,6 +1790,20 @@ func log2Value(args []Value) (Value, error) {
 func mathUnaryValue(args []Value, name string, fn func(float64) float64, rejectInvalid bool) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("%s expects 1 argument", name)
+	}
+	if args[0].kind == kindComplex {
+		var complexFn func(complex128) complex128
+		switch name {
+		case "sin":
+			complexFn = cmplx.Sin
+		case "cos":
+			complexFn = cmplx.Cos
+		case "tan":
+			complexFn = cmplx.Tan
+		}
+		if complexFn != nil {
+			return complexValueStyled(complexFn(args[0].cx), args[0].fbits), nil
+		}
 	}
 	n, err := args[0].AsNumber()
 	if err != nil {

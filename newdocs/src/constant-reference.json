@@ -1,0 +1,1204 @@
+{
+  "global": {
+    "id": "global-constants",
+    "title": "Global Constants",
+    "summary": "Built-in units, mathematical and physical constants, and metric scale factors available without an import.",
+    "importLine": "# Global constants are available without an import",
+    "sections": [
+      {
+        "title": "SI Base Units",
+        "source": "BIPM, The International System of Units (SI Brochure), 9th edition, version 4.01, June 2026.",
+        "exactness": "Exact SI unit definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Meter", "meter", "m"],
+            "type": "quantity",
+            "description": "The SI base unit of length.",
+            "value": "A unit-magnitude quantity with the Meter dimension. All three spellings are equal.",
+            "example": "emit 3 * meter"
+          },
+          {
+            "names": ["Second", "second", "s"],
+            "type": "quantity",
+            "description": "The SI base unit of time.",
+            "value": "A unit-magnitude quantity with the Second dimension. All three spellings are equal.",
+            "example": "emit 30 * second"
+          },
+          {
+            "names": ["Kilogram", "kilogram", "kg"],
+            "type": "quantity",
+            "description": "The SI base unit of mass.",
+            "value": "A unit-magnitude quantity with the Kilogram dimension. All three spellings are equal.",
+            "example": "emit 5 * kg"
+          },
+          {
+            "names": ["Ampere", "ampere", "A"],
+            "type": "quantity",
+            "description": "The SI base unit of electric current.",
+            "value": "A unit-magnitude quantity with the Ampere dimension. All three spellings are equal.",
+            "example": "emit 2 * ampere"
+          },
+          {
+            "names": ["Kelvin", "kelvin", "K"],
+            "type": "quantity",
+            "description": "The SI base unit of thermodynamic temperature.",
+            "value": "A unit-magnitude quantity with the Kelvin dimension. All three spellings are equal.",
+            "example": "emit 273 * kelvin"
+          },
+          {
+            "names": ["Mole", "mole", "mol"],
+            "type": "quantity",
+            "description": "The SI base unit for amount of substance.",
+            "value": "A unit-magnitude quantity with the Mole dimension. All three spellings are equal.",
+            "example": "emit 2 * mol"
+          },
+          {
+            "names": ["Candela", "candela", "cd"],
+            "type": "quantity",
+            "description": "The SI base unit of luminous intensity.",
+            "value": "A unit-magnitude quantity with the Candela dimension. All three spellings are equal.",
+            "example": "emit 4 * candela"
+          }
+        ]
+      },
+      {
+        "title": "SI Derived Units",
+        "source": "BIPM, The International System of Units (SI Brochure), 9th edition, version 4.01, June 2026.",
+        "exactness": "Exact coherent SI definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Hertz", "hertz", "Hz"],
+            "type": "quantity",
+            "description": "The SI derived unit of frequency.",
+            "value": "One reciprocal second, with dimension Second^-1.",
+            "example": "emit 60 * Hz"
+          },
+          {
+            "names": ["Newton", "newton", "N"],
+            "type": "quantity",
+            "description": "The SI derived unit of force.",
+            "value": "One kilogram meter per second squared.",
+            "example": "emit 12 * newton"
+          },
+          {
+            "names": ["Pascal", "pascal", "Pa"],
+            "type": "quantity",
+            "description": "The SI derived unit of pressure.",
+            "value": "One kilogram per meter-second squared.",
+            "example": "emit 101325 * Pa"
+          },
+          {
+            "names": ["Joule", "joule", "J"],
+            "type": "quantity",
+            "description": "The SI derived unit of energy.",
+            "value": "One kilogram meter squared per second squared.",
+            "example": "emit 250 * joule"
+          },
+          {
+            "names": ["Watt", "watt", "W"],
+            "type": "quantity",
+            "description": "The SI derived unit of power.",
+            "value": "One joule per second.",
+            "example": "emit 60 * watt"
+          },
+          {
+            "names": ["Coulomb", "coulomb", "C"],
+            "type": "quantity",
+            "description": "The SI derived unit of electric charge.",
+            "value": "One ampere second.",
+            "example": "emit 3 * coulomb"
+          },
+          {
+            "names": ["Volt", "volt", "V"],
+            "type": "quantity",
+            "description": "The SI derived unit of electric potential.",
+            "value": "One kilogram meter squared per second cubed per ampere.",
+            "example": "emit 12 * volt"
+          },
+          {
+            "names": ["Farad", "farad", "F"],
+            "type": "quantity",
+            "description": "The SI derived unit of electrical capacitance.",
+            "value": "One ampere squared second to the fourth per kilogram meter squared.",
+            "example": "emit 2 * micro * farad"
+          },
+          {
+            "names": ["Ohm", "ohm"],
+            "type": "quantity",
+            "description": "The SI derived unit of electrical resistance.",
+            "value": "One kilogram meter squared per second cubed per ampere squared.",
+            "example": "emit 8 * ohm"
+          },
+          {
+            "names": ["Siemens", "siemens", "S"],
+            "type": "quantity",
+            "description": "The SI derived unit of electrical conductance.",
+            "value": "The reciprocal of an ohm.",
+            "example": "emit 2 * siemens"
+          },
+          {
+            "names": ["Weber", "weber", "Wb"],
+            "type": "quantity",
+            "description": "The SI derived unit of magnetic flux.",
+            "value": "One kilogram meter squared per second squared per ampere.",
+            "example": "emit 3 * weber"
+          },
+          {
+            "names": ["Tesla", "tesla", "T"],
+            "type": "quantity",
+            "description": "The SI derived unit of magnetic flux density.",
+            "value": "One kilogram per second squared per ampere.",
+            "example": "emit 2 * tesla"
+          },
+          {
+            "names": ["Henry", "henry", "H"],
+            "type": "quantity",
+            "description": "The SI derived unit of electrical inductance.",
+            "value": "One kilogram meter squared per second squared per ampere squared.",
+            "example": "emit 4 * henry"
+          },
+          {
+            "names": ["Lumen", "lumen", "lm"],
+            "type": "quantity",
+            "description": "The SI derived unit of luminous flux.",
+            "value": "A Candela-dimension quantity; solid angle is dimensionless in the runtime model.",
+            "example": "emit 800 * lumen"
+          },
+          {
+            "names": ["Lux", "lux", "lx"],
+            "type": "quantity",
+            "description": "The SI derived unit of illuminance.",
+            "value": "One lumen per square meter.",
+            "example": "emit 500 * lux"
+          },
+          {
+            "names": ["Becquerel", "becquerel", "Bq"],
+            "type": "quantity",
+            "description": "The SI derived unit of radioactive activity.",
+            "value": "One reciprocal second.",
+            "example": "emit 20 * Bq"
+          },
+          {
+            "names": ["Gray", "gray", "Gy"],
+            "type": "quantity",
+            "description": "The SI derived unit of absorbed radiation dose.",
+            "value": "One square meter per second squared.",
+            "example": "emit 2 * gray"
+          },
+          {
+            "names": ["Sievert", "sievert", "Sv"],
+            "type": "quantity",
+            "description": "The SI derived unit of equivalent radiation dose.",
+            "value": "One square meter per second squared.",
+            "example": "emit 1 * sievert"
+          },
+          {
+            "names": ["Katal", "katal", "kat"],
+            "type": "quantity",
+            "description": "The SI derived unit of catalytic activity.",
+            "value": "One mole per second.",
+            "example": "emit 2 * katal"
+          }
+        ]
+      },
+      {
+        "title": "Scaled Units",
+        "source": "BIPM, The International System of Units (SI Brochure), 9th edition, version 4.01, June 2026.",
+        "exactness": "Exact definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Liter", "liter", "litre", "L"],
+            "type": "quantity",
+            "description": "A metric unit of volume.",
+            "value": "Exactly one thousandth of a cubic meter.",
+            "example": "emit 2 * liter"
+          },
+          {
+            "names": ["Minute", "minute", "min"],
+            "type": "quantity",
+            "description": "A time unit equal to 60 seconds.",
+            "value": "Exactly 60 Second units.",
+            "example": "emit 5 * minute"
+          },
+          {
+            "names": ["Hour", "hour", "h"],
+            "type": "quantity",
+            "description": "A time unit equal to 60 minutes.",
+            "value": "Exactly 3,600 Second units.",
+            "example": "emit 3 * hour"
+          },
+          {
+            "names": ["Day", "day", "d"],
+            "type": "quantity",
+            "description": "A time unit equal to 24 hours.",
+            "value": "Exactly 86,400 Second units.",
+            "example": "emit 2 * day"
+          },
+          {
+            "names": ["Week", "week"],
+            "type": "quantity",
+            "description": "A time unit equal to seven days.",
+            "value": "Exactly 604,800 Second units.",
+            "example": "emit 2 * week"
+          }
+        ]
+      },
+      {
+        "title": "Metric Units",
+        "source": "BIPM, The International System of Units (SI Brochure), 9th edition, version 4.01, June 2026.",
+        "exactness": "Exact decimal definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Milliliter", "milliliter", "mL"],
+            "type": "quantity[Meter^3]",
+            "description": "A metric volume equal to one thousandth of a liter.",
+            "value": "Exactly 10^-6 cubic meters.",
+            "example": "emit 250 * mL"
+          },
+          {
+            "names": ["CubicCentimeter", "cubicCentimeter", "cc"],
+            "type": "quantity[Meter^3]",
+            "description": "The volume of a cube whose sides are one centimeter.",
+            "value": "Exactly 10^-6 cubic meters; equal to Milliliter. `cc` is retained as an Osiris convenience alias.",
+            "example": "emit cubicCentimeter == milliliter"
+          },
+          {
+            "names": ["Gram", "gram", "g"],
+            "type": "quantity[Kilogram]",
+            "description": "A metric mass equal to one thousandth of the kilogram.",
+            "value": "Exactly 10^-3 kilograms.",
+            "example": "emit 500 * gram"
+          },
+          {
+            "names": ["MetricTonne", "metricTonne", "tonne"],
+            "type": "quantity[Kilogram]",
+            "description": "The tonne, explicitly named to avoid an ambiguous unqualified ton.",
+            "value": "Exactly 1,000 kilograms.",
+            "example": "emit 2 * tonne"
+          },
+          {
+            "names": ["Hectare", "hectare", "ha"],
+            "type": "quantity[Meter^2]",
+            "description": "A non-SI metric area used for land measurement.",
+            "value": "Exactly 10,000 square meters.",
+            "example": "emit 3 * ha"
+          },
+          {
+            "names": ["Angstrom", "angstrom"],
+            "type": "quantity[Meter]",
+            "description": "A decimal submultiple of the meter used for atomic-scale lengths.",
+            "value": "Exactly 10^-10 meters.",
+            "example": "emit 5 * angstrom"
+          }
+        ]
+      },
+      {
+        "title": "Customary Length",
+        "source": "NIST Special Publication 811, 2008 edition, Web version 3.2, Appendix B; the international inch is exactly 0.0254 m.",
+        "exactness": "Exact international definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Inch", "inch"],
+            "type": "quantity[Meter]",
+            "description": "The international inch. The reserved keyword `in` is deliberately not an alias.",
+            "value": "Exactly 0.0254 meters.",
+            "example": "emit 12 * inch == foot"
+          },
+          {
+            "names": ["Foot", "foot", "ft"],
+            "type": "quantity[Meter]",
+            "description": "The international foot, not the former U.S. survey foot.",
+            "value": "Exactly 12 inches, or 0.3048 meters.",
+            "example": "emit 3 * ft == yard"
+          },
+          {
+            "names": ["Yard", "yard", "yd"],
+            "type": "quantity[Meter]",
+            "description": "The international yard.",
+            "value": "Exactly 3 feet, or 0.9144 meters.",
+            "example": "emit 1760 * yard == mile"
+          },
+          {
+            "names": ["Mile", "mile", "mi"],
+            "type": "quantity[Meter]",
+            "description": "The international statute mile.",
+            "value": "Exactly 1,760 yards, or 1,609.344 meters.",
+            "example": "emit mile == 5280 * foot"
+          },
+          {
+            "names": ["NauticalMile", "nauticalMile", "nmi"],
+            "type": "quantity[Meter]",
+            "description": "The international nautical mile adopted by the International Hydrographic Conference.",
+            "value": "Exactly 1,852 meters.",
+            "example": "emit 10 * nmi"
+          }
+        ]
+      },
+      {
+        "title": "Area and Volume",
+        "source": "U.S. measures follow NIST SP 811 (2008), Appendix B, and the exact 231 cubic-inch U.S. liquid gallon. Imperial measures follow the UK Weights and Measures Act 1985 definition of exactly 4.54609 L per imperial gallon.",
+        "exactness": "Exact definitions represented as rational quantities; U.S. dry measures are not included.",
+        "entries": [
+          {
+            "names": ["Acre", "acre"],
+            "type": "quantity[Meter^2]",
+            "description": "The international acre based on the international foot.",
+            "value": "Exactly 43,560 square feet, or 4,046.8564224 square meters.",
+            "example": "emit acre == 43560 * foot * foot"
+          },
+          {
+            "names": ["Gallon", "gallon", "gal"],
+            "type": "quantity[Meter^3]",
+            "description": "The U.S. liquid gallon. Imperial and U.S. dry gallons are intentionally not implied.",
+            "value": "Exactly 231 cubic inches, or 0.003785411784 cubic meters.",
+            "example": "emit gallon == 231 * inch * inch * inch"
+          },
+          {
+            "names": ["USQuart", "usQuart", "qt"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. liquid quart.",
+            "value": "Exactly one quarter of a U.S. liquid gallon.",
+            "example": "emit 4 * qt == gallon"
+          },
+          {
+            "names": ["USPint", "usPint", "pt"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. liquid pint.",
+            "value": "Exactly one eighth of a U.S. liquid gallon.",
+            "example": "emit 8 * pt == gallon"
+          },
+          {
+            "names": ["USCup", "usCup", "cup"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. customary cup.",
+            "value": "Exactly one sixteenth of a U.S. liquid gallon.",
+            "example": "emit 16 * cup == gallon"
+          },
+          {
+            "names": ["USFluidOunce", "usFluidOunce", "fl_oz"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. fluid ounce; the qualified name avoids confusion with mass ounces.",
+            "value": "Exactly one 128th of a U.S. liquid gallon.",
+            "example": "emit 128 * fl_oz == gallon"
+          },
+          {
+            "names": ["USTablespoon", "usTablespoon", "tbsp"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. customary tablespoon.",
+            "value": "Exactly one half U.S. fluid ounce.",
+            "example": "emit 2 * tbsp == fl_oz"
+          },
+          {
+            "names": ["USTeaspoon", "usTeaspoon", "tsp"],
+            "type": "quantity[Meter^3]",
+            "description": "A U.S. customary teaspoon.",
+            "value": "Exactly one third U.S. tablespoon.",
+            "example": "emit 3 * tsp == tbsp"
+          },
+          {
+            "names": ["ImperialGallon", "imperialGallon", "imp_gal"],
+            "type": "quantity[Meter^3]",
+            "description": "The imperial gallon, explicitly separated from the unqualified U.S. liquid gallon.",
+            "value": "Exactly 4.54609 liters.",
+            "example": "emit ImperialGallon == 4.54609d * liter"
+          },
+          {
+            "names": ["ImperialQuart", "imperialQuart"],
+            "type": "quantity[Meter^3]",
+            "description": "An imperial quart.",
+            "value": "Exactly one quarter of an imperial gallon.",
+            "example": "emit 4 * imperialQuart == ImperialGallon"
+          },
+          {
+            "names": ["ImperialPint", "imperialPint"],
+            "type": "quantity[Meter^3]",
+            "description": "An imperial pint.",
+            "value": "Exactly one eighth of an imperial gallon.",
+            "example": "emit 8 * imperialPint == ImperialGallon"
+          },
+          {
+            "names": ["ImperialFluidOunce", "imperialFluidOunce"],
+            "type": "quantity[Meter^3]",
+            "description": "An imperial fluid ounce.",
+            "value": "Exactly one 160th of an imperial gallon.",
+            "example": "emit 160 * imperialFluidOunce == ImperialGallon"
+          }
+        ]
+      },
+      {
+        "title": "Customary Mass",
+        "source": "NIST Special Publication 811, 2008 edition, Web version 3.2, Appendix B; pound values are avoirdupois.",
+        "exactness": "Exact definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Ounce", "ounce", "oz"],
+            "type": "quantity[Kilogram]",
+            "description": "The avoirdupois ounce.",
+            "value": "Exactly one sixteenth of an avoirdupois pound, or 0.028349523125 kilograms.",
+            "example": "emit 16 * oz == pound"
+          },
+          {
+            "names": ["Pound", "pound", "lb"],
+            "type": "quantity[Kilogram]",
+            "description": "The international avoirdupois pound.",
+            "value": "Exactly 0.45359237 kilograms.",
+            "example": "emit pound == 0.45359237d * kilogram"
+          },
+          {
+            "names": ["Stone", "stone", "st"],
+            "type": "quantity[Kilogram]",
+            "description": "The stone used for body mass in the United Kingdom and Ireland.",
+            "value": "Exactly 14 avoirdupois pounds.",
+            "example": "emit stone == 14 * pound"
+          },
+          {
+            "names": ["ShortTon", "shortTon"],
+            "type": "quantity[Kilogram]",
+            "description": "The U.S. short ton. No unqualified `ton` alias is provided.",
+            "value": "Exactly 2,000 avoirdupois pounds.",
+            "example": "emit ShortTon == 2000 * pound"
+          },
+          {
+            "names": ["LongTon", "longTon"],
+            "type": "quantity[Kilogram]",
+            "description": "The imperial long ton. No unqualified `ton` alias is provided.",
+            "value": "Exactly 2,240 avoirdupois pounds.",
+            "example": "emit LongTon == 2240 * pound"
+          }
+        ]
+      },
+      {
+        "title": "Astronomical Units",
+        "source": "BIPM SI Brochure 9th edition version 4.01; IAU 2012 Resolution B2 for the astronomical unit and IAU 2015 Resolution B2 for the parsec.",
+        "exactness": "Defined units are exact rational quantities except Parsec, whose irrational definition is stored at the documented decimal precision; Dalton uses the 2022 CODATA concise measured value.",
+        "entries": [
+          {
+            "names": ["AstronomicalUnit", "astronomicalUnit", "au"],
+            "type": "quantity[Meter]",
+            "description": "The astronomical unit used for solar-system distances.",
+            "value": "Exactly 149,597,870,700 meters.",
+            "example": "emit au"
+          },
+          {
+            "names": ["LightYear", "lightYear", "ly"],
+            "type": "quantity[Meter]",
+            "description": "The distance light travels in vacuum during one Julian year.",
+            "value": "Exactly 9,460,730,472,580,800 meters from the exact speed of light and Julian year definitions.",
+            "example": "emit lightYear == SpeedOfLight * JulianYear"
+          },
+          {
+            "names": ["Parsec", "parsec", "pc"],
+            "type": "quantity[Meter]",
+            "description": "The IAU parsec, defined as 648,000/π astronomical units.",
+            "value": "Stored as the published decimal 3.0856775814913673e16 meters, without a binary-float conversion.",
+            "example": "emit 2 * pc"
+          },
+          {
+            "names": ["Dalton", "dalton", "Da"],
+            "type": "quantity[Kilogram]",
+            "description": "The dalton, equal to the unified atomic mass unit.",
+            "value": "The 2022 CODATA concise value 1.66053906892e-27 kilograms; this is a measured value.",
+            "example": "emit 12 * Da"
+          }
+        ]
+      },
+      {
+        "title": "Small Time Units",
+        "source": "BIPM SI Brochure 9th edition version 4.01; the Julian year is exactly 365.25 days by IAU convention.",
+        "exactness": "Exact rational quantities. These globals are quantities; qualified std/time constants are duration values.",
+        "entries": [
+          {
+            "names": ["Nanosecond", "nanosecond", "ns"],
+            "type": "quantity[Second]",
+            "description": "One billionth of an SI second.",
+            "value": "Exactly 10^-9 seconds. `time.nanosecond` is the separate qualified duration constant.",
+            "example": "emit 500 * ns"
+          },
+          {
+            "names": ["Microsecond", "microsecond", "us"],
+            "type": "quantity[Second]",
+            "description": "One millionth of an SI second.",
+            "value": "Exactly 10^-6 seconds. `time.microsecond` is the separate qualified duration constant.",
+            "example": "emit 250 * us"
+          },
+          {
+            "names": ["Millisecond", "millisecond", "ms"],
+            "type": "quantity[Second]",
+            "description": "One thousandth of an SI second.",
+            "value": "Exactly 10^-3 seconds. `time.millisecond` is the separate qualified duration constant.",
+            "example": "emit 20 * ms"
+          },
+          {
+            "names": ["JulianYear", "julianYear"],
+            "type": "quantity[Second]",
+            "description": "The uniform Julian year used in astronomy.",
+            "value": "Exactly 365.25 days, or 31,557,600 seconds; it is not a calendar year.",
+            "example": "emit JulianYear == 365.25d * day"
+          }
+        ]
+      },
+      {
+        "title": "Speed and Frequency",
+        "source": "NIST SP 811 (2008) conversion factors and the exact international nautical mile; rpm is a count of revolutions per minute.",
+        "exactness": "Exact rational quantities.",
+        "entries": [
+          {
+            "names": ["Knot", "knot", "kn"],
+            "type": "quantity[Meter_Per_Second]",
+            "description": "One international nautical mile per hour.",
+            "value": "Exactly 463/900 meters per second.",
+            "example": "emit knot == NauticalMile / hour"
+          },
+          {
+            "names": ["KilometerPerHour", "kilometerPerHour", "kph"],
+            "type": "quantity[Meter_Per_Second]",
+            "description": "One kilometer per hour.",
+            "value": "Exactly 5/18 meters per second.",
+            "example": "emit 100 * kph"
+          },
+          {
+            "names": ["MilePerHour", "milePerHour", "mph"],
+            "type": "quantity[Meter_Per_Second]",
+            "description": "One international mile per hour.",
+            "value": "Exactly 1,397/3,125 meters per second.",
+            "example": "emit 60 * mph"
+          },
+          {
+            "names": ["RevolutionPerMinute", "revolutionPerMinute", "rpm"],
+            "type": "quantity[Second^-1]",
+            "description": "One counted revolution per minute.",
+            "value": "Exactly 1/60 reciprocal second. It is frequency, not the 2π-valued Revolution angle scale.",
+            "example": "emit 60 * rpm == hertz"
+          }
+        ]
+      },
+      {
+        "title": "Pressure",
+        "source": "NIST Special Publication 811, 2008 edition, Web version 3.2, Appendix B.",
+        "exactness": "Exact definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Bar", "bar"],
+            "type": "quantity[Kilogram_Per_Meter_Second^2]",
+            "description": "The decimal pressure unit bar.",
+            "value": "Exactly 100,000 pascals.",
+            "example": "emit bar == 100000 * pascal"
+          },
+          {
+            "names": ["Millibar", "millibar", "mbar"],
+            "type": "quantity[Kilogram_Per_Meter_Second^2]",
+            "description": "One thousandth of a bar.",
+            "value": "Exactly 100 pascals.",
+            "example": "emit mbar == 100 * pascal"
+          },
+          {
+            "names": ["Atmosphere", "atmosphere", "atm"],
+            "type": "quantity[Kilogram_Per_Meter_Second^2]",
+            "description": "The standard atmosphere.",
+            "value": "Exactly 101,325 pascals.",
+            "example": "emit atm == 101325 * pascal"
+          },
+          {
+            "names": ["Torr", "torr"],
+            "type": "quantity[Kilogram_Per_Meter_Second^2]",
+            "description": "A pressure unit defined as one 760th of a standard atmosphere.",
+            "value": "Exactly 20,265/152 pascals.",
+            "example": "emit torr == atmosphere / 760"
+          },
+          {
+            "names": ["PoundsPerSquareInch", "poundsPerSquareInch", "psi"],
+            "type": "quantity[Kilogram_Per_Meter_Second^2]",
+            "description": "Pound-force per square international inch.",
+            "value": "Exactly (pound × StandardGravity) / inch², stored as 8896443230521/1290320000 pascals.",
+            "example": "emit 35 * psi"
+          }
+        ]
+      },
+      {
+        "title": "Energy and Power",
+        "source": "BIPM SI Brochure 9th edition version 4.01 and NIST SP 811 (2008), Appendix B. Calorie is thermochemical; BTU is International Table.",
+        "exactness": "Exact definitions represented as rational quantities.",
+        "entries": [
+          {
+            "names": ["Electronvolt", "electronvolt", "eV"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^2]",
+            "description": "The energy gained by one elementary charge across one volt.",
+            "value": "Exactly 1.602176634e-19 joules.",
+            "example": "emit 13.6d * eV"
+          },
+          {
+            "names": ["Calorie", "calorie", "cal"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^2]",
+            "description": "The thermochemical calorie.",
+            "value": "Exactly 4.184 joules.",
+            "example": "emit calorie == 4.184d * joule"
+          },
+          {
+            "names": ["Kilocalorie", "kilocalorie", "kcal"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^2]",
+            "description": "One thousand thermochemical calories.",
+            "value": "Exactly 4,184 joules.",
+            "example": "emit kcal == 1000 * calorie"
+          },
+          {
+            "names": ["BritishThermalUnit", "britishThermalUnit", "BTU"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^2]",
+            "description": "The International Table British thermal unit.",
+            "value": "Exactly 1,055.05585262 joules.",
+            "example": "emit 2 * BTU"
+          },
+          {
+            "names": ["KilowattHour", "kilowattHour", "kWh"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^2]",
+            "description": "The energy delivered by one kilowatt for one hour.",
+            "value": "Exactly 3,600,000 joules.",
+            "example": "emit kWh == 3600000 * joule"
+          },
+          {
+            "names": ["MechanicalHorsepower", "mechanicalHorsepower", "hp"],
+            "type": "quantity[Kilogram_Meter^2_Per_Second^3]",
+            "description": "Mechanical horsepower defined as 550 foot-pound-force per second.",
+            "value": "Exactly 37284993579113511/50000000000000 watts.",
+            "example": "emit 2 * hp"
+          }
+        ]
+      },
+      {
+        "title": "Angle Scales",
+        "source": "BIPM SI Brochure 9th edition version 4.01, section on plane angle.",
+        "exactness": "Dimensionless default-number scales rounded once to binary64; angle is not a separate quantity dimension.",
+        "entries": [
+          {
+            "names": ["Radian", "radian", "rad"],
+            "type": "number",
+            "description": "The coherent dimensionless plane-angle scale.",
+            "value": "The default number 1.",
+            "example": "emit radian"
+          },
+          {
+            "names": ["Degree", "degree", "deg"],
+            "type": "number",
+            "description": "A plane-angle scale equal to π/180 radians.",
+            "value": "The binary64 result of Pi / 180.",
+            "example": "emit 180 * deg"
+          },
+          {
+            "names": ["Arcminute", "arcminute"],
+            "type": "number",
+            "description": "One sixtieth of a degree of plane angle.",
+            "value": "The binary64 result of Pi / 10,800.",
+            "example": "emit 60 * arcminute"
+          },
+          {
+            "names": ["Arcsecond", "arcsecond"],
+            "type": "number",
+            "description": "One sixtieth of an arcminute.",
+            "value": "The binary64 result of Pi / 648,000.",
+            "example": "emit 3600 * arcsecond"
+          },
+          {
+            "names": ["Revolution", "revolution", "turn"],
+            "type": "number",
+            "description": "One full turn of plane angle.",
+            "value": "The binary64 result of 2 × Pi.",
+            "example": "emit revolution == Tau"
+          }
+        ]
+      },
+      {
+        "title": "Mathematical Constants",
+        "source": "Go math package binary64 constants and decimal literals rounded to Osiris's default-number representation.",
+        "exactness": "Default-number binary64 approximations.",
+        "entries": [
+          {
+            "names": ["Pi", "pi"],
+            "type": "number",
+            "description": "The ratio of a circle's circumference to its diameter.",
+            "value": "The runtime's default floating representation of π.",
+            "example": "emit 2 * Pi"
+          },
+          {
+            "names": ["Tau", "tau"],
+            "type": "number",
+            "description": "The circle constant equal to two times pi.",
+            "value": "The runtime's default floating representation of 2π.",
+            "example": "emit Tau / 2"
+          },
+          {
+            "names": ["E", "e"],
+            "type": "number",
+            "description": "Euler's number, the base of the natural logarithm.",
+            "value": "The runtime's default floating representation of e.",
+            "example": "emit log(E)"
+          },
+          {
+            "names": ["Phi", "phi"],
+            "type": "number",
+            "description": "The golden ratio.",
+            "value": "The runtime's default floating representation of (1 + sqrt(5)) / 2.",
+            "example": "emit Phi"
+          },
+          {
+            "names": ["Sqrt2", "sqrt2"],
+            "type": "number",
+            "description": "The positive square root of two.",
+            "value": "The runtime's binary64 approximation of √2.",
+            "example": "emit Sqrt2"
+          },
+          {
+            "names": ["SqrtHalf", "sqrtHalf"],
+            "type": "number",
+            "description": "The positive square root of one half.",
+            "value": "The runtime's binary64 approximation of 1/√2.",
+            "example": "emit SqrtHalf"
+          },
+          {
+            "names": ["Ln2", "ln2"],
+            "type": "number",
+            "description": "The natural logarithm of two.",
+            "value": "The runtime's binary64 approximation of ln(2).",
+            "example": "emit Ln2"
+          },
+          {
+            "names": ["Ln10", "ln10"],
+            "type": "number",
+            "description": "The natural logarithm of ten.",
+            "value": "The runtime's binary64 approximation of ln(10).",
+            "example": "emit Ln10"
+          },
+          {
+            "names": ["Log2E", "log2E"],
+            "type": "number",
+            "description": "The base-two logarithm of Euler's number.",
+            "value": "The runtime's binary64 approximation of log2(e).",
+            "example": "emit Log2E"
+          },
+          {
+            "names": ["Log10E", "log10E"],
+            "type": "number",
+            "description": "The base-ten logarithm of Euler's number.",
+            "value": "The runtime's binary64 approximation of log10(e).",
+            "example": "emit Log10E"
+          },
+          {
+            "names": ["EulerGamma", "eulerGamma"],
+            "type": "number",
+            "description": "The Euler–Mascheroni constant.",
+            "value": "The binary64 value rounded from 0.5772156649015329.",
+            "example": "emit EulerGamma"
+          },
+          {
+            "names": ["Catalan", "catalan"],
+            "type": "number",
+            "description": "Catalan's constant.",
+            "value": "The binary64 value rounded from 0.915965594177219.",
+            "example": "emit Catalan"
+          },
+          {
+            "names": ["Apery", "apery"],
+            "type": "number",
+            "description": "Apéry's constant ζ(3).",
+            "value": "The binary64 value rounded from 1.2020569031595942.",
+            "example": "emit Apery"
+          },
+          {
+            "names": ["Percent", "percent"],
+            "type": "number",
+            "description": "A scale factor for converting a percentage to a fraction.",
+            "value": "The number 0.01.",
+            "example": "emit 25 * Percent"
+          }
+        ]
+      },
+      {
+        "title": "Physical Constants",
+        "source": "NIST 2022 CODATA recommended values, database version 9.0 (May 2024). Parenthesized CODATA uncertainties are described in each measured entry; Osiris stores the published concise central value.",
+        "exactness": "Exact defined constants and measured or irrational-derived published decimals are identified per entry.",
+        "entries": [
+          {
+            "names": ["SpeedOfLight", "speedOfLight", "c0"],
+            "type": "quantity[Meter_Per_Second]",
+            "description": "The speed of light in vacuum.",
+            "value": "Exactly 299,792,458 meters per second by the SI definition.",
+            "example": "emit SpeedOfLight"
+          },
+          {
+            "names": ["Planck", "planck"],
+            "type": "quantity",
+            "description": "The Planck constant.",
+            "value": "Exactly 6.62607015e-34 kilogram meter squared per second by the SI definition.",
+            "example": "emit Planck"
+          },
+          {
+            "names": ["ReducedPlanck", "reducedPlanck", "hbar"],
+            "type": "quantity",
+            "description": "The reduced Planck constant.",
+            "value": "The published decimal 1.054571817e-34 kilogram meter squared per second for the exact irrational definition Planck/(2π).",
+            "example": "emit hbar"
+          },
+          {
+            "names": ["Avogadro", "avogadro", "NA"],
+            "type": "quantity[Mole^-1]",
+            "description": "The Avogadro constant.",
+            "value": "Exactly 6.02214076e23 reciprocal moles by the SI definition.",
+            "example": "emit Avogadro"
+          },
+          {
+            "names": ["Boltzmann", "boltzmann", "kB"],
+            "type": "quantity",
+            "description": "The Boltzmann constant.",
+            "value": "Exactly 1.380649e-23 kilogram meter squared per second squared per kelvin by the SI definition.",
+            "example": "emit kB"
+          },
+          {
+            "names": ["GasConstant", "gasConstant", "R"],
+            "type": "quantity",
+            "description": "The molar gas constant.",
+            "value": "Exactly 8.31446261815324 kilogram meter squared per second squared per mole-kelvin, the product of exact Avogadro and Boltzmann definitions.",
+            "example": "emit GasConstant"
+          },
+          {
+            "names": ["ElementaryCharge", "elementaryCharge", "q_e"],
+            "type": "quantity",
+            "description": "The elementary electric charge.",
+            "value": "Exactly 1.602176634e-19 ampere seconds by the SI definition.",
+            "example": "emit q_e"
+          },
+          {
+            "names": ["GravitationalConstant", "gravitationalConstant", "G"],
+            "type": "quantity",
+            "description": "The Newtonian constant of gravitation.",
+            "value": "The 2022 CODATA measured concise value 6.67430e-11 cubic meters per kilogram second squared; standard uncertainty is 0.00015e-11.",
+            "example": "emit GravitationalConstant"
+          },
+          {
+            "names": ["StandardGravity", "standardGravity", "g0"],
+            "type": "quantity",
+            "description": "Standard acceleration due to gravity.",
+            "value": "Exactly 9.80665 meters per second squared by conventional definition.",
+            "example": "emit g0"
+          },
+          {
+            "names": ["FineStructure", "fineStructure", "alpha"],
+            "type": "number",
+            "description": "The dimensionless fine-structure constant.",
+            "value": "The 2022 CODATA measured concise value 7.2973525643e-3, with relative standard uncertainty 1.6e-10.",
+            "example": "emit FineStructure"
+          },
+          {
+            "names": ["VacuumPermeability", "vacuumPermeability", "mu0"],
+            "type": "quantity[Kilogram_Meter_Per_Second^2_Ampere^2]",
+            "description": "The magnetic permeability of vacuum.",
+            "value": "The 2022 CODATA measured concise value 1.25663706127e-6 newtons per ampere squared; standard uncertainty is 0.00000000020e-6.",
+            "example": "emit VacuumPermeability"
+          },
+          {
+            "names": ["VacuumPermittivity", "vacuumPermittivity", "epsilon0"],
+            "type": "quantity[Ampere^2_Second^4_Per_Kilogram_Meter^3]",
+            "description": "The electric permittivity of vacuum.",
+            "value": "The 2022 CODATA measured concise value 8.8541878188e-12 farads per meter; standard uncertainty is 0.0000000014e-12.",
+            "example": "emit epsilon0"
+          },
+          {
+            "names": ["ElectronMass", "electronMass", "m_e"],
+            "type": "quantity[Kilogram]",
+            "description": "The electron rest mass.",
+            "value": "The 2022 CODATA measured concise value 9.1093837139e-31 kilograms; standard uncertainty is 0.0000000028e-31.",
+            "example": "emit ElectronMass"
+          },
+          {
+            "names": ["ProtonMass", "protonMass", "m_p"],
+            "type": "quantity[Kilogram]",
+            "description": "The proton rest mass.",
+            "value": "The 2022 CODATA measured concise value 1.67262192595e-27 kilograms; standard uncertainty is 0.00000000052e-27.",
+            "example": "emit ProtonMass"
+          },
+          {
+            "names": ["NeutronMass", "neutronMass", "m_n"],
+            "type": "quantity[Kilogram]",
+            "description": "The neutron rest mass.",
+            "value": "The 2022 CODATA measured concise value 1.67492750056e-27 kilograms; standard uncertainty is 0.00000000085e-27.",
+            "example": "emit NeutronMass"
+          },
+          {
+            "names": ["AtomicMassConstant", "atomicMassConstant", "m_u"],
+            "type": "quantity[Kilogram]",
+            "description": "The unified atomic mass constant.",
+            "value": "The 2022 CODATA measured concise value 1.66053906892e-27 kilograms; standard uncertainty is 0.00000000052e-27.",
+            "example": "emit AtomicMassConstant"
+          },
+          {
+            "names": ["FaradayConstant", "faradayConstant"],
+            "type": "quantity[Ampere_Second_Per_Mole]",
+            "description": "Electric charge per mole of elementary charges.",
+            "value": "Exactly 96,485.3321233100184 coulombs per mole, the product of exact elementary-charge and Avogadro definitions.",
+            "example": "emit FaradayConstant"
+          },
+          {
+            "names": ["StefanBoltzmannConstant", "stefanBoltzmannConstant", "sigmaSB"],
+            "type": "quantity[Kilogram_Per_Second^3_Kelvin^4]",
+            "description": "The Stefan–Boltzmann proportionality constant for black-body radiant exitance.",
+            "value": "The 2022 CODATA derived value 5.670374419e-8 watts per square meter kelvin to the fourth; the displayed decimal terminates with an ellipsis in CODATA.",
+            "example": "emit sigmaSB"
+          },
+          {
+            "names": ["RydbergConstant", "rydbergConstant", "Rinf"],
+            "type": "quantity[Meter^-1]",
+            "description": "The Rydberg constant for an infinitely heavy nucleus.",
+            "value": "The 2022 CODATA measured concise value 10,973,731.568157 reciprocal meters; standard uncertainty is 0.000012 reciprocal meters.",
+            "example": "emit RydbergConstant"
+          },
+          {
+            "names": ["BohrRadius", "bohrRadius", "a0"],
+            "type": "quantity[Meter]",
+            "description": "The Bohr radius.",
+            "value": "The 2022 CODATA measured concise value 5.29177210544e-11 meters; standard uncertainty is 0.00000000082e-11.",
+            "example": "emit BohrRadius"
+          },
+          {
+            "names": ["BohrMagneton", "bohrMagneton", "muB"],
+            "type": "quantity[Ampere_Meter^2]",
+            "description": "The Bohr magneton.",
+            "value": "The 2022 CODATA measured concise value 9.2740100657e-24 joules per tesla; standard uncertainty is 0.0000000029e-24.",
+            "example": "emit muB"
+          },
+          {
+            "names": ["NuclearMagneton", "nuclearMagneton", "muN"],
+            "type": "quantity[Ampere_Meter^2]",
+            "description": "The nuclear magneton.",
+            "value": "The 2022 CODATA measured concise value 5.0507837393e-27 joules per tesla; standard uncertainty is 0.0000000016e-27.",
+            "example": "emit muN"
+          }
+        ]
+      },
+      {
+        "title": "Metric Prefixes",
+        "source": "BIPM SI Brochure 9th edition version 4.01.",
+        "exactness": "The named factors follow exact decimal SI prefix definitions and are exposed as default-number values.",
+        "entries": [
+          {
+            "names": ["pico"],
+            "type": "number",
+            "description": "The metric prefix for one trillionth.",
+            "value": "The scale factor 10^-12.",
+            "example": "emit 5 * pico * second"
+          },
+          {
+            "names": ["nano"],
+            "type": "number",
+            "description": "The metric prefix for one billionth.",
+            "value": "The scale factor 10^-9.",
+            "example": "emit 5 * nano * meter"
+          },
+          {
+            "names": ["micro"],
+            "type": "number",
+            "description": "The metric prefix for one millionth.",
+            "value": "The scale factor 10^-6.",
+            "example": "emit 250 * micro * second"
+          },
+          {
+            "names": ["milli"],
+            "type": "number",
+            "description": "The metric prefix for one thousandth.",
+            "value": "The scale factor 10^-3.",
+            "example": "emit 4 * milli * meter"
+          },
+          {
+            "names": ["centi"],
+            "type": "number",
+            "description": "The metric prefix for one hundredth.",
+            "value": "The scale factor 10^-2.",
+            "example": "emit 30 * centi * meter"
+          },
+          {
+            "names": ["deci"],
+            "type": "number",
+            "description": "The metric prefix for one tenth.",
+            "value": "The scale factor 10^-1.",
+            "example": "emit 2 * deci * meter"
+          },
+          {
+            "names": ["deca"],
+            "type": "number",
+            "description": "The metric prefix for ten.",
+            "value": "The scale factor 10^1.",
+            "example": "emit 3 * deca * meter"
+          },
+          {
+            "names": ["hecto"],
+            "type": "number",
+            "description": "The metric prefix for one hundred.",
+            "value": "The scale factor 10^2.",
+            "example": "emit 2 * hecto * meter"
+          },
+          {
+            "names": ["kilo"],
+            "type": "number",
+            "description": "The metric prefix for one thousand.",
+            "value": "The scale factor 10^3.",
+            "example": "emit 3 * kilo * meter"
+          },
+          {
+            "names": ["mega"],
+            "type": "number",
+            "description": "The metric prefix for one million.",
+            "value": "The scale factor 10^6.",
+            "example": "emit 2 * mega"
+          },
+          {
+            "names": ["giga"],
+            "type": "number",
+            "description": "The metric prefix for one billion.",
+            "value": "The scale factor 10^9.",
+            "example": "emit 2 * giga"
+          },
+          {
+            "names": ["tera"],
+            "type": "number",
+            "description": "The metric prefix for one trillion.",
+            "value": "The scale factor 10^12.",
+            "example": "emit tera"
+          },
+          {
+            "names": ["peta"],
+            "type": "number",
+            "description": "The metric prefix for one quadrillion.",
+            "value": "The scale factor 10^15.",
+            "example": "emit peta"
+          },
+          {
+            "names": ["exa"],
+            "type": "number",
+            "description": "The metric prefix for one quintillion.",
+            "value": "The scale factor 10^18.",
+            "example": "emit exa"
+          }
+        ]
+      }
+    ]
+  },
+  "errors": {
+    "id": "error-constants",
+    "title": "Error Constants",
+    "summary": "Canonical error-kind values used to construct, classify, and handle structured failures.",
+    "importLine": "# Error constants are available without an import",
+    "sections": [
+      {
+        "title": "Error Kinds",
+        "entries": [
+          {
+            "names": ["InvalidArgument"],
+            "code": "invalid_argument",
+            "description": "An argument is missing, malformed, or outside the accepted domain."
+          },
+          {
+            "names": ["NotFound"],
+            "code": "not_found",
+            "description": "The requested resource or value does not exist."
+          },
+          {
+            "names": ["AlreadyExists"],
+            "code": "already_exists",
+            "description": "An operation tried to create a resource that already exists."
+          },
+          {
+            "names": ["PermissionDenied"],
+            "code": "permission_denied",
+            "description": "The caller is known but is not allowed to perform the operation."
+          },
+          {
+            "names": ["Unauthenticated"],
+            "code": "unauthenticated",
+            "description": "The operation requires valid authentication credentials."
+          },
+          {
+            "names": ["Unavailable"],
+            "code": "unavailable",
+            "description": "A required service or resource is temporarily unavailable."
+          },
+          {
+            "names": ["Timeout"],
+            "code": "timeout",
+            "description": "The operation did not complete before its deadline."
+          },
+          {
+            "names": ["Cancelled"],
+            "code": "cancelled",
+            "description": "The operation stopped because cancellation was requested."
+          },
+          {
+            "names": ["Conflict"],
+            "code": "conflict",
+            "description": "The operation conflicts with the current state of a resource."
+          },
+          {
+            "names": ["ResourceExhausted"],
+            "code": "resource_exhausted",
+            "description": "A finite quota, capacity, or other managed resource has been exhausted."
+          },
+          {
+            "names": ["OutOfMemory"],
+            "code": "out_of_memory",
+            "description": "The operation could not obtain the memory it needed."
+          },
+          {
+            "names": ["OutOfRange"],
+            "code": "out_of_range",
+            "description": "A value or position falls outside the valid range."
+          },
+          {
+            "names": ["Unsupported"],
+            "code": "unsupported",
+            "description": "The requested operation is not supported for this input or backend."
+          },
+          {
+            "names": ["NotImplemented"],
+            "code": "not_implemented",
+            "description": "The requested operation is recognized but has not been implemented."
+          },
+          {
+            "names": ["ParseError"],
+            "code": "parse_error",
+            "description": "Source text or structured input could not be parsed."
+          },
+          {
+            "names": ["TypeError"],
+            "code": "type_error",
+            "description": "A value has the wrong type for the requested operation."
+          },
+          {
+            "names": ["EncodingError"],
+            "code": "encoding_error",
+            "description": "Text or binary data does not satisfy the required encoding."
+          },
+          {
+            "names": ["IOError"],
+            "code": "io_error",
+            "description": "A file, stream, or other input/output operation failed."
+          },
+          {
+            "names": ["NetworkError"],
+            "code": "network_error",
+            "description": "A network connection or transfer failed."
+          },
+          {
+            "names": ["DatabaseError"],
+            "code": "database_error",
+            "description": "A database operation failed."
+          },
+          {
+            "names": ["InternalError"],
+            "code": "internal_error",
+            "description": "The runtime encountered an unexpected internal failure."
+          },
+          {
+            "names": ["UnknownError"],
+            "code": "unknown_error",
+            "description": "A failure could not be assigned a more specific error kind."
+          }
+        ]
+      }
+    ]
+  }
+}

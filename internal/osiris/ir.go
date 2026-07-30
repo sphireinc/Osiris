@@ -37,6 +37,7 @@ type IRInstr struct {
 	Args  []string
 	Text  string
 	Value Value
+	Span  sourceSpan
 }
 
 type IRTerminator interface {
@@ -373,6 +374,7 @@ type irProgramBuilder struct {
 	rt       *Runtime
 	prog     *IRProgram
 	nextFunc int
+	enums    map[string]map[string]enumCase
 }
 
 // newFunction operates on irProgramBuilder values and keeps the
@@ -592,7 +594,7 @@ func (b *irBuilder) valueOrUndef(name string) string {
 //
 // It returns string and an error. Callers should only trust the value when the
 // error is nil.
-func (b *irBuilder) resolveIdent(name string) (string, error) {
+func (b *irBuilder) resolveIdent(name string, span sourceSpan) (string, error) {
 	if v, ok := b.env[name]; ok {
 		if _, local := b.locals[name]; !local {
 			// The name came from an outer scope and is therefore a capture.
@@ -602,12 +604,17 @@ func (b *irBuilder) resolveIdent(name string) (string, error) {
 	}
 	if v, ok := b.pb.rt.Constants[name]; ok {
 		tmp := b.newTemp()
-		b.emitInstr(IRInstr{Dest: tmp, Op: "global", Text: name, Value: v})
+		b.emitInstr(IRInstr{Dest: tmp, Op: "global", Text: name, Value: v, Span: span})
 		return tmp, nil
 	}
 	if _, ok := b.pb.rt.Builtins[name]; ok {
 		tmp := b.newTemp()
-		b.emitInstr(IRInstr{Dest: tmp, Op: "builtin", Text: name})
+		b.emitInstr(IRInstr{Dest: tmp, Op: "builtin", Text: name, Span: span})
+		return tmp, nil
+	}
+	if _, ok := b.pb.rt.ContextBuiltins[name]; ok {
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "builtin", Text: name, Span: span})
 		return tmp, nil
 	}
 	return "", fmt.Errorf("undefined name %q", name)
@@ -683,7 +690,15 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.pb.prog.Exports = append(b.pb.prog.Exports, st.Names...)
 		return false, nil
 	case enumStmt:
-		return false, fmt.Errorf("native lowering does not yet support enum %q; use the interpreter or VM until tagged enum lowering is implemented", st.Name)
+		if b.pb.enums == nil {
+			b.pb.enums = make(map[string]map[string]enumCase)
+		}
+		cases := make(map[string]enumCase, len(st.Cases))
+		for _, item := range st.Cases {
+			cases[item.Name] = item
+		}
+		b.pb.enums[st.Name] = cases
+		return false, nil
 	case letStmt:
 		if st.Unwrap {
 			return false, fmt.Errorf("let? result binding is not yet lowered into IR")
@@ -696,6 +711,11 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.block = child.block
 		if b.terminated() {
 			return true, nil
+		}
+		if st.Type != "" {
+			checked := b.newTemp()
+			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.Type, Args: []string{value}})
+			value = checked
 		}
 		dest := b.newBindName(st.Name)
 		b.emitInstr(IRInstr{Dest: dest, Op: "copy", Args: []string{value}})
@@ -1059,7 +1079,7 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		b.emitInstr(IRInstr{Dest: tmp, Op: "const", Value: n.value})
 		return tmp, nil
 	case *identExpr:
-		return b.resolveIdent(n.name)
+		return b.resolveIdent(n.name, n.Span)
 	case *unaryExpr:
 		child := b.fork()
 		inner, err := child.evalExpr(n.expr)
@@ -1093,6 +1113,32 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		b.emitInstr(IRInstr{Dest: tmp, Op: "binary", Text: n.op.String(), Args: []string{left, right}})
 		return tmp, nil
 	case *callExpr:
+		if member, ok := n.callee.(*memberExpr); ok {
+			if object, ok := member.object.(*identExpr); ok {
+				if cases, ok := b.pb.enums[object.name]; ok {
+					item, ok := cases[member.name]
+					if !ok {
+						return "", fmt.Errorf("enum %s has no case %q", object.name, member.name)
+					}
+					if len(n.args) != item.Arity() {
+						return "", fmt.Errorf("enum case %s.%s expects %d arguments", object.name, member.name, item.Arity())
+					}
+					args := make([]string, 0, len(n.args))
+					for _, arg := range n.args {
+						child := b.fork()
+						value, err := child.evalExpr(arg)
+						if err != nil {
+							return "", err
+						}
+						b.block = child.block
+						args = append(args, value)
+					}
+					tmp := b.newTemp()
+					b.emitInstr(IRInstr{Dest: tmp, Op: "enum", Text: object.name + "." + member.name, Args: args})
+					return tmp, nil
+				}
+			}
+		}
 		if name, ok := specialFormName(n.callee); ok {
 			switch name {
 			case "if":
@@ -1137,6 +1183,20 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		b.emitInstr(IRInstr{Dest: tmp, Op: "call", Text: callee, Args: args})
 		return tmp, nil
 	case *memberExpr:
+		if object, ok := n.object.(*identExpr); ok {
+			if cases, ok := b.pb.enums[object.name]; ok {
+				item, ok := cases[n.name]
+				if !ok {
+					return "", fmt.Errorf("enum %s has no case %q", object.name, n.name)
+				}
+				if item.Arity() != 0 {
+					return "", fmt.Errorf("enum case %s.%s expects %d arguments", object.name, n.name, item.Arity())
+				}
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "enum", Text: object.name + "." + n.name})
+				return tmp, nil
+			}
+		}
 		objBuilder := b.fork()
 		obj, err := objBuilder.evalExpr(n.object)
 		if err != nil {
@@ -1181,9 +1241,368 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 	case *propagateExpr:
 		return b.evalExpr(n.expr)
 	case *matchExpr:
-		return "", fmt.Errorf("match expressions are not yet lowered into IR")
+		return b.lowerMatchExpr(n)
 	default:
 		return "", fmt.Errorf("internal error: unknown expression type %T", expr)
+	}
+}
+
+// lowerMatchExpr lowers supported enum patterns into ordinary CFG branches.
+// Pattern tests are emitted as IR; the source evaluator is never consulted
+// while compiling a match expression.
+func (b *irBuilder) lowerMatchExpr(n *matchExpr) (string, error) {
+	subjectBuilder := b.fork()
+	subject, err := subjectBuilder.evalExpr(n.subject)
+	if err != nil {
+		return "", err
+	}
+	b.block = subjectBuilder.block
+	join := b.newBlock("match.join")
+	result := b.newTemp()
+	join.Params = []string{result}
+	current := b.block
+	for index, arm := range n.arms {
+		armBlock := b.newBlock("match.arm")
+		b.block = current
+		if arm.isDefault {
+			if index != len(n.arms)-1 {
+				return "", fmt.Errorf("default match arm must be final")
+			}
+			b.emitTerm(&irJump{Target: armBlock.Name})
+			current = nil
+		} else {
+			bindingPattern, err := nativeMatchPattern(arm.pattern)
+			if err != nil {
+				return "", err
+			}
+			next := b.newBlock("match.next")
+			matchTarget := armBlock
+			if arm.guard != nil {
+				guardBlock := b.newBlock("match.guard")
+				matchTarget = guardBlock
+				guardBuilder := b.fork()
+				guardBuilder.block = guardBlock
+				if err := bindNativeMatchPattern(guardBuilder, bindingPattern, subject); err != nil {
+					return "", err
+				}
+				guard, err := guardBuilder.evalExpr(arm.guard)
+				if err != nil {
+					return "", err
+				}
+				guardBuilder.emitTerm(&irBranch{Cond: guard, TrueTarget: armBlock.Name, FalseTarget: next.Name})
+			}
+			if err := lowerNativeEnumPatternBranch(b, arm.pattern, subject, matchTarget, next, make(map[string]string)); err != nil {
+				return "", err
+			}
+			current = next
+		}
+		bodyBuilder := b.fork()
+		bodyBuilder.block = armBlock
+		if !arm.isDefault {
+			bindingPattern, err := nativeMatchPattern(arm.pattern)
+			if err != nil {
+				return "", err
+			}
+			if err := bindNativeMatchPattern(bodyBuilder, bindingPattern, subject); err != nil {
+				return "", err
+			}
+		}
+		value, err := bodyBuilder.evalExpr(arm.body)
+		if err != nil {
+			return "", err
+		}
+		if !bodyBuilder.terminated() {
+			bodyBuilder.emitTerm(&irJump{Target: join.Name, Args: []string{value}})
+		}
+	}
+	if current != nil {
+		b.block = current
+		failure := b.newTemp()
+		b.emitInstr(IRInstr{Dest: failure, Op: "matchfail", Text: "unmatched match case"})
+		b.emitTerm(&irJump{Target: join.Name, Args: []string{failure}})
+	}
+	b.block = join
+	return result, nil
+}
+
+func lowerNativeEnumPatternBranch(b *irBuilder, pattern Pattern, subject string, matched, failed *IRBlock, bindings map[string]string) error {
+	switch pattern := pattern.(type) {
+	case enumPattern:
+		condition := b.newTemp()
+		b.emitInstr(IRInstr{Dest: condition, Op: "matchenum", Text: pattern.typeName + "." + pattern.caseName, Args: []string{subject}, Value: uintValue(uint64(len(pattern.items)), 64)})
+		itemBlock := matched
+		if len(pattern.items) != 0 {
+			itemBlock = b.newBlock("match.enum.item")
+		}
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: itemBlock.Name, FalseTarget: failed.Name})
+		for index, item := range pattern.items {
+			b.block = itemBlock
+			payload := b.newTemp()
+			b.emitInstr(IRInstr{Dest: payload, Op: "enumpayload", Args: []string{subject}, Value: uintValue(uint64(index), 64)})
+			next := matched
+			if index+1 < len(pattern.items) {
+				next = b.newBlock("match.enum.item")
+			}
+			if err := lowerNativeEnumPatternBranch(b, item, payload, next, failed, bindings); err != nil {
+				return err
+			}
+			itemBlock = next
+		}
+		return nil
+	case listPattern:
+		condition := b.newTemp()
+		b.emitInstr(IRInstr{Dest: condition, Op: "matchlist", Args: []string{subject}, Value: uintValue(uint64(len(pattern.items)), 64)})
+		itemBlock := matched
+		if len(pattern.items) != 0 {
+			itemBlock = b.newBlock("match.list.item")
+		}
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: itemBlock.Name, FalseTarget: failed.Name})
+		for index, item := range pattern.items {
+			b.block = itemBlock
+			value := b.newTemp()
+			b.emitInstr(IRInstr{Dest: value, Op: "listitem", Args: []string{subject}, Value: uintValue(uint64(index), 64)})
+			next := matched
+			if index+1 < len(pattern.items) {
+				next = b.newBlock("match.list.item")
+			}
+			if err := lowerNativeEnumPatternBranch(b, item, value, next, failed, bindings); err != nil {
+				return err
+			}
+			itemBlock = next
+		}
+		return nil
+	case wildcardPattern:
+		b.emitTerm(&irJump{Target: matched.Name})
+		return nil
+	case bindPattern:
+		if previous, exists := bindings[pattern.name]; exists {
+			condition := b.newTemp()
+			b.emitInstr(IRInstr{Dest: condition, Op: "binary", Text: "==", Args: []string{subject, previous}})
+			b.emitTerm(&irBranch{Cond: condition, TrueTarget: matched.Name, FalseTarget: failed.Name})
+			return nil
+		}
+		bindings[pattern.name] = subject
+		b.emitTerm(&irJump{Target: matched.Name})
+		return nil
+	case literalPattern:
+		literal := b.newTemp()
+		condition := b.newTemp()
+		b.emitInstr(IRInstr{Dest: literal, Op: "const", Value: pattern.value})
+		b.emitInstr(IRInstr{Dest: condition, Op: "binary", Text: "==", Args: []string{subject, literal}})
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: matched.Name, FalseTarget: failed.Name})
+		return nil
+	case relationalPattern:
+		literal := b.newTemp()
+		condition := b.newTemp()
+		b.emitInstr(IRInstr{Dest: literal, Op: "const", Value: pattern.value})
+		b.emitInstr(IRInstr{Dest: condition, Op: "binary", Text: pattern.op.String(), Args: []string{subject, literal}})
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: matched.Name, FalseTarget: failed.Name})
+		return nil
+	case typePattern:
+		condition := b.newTemp()
+		b.emitInstr(IRInstr{Dest: condition, Op: "matchtype", Text: pattern.typeName, Args: []string{subject}})
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: matched.Name, FalseTarget: failed.Name})
+		return nil
+	case andPattern:
+		right := b.newBlock("match.and")
+		if err := lowerNativeEnumPatternBranch(b, pattern.left, subject, right, failed, bindings); err != nil {
+			return err
+		}
+		b.block = right
+		return lowerNativeEnumPatternBranch(b, pattern.right, subject, matched, failed, bindings)
+	case notPattern:
+		return lowerNativeEnumPatternBranch(b, pattern.inner, subject, failed, matched, cloneStringMap(bindings))
+	case orPattern:
+		if len(pattern.alternatives) == 0 {
+			return fmt.Errorf("native lowering does not support an empty grouped pattern")
+		}
+		for index, alternative := range pattern.alternatives {
+			next := failed
+			if index+1 < len(pattern.alternatives) {
+				next = b.newBlock("match.alternative")
+			}
+			if err := lowerNativeEnumPatternBranch(b, alternative, subject, matched, next, cloneStringMap(bindings)); err != nil {
+				return err
+			}
+			if next != failed {
+				b.block = next
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("native lowering does not yet support this match pattern")
+	}
+}
+
+func nativeMatchPattern(pattern Pattern) (Pattern, error) {
+	if err := validateNativeMatchPattern(pattern); err != nil {
+		return nil, err
+	}
+	return pattern, nil
+}
+
+func validateNativeMatchPattern(pattern Pattern) error {
+	switch pattern := pattern.(type) {
+	case wildcardPattern, bindPattern, literalPattern, relationalPattern, typePattern:
+		return nil
+	case enumPattern, listPattern:
+		_, err := nativeEnumPatternBindingLayout(pattern, "")
+		return err
+	case andPattern:
+		if err := validateNativeMatchPattern(pattern.left); err != nil {
+			return err
+		}
+		return validateNativeMatchPattern(pattern.right)
+	case notPattern:
+		layout, err := nativeEnumPatternBindingLayout(pattern.inner, "")
+		if err != nil {
+			return err
+		}
+		if len(layout) != 0 {
+			return fmt.Errorf("native negated patterns cannot bind names")
+		}
+		return validateNativeMatchPattern(pattern.inner)
+	case orPattern:
+		if len(pattern.alternatives) == 0 {
+			return fmt.Errorf("native lowering does not support an empty grouped pattern")
+		}
+		if err := validateNativeMatchPattern(pattern.alternatives[0]); err != nil {
+			return err
+		}
+		firstLayout, err := nativeEnumPatternBindingLayout(pattern.alternatives[0], "")
+		if err != nil {
+			return err
+		}
+		for _, alternative := range pattern.alternatives[1:] {
+			if err := validateNativeMatchPattern(alternative); err != nil {
+				return err
+			}
+			nextLayout, err := nativeEnumPatternBindingLayout(alternative, "")
+			if err != nil {
+				return err
+			}
+			if len(nextLayout) != len(firstLayout) {
+				return fmt.Errorf("native grouped patterns must bind the same layout")
+			}
+			for index, binding := range firstLayout {
+				if binding != nextLayout[index] {
+					return fmt.Errorf("native grouped patterns must bind the same names")
+				}
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("native lowering does not yet support this match pattern")
+	}
+}
+
+func nativeEnumPatternBindingLayout(pattern Pattern, path string) ([]string, error) {
+	switch pattern := pattern.(type) {
+	case wildcardPattern:
+		return nil, nil
+	case bindPattern:
+		return []string{path + "=" + pattern.name}, nil
+	case literalPattern, relationalPattern:
+		return nil, nil
+	case typePattern:
+		if pattern.binding == "" || pattern.binding == "_" {
+			return nil, nil
+		}
+		return []string{path + "=" + pattern.binding}, nil
+	case enumPattern:
+		layout := make([]string, 0, len(pattern.items))
+		for index, item := range pattern.items {
+			bindings, err := nativeEnumPatternBindingLayout(item, fmt.Sprintf("%s.e%d", path, index))
+			if err != nil {
+				return nil, err
+			}
+			layout = append(layout, bindings...)
+		}
+		return layout, nil
+	case listPattern:
+		layout := make([]string, 0, len(pattern.items))
+		for index, item := range pattern.items {
+			bindings, err := nativeEnumPatternBindingLayout(item, fmt.Sprintf("%s.l%d", path, index))
+			if err != nil {
+				return nil, err
+			}
+			layout = append(layout, bindings...)
+		}
+		return layout, nil
+	case andPattern:
+		left, err := nativeEnumPatternBindingLayout(pattern.left, path)
+		if err != nil {
+			return nil, err
+		}
+		right, err := nativeEnumPatternBindingLayout(pattern.right, path)
+		if err != nil {
+			return nil, err
+		}
+		return append(left, right...), nil
+	case notPattern:
+		return nil, nil
+	case orPattern:
+		if len(pattern.alternatives) == 0 {
+			return nil, fmt.Errorf("native lowering does not support an empty grouped pattern")
+		}
+		return nativeEnumPatternBindingLayout(pattern.alternatives[0], path)
+	default:
+		return nil, fmt.Errorf("native lowering does not yet support this enum payload pattern")
+	}
+}
+
+func bindNativeMatchPattern(b *irBuilder, pattern Pattern, subject string) error {
+	return bindNativeEnumPatternValue(b, pattern, subject)
+}
+
+func bindNativeEnumPatternValue(b *irBuilder, pattern Pattern, subject string) error {
+	switch pattern := pattern.(type) {
+	case wildcardPattern:
+		return nil
+	case bindPattern:
+		b.env[pattern.name] = subject
+		b.locals[pattern.name] = struct{}{}
+		return nil
+	case literalPattern, relationalPattern:
+		return nil
+	case typePattern:
+		if pattern.binding != "" && pattern.binding != "_" {
+			b.env[pattern.binding] = subject
+			b.locals[pattern.binding] = struct{}{}
+		}
+		return nil
+	case enumPattern:
+		for index, item := range pattern.items {
+			payload := b.newTemp()
+			b.emitInstr(IRInstr{Dest: payload, Op: "enumpayload", Args: []string{subject}, Value: uintValue(uint64(index), 64)})
+			if err := bindNativeEnumPatternValue(b, item, payload); err != nil {
+				return err
+			}
+		}
+		return nil
+	case listPattern:
+		for index, item := range pattern.items {
+			value := b.newTemp()
+			b.emitInstr(IRInstr{Dest: value, Op: "listitem", Args: []string{subject}, Value: uintValue(uint64(index), 64)})
+			if err := bindNativeEnumPatternValue(b, item, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	case andPattern:
+		if err := bindNativeEnumPatternValue(b, pattern.left, subject); err != nil {
+			return err
+		}
+		return bindNativeEnumPatternValue(b, pattern.right, subject)
+	case notPattern:
+		return nil
+	case orPattern:
+		if len(pattern.alternatives) == 0 {
+			return fmt.Errorf("native lowering does not support an empty grouped pattern")
+		}
+		return bindNativeEnumPatternValue(b, pattern.alternatives[0], subject)
+	default:
+		return fmt.Errorf("native lowering does not yet support this enum payload pattern")
 	}
 }
 

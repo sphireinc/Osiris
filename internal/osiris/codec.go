@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const codecHeader = "OSR1"
@@ -70,6 +71,15 @@ func (c *byteCursor) uvarint() (uint64, error) {
 	v, n := binary.Uvarint(c.data[c.off:])
 	if n <= 0 {
 		return 0, fmt.Errorf("invalid compact integer encoding")
+	}
+	c.off += n
+	return v, nil
+}
+
+func (c *byteCursor) varint() (int64, error) {
+	v, n := binary.Varint(c.data[c.off:])
+	if n <= 0 {
+		return 0, fmt.Errorf("invalid compact signed integer encoding")
 	}
 	c.off += n
 	return v, nil
@@ -438,6 +448,33 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 			}
 		}
 		return nil
+	case kindDuration:
+		if err := buf.WriteByte(0x1a); err != nil {
+			return err
+		}
+		var raw [binary.MaxVarintLen64]byte
+		n := binary.PutVarint(raw[:], v.duration)
+		_, err := buf.Write(raw[:n])
+		return err
+	case kindTimeLocation:
+		if err := buf.WriteByte(0x1b); err != nil {
+			return err
+		}
+		return encodeTimeLocation(buf, v.location)
+	case kindDateTime:
+		if v.datetime == nil {
+			return fmt.Errorf("cannot encode nil datetime")
+		}
+		if err := buf.WriteByte(0x1c); err != nil {
+			return err
+		}
+		var raw [binary.MaxVarintLen64]byte
+		n := binary.PutVarint(raw[:], v.datetime.unixSeconds)
+		if _, err := buf.Write(raw[:n]); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(v.datetime.nanosecond)))
+		return encodeTimeLocation(buf, v.datetime.location)
 	case kindStream:
 		return fmt.Errorf("stream values cannot be encoded")
 	default:
@@ -871,8 +908,100 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			items = append(items, item)
 		}
 		return listValue(items), nil
+	case 0x1a:
+		value, err := cur.varint()
+		if err != nil {
+			return nullValue(), err
+		}
+		return durationValue(value), nil
+	case 0x1b:
+		location, err := decodeTimeLocation(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		return timeLocationValueOf(location), nil
+	case 0x1c:
+		seconds, err := cur.varint()
+		if err != nil {
+			return nullValue(), err
+		}
+		nanosecond, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if nanosecond > 999999999 {
+			return nullValue(), fmt.Errorf("invalid datetime nanosecond encoding")
+		}
+		location, err := decodeTimeLocation(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		return dateTimeValueFromTime(time.Unix(seconds, int64(nanosecond)).In(location.goLocation()), location)
 	default:
 		return nullValue(), fmt.Errorf("unknown encoded tag 0x%02x", tag)
+	}
+}
+
+func encodeTimeLocation(buf *bytes.Buffer, location *timeLocationValue) error {
+	if location == nil {
+		location = utcTimeLocation()
+	}
+	if err := buf.WriteByte(byte(location.class)); err != nil {
+		return err
+	}
+	buf.Write(appendUvarint(nil, uint64(len(location.name))))
+	if _, err := buf.WriteString(location.name); err != nil {
+		return err
+	}
+	if location.class == timeLocationFixed {
+		var raw [binary.MaxVarintLen64]byte
+		n := binary.PutVarint(raw[:], int64(location.offset))
+		if _, err := buf.Write(raw[:n]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func decodeTimeLocation(cur *byteCursor) (*timeLocationValue, error) {
+	class, err := cur.byte()
+	if err != nil {
+		return nil, err
+	}
+	nameLength, err := cur.uvarint()
+	if err != nil {
+		return nil, err
+	}
+	name, err := cur.take(int(nameLength))
+	if err != nil {
+		return nil, err
+	}
+	switch timeLocationClass(class) {
+	case timeLocationUTC:
+		if string(name) != "UTC" {
+			return nil, fmt.Errorf("invalid UTC location encoding")
+		}
+		return utcTimeLocation(), nil
+	case timeLocationFixed:
+		offset, err := cur.varint()
+		if err != nil {
+			return nil, err
+		}
+		if len(name) == 0 || offset <= -24*60*60 || offset >= 24*60*60 {
+			return nil, fmt.Errorf("invalid fixed timezone encoding")
+		}
+		return timeLocationValueOfFixed(string(name), int(offset)), nil
+	case timeLocationIANA:
+		if len(name) == 0 {
+			return nil, fmt.Errorf("invalid IANA timezone encoding")
+		}
+		location, err := time.LoadLocation(string(name))
+		if err != nil {
+			return nil, fmt.Errorf("unavailable encoded IANA timezone %q: %w", name, err)
+		}
+		return timeLocationValueOfIANA(string(name), location), nil
+	default:
+		return nil, fmt.Errorf("invalid timezone class encoding")
 	}
 }
 

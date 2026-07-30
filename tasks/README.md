@@ -23,6 +23,14 @@ boundaries and dependencies make parallel work safe.
 
 043, 044, 045, 046, 047, 048, 049
 
+### Wave 4 - standard-library and constant expansion
+
+100, 101, 102, 103, 104
+
+### Wave 5 - reference ordering and navigation
+
+105, then 106
+
 ## Parallelism cautions
 
 - Do not parallelize tasks that simultaneously modify `cbackend_native.go`.
@@ -31,13 +39,19 @@ boundaries and dependencies make parallel work safe.
 - Release task 041 should wait for the toolchain and artifact-versioning tasks.
 - TCP tuning task 049 must wait for task 011's cancellation/error contract and
   task 012's portable polling boundary; benchmark before claiming a gain.
+- Task 100 must preserve task 104's exact named-constant and complete-surface
+  audits. Tasks 101 and 104 have finalized qualified duration constants versus
+  global measurement quantities.
+- Task 106 depends on task 105. Its table of contents must reuse the canonical
+  ordered entry arrays rather than creating an independent UI sort.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049.
+  next-step metadata for tasks 001–049 and 100–106.
 - `completed/`: finished task records with validation evidence.
-- `tasks/`: current audit task files (019–049).
+- repository-root tasks 105 and 106: the remaining canonical-reference
+  ordering and navigation tasks. Tasks 100–104 are under `completed/`.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

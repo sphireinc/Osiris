@@ -1,0 +1,386 @@
+{
+  "id": "time",
+  "title": "std/time",
+  "summary": "Exact durations, civil construction, instants, timezone conversion, parsing, formatting, arithmetic, comparison, and explicit clock access.",
+  "items": [
+    {
+      "name": "duration",
+      "syntax": "time.duration(nanoseconds_or_seconds_quantity)",
+      "returns": "`duration`",
+      "summary": "Construct an exact signed nanosecond duration.",
+      "parameters": "One `duration`, integral numeric value interpreted as nanoseconds, or exact `quantity[Second]` whose magnitude is an integral number of nanoseconds.",
+      "details": ["The range is signed 64-bit nanoseconds: approximately ±290 years.", "This pure operation reports `OutOfRange` instead of wrapping and rejects fractional nanoseconds."],
+      "errors": "`TypeError` for incompatible values, `InvalidArgument` for non-integral nanoseconds, and `OutOfRange` outside signed 64-bit nanoseconds.",
+      "example": "emit time.duration_string(time.duration(1500000000)) # \"1.5s\""
+    },
+    {
+      "name": "parse_duration",
+      "syntax": "time.parse_duration(text)",
+      "returns": "`duration`",
+      "summary": "Parse a compact duration containing signed decimal values and unit suffixes.",
+      "parameters": "One `string` using `ns`, `us`/`µs`, `ms`, `s`, `m`, or `h`; components may be combined, as in `1h30m`.",
+      "details": ["Parsing is exact to nanoseconds and does not accept a bare number.", "This pure operation follows the documented Go-style duration grammar; days and calendar months are not duration units."],
+      "errors": "`TypeError` for a non-string and `ParseError` for malformed or out-of-range text.",
+      "example": "emit time.duration_string(time.parse_duration(\"1h30m250ms\")) # \"1h30m0.25s\""
+    },
+    {
+      "name": "duration_string",
+      "syntax": "time.duration_string(value)",
+      "returns": "`string`",
+      "summary": "Render a duration in its shortest exact unit form.",
+      "parameters": "One `duration`.",
+      "details": ["The output uses `h`, `m`, `s`, `ms`, `µs`, and `ns` as needed.", "The result round-trips through `parse_duration` and this operation never reads the clock."],
+      "errors": "`TypeError` for a non-duration or `InvalidArgument` for wrong arity.",
+      "example": "emit time.duration_string(time.add(time.second, time.millisecond)) # \"1.001s\""
+    },
+    {
+      "name": "date",
+      "syntax": "time.date(year, month, day, hour, minute, second, nanosecond[, location])",
+      "returns": "`datetime`",
+      "summary": "Construct an instant from strictly validated Gregorian civil fields.",
+      "parameters": "Seven integral fields and an optional `location`; omission means UTC. Years are `1..9999`, months `1..12`, seconds `0..59`, and nanoseconds `0..999999999`.",
+      "details": ["Invalid days and clock fields fail instead of normalizing. Leap seconds are rejected.", "IANA timezone gaps fail; a repeated wall time in a DST fold selects the earlier instant. This operation is deterministic."],
+      "errors": "`TypeError`, `InvalidArgument`, or `OutOfRange` for invalid fields or location values.",
+      "example": "emit time.format(time.date(2024, 2, 29, 12, 30, 0, 0), time.rfc3339) # \"2024-02-29T12:30:00Z\""
+    },
+    {
+      "name": "unix",
+      "syntax": "time.unix(seconds[, nanosecond_adjustment])",
+      "returns": "`datetime`",
+      "summary": "Construct a UTC instant relative to the Unix epoch without losing nanoseconds.",
+      "parameters": "Signed integral seconds and an optional integral nanosecond adjustment; the adjustment is normalized into the second field.",
+      "details": ["Negative timestamps use floor-based Unix semantics with a non-negative stored nanosecond field.", "The resulting civil year must remain in `1..9999`; this operation is pure."],
+      "errors": "`TypeError` for non-integral values and `OutOfRange` for an unsupported result.",
+      "example": "emit time.format(time.unix(-1, 500000000), time.rfc3339_nano) # \"1969-12-31T23:59:59.5Z\""
+    },
+    {
+      "name": "unix_milli",
+      "syntax": "time.unix_milli(milliseconds)",
+      "returns": "`datetime`",
+      "summary": "Construct a UTC instant from exact signed Unix milliseconds.",
+      "parameters": "One signed integral millisecond count.",
+      "details": ["Conversion uses integer arithmetic; negative sub-second epochs retain their exact fraction.", "The resulting civil year must remain in `1..9999`; no clock is read."],
+      "errors": "`TypeError` for non-integral input and `OutOfRange` for an unsupported result.",
+      "example": "emit time.format(time.unix_milli(-1), time.rfc3339_nano) # \"1969-12-31T23:59:59.999Z\""
+    },
+    {
+      "name": "unix_micro",
+      "syntax": "time.unix_micro(microseconds)",
+      "returns": "`datetime`",
+      "summary": "Construct a UTC instant from exact signed Unix microseconds.",
+      "parameters": "One signed integral microsecond count.",
+      "details": ["Conversion uses integer arithmetic and retains microsecond precision exactly.", "The resulting civil year must remain in `1..9999`; no clock is read."],
+      "errors": "`TypeError` for non-integral input and `OutOfRange` for an unsupported result.",
+      "example": "emit time.format(time.unix_micro(-1), time.rfc3339_nano) # \"1969-12-31T23:59:59.999999Z\""
+    },
+    {
+      "name": "parse",
+      "syntax": "time.parse(layout, text[, location])",
+      "returns": "`datetime`",
+      "summary": "Parse a datetime with a Go reference-time layout and optional zone context.",
+      "parameters": "A layout `string`, input `string`, and optional `location`. Zone-less input uses UTC unless a location is supplied.",
+      "details": ["Layouts describe field positions with the reference instant `Mon Jan 2 15:04:05 MST 2006`; `rfc3339` and `rfc3339_nano` cover common interchange.", "Numeric offsets in text are preserved as fixed locations. IANA gaps fail and folds choose the earlier instant. Parsing is deterministic."],
+      "errors": "`TypeError` for incompatible arguments, `ParseError` for invalid text, and range errors for unsupported years.",
+      "example": "emit time.format(time.parse(time.rfc3339_nano, \"2024-02-29T12:30:00.125-05:00\"), time.rfc3339_nano) # unchanged"
+    },
+    {
+      "name": "format",
+      "syntax": "time.format(datetime, layout)",
+      "returns": "`string`",
+      "summary": "Format a datetime in its retained location with a reference-time layout.",
+      "parameters": "One `datetime` and one layout `string`.",
+      "details": ["Write the desired layout using fields from `Mon Jan 2 15:04:05 MST 2006`; for example, `2006-01-02` selects an ISO-style date.", "Formatting is pure, does not change the datetime, and never consults the host locale or clock."],
+      "errors": "`TypeError` for incompatible values or `InvalidArgument` for wrong arity.",
+      "example": "emit time.format(time.date(2024, 7, 8, 9, 10, 11, 0), \"2006-01-02 15:04:05\") # \"2024-07-08 09:10:11\""
+    },
+    {
+      "name": "add",
+      "syntax": "time.add(duration, duration)\ntime.add(datetime, duration)",
+      "returns": "`duration` or `datetime` matching the first argument",
+      "summary": "Add exact elapsed nanoseconds without changing datetime location identity.",
+      "parameters": "Two durations, or a `datetime` followed by a `duration`.",
+      "details": ["Duration arithmetic is checked and never wraps or saturates.", "Adding elapsed time across a DST transition differs intentionally from `add_date`; the operation is pure."],
+      "errors": "`TypeError` for an unsupported pair and `OutOfRange` on duration or datetime overflow.",
+      "example": "emit time.duration_string(time.add(time.second, time.millisecond)) # \"1.001s\""
+    },
+    {
+      "name": "sub",
+      "syntax": "time.sub(duration, duration)\ntime.sub(datetime, datetime)",
+      "returns": "`duration`",
+      "summary": "Subtract durations or compute the exact elapsed duration between instants.",
+      "parameters": "Two durations or two datetimes.",
+      "details": ["Datetime subtraction compares instants, regardless of their displayed locations.", "The exact result must fit signed 64-bit nanoseconds; this operation is pure."],
+      "errors": "`TypeError` for mismatched values and `OutOfRange` when the exact result cannot be represented.",
+      "example": "emit time.duration_string(time.sub(time.unix(2), time.unix(0))) # \"2s\""
+    },
+    {
+      "name": "add_date",
+      "syntax": "time.add_date(datetime, years, months, days)",
+      "returns": "`datetime`",
+      "summary": "Apply calendar-relative year, month, and day deltas in the retained location.",
+      "parameters": "One `datetime` and three integral deltas.",
+      "details": ["Calendar normalization follows Go `AddDate`; for example, January 31 plus one month may normalize into March.", "A calendar day follows local civil time and can therefore be 23 or 25 elapsed hours across DST."],
+      "errors": "`TypeError` for non-integral arguments and `OutOfRange` when the result leaves years `1..9999`.",
+      "example": "emit time.format(time.add_date(time.date(2024, 1, 31, 0, 0, 0, 0), 0, 1, 0), \"2006-01-02\") # \"2024-03-02\""
+    },
+    {
+      "name": "round",
+      "syntax": "time.round(duration_or_datetime, quantum)",
+      "returns": "The first argument's `duration` or `datetime` kind",
+      "summary": "Round to the nearest non-negative duration quantum.",
+      "parameters": "A `duration` or `datetime` followed by a non-negative `duration` quantum.",
+      "details": ["Duration ties round away from zero. Datetimes round from the zero time while retaining their location.", "A zero quantum returns the input. Every result is range-checked and the operation is pure."],
+      "errors": "`TypeError`, `InvalidArgument` for a negative quantum, or `OutOfRange` for an unrepresentable result.",
+      "example": "emit time.duration_string(time.round(time.duration(1500000000), time.second)) # \"2s\""
+    },
+    {
+      "name": "truncate",
+      "syntax": "time.truncate(duration_or_datetime, quantum)",
+      "returns": "The first argument's `duration` or `datetime` kind",
+      "summary": "Discard the remainder beyond a non-negative duration quantum.",
+      "parameters": "A `duration` or `datetime` followed by a non-negative `duration` quantum.",
+      "details": ["Negative durations truncate toward zero. Datetimes retain their location.", "A zero quantum returns the input; the operation is pure and checked."],
+      "errors": "`TypeError`, `InvalidArgument` for a negative quantum, or `OutOfRange` for an unsupported result.",
+      "example": "emit time.duration_string(time.truncate(time.duration(-1500000000), time.second)) # \"-1s\""
+    },
+    {
+      "name": "equal",
+      "syntax": "time.equal(left, right)",
+      "returns": "`bool`",
+      "summary": "Test two durations or two datetime instants for equality.",
+      "parameters": "Two durations or two datetimes of the same kind.",
+      "details": ["Datetime equality compares the instant, not location identity.", "The ordinary `==` operator uses the same value rule; this function makes time-specific intent explicit."],
+      "errors": "`TypeError` for mixed or unsupported kinds.",
+      "example": "emit time.equal(time.unix(0), time.utc(time.unix(0))) # true"
+    },
+    {
+      "name": "before",
+      "syntax": "time.before(left, right)",
+      "returns": "`bool`",
+      "summary": "Report whether the left duration or instant precedes the right.",
+      "parameters": "Two durations or two datetimes of the same kind.",
+      "details": ["Datetime ordering uses the represented instant rather than local wall fields.", "This operation is deterministic and pure."],
+      "errors": "`TypeError` for mixed or unsupported kinds.",
+      "example": "emit time.before(time.unix(0), time.unix(1)) # true"
+    },
+    {
+      "name": "after",
+      "syntax": "time.after(left, right)",
+      "returns": "`bool`",
+      "summary": "Report whether the left duration or instant follows the right.",
+      "parameters": "Two durations or two datetimes of the same kind.",
+      "details": ["Datetime ordering uses the represented instant rather than local wall fields.", "This operation is deterministic and pure."],
+      "errors": "`TypeError` for mixed or unsupported kinds.",
+      "example": "emit time.after(time.unix(1), time.unix(0)) # true"
+    },
+    {
+      "name": "compare",
+      "syntax": "time.compare(left, right)",
+      "returns": "`i64`",
+      "summary": "Three-way compare two durations or two datetime instants.",
+      "parameters": "Two durations or two datetimes of the same kind.",
+      "details": ["The result is `-1i64`, `0i64`, or `1i64`.", "Datetime comparison ignores display location and compares the exact instant."],
+      "errors": "`TypeError` for mixed or unsupported kinds.",
+      "example": "emit time.compare(time.unix(0), time.unix(1)) # -1i64"
+    },
+    {
+      "name": "year",
+      "syntax": "time.year(datetime)",
+      "returns": "`u64`",
+      "summary": "Read the civil year in the datetime's retained location.",
+      "parameters": "One `datetime`.",
+      "details": ["The result is in `1..9999`.", "Component access is pure and does not alter the instant."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.year(time.date(2024, 2, 29, 0, 0, 0, 0)) # 2024u64"
+    },
+    {
+      "name": "month",
+      "syntax": "time.month(datetime)",
+      "returns": "`u64`",
+      "summary": "Read the civil month number in the retained location.",
+      "parameters": "One `datetime`.",
+      "details": ["January is `1u64` and December is `12u64`.", "This operation is pure."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.month(time.date(2024, 2, 29, 0, 0, 0, 0)) # 2u64"
+    },
+    {
+      "name": "day",
+      "syntax": "time.day(datetime)",
+      "returns": "`u64`",
+      "summary": "Read the day of the month in the retained location.",
+      "parameters": "One `datetime`.",
+      "details": ["The result is in `1..31` and reflects the local civil representation.", "This operation is pure."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.day(time.date(2024, 2, 29, 0, 0, 0, 0)) # 29u64"
+    },
+    {
+      "name": "hour",
+      "kind": "function",
+      "syntax": "time.hour\ntime.hour(datetime)",
+      "returns": "`duration` in value position; `u64` in call position",
+      "summary": "Use the one-hour duration constant or read a datetime's local hour.",
+      "parameters": "No call in value position; one `datetime` in call position.",
+      "details": ["The constant is exactly `3600000000000` nanoseconds. The component result is in `0..23`.", "The shared spelling is resolved by value versus call position and remains deterministic after codec round trips."],
+      "errors": "`TypeError` when called with a non-datetime.",
+      "example": "emit time.hour(time.date(2024, 1, 1, 23, 0, 0, 0)) # 23u64"
+    },
+    {
+      "name": "minute",
+      "kind": "function",
+      "syntax": "time.minute\ntime.minute(datetime)",
+      "returns": "`duration` in value position; `u64` in call position",
+      "summary": "Use the one-minute duration constant or read a datetime's local minute.",
+      "parameters": "No call in value position; one `datetime` in call position.",
+      "details": ["The constant is exactly `60000000000` nanoseconds. The component result is in `0..59`.", "The shared spelling is resolved by value versus call position."],
+      "errors": "`TypeError` when called with a non-datetime.",
+      "example": "emit time.minute(time.date(2024, 1, 1, 0, 42, 0, 0)) # 42u64"
+    },
+    {
+      "name": "second",
+      "kind": "function",
+      "syntax": "time.second\ntime.second(datetime)",
+      "returns": "`duration` in value position; `u64` in call position",
+      "summary": "Use the one-second duration constant or read a datetime's local second.",
+      "parameters": "No call in value position; one `datetime` in call position.",
+      "details": ["The constant is exactly `1000000000` nanoseconds. The component result is in `0..59`; leap seconds are not represented.", "The shared spelling is resolved by value versus call position."],
+      "errors": "`TypeError` when called with a non-datetime.",
+      "example": "emit time.second(time.date(2024, 1, 1, 0, 0, 42, 0)) # 42u64"
+    },
+    {
+      "name": "nanosecond",
+      "kind": "function",
+      "syntax": "time.nanosecond\ntime.nanosecond(datetime)",
+      "returns": "`duration` in value position; `u64` in call position",
+      "summary": "Use the one-nanosecond duration constant or read a datetime's fractional nanosecond.",
+      "parameters": "No call in value position; one `datetime` in call position.",
+      "details": ["The constant is exactly one nanosecond. The component result is in `0..999999999`.", "The shared spelling is resolved by value versus call position."],
+      "errors": "`TypeError` when called with a non-datetime.",
+      "example": "emit time.nanosecond(time.unix(0, 123)) # 123u64"
+    },
+    {
+      "name": "weekday",
+      "syntax": "time.weekday(datetime)",
+      "returns": "`string`",
+      "summary": "Return the English weekday name in the retained location.",
+      "parameters": "One `datetime`.",
+      "details": ["The stable values are `Sunday` through `Saturday`.", "This is not locale-sensitive and does not read the clock."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.weekday(time.date(2024, 2, 29, 0, 0, 0, 0)) # \"Thursday\""
+    },
+    {
+      "name": "year_day",
+      "syntax": "time.year_day(datetime)",
+      "returns": "`u64`",
+      "summary": "Return the one-based day within the local civil year.",
+      "parameters": "One `datetime`.",
+      "details": ["The result is `1..365` or `1..366` in a leap year.", "This operation is pure."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.year_day(time.date(2024, 2, 29, 0, 0, 0, 0)) # 60u64"
+    },
+    {
+      "name": "zone",
+      "syntax": "time.zone(datetime)",
+      "returns": "`list[string, i64]`",
+      "summary": "Read the active timezone abbreviation/name and offset.",
+      "parameters": "One `datetime`.",
+      "details": ["The two values are the active zone name and seconds east of UTC.", "For an IANA location, the active offset can vary with the instant."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.zone(time.unix(0)) # [\"UTC\", 0i64]"
+    },
+    {
+      "name": "utc",
+      "syntax": "time.utc(datetime)",
+      "returns": "`datetime`",
+      "summary": "Represent the same instant in canonical UTC.",
+      "parameters": "One `datetime`.",
+      "details": ["The instant and nanosecond are unchanged; only retained location identity changes.", "This operation is pure."],
+      "errors": "`TypeError` for a non-datetime.",
+      "example": "emit time.format(time.utc(time.unix(0)), time.rfc3339) # \"1970-01-01T00:00:00Z\""
+    },
+    {
+      "name": "in_location",
+      "syntax": "time.in_location(datetime, location)",
+      "returns": "`datetime`",
+      "summary": "Represent an instant in another fixed or IANA location.",
+      "parameters": "One `datetime` and one `location`.",
+      "details": ["The instant is unchanged; civil components and active offset are recalculated.", "Conversion is pure because the location value already contains its rules."],
+      "errors": "`TypeError` for incompatible arguments and `OutOfRange` if the local civil year leaves `1..9999`.",
+      "example": "emit time.format(time.in_location(time.unix(0), time.fixed_zone(\"EST\", -18000)), time.rfc3339) # \"1969-12-31T19:00:00-05:00\""
+    },
+    {
+      "name": "fixed_zone",
+      "syntax": "time.fixed_zone(name, offset_seconds)",
+      "returns": "`location`",
+      "summary": "Create an immutable named timezone with one constant UTC offset.",
+      "parameters": "A non-empty name `string` and integral seconds strictly between `-86400` and `86400`.",
+      "details": ["Fixed locations have no daylight-saving transitions.", "The exact name and offset survive binary and JSON serialization."],
+      "errors": "`TypeError`, `InvalidArgument` for an empty name, or `OutOfRange` for an invalid offset.",
+      "example": "emit time.fixed_zone(\"NPT\", 20700) # fixed_zone(\"NPT\", 20700)"
+    },
+    {
+      "name": "load_location",
+      "syntax": "time.load_location(name)",
+      "returns": "`location`",
+      "summary": "Load an immutable IANA timezone by canonical database name.",
+      "parameters": "One non-empty zone name `string`, such as `America/New_York`; `UTC` returns the canonical UTC location.",
+      "details": ["Osiris embeds the timezone snapshot shipped by its Go build toolchain and performs no runtime network fetch.", "Hosts and tests can inject a pinned loader through the runtime API."],
+      "errors": "`TypeError`, `InvalidArgument` for an empty name, or `NotFound` when the named zone is unavailable.",
+      "example": "emit time.load_location(\"UTC\") # location(\"UTC\")"
+    },
+    {
+      "name": "now",
+      "syntax": "time.now()",
+      "returns": "`datetime`",
+      "summary": "Read the runtime's explicit clock and return the instant in UTC.",
+      "parameters": "No arguments.",
+      "details": ["This is the only nondeterministic operation in `std/time`; all other functions are pure with respect to the clock.", "Tests and deterministic hosts install a clock with `Runtime.SetClock`. The result never retains a host monotonic payload."],
+      "errors": "`InvalidArgument` for unexpected arguments and `OutOfRange` if an injected clock returns an unsupported year.",
+      "example": "emit time.year(time.now())"
+    },
+    {
+      "kind": "constant",
+      "name": "rfc3339",
+      "syntax": "time.rfc3339",
+      "returns": "`string`",
+      "summary": "The standard RFC 3339 layout without a required fractional field.",
+      "details": ["Its value is `2006-01-02T15:04:05Z07:00`.", "Use it with `parse` and `format` for interoperable offset-bearing timestamps."],
+      "example": "emit time.rfc3339"
+    },
+    {
+      "kind": "constant",
+      "name": "rfc3339_nano",
+      "syntax": "time.rfc3339_nano",
+      "returns": "`string`",
+      "summary": "The RFC 3339 layout that retains up to nine fractional-second digits.",
+      "details": ["Its value is `2006-01-02T15:04:05.999999999Z07:00`.", "Formatting removes unnecessary trailing fractional zeros without losing represented precision."],
+      "example": "emit time.rfc3339_nano"
+    },
+    {
+      "kind": "constant",
+      "name": "utc_location",
+      "syntax": "time.utc_location",
+      "returns": "`location`",
+      "summary": "The canonical zero-offset UTC location.",
+      "details": ["Use it when an API requires an explicit location value.", "UTC identity survives codecs and is distinct from an arbitrarily named zero-offset fixed zone."],
+      "example": "emit time.utc_location # location(\"UTC\")"
+    },
+    {
+      "kind": "constant",
+      "name": "microsecond",
+      "syntax": "time.microsecond",
+      "returns": "`duration`",
+      "summary": "An exact one-microsecond duration constant.",
+      "details": ["The value is `1000` nanoseconds.", "It is qualified and does not add or shadow a global measurement-unit name."],
+      "example": "emit time.duration_string(time.microsecond) # \"1µs\""
+    },
+    {
+      "kind": "constant",
+      "name": "millisecond",
+      "syntax": "time.millisecond",
+      "returns": "`duration`",
+      "summary": "An exact one-millisecond duration constant.",
+      "details": ["The value is `1000000` nanoseconds.", "It is qualified and does not add or shadow a global measurement-unit name."],
+      "example": "emit time.duration_string(time.millisecond) # \"1ms\""
+    }
+  ]
+}

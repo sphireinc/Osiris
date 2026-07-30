@@ -3,6 +3,7 @@ package osiris
 import (
 	"fmt"
 	"math"
+	"math/cmplx"
 	"sort"
 )
 
@@ -106,7 +107,7 @@ func signValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func sinhValue(args []Value) (Value, error) {
-	return numericUnaryValue(args, "sinh", math.Sinh, false)
+	return numericComplexUnaryValue(args, "sinh", math.Sinh, cmplx.Sinh)
 }
 
 // coshValue handles the cosh value step in the surrounding package and returns
@@ -115,7 +116,7 @@ func sinhValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func coshValue(args []Value) (Value, error) {
-	return numericUnaryValue(args, "cosh", math.Cosh, false)
+	return numericComplexUnaryValue(args, "cosh", math.Cosh, cmplx.Cosh)
 }
 
 // tanhValue handles the tanh value step in the surrounding package and returns
@@ -124,7 +125,7 @@ func coshValue(args []Value) (Value, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func tanhValue(args []Value) (Value, error) {
-	return numericUnaryValue(args, "tanh", math.Tanh, false)
+	return numericComplexUnaryValue(args, "tanh", math.Tanh, cmplx.Tanh)
 }
 
 // asinhValue handles the asinh value step in the surrounding package and

@@ -204,7 +204,7 @@ func firstPackageStmt(prog *Program) *packageStmt {
 // pipeline without re-deriving the same information.
 func stdlibVersion(name string) string {
 	switch name {
-	case "std/text", "std/math", "std/crypto", "std/list":
+	case "std/text", "std/math", "std/crypto", "std/list", "std/time":
 		return "1.0.0"
 	default:
 		return ""
