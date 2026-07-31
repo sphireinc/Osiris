@@ -190,7 +190,7 @@ func TestNamedConstantDocumentationIndexesMatchCatalog(t *testing.T) {
 		Global referencePage `json:"global"`
 		Errors referencePage `json:"errors"`
 	}
-	data, err := os.ReadFile(filepath.Join("..", "..", "newdocs", "src", "constant-reference.json"))
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "src", "constant-reference.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestNamedConstantDocumentationIndexesMatchCatalog(t *testing.T) {
 	var technical struct {
 		NamedConstants []string `json:"namedConstants"`
 	}
-	data, err = os.ReadFile(filepath.Join("..", "..", "newdocs", "src", "technical-reference.json"))
+	data, err = os.ReadFile(filepath.Join("..", "..", "docs", "src", "technical-reference.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

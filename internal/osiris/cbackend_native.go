@@ -1015,21 +1015,21 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			}
 			if builtin == "eigh" {
 				if !hasProvider {
-					return fmt.Errorf("native C backend: eigh requires a configured native numerical provider (see docs/design/NATIVE-LINALG-ABI.md)")
+					return fmt.Errorf("native C backend: eigh requires a configured native numerical provider")
 				}
 				fmt.Fprintf(b, "  %s = oeigh(%s);\n", vars[in.Dest], vars[in.Args[0]])
 				return nil
 			}
 			if builtin == "svd" {
 				if !hasProvider {
-					return fmt.Errorf("native C backend: svd requires a configured native numerical provider (see docs/design/NATIVE-LINALG-ABI.md)")
+					return fmt.Errorf("native C backend: svd requires a configured native numerical provider")
 				}
 				fmt.Fprintf(b, "  %s = osvd(%s);\n", vars[in.Dest], vars[in.Args[0]])
 				return nil
 			}
 			if builtin == "eig" {
 				if !hasProvider {
-					return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider (see docs/design/NATIVE-LINALG-ABI.md)")
+					return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider")
 				}
 				fmt.Fprintf(b, "  %s = oeig(%s);\n", vars[in.Dest], vars[in.Args[0]])
 				return nil
@@ -1107,10 +1107,10 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				if hasProvider {
 					return fmt.Errorf("native C backend: %s provider adapter is not implemented yet", builtin)
 				}
-				return fmt.Errorf("native C backend: %s requires a configured native numerical provider (see docs/design/NATIVE-LINALG-ABI.md)", builtin)
+					return fmt.Errorf("native C backend: %s requires a configured native numerical provider", builtin)
 			}
 			if builtin == "eig" {
-				return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider (see docs/design/NATIVE-LINALG-ABI.md)")
+					return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider")
 			}
 			return fmt.Errorf("native C backend: builtin %q is not supported yet", builtins[in.Text])
 		}

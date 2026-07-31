@@ -1,22 +1,19 @@
 # Osiris React reference
 
-`newdocs/` is the canonical public language-reference source. It is the only
+`docs/` is the canonical public language-reference source. It is the only
 public documentation application published by GitHub Pages, and is a
 Vite/React single-page application designed around reusable `PageShell`,
 `ApiListing`, and `CodeBlock` components. Public documentation changes belong
-here; `docs/` is frozen legacy compatibility and durable internal design
-material, not an alternate reference to edit.
+here.
 
 ## Content model
 
-- `src/legacy-reference.json` is the checked-in, React-owned reference data.
-  Its historical filename records its origin only: it now owns chapters,
-  types, API signatures, return types, detail notes, and examples. Edit it (or
-  the small component-specific entries in `api-data.js`) for public-reference
-  changes; do not regenerate it from `docs/`.
-- `src/supplemental-reference.json` records implementation-audit additions:
-  runtime helpers, special forms, runtime kinds, and the original grouped
-  constant audit that were absent from the migrated snapshot.
+- `src/reference-data.json` is the checked-in, React-owned reference data for
+  chapters, types, API signatures, return types, detail notes, and examples.
+  Edit it (or the small component-specific entries in `api-data.js`) for
+  public-reference changes.
+- `src/supplemental-reference.json` records additional language coverage for
+  runtime helpers, special forms, runtime kinds, and grouped constants.
 - `src/constant-reference.json` owns the detailed **Global Constants** and
   **Error Constants** language pages, including aliases, meanings, values,
   return types, and checked examples.
@@ -53,9 +50,8 @@ If two names on one page derive the same anchor, give the exceptional entry an
 explicit lowercase URL-safe `anchor` in its reference data; never add an
 order-dependent numeric suffix.
 
-The normal public build and reference checks do not read `docs/`. Compatibility
-redirects are generated from the legacy URL names so existing links continue to
-work without making the old static manual a second source of truth.
+The public build and reference checks operate entirely on this application.
+The build also emits redirect pages for earlier public URLs.
 
 ## Commands
 
@@ -67,13 +63,13 @@ npm run build
 ```
 
 `check-reference` verifies API metadata completeness, that every published API
-entry and documented family member is discoverable through global search, that
-every current runtime built-in, evaluator special form, named constant,
-reserved keyword, CLI command, and standard-library export has canonical
-reference coverage outside the exhaustive technical index, representative
-cross-reference searches, a redirect destination for every former static
-page, and the complete unique deep-link surface. `check-navigation` can run
-the route, anchor, search-target, history-observer, and focus checks by itself.
+entry and documented family member is discoverable through global search, and
+that every current runtime built-in, evaluator special form, named constant,
+reserved keyword, CLI command, and standard-library export has a user-facing
+entry in the appropriate reference section. It also checks representative
+cross-reference searches, route destinations, and the complete deep-link
+surface. `check-navigation` can run the route, anchor, search-target,
+history-observer, and focus checks by itself.
 `build`
 also generates ignored `public/docs/*.html` compatibility redirects, then
 emits the publishable site to ignored `dist/`.
@@ -89,5 +85,5 @@ GitHub Pages deployment is defined in `.github/workflows/docs.yml`.
 The published app keeps its own copies of the repository logos in
 `public/brand/`. `osiris_simple_logo.png` is used in the navigation,
 `osiris_logo_trans_cropped.png` is used in the overview hero, and
-`logo_black_bg.png` is used in the site footer. The source images at the
-repository root remain unchanged.
+`logo_black_bg.png` is used in the site footer. The source images in
+`assets/` remain unchanged.

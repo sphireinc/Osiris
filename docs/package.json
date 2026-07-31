@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "redirects": "node scripts/create-legacy-redirects.mjs",
+    "redirects": "node scripts/create-route-redirects.mjs",
     "check-reference": "npm run redirects && node scripts/check-reference.mjs && node scripts/check-navigation.mjs",
     "check-navigation": "node scripts/check-navigation.mjs",
     "check-examples": "node scripts/check-examples.mjs",

@@ -20,4 +20,4 @@ for (const [file, route] of Object.entries(routes)) {
   const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=../#${route}"><title>Osiris Reference</title><p>This reference moved to <a href="../#${route}">the Osiris React reference</a>.</p>`;
   await writeFile(resolve(output, file), html);
 }
-console.log(`Created ${Object.keys(routes).length} legacy documentation redirects.`);
+console.log(`Created ${Object.keys(routes).length} route redirects.`);

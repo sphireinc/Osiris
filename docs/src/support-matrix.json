@@ -12,193 +12,193 @@
     {
       "id": "core-syntax-and-control-flow",
       "label": "Core syntax, bindings, functions, loops, and control flow",
-      "documentation": ["docs/core.html", "docs/semantics.html", "docs/guide.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"], "tasks": ["tasks/completed/001-c-backend-real-lowering.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"]},
       "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions. Native C covers tested scalar control flow, loops, and direct/closure calls; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation."
     },
     {
       "id": "typed-functions-and-static-checking",
       "label": "Typed parameters, results, function values, and static checking",
-      "documentation": ["docs/core.html", "docs/types.html", "docs/guide.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#types", "https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/typed_function_test.go#TestTypedFunctionRecursionCallbacksAndBackendParity", "internal/osiris/typed_function_test.go#TestTypedFunctionNestedClosureAndShadowing", "internal/osiris/typed_function_test.go#TestTypedFunctionIllTypedProgramIsRejectedByEveryArtifactPath", "internal/osiris/typed_function_test.go#TestTypedFunctionMetadataFlowsThroughValueInferenceIRAndLSP"], "tasks": ["tasks/completed/110-add-typed-functions-and-static-checking.md"]},
+      "evidence": {"tests": ["internal/osiris/typed_function_test.go#TestTypedFunctionRecursionCallbacksAndBackendParity", "internal/osiris/typed_function_test.go#TestTypedFunctionNestedClosureAndShadowing", "internal/osiris/typed_function_test.go#TestTypedFunctionIllTypedProgramIsRejectedByEveryArtifactPath", "internal/osiris/typed_function_test.go#TestTypedFunctionMetadataFlowsThroughValueInferenceIRAndLSP"]},
       "notes": "Interpreter and VM preserve exact annotated widths and callable signatures, while unannotated source remains dynamic. Native C supports the parity-tested represented kinds and exact closure signatures; annotations for runtime kinds absent from the C ABI are source-spanned compile-time boundaries. WASM snapshot generation and GPU planning run the shared checker before producing artifacts. LSP exposes typed diagnostics and hover/signature metadata but does not yet advertise completion or signature-help methods."
     },
     {
       "id": "types-and-numeric-families",
       "label": "Types, numeric families, units, and exact values",
-      "documentation": ["docs/types.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#types"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/named_test.go#TestExpandedUnitExactIdentitiesAndInterpreterVMParity", "internal/osiris/named_test.go#TestNamedQuantityCodecRoundTripsEveryCatalogConcept", "internal/osiris/named_test.go#TestNativeNumericGlobalParityAndQuantityDiagnostic", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity"], "tasks": ["tasks/completed/032-harden-native-numeric-semantics-and-overflow-parity.md", "tasks/completed/104-expand-global-constants-and-measurement-units.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/named_test.go#TestExpandedUnitExactIdentitiesAndInterpreterVMParity", "internal/osiris/named_test.go#TestNamedQuantityCodecRoundTripsEveryCatalogConcept", "internal/osiris/named_test.go#TestNativeNumericGlobalParityAndQuantityDiagnostic", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity"]},
       "notes": "The interpreter and VM share the exact rational quantity catalog, alias values, inference, and codecs. Native C lowers supported default-number globals directly and rejects dimensioned named quantities until its ABI can preserve arbitrary rational magnitudes and dimension vectors."
     },
     {
       "id": "errors-results-and-options",
       "label": "Structured errors, Result, Option, and try/catch",
-      "documentation": ["docs/errors.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#chapter-errors"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"], "tasks": ["tasks/completed/013-error-language-tools.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStructuredErrorModel", "internal/osiris/runtime_test.go#TestResultAndOptionHelpers", "internal/osiris/runtime_test.go#TestTryCatchErrorHandling"]},
       "notes": "Native C reports selected runtime failures, but it does not yet claim complete structured-error parity."
     },
     {
       "id": "modules-packages-and-macros",
       "label": "Imports, packages, exports, version selectors, and macros",
-      "documentation": ["docs/core.html", "docs/semantics.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestModuleExportsAreExplicit", "internal/osiris/runtime_test.go#TestPackageVersioning", "internal/osiris/runtime_test.go#TestHygienicMacroExpansion"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md", "tasks/completed/037-secure-and-make-module-resolution-reproducible.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestModuleExportsAreExplicit", "internal/osiris/runtime_test.go#TestPackageVersioning", "internal/osiris/runtime_test.go#TestHygienicMacroExpansion"]},
       "notes": "Native C only propagates a static, tested import subset; dynamic and general module behavior is not a native promise."
     },
     {
       "id": "patterns-and-matching",
       "label": "match and switch expressions",
-      "documentation": ["docs/core.html", "docs/semantics.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestMatchExpression", "internal/osiris/runtime_test.go#TestSwitchExpression", "internal/osiris/runtime_test.go#TestPayloadEnumCasesConstructAndMatchInInterpreterAndVM", "internal/osiris/runtime_test.go#TestPayloadEnumCaseDiagnostics", "internal/osiris/runtime_test.go#TestMatchGuardsAndDefaultHaveInterpreterVMParity", "internal/osiris/runtime_test.go#TestGroupedPatternsHaveInterpreterVMParityAndStableBindings", "internal/osiris/runtime_test.go#TestRelationalTypeAndLogicalPatternsHaveInterpreterVMParity", "internal/osiris/runtime_test.go#TestEnumMatchRejectsRedundantArmsWithSourceLocations", "internal/osiris/runtime_test.go#TestCBackendNestedListEnumMatchParity", "internal/osiris/runtime_test.go#TestCBackendRepeatedPatternBindingParity", "internal/osiris/runtime_test.go#TestCBackendRelationalTypeAndLogicalPatternParity"], "tasks": ["tasks/completed/018-enums-and-pattern-matching.md", "tasks/completed/048-gate-enums-and-pattern-matching-behind-a-complete-semantic-contract.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestMatchExpression", "internal/osiris/runtime_test.go#TestSwitchExpression", "internal/osiris/runtime_test.go#TestPayloadEnumCasesConstructAndMatchInInterpreterAndVM", "internal/osiris/runtime_test.go#TestPayloadEnumCaseDiagnostics", "internal/osiris/runtime_test.go#TestMatchGuardsAndDefaultHaveInterpreterVMParity", "internal/osiris/runtime_test.go#TestGroupedPatternsHaveInterpreterVMParityAndStableBindings", "internal/osiris/runtime_test.go#TestRelationalTypeAndLogicalPatternsHaveInterpreterVMParity", "internal/osiris/runtime_test.go#TestEnumMatchRejectsRedundantArmsWithSourceLocations", "internal/osiris/runtime_test.go#TestCBackendNestedListEnumMatchParity", "internal/osiris/runtime_test.go#TestCBackendRepeatedPatternBindingParity", "internal/osiris/runtime_test.go#TestCBackendRelationalTypeAndLogicalPatternParity"]},
       "notes": "Interpreter and VM support closed enums with zero- and payload-case constructors, explicit unique string/fixed-width-integer backed declarations, nested qualified patterns, guards, final default arms, grouped alternatives with stable bindings, relational, type-binding, conjunction, and negation patterns, plus static exhaustiveness for resolvable enum subjects. Native C supports tagged enum construction, recursive equality and rendering, truthiness, nested enum/list/function payloads, literals, every C-ABI type pattern, relational, conjunction, negation, repeated bindings, final defaults, compatible grouped alternatives, guards, and backed declaration metadata through generated CFG. Non-native runtime kinds remain explicit native compile-time boundaries rather than an interpreter fallback."
     },
     {
       "id": "tasks-streams-and-async-io",
       "label": "Tasks, cancellation, streams, and asynchronous I/O",
-      "documentation": ["docs/guide.html", "docs/io.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tooling", "https://sphireinc.github.io/Osiris/#io"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTaskSpawnAwaitAndCancel", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/cbackend_native_surface_test.go#TestCBackendDeferredTaskAndFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendStructuredResultFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTaskSpawnAwaitAndCancel", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/cbackend_native_surface_test.go#TestCBackendDeferredTaskAndFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendStructuredResultFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C has a cooperative deterministic subset for captured `spawn` thunks, repeated `await`, pending-task `cancel`, ordered `parallel`, and task failures crossing `try`/`catch`. Streams, host-backed asynchronous I/O, `race`, `select`, deadlines, and interruption of already-running host work remain unsupported."
     },
     {
       "id": "tooling-and-analysis",
       "label": "Formatting, IR analysis, tracing, and editor protocol",
-      "documentation": ["docs/guide.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestFormatSource", "internal/osiris/ir_test.go#TestBuildIRLowering", "internal/osiris/lsp_test.go#TestLanguageServerHoverAndDefinition", "internal/osiris/lsp_test.go#TestLanguageServerFramedInitializeFixture", "internal/osiris/lsp_test.go#TestLanguageServerUsesUTF16Positions", "internal/osiris/optimize_report_test.go#TestOptimizeProgramWithReportIsStableAndPreservesExecution"], "tasks": ["tasks/completed/034-add-optimization-verification-and-reporting.md", "tasks/completed/035-define-cli-stability-diagnostics-and-machine-readable-output.md", "tasks/completed/036-version-bytecode-cache-lock-and-artifact-formats.md", "tasks/completed/038-complete-lsp-correctness-and-protocol-test-coverage.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestFormatSource", "internal/osiris/ir_test.go#TestBuildIRLowering", "internal/osiris/lsp_test.go#TestLanguageServerHoverAndDefinition", "internal/osiris/lsp_test.go#TestLanguageServerFramedInitializeFixture", "internal/osiris/lsp_test.go#TestLanguageServerUsesUTF16Positions", "internal/osiris/optimize_report_test.go#TestOptimizeProgramWithReportIsStableAndPreservesExecution"]},
       "notes": "Analysis tools operate on source/IR. The CLI has an opt-in versioned JSON diagnostic envelope with stable stream separation and exit categories. Native cache, lock, and GPU JSON formats are versioned and validated. The optimizer emits ordered text or versioned JSON reports and names unavailable proof-dependent passes explicitly. LSP supports incremental UTF-16 document updates, hover, and definition with protocol fixtures; it deliberately does not advertise completion, rename, or other IDE features."
     },
     {
       "id": "std-text",
       "label": "std/text",
-      "documentation": ["docs/text.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#text"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTextUnicodeParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/103-expand-strings.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTextUnicodeParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C directly lowers the parity-tested `slug`, `fields`, `upper`, and `join` slice with owned UTF-8 results. Other `std/text` members remain compile-time diagnostics; this partial support is not a module-wide native promise."
     },
     {
       "id": "std-math-scalar",
       "label": "std/math scalar, complex, and constructor functions",
-      "documentation": ["docs/math.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#math"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdMathLibrary", "internal/osiris/runtime_test.go#TestCBackendStaticMathScalarParity", "internal/osiris/runtime_test.go#TestCBackendComplexScalarParity", "internal/osiris/math_ext_test.go#TestExpandedMathInterpreterVMParity", "internal/osiris/math_ext_test.go#TestExpandedMathComplexFamiliesAndBranchCuts", "internal/osiris/math_ext_test.go#TestExpandedMathInferenceAndNativeDiagnostics"], "tasks": ["tasks/completed/004-native-numeric-and-tensor-lowering.md", "tasks/completed/032-harden-native-numeric-semantics-and-overflow-parity.md", "tasks/completed/100-add-new-math-funcs.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdMathLibrary", "internal/osiris/runtime_test.go#TestCBackendStaticMathScalarParity", "internal/osiris/runtime_test.go#TestCBackendComplexScalarParity", "internal/osiris/math_ext_test.go#TestExpandedMathInterpreterVMParity", "internal/osiris/math_ext_test.go#TestExpandedMathComplexFamiliesAndBranchCuts", "internal/osiris/math_ext_test.go#TestExpandedMathInferenceAndNativeDiagnostics"]},
       "notes": "Interpreter and VM share the expanded floating decomposition, classification, angle, exact-integer, fixed-width bit, and principal-complex implementation. The new operations retain numeric width/style, use structured domain and representation errors, and have exact zero/overflow contracts. Native support remains restricted to explicitly lowered, parity-tested static math members. New task-100 operations and complex transcendental forms reject at native compile time until Go/C last-bit, special-value, and branch-cut parity is proven. Existing inverse trigonometry, real hyperbolic functions, gamma, and log-gamma lower only for proven f32 scalar inputs; f64 forms remain rejected. Two-argument base log and pow/expt keep their documented narrow f32 native gates."
     },
     {
       "id": "array-constructors",
       "label": "Array constructors",
-      "documentation": ["docs/arrays.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#arrays"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendStaticMathRangeTensorParity"], "tasks": ["tasks/completed/004-native-numeric-and-tensor-lowering.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendStaticMathRangeTensorParity"]},
       "notes": "Native coverage is limited to tested static math constructors and contiguous tensor forms."
     },
     {
       "id": "range-generators",
       "label": "Range generators",
-      "documentation": ["docs/arrays.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#arrays"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendStaticMathRangeTensorParity"], "tasks": ["tasks/completed/004-native-numeric-and-tensor-lowering.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendStaticMathRangeTensorParity"]},
       "notes": "Native coverage is limited to tested static range generators and contiguous tensor forms."
     },
     {
       "id": "tensor-operations",
       "label": "Tensor operations",
-      "documentation": ["docs/tensor.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tensor"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"], "tasks": ["tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md", "tasks/completed/031-integrate-and-validate-a-production-numerical-provider.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"]},
       "notes": "Native C covers a growing, parity-tested tensor kernel set; unsupported tensor operations are rejected at compile time."
     },
     {
       "id": "matrix-operations",
       "label": "Matrix operations",
-      "documentation": ["docs/tensor.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tensor"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity"], "tasks": ["tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType", "internal/osiris/runtime_test.go#TestCBackendTensorDotParity"]},
       "notes": "Native C supports a tested subset of matrix construction and operations; unsupported matrices and kernels remain compile-time boundaries."
     },
     {
       "id": "shape-operations",
       "label": "Shape operations",
-      "documentation": ["docs/tensor.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tensor"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType"], "tasks": ["tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTensorAndMatrixType"]},
       "notes": "Shape inference and validation are fully supported in the interpreter and VM; native support is limited to shapes proven by its tested lowering paths."
     },
     {
       "id": "linear-algebra",
       "label": "Linear algebra",
-      "documentation": ["docs/tensor.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tensor"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"], "tasks": ["tasks/completed/030-complete-native-complex-tensor-kernel-coverage.md", "tasks/completed/031-integrate-and-validate-a-production-numerical-provider.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendTensorDotParity", "internal/osiris/runtime_test.go#TestCBackendComplexCholeskyParity"]},
       "notes": "Native C covers selected parity-tested kernels. `eig`, `eigh`, and `svd` require an ABI-compatible numerical provider and are not a general bundled solver."
     },
     {
       "id": "reductions-and-statistics",
       "label": "Reductions and statistics",
-      "documentation": ["docs/stats.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#stats"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendTensorReductionsParity"], "tasks": ["tasks/completed/004-native-numeric-and-tensor-lowering.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestArrayConstructorsRangeGeneratorsAndStats", "internal/osiris/runtime_test.go#TestCBackendTensorReductionsParity"]},
       "notes": "Native reduction coverage is limited to parity-tested scalar and contiguous tensor kernels."
     },
     {
       "id": "io-helpers",
       "label": "I/O helpers",
-      "documentation": ["docs/io.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#io"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/filesystem_io_test.go#TestFilesystemIOInterpreterVMParity", "internal/osiris/filesystem_io_test.go#TestFilesystemIOErrorsBoundsAndDeterminism", "internal/osiris/filesystem_io_test.go#TestSeekTellOriginsEOFAndClosedStream", "internal/osiris/filesystem_io_test.go#TestCopyFileLoopShortWritesBoundsAndCancellation", "internal/osiris/filesystem_io_test.go#TestStreamCloseUnblocksAndConcurrentFlushIsRaceSafe", "internal/osiris/filesystem_io_test.go#TestFilesystemNativeGateIsSourceAware", "internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/runtime_test.go#TestTCPCancellationTimeoutAndStructuredErrors", "internal/osiris/runtime_test.go#TestTransferStreamsPreservesBoundedBytesAndFlushes", "internal/osiris/documentation_examples_test.go#TestCanonicalDocumentationExamples"], "tasks": ["tasks/completed/011-network-io.md", "tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md", "tasks/completed/049-tcp-optimization-tuning.md", "tasks/completed/102-expand-io.md"]},
+      "evidence": {"tests": ["internal/osiris/filesystem_io_test.go#TestFilesystemIOInterpreterVMParity", "internal/osiris/filesystem_io_test.go#TestFilesystemIOErrorsBoundsAndDeterminism", "internal/osiris/filesystem_io_test.go#TestSeekTellOriginsEOFAndClosedStream", "internal/osiris/filesystem_io_test.go#TestCopyFileLoopShortWritesBoundsAndCancellation", "internal/osiris/filesystem_io_test.go#TestStreamCloseUnblocksAndConcurrentFlushIsRaceSafe", "internal/osiris/filesystem_io_test.go#TestFilesystemNativeGateIsSourceAware", "internal/osiris/runtime_test.go#TestAsyncIOWrappers", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/runtime_test.go#TestTCPCancellationTimeoutAndStructuredErrors", "internal/osiris/runtime_test.go#TestTransferStreamsPreservesBoundedBytesAndFlushes", "internal/osiris/documentation_examples_test.go#TestCanonicalDocumentationExamples"]},
       "notes": "The interpreter and VM share explicit file, directory, metadata, bounded-copy/read, deterministic listing, seekable-stream, lifecycle, cancellation, and structured-error contracts. Native C rejects the filesystem additions at their source locations; no compile-time execution fallback is used."
     },
     {
       "id": "data-helpers",
       "label": "Data helpers and codecs",
-      "documentation": ["docs/data.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#data"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestBinaryCodecRoundTrip", "internal/osiris/runtime_test.go#TestDataPipelineBuiltins", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecRejectsMalformedCorpus"], "tasks": ["tasks/completed/016-ffi-boundary-design.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestBinaryCodecRoundTrip", "internal/osiris/runtime_test.go#TestDataPipelineBuiltins", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecRejectsMalformedCorpus"]},
       "notes": "Native C supports the versioned `OSR1` codec for its parity-tested scalar, string, list, UTC datetime, duration, and complex families, including cross-direction and malformed-input checks. Other codec tags and data-pipeline helpers remain unsupported."
     },
     {
       "id": "std-crypto",
       "label": "std/crypto",
-      "documentation": ["docs/crypto.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#crypto"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCryptoVectorsParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/016-ffi-boundary-design.md", "tasks/completed/047-define-an-ffi-boundary-before-implementation.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCryptoVectorsParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C directly lowers deterministic `random` and SHA-256 `hash` for the parity-tested scalar, string, list, enum, complex, and time value families. `mix`, `noise`, and unproved hash value families remain compile-time diagnostics."
     },
     {
       "id": "std-signal",
       "label": "std/signal",
-      "documentation": ["docs/guide.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C directly lowers the deterministic rank-one `hann` and `convolve` reference kernels. Other signal-processing members remain unsupported."
     },
     {
       "id": "std-list",
       "label": "std/list",
-      "documentation": ["docs/list.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#list"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C supports selected list literals, indexing, loops, and the imported `std/list.range(stop)` form. Other `std/list` members remain unsupported."
     },
     {
       "id": "std-time",
       "label": "std/time durations, datetimes, and locations",
-      "documentation": ["docs/types.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#types"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/time_test.go#TestStdTimeInterpreterVMParity", "internal/osiris/time_test.go#TestStdTimeDSTGapAndFoldPolicy", "internal/osiris/time_test.go#TestTimeValueCodecAndJSONRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTimeBoundaryParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/101-add-date-funcs.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "evidence": {"tests": ["internal/osiris/time_test.go#TestStdTimeInterpreterVMParity", "internal/osiris/time_test.go#TestStdTimeDSTGapAndFoldPolicy", "internal/osiris/time_test.go#TestTimeValueCodecAndJSONRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTimeBoundaryParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
       "notes": "Native C supports the tested UTC-only slice: `date`, `add_date`, `add`, `sub`, `parse_duration`, `duration_string`, `format`, `utc_location`, and `rfc3339`, with no clock or timezone-database dependency. IANA/fixed locations, `now`, parsing, timers, and all unlisted members remain unsupported."
     },
     {
       "id": "native-interop-and-build",
       "label": "Native interop and build flow",
-      "documentation": ["docs/native.html"],
+      "documentation": ["https://sphireinc.github.io/Osiris/#chapter-native"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendObjectAndExecutable", "internal/osiris/runtime_test.go#TestCBackendReportsTaggedFallbackReason"], "tasks": ["tasks/completed/001-c-backend-real-lowering.md", "tasks/completed/047-define-an-ffi-boundary-before-implementation.md"]},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendObjectAndExecutable", "internal/osiris/runtime_test.go#TestCBackendReportsTaggedFallbackReason"]},
       "notes": "Osiris can lower a tested subset through C and invoke the system C compiler. A public foreign-function interface is not implemented."
     }
   ]

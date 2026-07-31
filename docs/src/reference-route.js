@@ -1,4 +1,4 @@
-const legacyPageIDs = new Map([
+const pageAliases = new Map([
   ['constants', 'global-constants'],
 ]);
 
@@ -36,13 +36,13 @@ export function parseReferenceRoute(hash) {
   const rawEntryAnchor = slash < 0 ? '' : raw.slice(slash + 1);
   const decodedPageID = safeDecode(rawPageID) || 'overview';
   return {
-    pageID: legacyPageIDs.get(decodedPageID) || decodedPageID,
+    pageID: pageAliases.get(decodedPageID) || decodedPageID,
     entryAnchor: rawEntryAnchor ? safeDecode(rawEntryAnchor) : null,
   };
 }
 
 export function formatReferenceRoute(pageID, anchor = null) {
-  const normalizedPageID = legacyPageIDs.get(pageID) || pageID || 'overview';
+  const normalizedPageID = pageAliases.get(pageID) || pageID || 'overview';
   return `#${safeEncode(normalizedPageID)}${anchor ? `/${safeEncode(anchor)}` : ''}`;
 }
 

@@ -1,5 +1,5 @@
 import baseLanguageSections from './language-reference.json' with { type: 'json' };
-import manual from './legacy-reference.json' with { type: 'json' };
+import manual from './reference-data.json' with { type: 'json' };
 import supplemental from './supplemental-reference.json' with { type: 'json' };
 import timeReference from './time-reference.json' with { type: 'json' };
 import technicalReference from './technical-reference.json' with { type: 'json' };
@@ -58,7 +58,7 @@ const typeExamples = {
   poly: '# Reserved for a future polynomial value family; not a current runtime kind.',
 };
 
-function entryFromLegacy(groupID, item) {
+function entryFromReference(groupID, item) {
   return {
     kind: item.kind || 'function',
     name: item.name,
@@ -81,9 +81,8 @@ function entryFromLegacy(groupID, item) {
   };
 }
 
-// This is the canonical React reference data. It was migrated from the old
-// static manual as a checked-in snapshot, so the app never fetches or executes
-// legacy documentation at runtime.
+// This is the canonical React reference data. It is checked in so the app
+// never fetches or executes documentation data at runtime.
 const supplementalGroups = new Map(supplemental.groups.filter((group) => group.id !== 'constants').map((group) => [group.id, group]));
 const combinedGroups = manual.groups.map((group) => ({
   ...group,
@@ -100,7 +99,7 @@ const apiModules = combinedGroups.map((group) => ({
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
   sections: orderReferenceSections(
-    [{ title: group.title, entries: group.items.map((item) => entryFromLegacy(group.id, item)) }],
+    [{ title: group.title, entries: group.items.map((item) => entryFromReference(group.id, item)) }],
     group.id,
   ),
 }));
@@ -217,7 +216,7 @@ const toolingModule = {
       parameters: 'Set OSIRIS_SUPPRESS_WARNINGS to one comma-separated stable warning code or all for temporary local suppression. Suppression hides a warning only; it never preserves removed behavior.',
       returns: 'Deprecation warnings use stable OSIRIS-Dnnn codes, name the replacement, and state the earliest removal major version.',
       returnValue: 'Stable features are warned for at least one minor release before removal and are removed only in a major release with a migration note.',
-      details: ['Release notes use Added, Changed, Deprecated, Removed, Fixed, and Security categories. Breaking releases include before/after migration guidance.', 'There are no active deprecations in 0.1.0. See docs/development/CHANGELOG.md and MIGRATIONS.md in the source repository for the durable policy.'],
+      details: ['Release notes use Added, Changed, Deprecated, Removed, Fixed, and Security categories. Breaking releases include before/after migration guidance.', 'There are no active deprecations in 0.1.0. Release policy is maintained with the project’s published version history.'],
       example: 'OSIRIS_SUPPRESS_WARNINGS=OSIRIS-D001 osiris run program.osr\n# Suppresses only warning OSIRIS-D001 for this invocation environment.',
     }, {
       name: 'osiris version',
@@ -281,7 +280,7 @@ const toolingModule = {
       details: [
         'Generated .osiris.lock files use format version 2 and SHA-256-check cached module contents before use. They are local generated state, not a hand-edited dependency manifest.',
         'GPU -json plans use schema_version 1. VM bytecode, IR, SSA, CFG, and related analysis structures are in-memory or diagnostic-only and do not claim a persistent artifact format.',
-        'See docs/design/ARTIFACT-FORMATS.md in the source repository for the full compatibility and upgrade policy.',
+        'The compatibility and upgrade policy is maintained with the project’s published toolchain contracts.',
       ],
       example: 'osiris build -cache-dir .osiris/native-cache -o program program.osr\n./program\n# A later identical build validates and reuses the matching cache entry.',
     }, {

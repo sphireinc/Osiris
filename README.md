@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="osiris_logo_textonly.png" alt="Osiris logo" width="430">
+  <img src="assets/osiris_logo_textonly.png" alt="Osiris logo" width="430">
 </p>
 
 <h1 align="center">Osiris</h1>
@@ -29,7 +29,7 @@ implemented and the backend support available today:
 - Numerical, text, byte, tensor, unit-aware, and standard-library values.
 - An ahead-of-time native C backend that rejects unsupported programs clearly.
 - WebAssembly and GPU artifact emitters, plus formatter and LSP tooling.
-- Executable examples, benchmarks, design notes, and conformance tests.
+- Executable examples, benchmarks, and conformance tests.
 
 Support is feature-specific across the interpreter, VM, native C, WebAssembly,
 GPU, formatter, and LSP. Check the [backend support matrix](https://sphireinc.github.io/Osiris/#support)
@@ -63,7 +63,7 @@ The command-line reference is available under [Tooling](https://sphireinc.github
 For a local documentation build:
 
 ```sh
-cd newdocs
+cd docs
 npm ci
 npm run check-reference
 npm run check-examples
@@ -79,21 +79,17 @@ npm run build
 - [Native and other backend support](https://sphireinc.github.io/Osiris/#support)
 - [Technical reference](https://sphireinc.github.io/Osiris/#technical)
 
-Repository design and implementation notes live in [`docs/design`](docs/design/)
-and the scoped engineering work is tracked in [`tasks`](tasks/). Those files
-are useful for contributors; users should start with the hosted documentation.
-
 ## Contributing
 
 Issues, examples, documentation improvements, tests, and focused compiler work
-are welcome. Please read [`AGENTS.md`](AGENTS.md) for repository conventions,
-run the focused checks for the area you change, and include a clear description
-of behavior and test coverage in your pull request.
+are welcome. Start with the hosted documentation, run the focused checks for
+the area you change, and include a clear description of behavior and test
+coverage in your pull request.
 
 The project is preparing its public contribution and licensing policy. Until
 that policy is published, please open an issue to discuss substantial changes
 before investing in a large pull request.
 
 <p align="center">
-  <img src="logo_black_bg.png" alt="Osiris logo on black" width="120">
+  <img src="assets/logo_black_bg.png" alt="Osiris logo on black" width="120">
 </p>

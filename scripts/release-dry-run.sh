@@ -24,12 +24,11 @@ for target in $targets; do
   trap 'rm -rf "$stage"' EXIT HUP INT TERM
   GOCACHE=${GOCACHE:-/private/tmp/osiris-release-gocache} GOMODCACHE=${GOMODCACHE:-/private/tmp/osiris-release-gomodcache} \
     CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build -trimpath -ldflags "-s -w -X main.version=$version -X main.commit=$commit -X main.buildDate=$date" -o "$stage/osiris$suffix" ./cmd/osiris
-  cp README.txt "$stage/README.txt"
-  cp docs/development/RELEASES.md "$stage/RELEASES.md"
+  cp README.md "$stage/README.md"
   if [ "$goos" = windows ]; then
-    (cd "$stage" && zip -X -q "$out/$base.zip" "osiris$suffix" README.txt RELEASES.md)
+    (cd "$stage" && zip -X -q "$out/$base.zip" "osiris$suffix" README.md)
   else
-    (cd "$stage" && tar --format=ustar --owner=0 --group=0 --numeric-owner ${SOURCE_DATE_EPOCH:+--mtime="@$SOURCE_DATE_EPOCH"} -czf "$out/$base.tar.gz" "osiris$suffix" README.txt RELEASES.md)
+    (cd "$stage" && tar --format=ustar --owner=0 --group=0 --numeric-owner ${SOURCE_DATE_EPOCH:+--mtime="@$SOURCE_DATE_EPOCH"} -czf "$out/$base.tar.gz" "osiris$suffix" README.md)
   fi
   rm -rf "$stage"
   trap - EXIT HUP INT TERM

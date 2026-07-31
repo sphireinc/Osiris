@@ -27,7 +27,6 @@ type supportFeature struct {
 
 type supportEvidence struct {
 	Tests []string `json:"tests"`
-	Tasks []string `json:"tasks"`
 }
 
 func repositoryRoot(t *testing.T) string {
@@ -42,13 +41,13 @@ func repositoryRoot(t *testing.T) string {
 func loadSupportMatrix(t *testing.T) (string, supportMatrix) {
 	t.Helper()
 	root := repositoryRoot(t)
-	data, err := os.ReadFile(filepath.Join(root, "newdocs", "src", "support-matrix.json"))
+	data, err := os.ReadFile(filepath.Join(root, "docs", "src", "support-matrix.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var matrix supportMatrix
 	if err := json.Unmarshal(data, &matrix); err != nil {
-		t.Fatalf("decode newdocs/src/support-matrix.json: %v", err)
+		t.Fatalf("decode docs/src/support-matrix.json: %v", err)
 	}
 	return root, matrix
 }
@@ -85,15 +84,12 @@ func TestSupportMatrixSchema(t *testing.T) {
 				t.Fatalf("feature %q has invalid or absent state for %q: %q", feature.ID, backend, feature.Support[backend])
 			}
 		}
-		if len(feature.Documentation) == 0 || len(feature.Evidence.Tests)+len(feature.Evidence.Tasks) == 0 {
+		if len(feature.Documentation) == 0 || len(feature.Evidence.Tests) == 0 {
 			t.Fatalf("feature %q needs documentation and evidence", feature.ID)
 		}
 		for _, doc := range feature.Documentation {
-			if !strings.HasPrefix(doc, "docs/") || !strings.HasSuffix(doc, ".html") {
+			if !strings.HasPrefix(doc, "https://sphireinc.github.io/Osiris/#") {
 				t.Fatalf("feature %q has invalid documentation path %q", feature.ID, doc)
-			}
-			if _, err := os.Stat(filepath.Join(root, doc)); err != nil {
-				t.Fatalf("feature %q references missing documentation %q: %v", feature.ID, doc, err)
 			}
 			coveredDocs[doc] = true
 		}
@@ -107,13 +103,8 @@ func TestSupportMatrixSchema(t *testing.T) {
 				t.Fatalf("feature %q has orphaned test evidence %q", feature.ID, evidence)
 			}
 		}
-		for _, task := range feature.Evidence.Tasks {
-			if _, err := os.Stat(filepath.Join(root, task)); err != nil {
-				t.Fatalf("feature %q has orphaned task evidence %q: %v", feature.ID, task, err)
-			}
-		}
 	}
-	for _, doc := range []string{"docs/core.html", "docs/semantics.html", "docs/guide.html", "docs/errors.html", "docs/native.html", "docs/text.html", "docs/math.html", "docs/arrays.html", "docs/tensor.html", "docs/stats.html", "docs/io.html", "docs/data.html", "docs/crypto.html", "docs/list.html", "docs/types.html"} {
+	for _, doc := range []string{"https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#tooling", "https://sphireinc.github.io/Osiris/#chapter-errors", "https://sphireinc.github.io/Osiris/#chapter-native", "https://sphireinc.github.io/Osiris/#text", "https://sphireinc.github.io/Osiris/#math", "https://sphireinc.github.io/Osiris/#arrays", "https://sphireinc.github.io/Osiris/#tensor", "https://sphireinc.github.io/Osiris/#stats", "https://sphireinc.github.io/Osiris/#io", "https://sphireinc.github.io/Osiris/#data", "https://sphireinc.github.io/Osiris/#crypto", "https://sphireinc.github.io/Osiris/#list", "https://sphireinc.github.io/Osiris/#types"} {
 		if !coveredDocs[doc] {
 			t.Fatalf("documented reference page %q is absent from the matrix", doc)
 		}
@@ -123,8 +114,8 @@ func TestSupportMatrixSchema(t *testing.T) {
 func TestSupportMatrixDocumentationPage(t *testing.T) {
 	root := repositoryRoot(t)
 	checks := map[string]string{
-		"newdocs/src/reference-app.jsx":         "./support-matrix.json",
-		"newdocs/src/components/page-shell.jsx": "Backend support",
+		"docs/src/reference-app.jsx":         "./support-matrix.json",
+		"docs/src/components/page-shell.jsx": "Backend support",
 	}
 	for path, required := range checks {
 		data, err := os.ReadFile(filepath.Join(root, path))

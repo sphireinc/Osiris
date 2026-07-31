@@ -19,6 +19,6 @@ for check in 'go vet ./...' 'go test ./...' 'go test -race' 'cc: \[gcc, clang\]'
   grep -q "$check" "$ci" || fail "CI workflow is missing required check: $check"
 done
 grep -q 'actions/deploy-pages@v4' "$docs" || fail 'documentation workflow does not deploy Pages'
-grep -q 'newdocs/dist' "$docs" || fail 'documentation workflow does not publish the React build output'
+grep -q 'docs/dist' "$docs" || fail 'documentation workflow does not publish the React build output'
 
 printf '%s\n' 'CI workflow contract checks passed.'

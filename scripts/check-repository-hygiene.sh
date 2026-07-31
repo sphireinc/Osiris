@@ -22,8 +22,8 @@ for path in \
   osiris \
   internal/osiris/.osiris.lock \
   internal/osiris/.osiris/cache/probe \
-  newdocs/node_modules/probe \
-  newdocs/dist/probe \
+  docs/node_modules/probe \
+  docs/dist/probe \
   .DS_Store; do
   if ! git check-ignore -q "$path"; then
     printf '%s\n' "expected ignored path is not ignored: $path" >&2

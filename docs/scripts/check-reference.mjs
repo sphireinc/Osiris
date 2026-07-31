@@ -1,18 +1,15 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { chapters, languageSections, modules, searchEntries } from '../src/api-data.js';
 import { compareReferenceNames, orderReferenceEntries, orderReferenceSections } from '../src/reference-order.js';
 import baseLanguageSections from '../src/language-reference.json' with { type: 'json' };
-import manual from '../src/legacy-reference.json' with { type: 'json' };
+import manual from '../src/reference-data.json' with { type: 'json' };
 import supplemental from '../src/supplemental-reference.json' with { type: 'json' };
 import technical from '../src/technical-reference.json' with { type: 'json' };
 import constants from '../src/constant-reference.json' with { type: 'json' };
 
 const here = dirname(fileURLToPath(import.meta.url));
-const legacyDocs = resolve(here, '..', '..', 'docs');
-const redirects = resolve(here, '..', 'public', 'docs');
-const pages = (await readdir(legacyDocs)).filter((name) => name.endsWith('.html'));
 const support = JSON.parse(await readFile(resolve(here, '..', 'src', 'support-matrix.json'), 'utf8'));
 const moduleSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'module.go'), 'utf8');
 const timeSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'time_value.go'), 'utf8');
@@ -239,8 +236,4 @@ for (const index of technicalIndexes) {
 }
 
 for (const query of ['cholesky', 'readchunk', 'end-of-file', 'uint64 byte count', 'non-byte-compatible', 'transfer', 'fixed-width integer', 'optimization report', 'convolve', 'tcp_dial', 'tcp_nodelay', 'let?', 'to_option', 'collect', 'discard', 'must_handle', 'permission_denied', 'redact', 'precedence', 'truthiness', 'race', 'read_async', 'Planck', 'InvalidArgument', 'clone', 'rotl', 'parse_duration', 'rfc3339_nano', 'timezone gap', 'datetime', 'equal_fold', 'split_after_n', 'Unicode code-point index']) if (!searchEntries(query).length) throw new Error(`Search does not find ${query}.`);
-for (const page of pages) {
-  const redirect = await readFile(resolve(redirects, page), 'utf8');
-  if (!redirect.includes('url=../#')) throw new Error(`Missing React redirect for ${page}.`);
-}
-console.log(`Reference checks passed: ${modules.length} API groups, ${chapters.length} chapters, ${sortedUnique(runtimeBuiltins).length} built-ins, ${sortedUnique(specialForms).length} special forms, ${sortedUnique(namedConstants).length} named constants, ${pages.length} redirects.`);
+console.log(`Reference checks passed: ${modules.length} API groups, ${chapters.length} chapters, ${sortedUnique(runtimeBuiltins).length} built-ins, ${sortedUnique(specialForms).length} special forms, ${sortedUnique(namedConstants).length} named constants.`);
