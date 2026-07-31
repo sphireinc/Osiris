@@ -11,6 +11,15 @@ version has a dated section. Unreleased changes are recorded under
 
 - Release provenance via `osiris version`, unsigned archive dry runs, and a
   compatibility/deprecation policy.
+- Optional typed function parameters, checked result annotations, exact
+  function types, and a shared pre-execution checker for runtime and artifact
+  entry points.
+
+### Changed
+
+- `emit` is valid throughout synchronous executable blocks. Interpreter and
+  VM failures preserve earlier committed output, while concurrent task bodies
+  must return values for the synchronous caller to emit.
 
 ## Compatibility rules
 

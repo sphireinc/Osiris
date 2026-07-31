@@ -23,15 +23,16 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 ## Current selection
 
-- **Active:** none. Tasks 001–049 and 100–104 are complete.
-- **Ready (P1 correctness):** task 107 fixes the confirmed interpreter stack
-  overflow caused by deep lazy loop-carried binding chains.
-- **Ready (P2 documentation):** task 105 defines and enforces canonical
-  reference-entry ordering.
-- **Blocked:** task 106 adds `#page/entry` deep links and per-page tables of
-  contents after task 105 establishes the order those links display. Task 108
-  makes `emit` consistent in synchronous blocks after task 107 finishes the
-  overlapping evaluator repair.
+- **Active:** none.
+- **Ready:** task 111 continues the type/data sequence; tasks 115, 116, 123,
+  and 124 are independently ready.
+- **Blocked:** tasks 112–114, 117–122, 125, and 126 name their exact
+  prerequisite work in `tasks/index.tsv`.
+- **Complete:** tasks 001–049 and 100–110 are complete.
+- **Complete (P2 native integration):** task 109 adds the exceptional/async
+  IR, native value ABI, codecs, scheduler, and exact static-module slice
+  required to compile the unchanged mission-control showcase into a
+  standalone executable.
 - **Documentation:** tasks 039 and 040 are complete. `newdocs/` is the
   canonical componentized React reference and owns public API/reference data,
   examples, and the support matrix. `docs/` retains frozen compatibility and
@@ -39,15 +40,35 @@ all recorded dependencies satisfied and is the next selection candidate.
 - **Coordination:** completed task 100 preserves task 104's audited global
   catalog and exact reference indexes. Task 101's duration constants remain qualified
   under `std/time`; task 104's same-spelled globals are quantity values.
-  Task 106 must consume task 105's ordered arrays rather than defining another
-  comparator in the navigation component. Task 107 is independent of the
-  reference-navigation sequence and should take priority as a runtime
-  correctness defect. Task 108 follows task 107 and must not reintroduce eager
-  binding or per-iteration output into the arithmetic benchmarks.
+  Completed task 106 consumes task 105's ordered arrays and shared anchor
+  model. Task 107 is independent of the reference-navigation sequence and is
+  complete. Task 108 completed the sequential `emit` contract without
+  reintroducing eager binding or per-iteration output into the arithmetic
+  benchmarks. Task 109 completed the native integration target while retaining
+  deferred task evaluation and the unchanged showcase fixture.
+
+## General-purpose maturity sequence
+
+The tasks derived from `osiris-language-assessment.md` are organized as
+reviewable increments rather than one open-ended language rewrite:
+
+1. **Type and data model:** 110–114, using structs and Go-style field tags for
+   product types.
+2. **Execution and interoperability:** 115–117.
+3. **Application standard library:** 118–122.
+4. **User ecosystem and developer experience:** 123–125.
+5. **Explicit low-level boundary:** 126 follows the safe FFI, ownership,
+   cleanup, state, and backend foundations.
+
+Task 110 now supplies the checker and typed callable foundation. Task 111 is
+the next type/data-model increment. Tasks 115, 116, 123, and 124 remain
+independent, subject to the file-ownership cautions in `README.md`. Task 124
+uses repository module paths, Git tags, and GitHub as its first complete
+provider rather than requiring a central Osiris package registry.
 
 ## Completed evidence
 
-Tasks 001–049 and 100–104 live under `tasks/completed/`. Their
+Tasks 001–049, 100–110 live under `tasks/completed/`. Their
 completion records name commands, tests, and documentation evidence. In
 particular, task 022’s public contract is `newdocs/src/support-matrix.json`,
 validated by `internal/osiris/support_matrix_test.go`.

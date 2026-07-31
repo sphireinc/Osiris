@@ -16,6 +16,11 @@ release notes.
   successful command payload and is accepted only before the command name.
 - The CLI emits no terminal-control or colour sequences. Redirected and
   interactive output therefore have identical text/JSON content.
+- `run` and `vm` preserve values emitted before a later runtime failure or
+  cancellation. That committed prefix is written to standard output before
+  the diagnostic is written to standard error. JSON diagnostics remain a
+  single valid envelope on standard error and never contain ordinary program
+  output.
 
 ## Exit codes
 
@@ -66,3 +71,13 @@ Use `osiris help <command>` for the command synopsis. Command-owned JSON
 outputs (such as `opt -json`, `gpu -json`, or `deps -json`) retain their own
 versioning contracts and are never wrapped in a diagnostic envelope on
 success.
+
+The checked standalone integration command is:
+
+```sh
+osiris build -o /tmp/program program.osr
+/tmp/program
+```
+
+The executable contains the generated C runtime and program logic. It does not
+read the source file or invoke the Go interpreter/VM at run time.

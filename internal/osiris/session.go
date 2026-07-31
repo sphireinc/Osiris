@@ -12,6 +12,8 @@ type Session struct {
 	scope          *scope
 	ev             *evaluator
 	outputs        *[]Value
+	emitAllowed    bool
+	moduleStack    []string
 	packageName    string
 	packageVersion string
 	exportOrder    []string
@@ -27,11 +29,12 @@ type Session struct {
 // pipeline without re-deriving the same information.
 func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	sess := &Session{
-		rt:         rt,
-		ctx:        ctx,
-		sourceName: sourceName,
-		exportSet:  make(map[string]struct{}),
-		macros:     make(map[string]*macroDef),
+		rt:          rt,
+		ctx:         ctx,
+		sourceName:  sourceName,
+		emitAllowed: true,
+		exportSet:   make(map[string]struct{}),
+		macros:      make(map[string]*macroDef),
 	}
 	ev := &evaluator{
 		ctx:     ctx,
@@ -40,6 +43,7 @@ func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 		cache:   make(map[string]Value),
 		pending: make(map[string]*promise),
 		fpMemo:  make(map[fpKey]string),
+		fpDepth: make(map[fpKey]int),
 		fpBusy:  make(map[fpKey]struct{}),
 		builtin: rt.Builtins,
 		sched: deterministicScheduler{
@@ -73,9 +77,27 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 // behavior attached to the receiver so callers can use the method as the
 // natural entry point for that data structure.
 //
-// It returns []Value and an error. Callers should only trust the value when
-// the error is nil.
+// It returns the values committed before execution stopped and an error. A
+// non-nil error does not discard earlier successful emit statements.
 func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([]Value, error) {
+	if _, err := s.rt.CheckProgram(s.ctx, prog); err != nil {
+		return nil, normalizeError(err, prog.SourceName)
+	}
+	previousStack := s.moduleStack
+	s.moduleStack = append([]string(nil), stack...)
+	defer func() {
+		s.moduleStack = previousStack
+	}()
+	expanded, expandedMacros, err := s.expandProgramWithStack(prog, stack)
+	if err != nil {
+		return nil, normalizeError(err, prog.SourceName)
+	}
+	prog = expanded
+	if _, err := s.rt.CheckProgram(s.ctx, prog); err != nil {
+		return nil, normalizeError(err, prog.SourceName)
+	}
+	s.macros = cloneMacroDefs(expandedMacros)
+	s.scope = s.predeclareFunctionScope(prog.Statements, s.scope)
 	var outputs []Value
 	prevOutputs := s.outputs
 	s.outputs = &outputs
@@ -84,14 +106,14 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	}()
 	for _, stmt := range prog.Statements {
 		if err := s.checkContext(); err != nil {
-			return nil, err
+			return outputs, err
 		}
 		v, ok, err := s.execStmt(stmt, prog.SourceName, moduleMode, stack)
 		if err != nil {
 			if sig, ok := asFlow(err); ok {
-				return nil, flowError(sig.kind, "top-level")
+				return outputs, flowError(sig.kind, "top-level")
 			}
-			return nil, normalizeError(err, s.sourceName)
+			return outputs, normalizeError(err, s.sourceName)
 		}
 		if ok {
 			if _, isEmit := stmt.(emitStmt); isEmit {
@@ -102,10 +124,10 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	}
 	if moduleMode {
 		if s.packageName == "" {
-			return nil, normalizeError(fmt.Errorf("module %s is missing a package declaration", prog.SourceName), prog.SourceName)
+			return outputs, normalizeError(fmt.Errorf("module %s is missing a package declaration", prog.SourceName), prog.SourceName)
 		}
 		if len(s.exportOrder) == 0 {
-			return nil, normalizeError(fmt.Errorf("module %s must declare at least one export", prog.SourceName), prog.SourceName)
+			return outputs, normalizeError(fmt.Errorf("module %s must declare at least one export", prog.SourceName), prog.SourceName)
 		}
 	}
 	return outputs, nil
@@ -149,7 +171,7 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		}
 		return nil, false, nil
 	case funcStmt:
-		scope, err := s.declareFunction(s.scope, st.Name, st.Params, st.Body)
+		scope, err := s.declareFunction(s.scope, st)
 		if err != nil {
 			return nil, false, err
 		}
@@ -212,11 +234,17 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		return nil, false, nil
 	case emitStmt:
 		if moduleMode {
-			return nil, false, fmt.Errorf("modules cannot emit values")
+			return nil, false, structuredErrorAt(newOsirisError(ErrorKindUnsupported, "module initialization cannot emit values"), s.sourceName, st.Span)
+		}
+		if !s.emitAllowed {
+			return nil, false, structuredErrorAt(concurrentEmitError(), s.sourceName, st.Span)
 		}
 		v, err := s.ev.eval(st.Expr, s.scope)
 		if err != nil {
-			return nil, false, err
+			if _, ok := asFlow(err); ok {
+				return nil, false, err
+			}
+			return nil, false, structuredErrorAt(normalizeError(err, s.sourceName), s.sourceName, st.Span)
 		}
 		if s.outputs != nil {
 			*s.outputs = append(*s.outputs, v)
@@ -263,27 +291,70 @@ func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string,
 //
 // It returns *scope and an error. Callers should only trust the value when the
 // error is nil.
-func (s *Session) declareFunction(cur *scope, name string, params []string, body Expr) (*scope, error) {
-	expanded, err := s.expandExpr(body, cur)
+func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
+	expanded, err := s.expandExpr(st.Body, cur)
 	if err != nil {
 		return nil, err
 	}
-	fn := userFunctionValue(name, params, expanded, cur, s)
+	fn := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, expanded, cur, s)
+	for search := cur; search != nil; search = search.parent {
+		candidate, ok := search.items[st.Name]
+		if !ok {
+			continue
+		}
+		literal, ok := candidate.expr.(*literalExpr)
+		if !ok || literal.value.kind != kindFunction || literal.value.fn == nil || !literal.value.fn.predeclared {
+			continue
+		}
+		placeholder := literal.value.fn
+		placeholder.signature = fn.fn.signature
+		placeholder.paramTypes = append(placeholder.paramTypes[:0], st.ParamTypes...)
+		placeholder.returnType = st.ReturnType
+		placeholder.params = append(placeholder.params[:0], st.Params...)
+		placeholder.body = expanded
+		placeholder.session = s
+		fn = literal.value
+		break
+	}
+	group := fn.fn.group
+	if group == nil {
+		group = &scope{items: make(map[string]binding)}
+	}
 	selfScope := &scope{
 		parent: cur,
-		items: map[string]binding{
-			name: {expr: &literalExpr{value: fn}, env: cur},
-		},
+		items:  group.items,
 	}
 	if fn.fn != nil {
 		fn.fn.closure = selfScope
+		fn.fn.predeclared = false
 	}
 	return &scope{
 		parent: cur,
 		items: map[string]binding{
-			name: {expr: &literalExpr{value: fn}, env: cur},
+			st.Name: {expr: &literalExpr{value: fn}, env: cur},
 		},
 	}, nil
+}
+
+// predeclareFunctionScope creates callable placeholders for a lexical
+// statement sequence. Declarations fill those placeholders when reached,
+// preserving sequential capture points while allowing mutual recursion.
+func (s *Session) predeclareFunctionScope(stmts []Stmt, parent *scope) *scope {
+	group := &scope{parent: parent, items: make(map[string]binding)}
+	for _, stmt := range stmts {
+		st, ok := stmt.(funcStmt)
+		if !ok {
+			continue
+		}
+		value := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, st.Body, group, s)
+		value.fn.group = group
+		value.fn.predeclared = true
+		group.items[st.Name] = binding{expr: &literalExpr{value: value, Span: st.NameSpan}, env: group}
+	}
+	if len(group.items) == 0 {
+		return parent
+	}
+	return group
 }
 
 // execWhile operates on Session values and keeps the session-specific behavior
@@ -396,7 +467,7 @@ func (s *Session) execLoopBodyWithScope(body Expr, curScope *scope, baseSource s
 func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, stack []string) (Value, *scope, error) {
 	switch n := body.(type) {
 	case *blockExpr:
-		cur := curScope
+		cur := s.predeclareFunctionScope(n.stmts, curScope)
 		for _, stmt := range n.stmts {
 			if err := s.checkContext(); err != nil {
 				return nullValue(), cur, err
@@ -440,7 +511,7 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					return nullValue(), cur, err
 				}
 			case funcStmt:
-				next, err := s.declareFunction(cur, st.Name, st.Params, st.Body)
+				next, err := s.declareFunction(cur, st)
 				if err != nil {
 					return nullValue(), cur, err
 				}
@@ -454,9 +525,15 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					cur = next
 				}
 			case emitStmt:
+				if !s.emitAllowed {
+					return nullValue(), cur, structuredErrorAt(concurrentEmitError(), s.sourceName, st.Span)
+				}
 				v, err := s.ev.eval(st.Expr, cur)
 				if err != nil {
-					return nullValue(), cur, err
+					if _, ok := asFlow(err); ok {
+						return nullValue(), cur, err
+					}
+					return nullValue(), cur, structuredErrorAt(normalizeError(err, s.sourceName), s.sourceName, st.Span)
 				}
 				if s.outputs != nil {
 					*s.outputs = append(*s.outputs, v)
@@ -509,24 +586,27 @@ func (s *Session) eval(expr Expr, scope *scope) (Value, error) {
 func (s *Session) spawnTask(expr Expr, scope *scope) Value {
 	return s.spawnValueTask(func(ctx context.Context) (Value, error, []Value) {
 		child := NewSession(s.rt, ctx, s.sourceName)
+		child.emitAllowed = false
 		child.scope = scope
 		child.packageName = s.packageName
 		child.packageVersion = s.packageVersion
 		child.macros = cloneMacroDefs(s.macros)
-		var outputs []Value
-		child.outputs = &outputs
 		v, err := child.eval(expr, scope)
 		if sig, ok := asFlow(err); ok {
 			if sig.kind == flowReturn {
-				return sig.value, nil, append([]Value(nil), outputs...)
+				return sig.value, nil, nil
 			}
-			return nullValue(), flowError(sig.kind, "task"), append([]Value(nil), outputs...)
+			return nullValue(), flowError(sig.kind, "task"), nil
 		}
 		if err != nil {
-			return nullValue(), err, append([]Value(nil), outputs...)
+			return nullValue(), err, nil
 		}
-		return v, nil, append([]Value(nil), outputs...)
+		return v, nil, nil
 	})
+}
+
+func concurrentEmitError() error {
+	return newOsirisError(ErrorKindUnsupported, "emit is not allowed during concurrent execution; return a value and emit it after await")
 }
 
 // moduleValue operates on Session values and keeps the session-specific

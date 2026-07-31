@@ -19,6 +19,8 @@ type IRFunction struct {
 	Name          string
 	SourceName    string
 	Params        []string
+	ParamTypes    []string
+	ResultType    string
 	Captures      []string
 	CaptureValues []string
 	Blocks        []*IRBlock
@@ -166,8 +168,21 @@ func formatIRFunction(b *strings.Builder, fn *IRFunction) {
 	b.WriteString("fn ")
 	b.WriteString(fn.Name)
 	b.WriteByte('(')
-	b.WriteString(strings.Join(fn.Params, ", "))
+	for i, param := range fn.Params {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(param)
+		if i < len(fn.ParamTypes) && fn.ParamTypes[i] != "" {
+			b.WriteByte(' ')
+			b.WriteString(fn.ParamTypes[i])
+		}
+	}
 	b.WriteByte(')')
+	if fn.ResultType != "" {
+		b.WriteByte(' ')
+		b.WriteString(fn.ResultType)
+	}
 	if len(fn.Captures) > 0 {
 		b.WriteString(" captures [")
 		b.WriteString(strings.Join(fn.Captures, ", "))
@@ -236,6 +251,8 @@ func formatIRInstr(instr IRInstr) string {
 		return instr.Dest + " = " + op + " " + instr.Text
 	case "copy":
 		return instr.Dest + " = copy " + strings.Join(instr.Args, ", ")
+	case "asserttype":
+		return instr.Dest + " = asserttype " + instr.Text + " " + strings.Join(instr.Args, ", ")
 	case "unary":
 		return instr.Dest + " = " + instr.Text + " " + strings.Join(instr.Args, ", ")
 	case "binary":
@@ -323,6 +340,12 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 	sess := NewSession(rt, ctx, prog.SourceName)
 	expanded, err := sess.ExpandProgram(prog)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateConcurrentEmits(expanded); err != nil {
+		return nil, err
+	}
+	if _, err := rt.CheckProgram(ctx, expanded); err != nil {
 		return nil, err
 	}
 
@@ -700,9 +723,6 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.pb.enums[st.Name] = cases
 		return false, nil
 	case letStmt:
-		if st.Unwrap {
-			return false, fmt.Errorf("let? result binding is not yet lowered into IR")
-		}
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
 		if err != nil {
@@ -711,6 +731,11 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.block = child.block
 		if b.terminated() {
 			return true, nil
+		}
+		if st.Unwrap {
+			unwrapped := b.newTemp()
+			b.emitInstr(IRInstr{Dest: unwrapped, Op: "resultbind", Args: []string{value}, Span: st.Span})
+			value = unwrapped
 		}
 		if st.Type != "" {
 			checked := b.newTemp()
@@ -724,7 +749,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		return false, nil
 	case importStmt:
 		dest := b.newBindName(st.Alias)
-		b.emitInstr(IRInstr{Dest: dest, Op: "import", Text: quoteString(st.Path)})
+		b.emitInstr(IRInstr{Dest: dest, Op: "import", Text: quoteString(st.Path), Span: st.PathSpan})
 		b.env[st.Alias] = dest
 		b.locals[st.Alias] = struct{}{}
 		return false, nil
@@ -759,6 +784,11 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.block = child.block
 		if b.terminated() {
 			return true, nil
+		}
+		if b.fn.ResultType != "" {
+			checked := b.newTemp()
+			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: b.fn.ResultType, Args: []string{value}, Span: st.Span})
+			value = checked
 		}
 		b.emitTerm(&irReturn{Value: value, HasValue: true})
 		return true, nil
@@ -813,6 +843,8 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		Name:       label,
 		SourceName: st.Name,
 		Params:     append([]string(nil), st.Params...),
+		ParamTypes: append([]string(nil), st.ParamTypes...),
+		ResultType: st.ReturnType,
 		Captures:   nil,
 	}
 
@@ -832,12 +864,29 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		child.env[param] = paramName
 		child.locals[param] = struct{}{}
 	}
+	for i, param := range st.Params {
+		if i >= len(st.ParamTypes) || st.ParamTypes[i] == "" {
+			continue
+		}
+		checked := child.newTemp()
+		span := st.Span
+		if i < len(st.ParamSpans) {
+			span = st.ParamSpans[i]
+		}
+		child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ParamTypes[i], Args: []string{child.env[param]}, Span: span})
+		child.env[param] = checked
+	}
 
 	result, err := child.evalExpr(st.Body)
 	if err != nil {
 		return false, err
 	}
 	if !child.terminated() {
+		if st.ReturnType != "" {
+			checked := child.newTemp()
+			child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ReturnType, Args: []string{result}, Span: st.ReturnTypeSpan})
+			result = checked
+		}
 		child.emitTerm(&irReturn{Value: result, HasValue: true})
 	}
 	fn.Blocks = append(fn.Blocks, child.state.blocks...)
@@ -852,6 +901,48 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	b.env[st.Name] = dest
 	b.locals[st.Name] = struct{}{}
 	return false, nil
+}
+
+// lowerDeferredExpr lowers an expression into a zero-argument thunk, or into
+// a handler closure when params are supplied. Keeping the expression in its
+// own function is what makes spawn, parallel, and try boundaries observable
+// in IR instead of evaluating their bodies while constructing the boundary.
+func (b *irBuilder) lowerDeferredExpr(expr Expr, source string, params []string) (string, error) {
+	label := b.pb.nextFuncLabel(source)
+	fn := b.pb.newFunction(source, label, params)
+	child := newIRBuilder(b.pb, fn, label)
+	child.env = cloneStringMap(b.env)
+	child.locals = make(map[string]struct{}, len(params))
+	for _, param := range params {
+		value := fmt.Sprintf("%s.%s.0", label, param)
+		child.env[param] = value
+		child.locals[param] = struct{}{}
+	}
+	result, err := child.evalExpr(expr)
+	if err != nil {
+		return "", err
+	}
+	if !child.terminated() {
+		child.emitTerm(&irReturn{Value: result, HasValue: true})
+	}
+	fn.Blocks = append(fn.Blocks, child.state.blocks...)
+	if len(fn.Captures) > 0 {
+		captures := append([]string(nil), fn.Captures...)
+		sort.Strings(captures)
+		fn.Captures = captures
+		fn.CaptureValues = captureValues(b.env, captures)
+	}
+	b.pb.appendFunction(fn)
+
+	closure := b.newTemp()
+	b.emitInstr(IRInstr{
+		Dest: closure,
+		Op:   "makefunc",
+		Text: fn.Name,
+		Args: captureValues(b.env, fn.Captures),
+		Span: exprSpan(expr),
+	})
+	return closure, nil
 }
 
 // lowerWhileStmt operates on irBuilder values and keeps the irbuilder-specific
@@ -884,6 +975,7 @@ func (b *irBuilder) lowerWhileStmt(st whileStmt) (bool, error) {
 	body.Params = append([]string(nil), bodyParams...)
 	exit.Params = append([]string(nil), exitParams...)
 
+	b.recordLoopCaptures(carry)
 	b.emitTerm(&irJump{Target: header.Name, Args: b.argsForNames(carry)})
 
 	b.block = header
@@ -987,6 +1079,7 @@ func (b *irBuilder) lowerForStmt(st forStmt) (bool, error) {
 	zeroTemp := b.newTemp()
 	b.emitInstr(IRInstr{Dest: preLen, Op: "call", Text: "len", Args: []string{iterValue}})
 	b.emitInstr(IRInstr{Dest: zeroTemp, Op: "const", Value: numberValue(0)})
+	b.recordLoopCaptures(carry)
 	b.emitTerm(&irJump{Target: header.Name, Args: append(append(b.argsForNames(carry), iterValue, preLen), zeroTemp)})
 
 	b.block = header
@@ -1051,6 +1144,17 @@ func (b *irBuilder) lowerForStmt(st forStmt) (bool, error) {
 	}
 	b.locals[st.Name] = struct{}{}
 	return false, nil
+}
+
+func (b *irBuilder) recordLoopCaptures(names []string) {
+	for _, name := range names {
+		if _, local := b.locals[name]; local {
+			continue
+		}
+		if _, exists := b.env[name]; exists {
+			b.recordCapture(name)
+		}
+	}
 }
 
 // emitOn operates on irBuilder values and keeps the irbuilder-specific
@@ -1147,6 +1251,29 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 				return b.lowerLogicalCall(n, false)
 			case "or":
 				return b.lowerLogicalCall(n, true)
+			case "spawn":
+				if len(n.args) != 1 {
+					return "", fmt.Errorf("spawn expects exactly one expression")
+				}
+				thunk, err := b.lowerDeferredExpr(n.args[0], "spawn.task", nil)
+				if err != nil {
+					return "", err
+				}
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "async", Text: name, Args: []string{thunk}, Span: n.Span})
+				return tmp, nil
+			case "parallel":
+				thunks := make([]string, 0, len(n.args))
+				for _, arg := range n.args {
+					thunk, err := b.lowerDeferredExpr(arg, "parallel.branch", nil)
+					if err != nil {
+						return "", err
+					}
+					thunks = append(thunks, thunk)
+				}
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "async", Text: name, Args: thunks, Span: n.Span})
+				return tmp, nil
 			default:
 				args := make([]string, 0, len(n.args))
 				for _, arg := range n.args {
@@ -1204,7 +1331,7 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		}
 		b.block = objBuilder.block
 		tmp := b.newTemp()
-		b.emitInstr(IRInstr{Dest: tmp, Op: "member", Text: n.name, Args: []string{obj}})
+		b.emitInstr(IRInstr{Dest: tmp, Op: "member", Text: n.name, Args: []string{obj}, Span: n.NameSpan})
 		return tmp, nil
 	case *listExpr:
 		items := make([]string, 0, len(n.items))
@@ -1237,7 +1364,17 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		}
 		return b.evalExpr(n.tail)
 	case *tryExpr:
-		return "", fmt.Errorf("try expressions are not yet lowered into IR")
+		body, err := b.lowerDeferredExpr(n.body, "try.body", nil)
+		if err != nil {
+			return "", err
+		}
+		handler, err := b.lowerDeferredExpr(n.handler, "try.catch", []string{n.catchName})
+		if err != nil {
+			return "", err
+		}
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "try", Args: []string{body, handler}, Span: n.Span})
+		return tmp, nil
 	case *propagateExpr:
 		return b.evalExpr(n.expr)
 	case *matchExpr:

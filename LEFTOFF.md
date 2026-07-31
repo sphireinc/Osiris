@@ -1,6 +1,74 @@
 # Native lowering handoff
 
-Last updated: 2026-07-30.
+Last updated: 2026-07-31.
+
+## Typed functions and shared static checking — 2026-07-31
+
+- Task 110 adds colon-free parameter/result annotations and exact callable
+  types such as `func(u32) string`. Unannotated functions remain dynamic;
+  annotations check rather than cast, with the existing narrow contextual rule
+  for unsuffixed non-negative integer literals.
+- `Runtime.CheckProgram` predeclares lexical function groups and checks calls,
+  callbacks, recursive bodies, every reachable return, and fallthrough without
+  evaluating user code. Interpreter sessions check source and stack-aware
+  macro-expanded programs before executing statements; VM, IR, native C,
+  WASM snapshot, GPU planning, inference, and LSP paths share the checker.
+- Function `Value` and IR metadata retain exact signatures without erasing
+  captures or callable identity. IR emits typed entry/result guards; generated
+  C retains closure signatures and rejects annotations for kinds absent from
+  the C ABI at compile time.
+- Focused parser/formatter/optimizer, recursion, closure, callback, diagnostic
+  span, LSP hover, macro expansion, generated-C, native executable, and dynamic
+  guard evidence is in `internal/osiris/typed_function_test.go`. The grammar,
+  assignability, inference, backend, and migration contract is in
+  `docs/design/STATIC-TYPES.md` and the canonical `newdocs/` references.
+
+## Standalone native showcase integration — 2026-07-30
+
+- The unchanged `benchmarks/aegis-mission-control.osr` now lowers through IR
+  and portable C, builds with `osiris build`, and produces the same
+  `16d0a61eb6aa77a9a5a0ed1735678bf5eb152962e43d38170c88cbc8ec4771c2`
+  stdout digest as `run` and `vm`.
+- `try`, successful `let?`, `spawn`, `await`, and `parallel` remain explicit
+  IR operations. Task/parallel bodies are generated captured functions, so
+  construction does not evaluate them. Native tasks execute cooperatively on
+  first await and retain one ordered terminal outcome.
+- Static module identity now reaches the parity-tested members of `std/crypto`,
+  `std/list`, `std/math`, `std/signal`, `std/text`, and `std/time`. Every other
+  member remains a source-spanned compile-time boundary; this is partial
+  module support.
+- The tagged runtime adds immutable exact-text decimal/bigint storage, the
+  parity-tested meter quantity slice, signed-nanosecond UTC time, retained
+  error/result/task values, and the compatible `OSR1` codec tags required by
+  the archive. Codec tests cover interpreter/native cross-direction bytes and
+  malformed input.
+- The portable runtime includes deterministic seeded random/SHA-256, signal
+  kernels, statistics, UTF-8 text helpers, UTC calendar helpers, and explicit
+  numeric width propagation for tensor/complex results. See task 109 and
+  `TestCBackendRequiredNativeSurfaceParity` for the exact language surface;
+  `TestCBackendMissionControlShowcaseParity` is only the benchmark integration
+  fixture.
+
+## Sequential `emit` parity — 2026-07-30
+
+- Task 108 makes `emit` a non-terminating ordered statement throughout
+  synchronous executable blocks. Macro expansion retains it and preserves
+  spans; interpreter and bytecode child blocks/functions commit output at the
+  call site, and API/CLI error returns retain earlier output.
+- Emission is an effect/memoization barrier. Concurrent `spawn`, `parallel`,
+  `race`, `select`, and `timeout` execution rejects direct and statically
+  known indirect emission before IR lowering, with a runtime guard for dynamic
+  callables. Module initialization remains silent.
+- Native IR keeps explicit `emit` instructions in loop, branch, block, and
+  function CFGs. Tagged native failures now set `ohaderror`, stop later
+  instructions and failed-value printing, write the diagnostic to stderr, and
+  exit nonzero while retaining earlier stdout.
+- Focused interpreter/VM/native rendering, IR/C placement, CLI stream,
+  module-boundary, concurrency, optimizer, normal/race, and documentation
+  evidence is recorded in
+  `tasks/completed/108-make-emit-consistent-in-sequential-blocks.md`.
+  Static local-module member lowering remains explicitly unsupported in native
+  C and is not bypassed through compile-time execution.
 
 ## Hosted filesystem I/O boundary — 2026-07-30
 
@@ -44,9 +112,9 @@ Last updated: 2026-07-30.
 - Search results use `option<u64>` and Unicode code-point indexes. Empty
   needles, Unicode code-point sets, simple case folding, split limits, and
   absent cuts have explicit contracts shared by the interpreter and VM.
-- Native C rejects `std/text` imports at the import source span until the
-  backend has a parity-safe UTF-8 representation and ownership contract. The
-  compiler never evaluates text calls to synthesize output.
+- Native C now lowers the separately tested `slug`, `fields`, `upper`, and
+  `join` subset; the remaining `std/text` members still reject at their source
+  spans. The compiler never evaluates text calls to synthesize output.
 - `internal/osiris/text_test.go` holds table-driven parity/error/inference/IR
   evidence and bounded cut/split fuzz properties. The canonical page documents
   all 34 exports, and the Technical Reference export index is checked exactly
@@ -63,9 +131,9 @@ Last updated: 2026-07-30.
   detailed and technical references are exact-set audited against the ordered
   implementation catalog.
 - Native C now lowers default-number globals as compile-time IR constants with
-  executable parity. Dimensioned named quantities remain an explicit
-  compile-time rejection until the C ABI can retain arbitrary rational
-  magnitudes and dimension vectors.
+  executable parity and admits the parity-tested `meter` quantity slice. Other
+  dimensioned named quantities remain an explicit compile-time rejection until
+  the C ABI can retain arbitrary rational magnitudes and dimension vectors.
 - Focused evidence is in `internal/osiris/named_test.go`; full normal, race,
   vet, reference, checked-example, and production-docs validations pass.
 

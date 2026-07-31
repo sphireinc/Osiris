@@ -2,7 +2,7 @@
 
 **Priority:** P2  
 **Dependencies:** 039, 040, 100, 101, 102, 103, 104  
-**Status:** Ready  
+**Status:** Complete
 
 ## Objective
 
@@ -116,3 +116,49 @@ section become predictable.
 - Do not add deep-link routing or a visible table of contents here; task 106
   owns that behavior after this ordering contract is complete.
 
+## Completion record — 2026-07-30
+
+Implemented a single immutable ordering boundary in
+`newdocs/src/reference-order.js`. The canonical language and module assembly
+now copies and orders every entry array by a locale-independent lowercase
+Unicode code-point key, with the original name as the deterministic
+tie-breaker. A remaining collision fails with the page and section in the
+diagnostic. Rendering, search, and the section arrays exposed to task 106 all
+consume this same assembled data; imported JSON arrays are not mutated.
+
+The reference checker now audits every rendered section, repeat construction,
+source-array immutability, duplicate diagnostics, the `std/math` constructor
+families, mixed-case constants, error constants, Tooling commands, and merged
+base/supplemental Core entries. Exact implementation/reference surface checks
+remain unchanged and pass. `newdocs/README.md` records the authoring and
+ordering contract.
+
+Production-data inspection covered Core, Types, Global Constants, I/O,
+`std/math`, `std/text`, and Tooling. Entries are monotonic inside their
+existing pedagogical sections, while page and section order remain unchanged.
+Search primary-name and alias checks remain deterministic.
+
+Validation evidence:
+
+```text
+nvm use 24
+npm run check-reference
+Reference checks passed: 17 API groups, 6 chapters, 279 built-ins,
+19 special forms, 375 named constants, 17 redirects.
+
+PATH=/opt/homebrew/bin:$PATH GOTOOLCHAIN=local npm run check-examples
+ok github.com/sphireinc/osiris/internal/osiris
+
+npm run build
+vite v5.4.21: 50 modules transformed; production build completed.
+
+PATH=/opt/homebrew/bin:$PATH GOTOOLCHAIN=local go test ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+git diff --check
+(no output)
+
+./scripts/check-task-index.sh
+Task index checks passed.
+```

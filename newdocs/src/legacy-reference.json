@@ -40,7 +40,7 @@
         "A file is normally a list of statements separated by newlines or semicolons. The usual shape is `package`, `export`, `import`, `macro`, `let`, and `emit`, but that order is a convention rather than a law.",
         "Values are inspected through the runtime rather than hidden behind magic. The runtime preserves exactness, width metadata, tensor shape, module identity, and other structural information wherever it can.",
         "Imports are alias-based and version-aware. File modules, `std` modules, and local module graphs are resolved explicitly, and the loader records manifests for repeatable builds.",
-        "Ordinary expressions execute in source order and `emit` appends values in production order. Tasks make concurrency explicit through `spawn`, `await`, `parallel`, `cancel`, and `timeout`; file and data helpers remain deliberately visible host operations."
+        "Ordinary expressions execute in source order and synchronous `emit` statements append values in production order. Tasks make concurrency explicit through `spawn`, `await`, `parallel`, `cancel`, and `timeout`; concurrent bodies return values instead of emitting, and file and data helpers remain deliberately visible host operations."
       ],
       "cards": [
         {
@@ -81,7 +81,7 @@
         },
         {
           "title": "Hosted runtime and native boundary",
-          "text": "The interpreter and VM are currently Go-hosted: streams, task state, and temporary buffers use host-managed memory. `close` releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend is a compute-focused subset and rejects networking and task-runtime programs at compile time. A future native async runtime must establish its own ownership, buffer-pinning, cleanup, and platform-polling contracts before Osiris can promise no-GC network behavior."
+          "text": "The interpreter and VM are Go-hosted: streams, task state, and temporary buffers use host-managed memory. `close` releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend includes a cooperative subset for `spawn`, `await`, and ordered `parallel`; networking, streams, host-backed asynchronous I/O, and the broader cancellation surface still reject at compile time."
         }
       ]
     },
@@ -177,14 +177,14 @@
           "text": "`cancel` returns `true` only when cancellation was newly requested; `await` then reports cancellation. Cancellation is cooperative and is observed at runtime safe points such as loop evaluation and task waits."
         },
         {
-          "title": "parallel and deterministic output",
+          "title": "parallel and deterministic results",
           "code": "let values = parallel(1 + 1, 3 + 4, 5 + 6)\nemit values\n# [2u64, 7u64, 11u64]",
-          "text": "Branches may compute concurrently, but result positions and branch `emit` output are committed in argument order. A branch error cancels sibling work and propagates the failure."
+          "text": "Branches may compute concurrently and result positions retain argument order. Branches cannot use `emit`; return their values and emit the resulting list from the synchronous caller. A branch error cancels sibling work and propagates the failure."
         },
         {
           "title": "race and select",
           "code": "let winner = race(first(), second())\nlet indexed = select(first(), second())",
-          "text": "`race` returns the first completed branch value. `select` returns `[source_index, value]`, where the index is `u64`. Only the winner's buffered output is committed and sibling work is cancelled cooperatively; deterministic task-debug mode chooses the first source branch."
+          "text": "`race` returns the first completed branch value. `select` returns `[source_index, value]`, where the index is `u64`. Candidates cannot use `emit`; sibling work is cancelled cooperatively, and deterministic task-debug mode chooses the first source branch."
         },
         {
           "title": "timeout",
@@ -198,7 +198,7 @@
         },
         {
           "title": "deterministic mode",
-          "text": "Runtime task-debug mode is an embedding/tooling control, not source syntax. It runs scheduler work deterministically and records task trace events. It preserves source-visible values and argument-ordered output; it is for debugging and validation, not a performance mode."
+          "text": "Runtime task-debug mode is an embedding/tooling control, not source syntax. It runs scheduler work deterministically and records task trace events. It preserves source-visible values and argument-ordered results; it is for debugging and validation, not a performance mode."
         }
       ]
     },
@@ -209,6 +209,7 @@
       "summary": "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; FFI remains future work.",
       "paragraphs": [
         "The native build path lowers a tested `AST`/`IR` subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback.",
+        "Build a standalone executable with `osiris build -o output program.osr`.",
         "C is the first backend because it is inspectable, portable, and lets mature toolchains handle instruction selection, register allocation, linking, and target-specific optimization. The backend support matrix names the supported subset and its evidence; native parity and measured performance are required before claims of C-level speed.",
         "C libraries are the proposed first native interop target because their `ABI` model can support explicit wrappers and build-time linking. No public `FFI` exists yet.",
         "Go-backed `std` modules already use a host-wrapper pattern: Osiris imports a named module supplied by the Go runtime, not arbitrary Go source at runtime."
@@ -454,14 +455,16 @@
         {
           "kind": "construct",
           "name": "func",
-          "syntax": "func name(params) { ... }",
+          "syntax": "func name(parameter Type, ...) ReturnType { ... }",
           "returns": "`function` value",
-          "summary": "Define a user function with lexical capture and recursion support.",
+          "summary": "Define a lexical function with optional checked parameter and result types.",
           "details": [
-            "Functions can be declared in block or expression form depending on the surrounding syntax.",
-            "Captured variables are resolved through lexical scope, not dynamic lookup."
+            "Write annotations after parameter names and after the closing parenthesis, without a colon. `func(u32) string` is the exact type of a callable that accepts `u32` and returns `string`.",
+            "Functions can use an expression body after `=>` or a block with explicit `return` and a tail expression.",
+            "Captured variables are resolved through lexical scope, not dynamic lookup. Recursive and mutually recursive signatures are checked without executing their bodies.",
+            "Known call and return mismatches are rejected before execution. Unannotated positions remain dynamic for source compatibility and keep a runtime guard when they cross a typed boundary."
           ],
-          "example": "func add1(x) => x + 1"
+          "example": "func add1(value u32) u32 => value + u32(1)\nemit add1(u32(41)) # 42u32"
         },
         {
           "kind": "construct",
@@ -482,22 +485,23 @@
           "returns": "emitted output",
           "summary": "Append a value to the program output stream.",
           "details": [
-            "`emit` is the visible output primitive used by scripts and tests.",
-            "It is designed to keep data flow obvious rather than hidden behind implicit printing."
+            "`emit` is valid at the top level and inside synchronously executed blocks, loops, functions, selected call-shaped `if` branches, `match`/`switch` arms, `try`/`catch` bodies, and expanded macro blocks.",
+            "It evaluates once, commits one ordered output value, and continues. Earlier output remains visible after a later error or cancellation.",
+            "Module initialization and concurrent `spawn`, `parallel`, `race`, `select`, or `timeout` bodies cannot emit. Return a value and emit it from the synchronous caller."
           ],
-          "example": "emit text.upper(\"osiris\")"
+          "example": "func announce(value) { emit value; return value + 1 }\nlet result = announce(4)\nemit result\n# 4u64\n# 5u64"
         },
         {
           "kind": "construct",
           "name": "if",
-          "syntax": "if condition { ... } else { ... }",
+          "syntax": "if(condition, then, else)",
           "returns": "branch result",
           "summary": "Select a branch based on a truthy or falsey condition.",
           "details": [
             "Conditional expressions are part of the core language, not a library trick.",
             "The `false` branch is optional."
           ],
-          "example": "if x > 0 { emit x } else { emit 0 }"
+          "example": "let x = 3\nemit if(x > 0, x, 0)\n# 3u64"
         },
         {
           "kind": "construct",
@@ -622,7 +626,8 @@
           "summary": "Convert Unicode letters in a string to uppercase.",
           "details": [
             "Conversion uses Unicode case mappings and is locale-independent.",
-            "Non-letter code points and the empty string are preserved."
+            "Non-letter code points and the empty string are preserved.",
+            "Native C support is limited to the parity-tested UTF-8 case-mapping slice; unsupported module members still fail during compilation."
           ],
           "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
           "example": "emit text.upper(\"Straße\") # \"STRAßE\""
@@ -687,7 +692,8 @@
           "summary": "Join a list of rendered values with a separator.",
           "details": [
             "The separator appears only between elements; an empty or one-element list adds no separator.",
-            "For a non-empty separator, `join(separator, split(value, separator))` reconstructs `value`."
+            "For a non-empty separator, `join(separator, split(value, separator))` reconstructs `value`.",
+            "`join` is part of the parity-tested native C `std/text` subset."
           ],
           "errors": "Wrong arity, a non-string separator, or a non-list second argument produces a structured error.",
           "example": "emit text.join(\"·\", [\"a\", \"世\"]) # \"a·世\""
@@ -713,7 +719,8 @@
           "summary": "Turn text into a predictable slug form.",
           "details": [
             "Unicode letters and digits are lowercased and preserved. Each run of other code points becomes one ASCII hyphen, with leading and trailing hyphens removed.",
-            "An input without letters or digits produces an empty string."
+            "An input without letters or digits produces an empty string.",
+            "`slug` is part of the parity-tested native C `std/text` subset."
           ],
           "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
           "example": "emit text.slug(\"Hello, 世界!\") # \"hello-世界\""
@@ -2578,7 +2585,8 @@
           "returns": "`text`",
           "summary": "Hash values into a stable text digest.",
           "details": [
-            "These are the current crypto-flavored helpers exposed through `std/crypto`."
+            "These are the current crypto-flavored helpers exposed through `std/crypto`.",
+            "Native C supports SHA-256 `hash` for its parity-tested scalar, string, list, enum, complex, and time value families; other value families remain explicit compile-time boundaries."
           ],
           "example": "emit hash(\"osiris\")"
         },
@@ -2609,7 +2617,8 @@
           "summary": "Generate one deterministic pseudo-random sample from an explicit `seed` and optional sequence `counter`.",
           "details": [
             "`random` is pure: it has no process-global state, so the same `seed`/`counter` pair produces the same result in `run` and `vm` regardless of evaluation order.",
-            "`counter` defaults to zero and must be a non-negative integer. Increment it explicitly to obtain a reproducible sequence; this helper is not a cryptographic random-number generator."
+            "`counter` defaults to zero and must be a non-negative integer. Increment it explicitly to obtain a reproducible sequence; this helper is not a cryptographic random-number generator.",
+            "The explicit-seed form has interpreter, VM, and native C parity for the documented seed and counter types."
           ],
           "example": "emit random(\"osiris\", 0)\nemit random(\"osiris\", 1)\n# Stable distinct f64-backed samples in [0, 1)"
         }
@@ -2670,7 +2679,7 @@
           "summary": "Create a symmetric Hann window.",
           "details": [
             "`length` must be a non-negative integer. `hann(0)` is empty and `hann(1)` is `[1]`; longer windows use `0.5 - 0.5*cos(2πi/(length-1))`.",
-            "This is a deterministic scalar reference implementation shared by `run` and `vm`. It does not currently claim SIMD, FFT, GPU, or native-provider acceleration."
+            "This deterministic scalar reference implementation is shared by `run` and `vm` and has a parity-tested native C lowering. It does not claim SIMD, FFT, GPU, or provider acceleration."
           ],
           "example": "import \"std/signal\" as signal\nemit signal.hann(4)\n# tensor[4]([0, 0.75, 0.75, 0])"
         },
@@ -2681,7 +2690,7 @@
           "summary": "Compute deterministic full one-dimensional discrete convolution.",
           "details": [
             "Both arguments must be rank-one numeric lists or tensors. Empty input produces an empty rank-one `tensor`; invalid rank or non-numeric components fail clearly.",
-            "The result uses the full convolution shape. This reference kernel prioritizes stable semantics; accelerated backends require separately documented numerical parity and fallback behavior."
+            "The result uses the full convolution shape. The scalar reference kernel has a parity-tested native C lowering; accelerated backends require separately documented numerical parity and fallback behavior."
           ],
           "example": "import \"std/signal\" as signal\nemit signal.convolve([1, 2, 3], [1, 1])\n# tensor[4]([1, 3, 5, 3])"
         }
@@ -2708,7 +2717,8 @@
           "returns": "`list`",
           "summary": "Generate a numeric range.",
           "details": [
-            "Useful for loops, sampling, and numeric iteration."
+            "Useful for loops, sampling, and numeric iteration.",
+            "Native C currently supports the one-argument `range(stop)` form; other `std/list` forms remain compile-time diagnostics."
           ],
           "example": "emit range(5)"
         },

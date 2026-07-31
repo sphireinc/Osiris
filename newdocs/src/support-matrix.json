@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated": "2026-07-30",
+  "updated": "2026-07-31",
   "states": {
     "stable": "Supported by maintained tests for the stated surface.",
     "partial": "Implemented for a documented subset; unsupported cases fail rather than silently falling back.",
@@ -15,7 +15,15 @@
       "documentation": ["docs/core.html", "docs/semantics.html", "docs/guide.html"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"], "tasks": ["tasks/completed/001-c-backend-real-lowering.md", "tasks/completed/025-add-a-unified-interpreter-vm-native-differential-harness.md"]},
-      "notes": "Native C covers tested scalar control flow, loops, and direct/closure calls; unsupported IR is rejected during compilation."
+      "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions. Native C covers tested scalar control flow, loops, and direct/closure calls; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation."
+    },
+    {
+      "id": "typed-functions-and-static-checking",
+      "label": "Typed parameters, results, function values, and static checking",
+      "documentation": ["docs/core.html", "docs/types.html", "docs/guide.html"],
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/typed_function_test.go#TestTypedFunctionRecursionCallbacksAndBackendParity", "internal/osiris/typed_function_test.go#TestTypedFunctionNestedClosureAndShadowing", "internal/osiris/typed_function_test.go#TestTypedFunctionIllTypedProgramIsRejectedByEveryArtifactPath", "internal/osiris/typed_function_test.go#TestTypedFunctionMetadataFlowsThroughValueInferenceIRAndLSP"], "tasks": ["tasks/completed/110-add-typed-functions-and-static-checking.md"]},
+      "notes": "Interpreter and VM preserve exact annotated widths and callable signatures, while unannotated source remains dynamic. Native C supports the parity-tested represented kinds and exact closure signatures; annotations for runtime kinds absent from the C ABI are source-spanned compile-time boundaries. WASM snapshot generation and GPU planning run the shared checker before producing artifacts. LSP exposes typed diagnostics and hover/signature metadata but does not yet advertise completion or signature-help methods."
     },
     {
       "id": "types-and-numeric-families",
@@ -53,9 +61,9 @@
       "id": "tasks-streams-and-async-io",
       "label": "Tasks, cancellation, streams, and asynchronous I/O",
       "documentation": ["docs/guide.html", "docs/io.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTaskSpawnAwaitAndCancel", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO"], "tasks": ["tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md"]},
-      "notes": "The scheduler is a Go runtime surface today; native C lowering does not implement it."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestTaskSpawnAwaitAndCancel", "internal/osiris/runtime_test.go#TestRaceSelectAndStreamingIO", "internal/osiris/cbackend_native_surface_test.go#TestCBackendDeferredTaskAndFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendStructuredResultFailureParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/045-harden-scheduler-tasks-cancellation-and-streams.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C has a cooperative deterministic subset for captured `spawn` thunks, repeated `await`, pending-task `cancel`, ordered `parallel`, and task failures crossing `try`/`catch`. Streams, host-backed asynchronous I/O, `race`, `select`, deadlines, and interruption of already-running host work remain unsupported."
     },
     {
       "id": "tooling-and-analysis",
@@ -69,9 +77,9 @@
       "id": "std-text",
       "label": "std/text",
       "documentation": ["docs/text.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#TestStdTextInferenceAndNativeGate", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/documentation_examples_test.go#TestCanonicalDocumentationExamples"], "tasks": ["tasks/completed/103-expand-strings.md"]},
-      "notes": "The interpreter and bytecode VM share the Unicode-aware std/text implementation, including code-point indexes and option-shaped search results. Native C rejects std/text imports at the source location until a parity-safe UTF-8 ownership ABI is implemented."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTextUnicodeParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/103-expand-strings.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C directly lowers the parity-tested `slug`, `fields`, `upper`, and `join` slice with owned UTF-8 results. Other `std/text` members remain compile-time diagnostics; this partial support is not a module-wide native promise."
     },
     {
       "id": "std-math-scalar",
@@ -149,33 +157,41 @@
       "id": "data-helpers",
       "label": "Data helpers and codecs",
       "documentation": ["docs/data.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestBinaryCodecRoundTrip", "internal/osiris/runtime_test.go#TestDataPipelineBuiltins"], "tasks": ["tasks/completed/016-ffi-boundary-design.md"]},
-      "notes": "Codec and data-pipeline helpers are currently interpreter/VM runtime services."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestBinaryCodecRoundTrip", "internal/osiris/runtime_test.go#TestDataPipelineBuiltins", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecRejectsMalformedCorpus"], "tasks": ["tasks/completed/016-ffi-boundary-design.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C supports the versioned `OSR1` codec for its parity-tested scalar, string, list, UTC datetime, duration, and complex families, including cross-direction and malformed-input checks. Other codec tags and data-pipeline helpers remain unsupported."
     },
     {
       "id": "std-crypto",
       "label": "std/crypto",
       "documentation": ["docs/crypto.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall"], "tasks": ["tasks/completed/016-ffi-boundary-design.md", "tasks/completed/047-define-an-ffi-boundary-before-implementation.md"]},
-      "notes": "std/crypto is implemented by the Go runtime and has no supported native-C module lowering yet."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCryptoVectorsParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/016-ffi-boundary-design.md", "tasks/completed/047-define-an-ffi-boundary-before-implementation.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C directly lowers deterministic `random` and SHA-256 `hash` for the parity-tested scalar, string, list, enum, complex, and time value families. `mix`, `noise`, and unproved hash value families remain compile-time diagnostics."
+    },
+    {
+      "id": "std-signal",
+      "label": "std/signal",
+      "documentation": ["docs/guide.html"],
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C directly lowers the deterministic rank-one `hann` and `convolve` reference kernels. Other signal-processing members remain unsupported."
     },
     {
       "id": "std-list",
       "label": "std/list",
       "documentation": ["docs/list.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md"]},
-      "notes": "Native C supports selected list literals and indexing, not the imported std/list module surface."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/033-make-static-module-propagation-sound-through-cfg-and-closures.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C supports selected list literals, indexing, loops, and the imported `std/list.range(stop)` form. Other `std/list` members remain unsupported."
     },
     {
       "id": "std-time",
       "label": "std/time durations, datetimes, and locations",
       "documentation": ["docs/types.html"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/time_test.go#TestStdTimeInterpreterVMParity", "internal/osiris/time_test.go#TestStdTimeDSTGapAndFoldPolicy", "internal/osiris/time_test.go#TestTimeValueCodecAndJSONRoundTrip", "internal/osiris/time_test.go#TestStdTimeInferenceFormatterAndNativeGate", "internal/osiris/documentation_examples_test.go#TestCanonicalDocumentationExamples"], "tasks": ["tasks/completed/101-add-date-funcs.md"]},
-      "notes": "Interpreter and VM support exact durations, nanosecond instants, fixed and embedded-IANA locations, checked arithmetic, injected clock access, codecs, and inference. Native C rejects std/time imports at their source location and never evaluates time expressions during compilation."
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/time_test.go#TestStdTimeInterpreterVMParity", "internal/osiris/time_test.go#TestStdTimeDSTGapAndFoldPolicy", "internal/osiris/time_test.go#TestTimeValueCodecAndJSONRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTimeBoundaryParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCodecCrossDirectionParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"], "tasks": ["tasks/completed/101-add-date-funcs.md", "tasks/completed/109-compile-mission-control-showcase-through-native-c.md"]},
+      "notes": "Native C supports the tested UTC-only slice: `date`, `add_date`, `add`, `sub`, `parse_duration`, `duration_string`, `format`, `utc_location`, and `rfc3339`, with no clock or timezone-database dependency. IANA/fixed locations, `now`, parsing, timers, and all unlisted members remain unsupported."
     },
     {
       "id": "native-interop-and-build",

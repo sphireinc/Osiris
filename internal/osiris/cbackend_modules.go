@@ -111,6 +111,68 @@ func nativeModuleIdentities(fn *IRFunction, seeds map[string]string) map[string]
 	return modules
 }
 
+// nativeModuleCandidates conservatively tracks values which can carry a
+// module even when conflicting control-flow inputs prevent a single static
+// identity from being proven. It lets the C backend distinguish an ordinary
+// value member (for example, error.kind) from an unsafe dynamic module member.
+func nativeModuleCandidates(fn *IRFunction, seeds map[string]string) map[string]bool {
+	candidates := make(map[string]bool, len(seeds))
+	for value := range seeds {
+		candidates[value] = true
+	}
+	blocks := make(map[string]*IRBlock, len(fn.Blocks))
+	for _, block := range fn.Blocks {
+		blocks[block.Name] = block
+	}
+	addIncoming := func(target string, args []string) bool {
+		block := blocks[target]
+		if block == nil {
+			return false
+		}
+		changed := false
+		for i, param := range block.Params {
+			if i < len(args) && candidates[args[i]] && !candidates[param] {
+				candidates[param] = true
+				changed = true
+			}
+		}
+		return changed
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, block := range fn.Blocks {
+			for _, in := range block.Instrs {
+				switch in.Op {
+				case "import":
+					if !candidates[in.Dest] {
+						candidates[in.Dest] = true
+						changed = true
+					}
+				case "copy":
+					if len(in.Args) == 1 && candidates[in.Args[0]] && !candidates[in.Dest] {
+						candidates[in.Dest] = true
+						changed = true
+					}
+				}
+			}
+			switch term := block.Term.(type) {
+			case *irJump:
+				if addIncoming(term.Target, term.Args) {
+					changed = true
+				}
+			case *irBranch:
+				if addIncoming(term.TrueTarget, term.TrueArgs) {
+					changed = true
+				}
+				if addIncoming(term.FalseTarget, term.FalseArgs) {
+					changed = true
+				}
+			}
+		}
+	}
+	return candidates
+}
+
 // nativeModuleIdentitiesByFunction propagates lexical capture identity to a
 // fixed point. A capture is static only when every construction site agrees.
 func nativeModuleIdentitiesByFunction(prog *IRProgram) map[string]map[string]string {

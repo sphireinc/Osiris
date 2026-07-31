@@ -9,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sphireinc/osiris/internal/osiris"
 )
@@ -98,6 +100,80 @@ func TestExecuteDiagnosticContract(t *testing.T) {
 				t.Fatalf("stderr is not a JSON diagnostic: %v\n%s", err, stderr.String())
 			}
 			if diagnostic.SchemaVersion != 1 || diagnostic.Category != tc.wantClass || diagnostic.ExitCode != tc.wantCode || diagnostic.Command != tc.args[0] {
+				t.Fatalf("diagnostic = %#v", diagnostic)
+			}
+		})
+	}
+}
+
+func TestExecutePreservesCommittedOutputBeforeRuntimeDiagnostic(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "committed-prefix.osr")
+	if err := os.WriteFile(path, []byte("emit \"committed\"\nemit uint(\"bad\")\nemit \"unreachable\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"run", "vm"} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := execute(context.Background(), []string{"--diagnostics=json", command, path}, &stdout, &stderr)
+			if code != cliExitRuntime {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != "\"committed\"\n" {
+				t.Fatalf("stdout = %q", got)
+			}
+			var diagnostic cliDiagnostic
+			if err := json.Unmarshal(stderr.Bytes(), &diagnostic); err != nil {
+				t.Fatalf("stderr is not JSON: %v\n%s", err, stderr.String())
+			}
+			if diagnostic.Category != "runtime" || diagnostic.ExitCode != cliExitRuntime {
+				t.Fatalf("diagnostic = %#v", diagnostic)
+			}
+		})
+	}
+}
+
+type cancelAfterRuntimeChecks struct {
+	checks    atomic.Int64
+	threshold int64
+}
+
+func (*cancelAfterRuntimeChecks) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (*cancelAfterRuntimeChecks) Done() <-chan struct{}       { return nil }
+func (*cancelAfterRuntimeChecks) Value(any) any               { return nil }
+func (ctx *cancelAfterRuntimeChecks) Err() error {
+	if ctx.checks.Add(1) >= ctx.threshold {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestExecutePreservesCommittedOutputBeforeCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cancel-prefix.osr")
+	if err := os.WriteFile(path, []byte("emit \"committed\"\nemit \"unreachable\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		command   string
+		threshold int64
+	}{
+		{command: "run", threshold: 4},
+		{command: "vm", threshold: 3},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			ctx := &cancelAfterRuntimeChecks{threshold: tc.threshold}
+			code := execute(ctx, []string{"--diagnostics=json", tc.command, path}, &stdout, &stderr)
+			if code != cliExitRuntime {
+				t.Fatalf("exit = %d, stdout = %q, stderr = %q", code, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != "\"committed\"\n" {
+				t.Fatalf("stdout = %q", got)
+			}
+			var diagnostic cliDiagnostic
+			if err := json.Unmarshal(stderr.Bytes(), &diagnostic); err != nil {
+				t.Fatalf("stderr is not JSON: %v\n%s", err, stderr.String())
+			}
+			if diagnostic.Category != "runtime" || !strings.Contains(diagnostic.Message, "canceled") {
 				t.Fatalf("diagnostic = %#v", diagnostic)
 			}
 		})

@@ -56,10 +56,12 @@ decimal precision.
 Inference derives a quantity's dimension vector directly from its registered
 value. Interpreter and VM lookup use the same runtime table, and codecs
 preserve exact normalized values. Native C directly lowers supported
-default-number globals. It rejects named quantities at compile time with a
-specific diagnostic until the C ABI can preserve arbitrary rational
-magnitudes and dimension vectors; compilation never evaluates the program to
-manufacture output.
+default-number globals plus the parity-tested `meter` quantity path; `kilo` and `mega`
+remain ordinary numeric scale constants. All other named quantities still
+receive a specific compile-time diagnostic. This narrow exception is covered
+by `TestCBackendRequiredNativeSurfaceParity` and must not be presented as the
+full rational, seven-dimension quantity ABI. Compilation never evaluates the
+program to manufacture output.
 
 User-defined `unit` declaration syntax, automatic display-unit selection, and
 affine conversion remain future work. Any such design must build on the same

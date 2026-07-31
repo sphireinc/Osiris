@@ -586,7 +586,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				}
 				out, err := callDurationComponent(callee, args)
 				if err != nil {
-					return nullValue(), structuredErrorAt(err, r.source, instr.span)
+					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
 				continue
@@ -604,7 +604,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			if callee.fn.builtin != nil {
 				out, err := callee.fn.builtin(args)
 				if err != nil {
-					return nullValue(), structuredErrorAt(err, r.source, instr.span)
+					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
 				continue
@@ -612,7 +612,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			if callee.fn.contextBuiltin != nil {
 				out, err := callee.fn.contextBuiltin(r.ctx, args)
 				if err != nil {
-					return nullValue(), structuredErrorAt(err, r.source, instr.span)
+					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
 				continue
@@ -620,9 +620,11 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			if callee.fn.session == nil || callee.fn.body == nil {
 				return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
 			}
-			if len(args) != len(callee.fn.params) {
-				return nullValue(), fmt.Errorf("function %s expects %d arguments", callee.fn.name, len(callee.fn.params))
+			checkedArgs, err := checkFunctionArguments(callee.fn, args)
+			if err != nil {
+				return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
 			}
+			args = checkedArgs
 			base := callee.fn.closure
 			if base == nil {
 				base = &scope{}
@@ -634,16 +636,28 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			for i, name := range callee.fn.params {
 				callScope.items[name] = binding{expr: &literalExpr{value: args[i]}, env: callScope}
 			}
-			out, err := callee.fn.session.eval(callee.fn.body, callScope)
+			callSession := callee.fn.session
+			previousOutputs := callSession.outputs
+			callSession.outputs = &r.outputs
+			out, err := callSession.eval(callee.fn.body, callScope)
+			callSession.outputs = previousOutputs
 			if sig, ok := asFlow(err); ok {
 				if sig.kind == flowReturn {
-					regs[instr.dst] = sig.value
+					value, typeErr := checkFunctionResult(callee.fn, sig.value)
+					if typeErr != nil {
+						return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, typeErr.Error()), r.source, instr.span)
+					}
+					regs[instr.dst] = value
 					continue
 				}
 				return nullValue(), flowError(sig.kind, "function")
 			}
 			if err != nil {
 				return nullValue(), err
+			}
+			out, err = checkFunctionResult(callee.fn, out)
+			if err != nil {
+				return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
 			}
 			regs[instr.dst] = out
 		case vmOpList:
@@ -775,7 +789,9 @@ func (r *vmRunner) runChild(chunk *vmChunk) (Value, error) {
 		stack:  r.stack,
 		frame:  r.frame.child(nil),
 	}
-	return child.run(chunk)
+	value, err := child.run(chunk)
+	r.outputs = append(r.outputs, child.outputs...)
+	return value, err
 }
 
 // runChildWithBindings operates on vmRunner values and keeps the
@@ -795,7 +811,9 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 		stack:  r.stack,
 		frame:  r.frame.child(bindings),
 	}
-	return child.run(chunk)
+	value, err := child.run(chunk)
+	r.outputs = append(r.outputs, child.outputs...)
+	return value, err
 }
 
 // vmBinary handles the vm binary step in the surrounding package and returns
@@ -1010,10 +1028,13 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	if err := validateTensorShapes(expanded); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
+	if _, err := r.CheckProgram(ctx, expanded); err != nil {
+		return nil, normalizeError(err, prog.SourceName)
+	}
 	if containsControlFlow(expanded) {
 		outputs, err := sess.ExecProgram(expanded, false, nil)
 		if err != nil {
-			return nil, normalizeError(err, prog.SourceName)
+			return outputs, normalizeError(err, prog.SourceName)
 		}
 		return outputs, nil
 	}
@@ -1030,7 +1051,7 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 		frame:  &vmFrame{},
 	}
 	if _, err := runner.run(chunk); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
+		return runner.outputs, normalizeError(err, prog.SourceName)
 	}
 	return runner.outputs, nil
 }

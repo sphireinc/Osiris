@@ -21,6 +21,7 @@ type macroExpander struct {
 	rt         *Runtime
 	ctx        context.Context
 	sourceName string
+	stack      []string
 	seq        uint64
 }
 
@@ -64,33 +65,33 @@ func cloneStringMap(src map[string]string) map[string]string {
 func cloneExpr(expr Expr) Expr {
 	switch n := expr.(type) {
 	case *literalExpr:
-		return &literalExpr{value: n.value}
+		return &literalExpr{value: n.value, Span: n.Span, defaultInteger: n.defaultInteger}
 	case *identExpr:
-		return &identExpr{name: n.name}
+		return &identExpr{name: n.name, Span: n.Span}
 	case *unaryExpr:
-		return &unaryExpr{op: n.op, expr: cloneExpr(n.expr)}
+		return &unaryExpr{op: n.op, expr: cloneExpr(n.expr), Span: n.Span}
 	case *binaryExpr:
-		return &binaryExpr{op: n.op, left: cloneExpr(n.left), right: cloneExpr(n.right)}
+		return &binaryExpr{op: n.op, left: cloneExpr(n.left), right: cloneExpr(n.right), Span: n.Span}
 	case *callExpr:
 		args := make([]Expr, len(n.args))
 		for i := range n.args {
 			args[i] = cloneExpr(n.args[i])
 		}
-		return &callExpr{callee: cloneExpr(n.callee), args: args}
+		return &callExpr{callee: cloneExpr(n.callee), args: args, Span: n.Span}
 	case *memberExpr:
-		return &memberExpr{object: cloneExpr(n.object), name: n.name}
+		return &memberExpr{object: cloneExpr(n.object), name: n.name, Span: n.Span}
 	case *listExpr:
 		items := make([]Expr, len(n.items))
 		for i := range n.items {
 			items[i] = cloneExpr(n.items[i])
 		}
-		return &listExpr{items: items}
+		return &listExpr{items: items, Span: n.Span}
 	case *matchExpr:
 		arms := make([]matchArm, len(n.arms))
 		for i := range n.arms {
 			arms[i] = matchArm{pattern: clonePattern(n.arms[i].pattern), guard: cloneExpr(n.arms[i].guard), body: cloneExpr(n.arms[i].body), isDefault: n.arms[i].isDefault}
 		}
-		return &matchExpr{subject: cloneExpr(n.subject), arms: arms}
+		return &matchExpr{subject: cloneExpr(n.subject), arms: arms, keyword: n.keyword, Span: n.Span}
 	case *blockExpr:
 		stmts := make([]Stmt, len(n.stmts))
 		for i := range n.stmts {
@@ -100,9 +101,9 @@ func cloneExpr(expr Expr) Expr {
 		if n.tail != nil {
 			tail = cloneExpr(n.tail)
 		}
-		return &blockExpr{stmts: stmts, tail: tail}
+		return &blockExpr{stmts: stmts, tail: tail, Span: n.Span}
 	case *tryExpr:
-		return &tryExpr{body: cloneExpr(n.body), catchName: n.catchName, handler: cloneExpr(n.handler)}
+		return &tryExpr{body: cloneExpr(n.body), catchName: n.catchName, handler: cloneExpr(n.handler), Span: n.Span}
 	case *propagateExpr:
 		return &propagateExpr{expr: cloneExpr(n.expr), Span: n.Span}
 	default:
@@ -125,21 +126,31 @@ func cloneStmt(stmt Stmt) Stmt {
 	case letStmt:
 		return letStmt{Name: s.Name, Type: s.Type, Expr: cloneExpr(s.Expr), Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}
 	case emitStmt:
-		return emitStmt{Expr: cloneExpr(s.Expr)}
+		return emitStmt{Expr: cloneExpr(s.Expr), Span: s.Span}
 	case importStmt:
 		return s
 	case macroStmt:
 		params := append([]string(nil), s.Params...)
-		return macroStmt{Name: s.Name, Params: params, Body: cloneExpr(s.Body)}
+		return macroStmt{Name: s.Name, Params: params, Body: cloneExpr(s.Body), Span: s.Span, NameSpan: s.NameSpan}
 	case funcStmt:
 		params := append([]string(nil), s.Params...)
-		return funcStmt{Name: s.Name, Params: params, Body: cloneExpr(s.Body)}
+		return funcStmt{
+			Name:           s.Name,
+			Params:         params,
+			ParamTypes:     append([]string(nil), s.ParamTypes...),
+			ParamSpans:     append([]sourceSpan(nil), s.ParamSpans...),
+			ReturnType:     s.ReturnType,
+			ReturnTypeSpan: s.ReturnTypeSpan,
+			Body:           cloneExpr(s.Body),
+			Span:           s.Span,
+			NameSpan:       s.NameSpan,
+		}
 	case returnStmt:
-		return returnStmt{Expr: cloneExpr(s.Expr)}
+		return returnStmt{Expr: cloneExpr(s.Expr), Span: s.Span}
 	case whileStmt:
-		return whileStmt{Cond: cloneExpr(s.Cond), Body: cloneExpr(s.Body)}
+		return whileStmt{Cond: cloneExpr(s.Cond), Body: cloneExpr(s.Body), Span: s.Span}
 	case forStmt:
-		return forStmt{Name: s.Name, Iter: cloneExpr(s.Iter), Body: cloneExpr(s.Body)}
+		return forStmt{Name: s.Name, Iter: cloneExpr(s.Iter), Body: cloneExpr(s.Body), Span: s.Span}
 	case breakStmt:
 		return breakStmt{}
 	case continueStmt:
@@ -225,8 +236,22 @@ func (s *Session) registerMacro(name string, params []string, body Expr) error {
 // It returns *Program and an error. Callers should only trust the value when
 // the error is nil.
 func (s *Session) ExpandProgram(prog *Program) (*Program, error) {
-	exp := &macroExpander{rt: s.rt, ctx: s.ctx, sourceName: s.sourceName}
-	return exp.expandProgram(prog, nil, cloneMacroDefs(s.macros), 0)
+	expanded, _, err := s.expandProgramWithStack(prog, s.moduleStack)
+	return expanded, err
+}
+
+func (s *Session) expandProgramWithStack(prog *Program, stack []string) (*Program, map[string]*macroDef, error) {
+	exp := &macroExpander{
+		rt:         s.rt,
+		ctx:        s.ctx,
+		sourceName: s.sourceName,
+		stack:      append([]string(nil), stack...),
+	}
+	stmts, _, defs, err := exp.expandStmtSeq(prog.Statements, s.scope, cloneMacroDefs(s.macros), seqProgram, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &Program{SourceName: prog.SourceName, Statements: stmts}, defs, nil
 }
 
 // expandExpr operates on Session values and keeps the session-specific
@@ -236,22 +261,13 @@ func (s *Session) ExpandProgram(prog *Program) (*Program, error) {
 // It returns Expr and an error. Callers should only trust the value when the
 // error is nil.
 func (s *Session) expandExpr(expr Expr, env *scope) (Expr, error) {
-	exp := &macroExpander{rt: s.rt, ctx: s.ctx, sourceName: s.sourceName}
-	return exp.expandExpr(expr, env, cloneMacroDefs(s.macros), 0)
-}
-
-// expandProgram operates on macroExpander values and keeps the
-// macroexpander-specific behavior attached to the receiver so callers can use
-// the method as the natural entry point for that data structure.
-//
-// It returns *Program and an error. Callers should only trust the value when
-// the error is nil.
-func (e *macroExpander) expandProgram(prog *Program, env *scope, defs map[string]*macroDef, depth int) (*Program, error) {
-	stmts, _, _, err := e.expandStmtSeq(prog.Statements, env, defs, seqProgram, depth)
-	if err != nil {
-		return nil, err
+	exp := &macroExpander{
+		rt:         s.rt,
+		ctx:        s.ctx,
+		sourceName: s.sourceName,
+		stack:      append([]string(nil), s.moduleStack...),
 	}
-	return &Program{SourceName: prog.SourceName, Statements: stmts}, nil
+	return exp.expandExpr(expr, env, cloneMacroDefs(s.macros), 0)
 }
 
 type seqMode uint8
@@ -299,7 +315,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 				},
 			}
 		case importStmt:
-			mod, err := e.rt.loadModule(e.ctx, st.Path, e.sourceName, nil)
+			mod, err := e.rt.loadModule(e.ctx, st.Path, e.sourceName, e.stack)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -332,20 +348,27 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			}
 			out = append(out, st)
 		case emitStmt:
-			if mode == seqBlock {
-				return nil, nil, nil, fmt.Errorf("emit is not allowed in block expressions")
-			}
 			expr, err := e.expandExpr(st.Expr, curScope, curDefs, depth+1)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, emitStmt{Expr: expr})
+			out = append(out, emitStmt{Expr: expr, Span: st.Span})
 		case funcStmt:
 			body, err := e.expandExpr(st.Body, curScope, curDefs, depth+1)
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, funcStmt{Name: st.Name, Params: append([]string(nil), st.Params...), Body: body})
+			out = append(out, funcStmt{
+				Name:           st.Name,
+				Params:         append([]string(nil), st.Params...),
+				ParamTypes:     append([]string(nil), st.ParamTypes...),
+				ParamSpans:     append([]sourceSpan(nil), st.ParamSpans...),
+				ReturnType:     st.ReturnType,
+				ReturnTypeSpan: st.ReturnTypeSpan,
+				Body:           body,
+				Span:           st.Span,
+				NameSpan:       st.NameSpan,
+			})
 			curScope = &scope{
 				parent: curScope,
 				items: map[string]binding{
@@ -361,7 +384,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 					return nil, nil, nil, err
 				}
 			}
-			out = append(out, returnStmt{Expr: expr})
+			out = append(out, returnStmt{Expr: expr, Span: st.Span})
 		case whileStmt:
 			cond, err := e.expandExpr(st.Cond, curScope, curDefs, depth+1)
 			if err != nil {
@@ -371,7 +394,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, whileStmt{Cond: cond, Body: body})
+			out = append(out, whileStmt{Cond: cond, Body: body, Span: st.Span})
 		case forStmt:
 			iter, err := e.expandExpr(st.Iter, curScope, curDefs, depth+1)
 			if err != nil {
@@ -381,7 +404,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body})
+			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body, Span: st.Span})
 		case breakStmt:
 			out = append(out, st)
 		case continueStmt:
@@ -1040,7 +1063,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 				},
 			}
 		case importStmt:
-			mod, err := e.rt.loadModule(e.ctx, st.Path, e.sourceName, nil)
+			mod, err := e.rt.loadModule(e.ctx, st.Path, e.sourceName, e.stack)
 			if err != nil {
 				return nil, err
 			}
@@ -1059,7 +1082,17 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, funcStmt{Name: fresh, Params: append([]string(nil), st.Params...), Body: body})
+			out = append(out, funcStmt{
+				Name:           fresh,
+				Params:         append([]string(nil), st.Params...),
+				ParamTypes:     append([]string(nil), st.ParamTypes...),
+				ParamSpans:     append([]sourceSpan(nil), st.ParamSpans...),
+				ReturnType:     st.ReturnType,
+				ReturnTypeSpan: st.ReturnTypeSpan,
+				Body:           body,
+				Span:           st.Span,
+				NameSpan:       st.NameSpan,
+			})
 			curRenames = nextRenames
 			curScope = &scope{
 				parent: curScope,
@@ -1076,7 +1109,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 					return nil, err
 				}
 			}
-			out = append(out, returnStmt{Expr: expr})
+			out = append(out, returnStmt{Expr: expr, Span: st.Span})
 		case whileStmt:
 			cond, err := e.expandTemplateExpr(st.Cond, curScope, curDefs, params, args, curRenames, depth+1)
 			if err != nil {
@@ -1086,7 +1119,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, whileStmt{Cond: cond, Body: body})
+			out = append(out, whileStmt{Cond: cond, Body: body, Span: st.Span})
 		case forStmt:
 			iter, err := e.expandTemplateExpr(st.Iter, curScope, curDefs, params, args, curRenames, depth+1)
 			if err != nil {
@@ -1096,13 +1129,19 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body})
+			out = append(out, forStmt{Name: st.Name, Iter: iter, Body: body, Span: st.Span})
+		case emitStmt:
+			expr, err := e.expandTemplateExpr(st.Expr, curScope, curDefs, params, args, curRenames, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, emitStmt{Expr: expr, Span: st.Span})
 		case breakStmt:
 			out = append(out, st)
 		case continueStmt:
 			out = append(out, st)
 		default:
-			return nil, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, and continue statements")
+			return nil, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, continue, and emit statements")
 		}
 	}
 	var tail Expr

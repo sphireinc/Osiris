@@ -25,6 +25,7 @@ type InferBinding struct {
 type InferFunction struct {
 	Name          string
 	SourceName    string
+	Signature     string
 	Params        []InferBinding
 	Result        string
 	Captures      []string
@@ -55,6 +56,9 @@ func (rt *Runtime) InferProgram(ctx context.Context, prog *Program) (*InferProgr
 		return nil, fmt.Errorf("cannot infer types for nil program")
 	}
 	if err := validateTensorShapes(prog); err != nil {
+		return nil, err
+	}
+	if _, err := rt.CheckProgram(ctx, prog); err != nil {
 		return nil, err
 	}
 	return inferProgram(prog), nil
@@ -121,6 +125,10 @@ func FormatInferProgram(prog *InferProgram) string {
 			if fn.Result != "" {
 				b.WriteString(": result=")
 				b.WriteString(fn.Result)
+			}
+			if fn.Signature != "" {
+				b.WriteString(" signature=")
+				b.WriteString(fn.Signature)
 			}
 			if len(fn.Params) > 0 {
 				b.WriteString(" params [")
@@ -277,10 +285,12 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 // It returns inferTypeInfo so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func inferFunctionStmt(st funcStmt, scope *inferScope, out *InferProgram) inferTypeInfo {
+	signature, _ := staticFunctionType(st)
 	fnState := &inferFunctionState{
 		report: &InferFunction{
 			Name:       st.Name,
 			SourceName: st.Name,
+			Signature:  signature.String(),
 			Params:     make([]InferBinding, 0, len(st.Params)),
 		},
 		capturesSeen: make(map[string]struct{}),
@@ -292,13 +302,25 @@ func inferFunctionStmt(st funcStmt, scope *inferScope, out *InferProgram) inferT
 	scope.items[st.Name].binding.Kind = "function"
 	out.Bindings = append(out.Bindings, InferBinding{Name: st.Name, Scope: scope.name, Kind: "function"})
 	child.bindLocal(st.Name, fnInfo)
-	for _, param := range st.Params {
-		pb := InferBinding{Name: param, Scope: st.Name, Kind: "unknown"}
+	for i, param := range st.Params {
+		paramInfo := inferTypeInfo{known: false, kind: "unknown"}
+		if i < len(signature.params) && !signature.params[i].isDynamic() {
+			paramInfo = inferInfoFromStaticType(signature.params[i])
+		}
+		pb := InferBinding{Name: param, Scope: st.Name, Kind: paramInfo.KindString()}
+		if i < len(signature.params) && !signature.params[i].isDynamic() {
+			pb.Kind = signature.params[i].String()
+		}
 		fnState.report.Params = append(fnState.report.Params, pb)
-		child.bindLocal(param, inferTypeInfo{known: false, kind: "unknown"})
+		child.bindLocal(param, paramInfo)
 	}
 	result := inferExpr(st.Body, child, out)
-	fnState.report.Result = result.KindString()
+	if signature.result != nil && !signature.result.isDynamic() {
+		result = inferInfoFromStaticType(*signature.result)
+		fnState.report.Result = signature.result.String()
+	} else {
+		fnState.report.Result = result.KindString()
+	}
 	for _, name := range fnState.report.Captures {
 		if bs := child.lookupLocal(name); bs != nil {
 			fnState.report.CaptureKinds = append(fnState.report.CaptureKinds, bs.info.KindString())
@@ -460,6 +482,15 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 				}
 				_ = inferExpr(n.args[0], scope, out)
 				return inferExpr(n.args[1], scope, out)
+			}
+		}
+		calleeInfo := inferExpr(n.callee, scope, out)
+		if calleeInfo.function != nil && calleeInfo.function.Result != "" && calleeInfo.function.Result != "unknown" {
+			for _, arg := range n.args {
+				_ = inferExpr(arg, scope, out)
+			}
+			if parsed, err := parseStaticType(calleeInfo.function.Result); err == nil {
+				return inferInfoFromStaticType(parsed)
 			}
 		}
 		if name, ok := calledShapeName(n.callee); ok {
@@ -1664,6 +1695,35 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 		info.kind = "unknown"
 	}
 	return info
+}
+
+func inferInfoFromStaticType(value staticType) inferTypeInfo {
+	if value.isDynamic() {
+		return inferTypeInfo{kind: "unknown"}
+	}
+	if value.isFunction() {
+		report := &InferFunction{Signature: value.String()}
+		if value.result != nil {
+			report.Result = value.result.String()
+		}
+		return inferTypeInfo{known: true, kind: "function", function: report}
+	}
+	switch value.name {
+	case "u8", "u16", "u32", "u64":
+		var bits uint16
+		_, _ = fmt.Sscanf(value.name, "u%d", &bits)
+		return inferTypeInfo{known: true, kind: "uint", bits: bits}
+	case "i8", "i16", "i32", "i64":
+		var bits uint16
+		_, _ = fmt.Sscanf(value.name, "i%d", &bits)
+		return inferTypeInfo{known: true, kind: "int", bits: bits}
+	case "f32", "f64":
+		var bits uint16
+		_, _ = fmt.Sscanf(value.name, "f%d", &bits)
+		return inferTypeInfo{known: true, kind: "float", bits: bits}
+	default:
+		return inferTypeInfo{known: true, kind: value.name}
+	}
 }
 
 // KindString operates on inferTypeInfo values and keeps the

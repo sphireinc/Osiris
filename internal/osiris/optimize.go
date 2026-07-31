@@ -127,9 +127,9 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		} else {
 			delete(env, s.Name)
 		}
-		return letStmt{Name: s.Name, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
+		return letStmt{Name: s.Name, Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
 	case emitStmt:
-		return emitStmt{Expr: optimizeExprWithEnv(s.Expr, env)}, env
+		return emitStmt{Expr: optimizeExprWithEnv(s.Expr, env), Span: s.Span}, env
 	case macroStmt:
 		return macroStmt{Name: s.Name, Params: append([]string(nil), s.Params...), Body: optimizeExprWithEnv(s.Body, env)}, env
 	case funcStmt:
@@ -137,7 +137,17 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		if fnEnv == nil {
 			fnEnv = make(optimizeEnv)
 		}
-		return funcStmt{Name: s.Name, Params: append([]string(nil), s.Params...), Body: optimizeExprWithEnv(s.Body, fnEnv)}, env
+		return funcStmt{
+			Name:           s.Name,
+			Params:         append([]string(nil), s.Params...),
+			ParamTypes:     append([]string(nil), s.ParamTypes...),
+			ParamSpans:     append([]sourceSpan(nil), s.ParamSpans...),
+			ReturnType:     s.ReturnType,
+			ReturnTypeSpan: s.ReturnTypeSpan,
+			Body:           optimizeExprWithEnv(s.Body, fnEnv),
+			Span:           s.Span,
+			NameSpan:       s.NameSpan,
+		}, env
 	case returnStmt:
 		return returnStmt{Expr: optimizeExprWithEnv(s.Expr, env)}, env
 	case whileStmt:

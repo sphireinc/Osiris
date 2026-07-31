@@ -2,7 +2,7 @@
 
 **Priority:** P1  
 **Dependencies:** 004, 025, 043, 044  
-**Status:** Ready  
+**Status:** Complete
 
 ## Objective
 
@@ -185,24 +185,24 @@ After focused tests pass:
 
 ## Acceptance criteria
 
-- [ ] Deep lazy loop-carried dependency graphs use bounded Go call-stack space
+- [x] Deep lazy loop-carried dependency graphs use bounded Go call-stack space
       during both fingerprinting and value evaluation.
-- [ ] The original integer and float benchmark programs complete through
+- [x] The original integer and float benchmark programs complete through
       interpreter, public VM, and native paths at the recorded large loop
       count with identical visible values.
-- [ ] Lazy unused-error and unused-effect behavior is unchanged and covered by
+- [x] Lazy unused-error and unused-effect behavior is unchanged and covered by
       focused tests.
-- [ ] Shadowing, closure capture, nested control flow, cancellation, cycle
+- [x] Shadowing, closure capture, nested control flow, cancellation, cycle
       detection, errors, and numeric width/style retain their contracts.
-- [ ] Native IR still uses SSA loop parameters and generated C contains no
+- [x] Native IR still uses SSA loop parameters and generated C contains no
       compile-time evaluator output snapshot.
-- [ ] The float benchmark is again a checksum-only workload accepted by
+- [x] The float benchmark is again a checksum-only workload accepted by
       `bench.sh`.
-- [ ] Focused tests pass normally and under `-race`.
-- [ ] `go test ./...`, `go test -race ./...`, `go vet ./...`,
+- [x] Focused tests pass normally and under `-race`.
+- [x] `go test ./...`, `go test -race ./...`, `go vet ./...`,
       `git diff --check`, task-index validation, and the recorded benchmark
       commands pass.
-- [ ] This task contains the final design decision, raw reproduction/parity
+- [x] This task contains the final design decision, raw reproduction/parity
       evidence, and any deliberately deferred memory or VM architecture work
       before it moves to `tasks/completed/`.
 
@@ -218,3 +218,146 @@ After focused tests pass:
 - Do not redesign native SSA lowering when its current output is already
   correct.
 
+## Completion record — 2026-07-30
+
+### Design decision
+
+Deep identifier/unary/binary fingerprinting now uses an explicit continuation
+stack in `lazy_eval.go`. Each frame owns only its expression, immutable lexical
+scope, stage, and completed child results. The walk produces the same
+`hashParts` structure as the former recursive path and records dependency
+depth beside the existing fingerprint memo. Other expression families keep
+the established recursive implementation and may appear as opaque leaves;
+there is no eager binding rewrite.
+
+Value evaluation switches to a matching explicit continuation stack only when
+the recorded simple-expression depth reaches 128. Shallow programs retain
+their existing scheduler and error-shaping path. The deep walker preserves
+short-circuiting, unary and numeric behavior, identifier lookup, constants,
+builtins, memoized values, and lexical scopes. A demand-local active-key set
+detects demanded cycles deterministically. Cancellation is checked every 256
+continuation steps.
+
+Continuation frames and cycle sets are owned by one demand and never shared.
+The evaluator's existing `fpMu` and `mu` protect only fingerprint/depth and
+value-cache map accesses; neither mutex is held while evaluating an expression,
+executing a builtin, or waiting for a promise. Successful immutable `Value`
+results remain safe to reuse under their deterministic fingerprint; errors
+are not cached. Concurrent readers continue to rendezvous through the existing
+promise and focused `-race` coverage proves eight simultaneous demands.
+
+This preserves the language's lazy rule: loop construction still records
+expressions and prior scopes, and no unused binding is forced. Focused evidence
+covers an unused divide-by-zero, unused `spawn` with an empty task trace,
+unused missing name, and unused recursive function cycle. Demanded structured
+errors retain kind, message, source, and call span. Integer, wrapping `u32`,
+`f64` with an intermediate binding, two independent accumulators, nested
+loops, preceding-iteration closure capture, cancellation, cycle detection,
+and memoization pass through both public paths. `Runtime.RunVM` still
+deliberately delegates control-flow programs to `Session.ExecProgram`; this
+task does not claim new VM loop bytecode.
+
+The bounded-stack subprocess first failed against the old implementation in
+both modes with:
+
+```text
+runtime: goroutine stack exceeds 524288-byte limit
+fatal error: stack overflow
+(*evaluator).fingerprint ... runtime.go:299
+(*evaluator).fingerprint ... runtime.go:342
+(*evaluator).fingerprint ... runtime.go:356
+```
+
+After the repair, both modes complete the 6,000-iteration fixture under the
+same 512 KiB maximum Go stack and emit `17997000u64`.
+
+### Native and scale evidence
+
+Environment:
+
+```text
+Darwin 25.5.0 arm64
+go version go1.26.1 darwin/arm64
+Apple clang version 15.0.0 (clang-1500.0.40.1)
+```
+
+Canonical workload revisions:
+
+```text
+fa5c494c909838ccd54812853fa7a29ecab890610ca36f467ac7d579b3cb6c0f  benchmarks/native-narrow-integers.osr
+ca6d329fcb0e5c99a463cd94f5a2e62edc258458e431e86e6db1ee13c37bb8e4  benchmarks/native-float-arithmetic.osr
+```
+
+`osiris ir` at `BENCH_ITERS=200000` retained `i` and `total` as block
+parameters on the narrow loop header and retained `i`, `ratio`, and `total` on
+the float loop header. Task-specific generated-C assertions and manual
+inspection prove both artifacts contain `block_main_while_header`,
+`block_main_while_body`, a runtime backedge, arithmetic, and runtime printing;
+neither contains the computed checksum as a captured literal.
+
+Raw one-run correctness/scale samples:
+
+```text
+RUNS=1 WARMUP=0 BENCH_ITERS=200000 \
+  WORKLOAD=benchmarks/native-narrow-integers.osr ./bench.sh
+checksum: 2820030816u32
+interpreter 3744.428 ms; vm fallback 3943.471 ms; native 13.285 ms
+native compile 762.186 ms
+
+RUNS=1 WARMUP=0 BENCH_ITERS=200000 \
+  WORKLOAD=benchmarks/native-float-arithmetic.osr ./bench.sh
+checksum: 166666f64
+interpreter 6126.475 ms; vm fallback 6397.136 ms; native 17.457 ms
+native compile 751.524 ms
+```
+
+macOS `/usr/bin/time -l` peak-memory observations for the same generated
+200,000-iteration sources:
+
+```text
+narrow: interpreter 1,783,447,552 B; vm fallback 1,781,104,640 B;
+        native 1,392,640 B maximum RSS
+float:  interpreter 2,821,701,632 B; vm fallback 3,130,212,352 B;
+        native 1,392,640 B maximum RSS
+```
+
+These are correctness and scale observations, not a speed or allocation
+improvement claim. Immutable per-iteration scopes remain reachable by lazy
+bindings and captured closures, so large hosted runs still consume substantial
+memory. Scope/thunk compaction requires a separate proof of closure,
+effect/error, and cache-key safety and is deliberately deferred. General VM
+control-flow bytecode also remains separate. The ordinary multi-sample
+benchmark policy and historical baselines are unchanged.
+
+The temporary per-iteration float emissions were removed, restoring the
+canonical checksum-only workload. `check-benchmark-workloads.sh` passes.
+
+### Validation
+
+```text
+go test ./internal/osiris -run '^TestLazy' -count=1
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test -race ./internal/osiris -run '^TestLazy' -count=1
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test -race ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+go vet ./...
+(no output)
+
+./scripts/check-benchmark-workloads.sh
+Benchmark workload interpreter/VM parity passed.
+
+git diff --check
+(no output)
+
+./scripts/check-task-index.sh
+Task index checks passed.
+```

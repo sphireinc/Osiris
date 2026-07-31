@@ -88,12 +88,12 @@
       "summary": "Declarations introduce immutable lexical names, module metadata, imports/exports, functions, macros, and nominal enums.",
       "paragraphs": [
         "`let` binds the value of its initializer. `let?` first unwraps a `Result` or `Option`. A typed binding checks a canonical runtime kind; it is not an implicit conversion.",
-        "Functions close over lexical scope. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module."
+        "Functions close over lexical scope and may annotate parameters and results without a colon. The checker declares signatures before checking bodies, so recursive groups do not require execution. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module."
       ],
       "syntax": [
         {
           "label": "DECLARATION GRAMMAR",
-          "code": "packageDecl := \"package\" identifier [ number | string ]\nexportDecl  := \"export\" identifier { \",\" identifier }\nimportDecl  := \"import\" string \"as\" identifier\nletDecl     := \"let\" [ \"?\" ] identifier [ bindingType ] \"=\" expression\nfuncDecl    := \"func\" identifier \"(\" [ names ] \")\" ( \"=>\" expression | block )\nmacroDecl   := \"macro\" identifier \"(\" [ names ] \")\" \"=>\" expression\nenumDecl    := \"enum\" identifier [ \":\" enumBacking ] \"{\" enumCases \"}\"\nnames       := identifier { \",\" identifier }"
+          "code": "packageDecl := \"package\" identifier [ number | string ]\nexportDecl  := \"export\" identifier { \",\" identifier }\nimportDecl  := \"import\" string \"as\" identifier\nletDecl     := \"let\" [ \"?\" ] identifier [ type ] \"=\" expression\nfuncDecl    := \"func\" identifier \"(\" parameters \")\" [ type ]\n               ( \"=>\" expression | block )\nparameter   := identifier [ type ]\nparameters  := [ parameter { \",\" parameter } ]\ntype        := canonicalType | \"func\" \"(\" [ type { \",\" type } ] \")\" type\nmacroDecl   := \"macro\" identifier \"(\" [ names ] \")\" \"=>\" expression\nenumDecl    := \"enum\" identifier [ \":\" enumBacking ] \"{\" enumCases \"}\"\nnames       := identifier { \",\" identifier }"
         },
         {
           "label": "ENUM CASE GRAMMAR",
@@ -133,6 +133,21 @@
               "Scalar/value kinds",
               "`string bool null list tensor enum function duration datetime location`",
               "Requires the exact runtime kind."
+            ],
+            [
+              "Fallibility and execution",
+              "`error result option stream task module`",
+              "Requires the exact runtime kind; payload/result type parameters are reserved for generic types."
+            ],
+            [
+              "Extended numeric kinds",
+              "`decimal fixed interval modint complex bigint bigfloat quantity dual`",
+              "Requires the exact runtime family and preserves its width, unit, modulus, interval, or derivative metadata."
+            ],
+            [
+              "Exact callables",
+              "`func(T1, T2) Result`",
+              "Requires the exact invariant parameter and result signature. The broad `function` kind accepts any callable."
             ]
           ]
         }
@@ -243,16 +258,18 @@
     {
       "id": "functions",
       "title": "Functions, Closures, and Macros",
-      "summary": "A function is a runtime callable with immutable positional parameters and lexical captures. A macro rewrites syntax before ordinary evaluation.",
+      "summary": "A function is a runtime callable with immutable positional parameters, optional checked types, and lexical captures. A macro rewrites syntax before ordinary evaluation.",
       "paragraphs": [
-        "Expression-bodied functions return the expression. Block-bodied functions return an explicit `return` value, their tail expression, or `null`. A bare `return` returns `null`.",
+        "Write `func convert(value u32) string` for a typed declaration and `func(u32) string` for its callable type. An omitted annotation remains dynamic so existing source keeps its behavior.",
+        "Expression-bodied functions return the expression. Block-bodied functions return an explicit `return` value, their tail expression, or `null`. A bare `return` returns `null`. An annotated result checks every reachable return and fallthrough path.",
+        "Annotations never cast. Unsuffixed non-negative integer literals may inherit an expected numeric width, including the result alternatives of `if`, `match`/`switch`, `try`/`catch`, and block tails. Suffixed and existing values require an explicit constructor for conversion.",
         "Nested functions may capture bindings from surrounding scopes. Backend support for closure conversion is feature-specific; unsupported native captures are compile-time diagnostics.",
-        "Macros use call syntax at their use site but substitute AST arguments into the declared expression body. Recursive expansion, wrong arity, and invalid expansion are diagnosed before execution."
+        "Macros use call syntax at their use site but substitute AST arguments into the declared expression body. Recursive expansion, wrong arity, invalid expansion, and type errors introduced by expansion are diagnosed before execution."
       ],
       "syntax": [
         {
           "label": "FUNCTION AND MACRO FORMS",
-          "code": "func double(value) => value * 2\nfunc choose(flag, left, right) {\n  if flag { return left }\n  right\n}\nmacro twice(value) => value + value"
+          "code": "func double(value u32) u32 => value * u32(2)\nfunc apply(value u32, callback func(u32) u32) u32 {\n  return callback(value)\n}\nlet callback func(u32) u32 = double\nmacro twice(value) => value + value"
         }
       ]
     },

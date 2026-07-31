@@ -5,24 +5,38 @@ human shortcut and must agree with it.
 
 ## Now
 
-No task is active. Tasks 001–049 and 100–104 are complete.
+No task is active. Task 111 is the next type/data-model increment; tasks 115,
+116, 123, and 124 remain independently ready. Tasks 001–049 and 100–110 are
+complete.
 
-## Ready — runtime correctness
+## Ready — general-purpose foundations
 
-1. 107: eliminate the confirmed Go stack overflow when large iterative loops
-   build and then demand deep lazy loop-carried binding chains.
+1. 111 adds immutable structs with Go-style field tags, tuples, aliases, and
+   nominal newtypes on task 110's completed static checker.
+2. 115 closes the remaining stable VM/native C parity gaps.
+3. 116 adds deterministic scope-bound cleanup and unlocks FFI and
+   resource-owning libraries.
+4. 123 adds an Osiris-native testing workflow.
+5. 124 adds Go-style repository modules, GitHub-backed resolution, workspaces,
+   separate package discovery, and supply-chain auditing without requiring a
+   central registry.
 
-## Ready — reference navigation
+## Blocked — follow-on work
 
-2. 105: define and enforce deterministic ordering inside every canonical
-   reference-page section.
+- 112–114 depend on task 111 and the remaining type/data-model sequence.
+- 117 depends on deterministic cleanup before owning foreign resources.
+- 118–122 depend on the relevant cleanup, FFI, data-model, or OS foundations.
+- 125 depends on the completed type system and language-native test model so
+  its editor contracts are not built around temporary semantics.
+- 126 depends on the safe buffer/handle, ownership, cleanup, FFI, mutation, and
+  backend contracts. It is the explicit capability-gated unsafe boundary, not
+  an ambient pointer facility.
 
-## Blocked
+## Completed — native integration
 
-- 106: add `#page/entry` deep-link routing and accessible “On This Page”
-  navigation after task 105 fixes the canonical listing order.
-- 108: make `emit` a consistent ordered statement in synchronous executable
-  blocks after task 107 completes the overlapping evaluator work.
+1. 109 added the IR, C ABI, portable task runtime, exact values, codecs, and
+   required static-module members needed to compile the unchanged
+   mission-control showcase into a standalone executable.
 
 ## Completed — scoped surface expansion
 
@@ -35,6 +49,6 @@ dual-reference audits.
 
 ## Completed foundations
 
-Tasks 001–049 and 100–104 are complete and remain indexed for
+Tasks 001–049 and 100–110 are complete and remain indexed for
 provenance and acceptance evidence. Use `tasks/index.tsv` as the canonical
 status/dependency source.

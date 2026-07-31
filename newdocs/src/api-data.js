@@ -5,8 +5,12 @@ import timeReference from './time-reference.json' with { type: 'json' };
 import technicalReference from './technical-reference.json' with { type: 'json' };
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
+import { orderReferenceSections } from './reference-order.js';
 
-export const languageSections = [...baseLanguageSections, ...supplemental.languageSections];
+export const languageSections = orderReferenceSections(
+  [...baseLanguageSections, ...supplemental.languageSections],
+  'language',
+);
 
 const typeExamples = {
   number: 'let foo number = 4\nlet bar = number(4)\nemit foo # 4\nemit bar # 4',
@@ -58,6 +62,7 @@ function entryFromLegacy(groupID, item) {
   return {
     kind: item.kind || 'function',
     name: item.name,
+    anchor: item.anchor,
     aliases: item.members || [],
     signature: item.syntax,
     description: item.summary,
@@ -94,7 +99,10 @@ const apiModules = combinedGroups.map((group) => ({
   label: group.title,
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
-  sections: [{ title: group.title, entries: group.items.map((item) => entryFromLegacy(group.id, item)) }],
+  sections: orderReferenceSections(
+    [{ title: group.title, entries: group.items.map((item) => entryFromLegacy(group.id, item)) }],
+    group.id,
+  ),
 }));
 
 const plannedTypeNames = new Set(['simd', 'quat', 'sparse_matrix', 'sparse_tensor', 'poly']);
@@ -113,6 +121,7 @@ const typeEntry = (type, planned = false) => ({
 const constantEntry = (entry, errorKind = false, section = {}) => ({
   kind: 'constant',
   name: entry.names[0],
+  anchor: entry.anchor,
   aliases: entry.names.slice(1),
   signature: entry.names.join(' | '),
   description: entry.description,
@@ -139,10 +148,13 @@ const constantModules = [constantReference.global, constantReference.errors].map
   label: reference.title,
   summary: reference.summary,
   importLine: reference.importLine,
-  sections: reference.sections.map((section) => ({
-    title: section.title,
-    entries: section.entries.map((entry) => constantEntry(entry, reference.id === 'error-constants', section)),
-  })),
+  sections: orderReferenceSections(
+    reference.sections.map((section) => ({
+      title: section.title,
+      entries: section.entries.map((entry) => constantEntry(entry, reference.id === 'error-constants', section)),
+    })),
+    reference.id,
+  ),
 }));
 
 const typeModule = {
@@ -150,7 +162,7 @@ const typeModule = {
   label: 'Types',
   summary: 'Language value families and their runtime roles.',
   importLine: '# Types are language-level value families',
-  sections: [{
+  sections: orderReferenceSections([{
     title: 'Numeric literals',
     entries: [{
       name: 'numeric literals',
@@ -179,7 +191,7 @@ const typeModule = {
   }, {
     title: 'Reserved future type names',
     entries: typeDefinitions.filter((type) => plannedTypeNames.has(type.name)).map((type) => typeEntry(type, true)),
-  }],
+  }], 'types'),
 };
 
 const toolingModule = {
@@ -187,7 +199,7 @@ const toolingModule = {
   label: 'Tooling',
   summary: 'Compiler inspection and deterministic optimization reporting commands.',
   importLine: '# Commands run through the osiris CLI',
-  sections: [{
+  sections: orderReferenceSections([{
     title: 'Release provenance',
     entries: [{
       name: 'FFI boundary (design only)',
@@ -300,7 +312,7 @@ const toolingModule = {
       ],
       example: 'osiris opt -report program.osr\nosiris opt -json program.osr\n# {"version":1,"source_name":"program.osr","optimized_source":"…","passes":[…]}',
     }],
-  }, ...cliReference.sections],
+  }, ...cliReference.sections], 'tooling'),
 };
 
 export const modules = [...apiModules, typeModule, ...constantModules, toolingModule];

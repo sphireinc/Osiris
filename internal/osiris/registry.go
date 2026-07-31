@@ -93,7 +93,11 @@ func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {
 				return "", "", err
 			}
 		}
-		r.lock.Modules[abs] = lockEntry{Source: abs, Hash: hash, Cache: cache}
+		entry := r.lock.Modules[abs]
+		entry.Source = abs
+		entry.Hash = hash
+		entry.Cache = cache
+		r.lock.Modules[abs] = entry
 		if err := r.saveLocked(); err != nil {
 			return "", "", err
 		}

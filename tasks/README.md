@@ -35,6 +35,42 @@ boundaries and dependencies make parallel work safe.
 
 105, then 106
 
+### Wave 7 - broad native integration
+
+109 is complete. It compiles the unchanged mission-control showcase after
+adding parity-safe exceptional and deferred-task IR, missing C value families,
+codecs, and the exact static-module members it uses.
+
+### Wave 8 - static types and application data
+
+Task 110 is complete. Continue with 111, then 112, 113, and 114; task 111 is
+ready and the later tasks remain blocked on the type/data foundations named in
+`index.tsv`.
+
+### Wave 9 - execution, resources, and interoperability
+
+115 and 116 are ready. Task 117 follows task 116 and implements the
+capability-gated FFI design from completed task 047.
+
+### Wave 10 - application standard library
+
+118, 119, 120, 121, and 122 follow the required cleanup, FFI, struct, and OS
+foundations. Keep each module capability-gated, bounded, deterministic, and
+portable.
+
+### Wave 11 - project ecosystem and IDE
+
+123 and 124 are ready. Task 124 follows a repository-oriented Go-style model,
+with GitHub as the first complete provider and discovery separate from build
+resolution. Task 125 follows the type-system and testing work so completion,
+refactoring, hints, and test discovery use stable contracts.
+
+### Wave 12 - explicit low-level access
+
+126 follows tasks 114–117. It must reuse safe bounded buffers, typed views,
+opaque handles, ownership, cleanup, and capability-gated FFI before admitting
+any explicitly unsafe operation.
+
 ## Parallelism cautions
 
 - Do not parallelize tasks that simultaneously modify `cbackend_native.go`.
@@ -54,15 +90,25 @@ boundaries and dependencies make parallel work safe.
 - Task 108 depends on task 107 because both touch evaluator/block execution.
   It must use a separate small emission fixture and keep the arithmetic
   benchmarks checksum-only.
+- Tasks 110–114 form a semantic sequence and should not be implemented in
+  parallel.
+- Tasks 115–117 all touch native compilation or the C ABI. Assign explicit
+  file ownership if more than one is active.
+- Tasks 118–122 can split by module only after their shared resource, FFI, and
+  value-model dependencies are complete.
+- Task 125 must consume the compiler APIs established by tasks 110–113 and the
+  discovery model from task 123; it must not duplicate them inside the LSP.
+- Task 126 may not weaken ordinary value safety to simplify FFI. Unsafe access
+  remains a separately imported, capability-gated, auditable boundary.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049 and 100–108.
+  next-step metadata for tasks 001–049 and 100–126.
 - `completed/`: finished task records with validation evidence.
-- repository-root tasks 105–108: canonical-reference ordering/navigation,
-  the lazy loop-binding stack-overflow repair, and consistent synchronous
-  `emit` semantics. Tasks 100–104 are under `completed/`.
+- Tasks 100–110 are under `completed/`.
+- Tasks 111–126 are the scoped general-purpose maturity backlog derived from
+  `osiris-language-assessment.md`.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

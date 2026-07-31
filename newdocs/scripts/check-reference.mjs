@@ -2,6 +2,10 @@ import { readdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { chapters, languageSections, modules, searchEntries } from '../src/api-data.js';
+import { compareReferenceNames, orderReferenceEntries, orderReferenceSections } from '../src/reference-order.js';
+import baseLanguageSections from '../src/language-reference.json' with { type: 'json' };
+import manual from '../src/legacy-reference.json' with { type: 'json' };
+import supplemental from '../src/supplemental-reference.json' with { type: 'json' };
 import technical from '../src/technical-reference.json' with { type: 'json' };
 import constants from '../src/constant-reference.json' with { type: 'json' };
 
@@ -21,6 +25,81 @@ const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'mai
 if (modules.length !== 17 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 if (!support.features?.length || !support.backends?.length) throw new Error('Migrated support matrix is incomplete.');
 const referenceModules = [...modules, { id: 'language', sections: languageSections }];
+for (const module of referenceModules) for (const section of module.sections) {
+  for (let index = 1; index < section.entries.length; index += 1) {
+    const previous = section.entries[index - 1];
+    const current = section.entries[index];
+    if (compareReferenceNames(previous.name, current.name) >= 0) {
+      throw new Error(`Reference entries are not strictly ordered on ${module.id}/${section.title}: ${previous.name}, ${current.name}.`);
+    }
+  }
+}
+
+const duplicateDiagnostic = (() => {
+  try {
+    orderReferenceEntries([{ name: 'same' }, { name: 'same' }], 'duplicate-page', 'Duplicate section');
+    return '';
+  } catch (error) {
+    return error.message;
+  }
+})();
+if (!duplicateDiagnostic.includes('duplicate-page/Duplicate section') || !duplicateDiagnostic.includes('same')) {
+  throw new Error(`Duplicate reference sort identities lack an actionable diagnostic: ${duplicateDiagnostic || '<none>'}.`);
+}
+
+const sourceOrderSnapshot = JSON.stringify({
+  language: baseLanguageSections,
+  groups: manual.groups,
+  supplementalGroups: supplemental.groups,
+});
+const syntheticSections = [{
+  title: 'Mixed source fixture',
+  entries: [{ name: 'Zulu' }, { name: 'alpha' }, { name: 'Beta' }],
+}];
+const firstSyntheticOrder = orderReferenceSections(syntheticSections, 'synthetic');
+const secondSyntheticOrder = orderReferenceSections(syntheticSections, 'synthetic');
+if (firstSyntheticOrder[0].entries.map((entry) => entry.name).join('|') !== 'alpha|Beta|Zulu') {
+  throw new Error('Shared reference comparator does not follow lowercase/code-point/original-name ordering.');
+}
+if (JSON.stringify(firstSyntheticOrder) !== JSON.stringify(secondSyntheticOrder)) {
+  throw new Error('Repeated reference construction does not produce the same order.');
+}
+if (syntheticSections[0].entries.map((entry) => entry.name).join('|') !== 'Zulu|alpha|Beta') {
+  throw new Error('Reference ordering mutated its source array.');
+}
+if (sourceOrderSnapshot !== JSON.stringify({
+  language: baseLanguageSections,
+  groups: manual.groups,
+  supplementalGroups: supplemental.groups,
+})) {
+  throw new Error('Canonical reference assembly mutated imported JSON arrays.');
+}
+
+function assertEntryOrder(moduleID, sectionTitle, expectedNames) {
+  const section = referenceModules.find((module) => module.id === moduleID)?.sections
+    .find((candidate) => candidate.title === sectionTitle);
+  if (!section) throw new Error(`Missing ordering fixture section ${moduleID}/${sectionTitle}.`);
+  const positions = expectedNames.map((name) => section.entries.findIndex((entry) => entry.name === name));
+  if (positions.some((position) => position < 0) || positions.some((position, index) => index > 0 && position <= positions[index - 1])) {
+    throw new Error(`Unexpected reference order on ${moduleID}/${sectionTitle}: wanted ${expectedNames.join(', ')}.`);
+  }
+}
+
+assertEntryOrder('math', 'std/math', ['bfN', 'iN', 'ufN', 'uN']);
+assertEntryOrder('global-constants', 'Mathematical Constants', ['Apery', 'Catalan', 'E', 'EulerGamma']);
+assertEntryOrder('error-constants', 'Error Kinds', ['AlreadyExists', 'Cancelled', 'Conflict', 'DatabaseError']);
+assertEntryOrder('tooling', 'Compilation and Artifacts', ['osiris build', 'osiris c', 'osiris compile', 'osiris gpu']);
+assertEntryOrder('core', 'Core language constructs', ['emit', 'export', 'for', 'format']);
+
+const coreSourceNames = new Set([
+  ...manual.groups.find((group) => group.id === 'core').items.map((entry) => entry.name),
+  ...supplemental.groups.find((group) => group.id === 'core').items.map((entry) => entry.name),
+]);
+const renderedCoreNames = referenceModules.find((module) => module.id === 'core').sections[0].entries.map((entry) => entry.name);
+if (renderedCoreNames.length !== coreSourceNames.size || renderedCoreNames.some((name) => !coreSourceNames.has(name))) {
+  throw new Error('Base and supplemental Core entries do not share one ordered rendered section.');
+}
+
 for (const module of referenceModules) for (const section of module.sections) for (const entry of section.entries) {
   for (const field of ['name', 'signature', 'description', 'returns', 'returnValue', 'example']) if (!entry[field]) throw new Error(`Incomplete API entry ${module.id}/${entry.name}: ${field}`);
   if ((entry.kind === undefined || entry.kind === 'function' || entry.kind === 'family') && (!entry.parameters || !entry.returns || !entry.details?.length)) {

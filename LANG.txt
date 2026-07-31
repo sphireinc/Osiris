@@ -101,8 +101,11 @@ Imports are always aliased.
 LET
 
   let name = expression
+  let count u32 = 3
+  let callback func(u32) string = render
 
 Bindings are lexical and lazy.
+An annotation checks a value; it does not cast.
 Prefer clear names.
 
 MACRO
@@ -116,12 +119,15 @@ FUNC
 
   func name(arg, other) => expression
 
-  func name(arg, other) {
-    let tmp = arg + other
-    return tmp * 2
+  func scale(value u32, factor u32) u32 {
+    let tmp u32 = value + factor
+    return tmp * u32(2)
   }
 
 Functions are lexical and can recurse.
+Types follow names without a colon.
+Unannotated parameters and results remain dynamic.
+Typed calls and all result paths are checked before execution.
 Use them when a transform deserves a name.
 
 RETURN
@@ -326,9 +332,20 @@ EMIT
   emit expression
   emit left, right
 
-Emits a result from the program.
-Multiple expressions are concatenated with `, ` using the same text path as
-`cat(...)`.
+Evaluates its expression once, appends one value to the ordered program output,
+and continues with the next statement. It is valid at the top level and in
+synchronously executed blocks, including loops, functions, call-shaped
+`if` branches, `match`/`switch` arms, and `try`/`catch` bodies. It is not a
+block result and does not replace `return`.
+
+Multiple expressions are concatenated into one output value with `, ` using
+the same text path as `cat(...)`. Output committed before a later error or
+cancellation remains visible.
+
+Module initialization cannot emit. A synchronously called exported function
+may emit into its caller's output sequence. Concurrent bodies (`spawn`,
+`parallel`, `race`, `select`, and `timeout`) must return a value instead; emit
+that value in the caller after `await` where applicable.
 
 BLOCKS
 

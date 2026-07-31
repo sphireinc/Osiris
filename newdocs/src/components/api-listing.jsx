@@ -1,10 +1,11 @@
 import { CodeBlock } from './code-block.jsx';
 import { InlineCode } from './inline-code.jsx';
+import { entryAnchor } from '../reference-route.js';
 
 export function ApiListing({ entry }) {
-  const id = entry.name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-');
-  return <article className="api-entry" id={id}>
-    <h3>{entry.name}</h3>
+  const id = entryAnchor(entry);
+  return <article className="api-entry" id={id} aria-labelledby={`${id}-title`} tabIndex="-1">
+    <h3 id={`${id}-title`}>{entry.name}</h3>
     <CodeBlock label="SIGNATURE" className="signature">{entry.signature}</CodeBlock>
     <p><InlineCode>{entry.description}</InlineCode></p>
     {entry.parameters && <p><strong>Parameters:</strong> <InlineCode>{entry.parameters}</InlineCode></p>}

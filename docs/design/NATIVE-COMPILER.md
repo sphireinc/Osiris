@@ -78,6 +78,35 @@ module is also rejected explicitly. Dynamic imports, escaping module values,
 and conflicting control-flow paths must never be lowered as `null` values or
 indirect native calls.
 
+## Exceptional and deferred operations
+
+IR preserves `try` and successful `let?` propagation as explicit operations.
+The `try` body and handler are separate generated functions, so a caught
+failure does not print to standard error and the selected handler receives the
+original native error value. `resultbind` extracts a retained successful
+payload; unsupported result/error shapes remain native compile-time
+boundaries. These operations are effect barriers: the native loop optimizer
+does not speculate or duplicate a function containing exceptional or async
+instructions.
+
+`spawn` and every `parallel` branch also lower into generated closure
+functions. Their calls therefore occur inside the deferred functions, not in
+the parent CFG before task construction. The portable C runtime queues the
+captured thunk, executes it cooperatively on first `await`, stores one terminal
+value or failure, makes repeated awaits stable, and preserves `parallel`
+results in source order. `cancel` marks a pending task with the same
+`cancelled`/`context canceled` terminal error as the public runtime; cancelling
+an already completed task returns `false`. This is a deterministic
+single-process subset, not a claim of host-thread parallelism or support for
+streams, `race`, `select`, deadlines, or cancellation of already-running
+host-thread work.
+
+`TestAsyncFormsRemainExplicitIRBoundaries`,
+`TestExceptionalFormsLowerToExplicitIR`,
+`TestCBackendDeferredTaskAndFailureParity`,
+`TestCBackendStructuredResultFailureParity`, and
+`TestCBackendRequiredNativeSurfaceParity` are the current contract tests.
+
 ## Non-goals
 
 - Do not preserve the snapshot generator as the meaning of `osiris build`.

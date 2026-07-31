@@ -700,6 +700,17 @@ func analyzeDocument(rt *Runtime, uri string, prog *Program) *documentAnalysis {
 		root.defs[name] = &symbolDef{name: name, kind: "builtin", detail: "builtin function", uri: "", span: sourceSpan{}}
 	}
 	_, _ = analyzeStmtSeq(a, root, uri, prog.Statements, false)
+	if _, err := rt.CheckProgram(context.Background(), prog); err != nil {
+		span := sourceSpan{}
+		message := err.Error()
+		if typed, ok := err.(*OsirisError); ok {
+			message = typed.message
+			if typed.location != nil {
+				span = typed.location.Span
+			}
+		}
+		a.diagnostics = append(a.diagnostics, diagnosticAt(span, message))
+	}
 	return a
 }
 
@@ -745,6 +756,18 @@ func (s *lspScope) push(def *symbolDef) *lspScope {
 // the error is nil.
 func analyzeStmtSeq(a *documentAnalysis, scope *lspScope, uri string, stmts []Stmt, inBlock bool) (*lspScope, error) {
 	cur := scope
+	functions := &lspScope{parent: cur, defs: make(map[string]*symbolDef)}
+	for _, stmt := range stmts {
+		st, ok := stmt.(funcStmt)
+		if !ok {
+			continue
+		}
+		def := &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
+		functions.defs[st.Name] = def
+	}
+	if len(functions.defs) > 0 {
+		cur = functions
+	}
 	for _, stmt := range stmts {
 		next, err := analyzeStmt(a, cur, uri, stmt, inBlock)
 		if err != nil {
@@ -802,14 +825,29 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		}
 		return scope.push(def), nil
 	case funcStmt:
-		def := &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
+		def := scope.lookup(st.Name)
+		predeclared := def != nil && def.kind == "function" && def.span == st.NameSpan
+		if !predeclared {
+			def = &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
+		}
 		a.defs = append(a.defs, def)
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{st.Name: def}}
-		for _, param := range st.Params {
-			child.defs[param] = &symbolDef{name: param, kind: "param", detail: "function parameter", uri: uri, span: st.Span}
+		for i, param := range st.Params {
+			detail := "function parameter"
+			if i < len(st.ParamTypes) && st.ParamTypes[i] != "" {
+				detail += " " + st.ParamTypes[i]
+			}
+			span := st.Span
+			if i < len(st.ParamSpans) {
+				span = st.ParamSpans[i]
+			}
+			child.defs[param] = &symbolDef{name: param, kind: "param", detail: detail, uri: uri, span: span}
 		}
 		if err := analyzeExpr(a, child, uri, st.Body); err != nil {
 			return nil, err
+		}
+		if predeclared {
+			return scope, nil
 		}
 		return scope.push(def), nil
 	case whileStmt:
@@ -903,12 +941,12 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 		return analyzeExpr(a, scope, uri, n.expr)
 	case *blockExpr:
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
-		_, err := analyzeStmtSeq(a, child, uri, n.stmts, true)
+		final, err := analyzeStmtSeq(a, child, uri, n.stmts, true)
 		if err != nil {
 			return err
 		}
 		if n.tail != nil {
-			return analyzeExpr(a, child, uri, n.tail)
+			return analyzeExpr(a, final, uri, n.tail)
 		}
 	case *matchExpr:
 		if err := analyzeExpr(a, scope, uri, n.subject); err != nil {
@@ -1014,7 +1052,11 @@ func defsFromParams(uri string, params []string, sp sourceSpan) []*symbolDef {
 // It returns string so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func functionDetail(st funcStmt) string {
-	return "function declaration"
+	signature, err := staticFunctionType(st)
+	if err != nil {
+		return "function declaration"
+	}
+	return "func " + st.Name + strings.TrimPrefix(signature.String(), "func")
 }
 
 // packageDetail handles the package detail step in the surrounding package and

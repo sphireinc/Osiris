@@ -2,7 +2,7 @@
 
 **Priority:** P1  
 **Dependencies:** 004, 018, 025, 035, 040, 045, 107  
-**Status:** Blocked on task 107  
+**Status:** Complete
 
 ## Objective
 
@@ -254,29 +254,29 @@ and raw samples. Do not compare it with the arithmetic benchmark baseline.
 
 ## Acceptance criteria
 
-- [ ] `emit` works in every specified synchronous executable block with one
+- [x] `emit` works in every specified synchronous executable block with one
       documented ordering and continuation rule.
-- [ ] Top-level `emit` remains valid anywhere and is demonstrably not an
+- [x] Top-level `emit` remains valid anywhere and is demonstrably not an
       end-of-file terminator.
-- [ ] Interpreter, public VM, IR, and native C agree on successful nested
+- [x] Interpreter, public VM, IR, and native C agree on successful nested
       output sequences.
-- [ ] Earlier emissions remain visible after later errors or cancellation,
+- [x] Earlier emissions remain visible after later errors or cancellation,
       with stdout/stderr/exit behavior covered at the CLI boundary.
-- [ ] Module initialization remains silent, while synchronously called module
+- [x] Module initialization remains silent, while synchronously called module
       functions can emit into the caller's sequence.
-- [ ] Concurrent task execution rejects direct and indirect emissions without
+- [x] Concurrent task execution rejects direct and indirect emissions without
       races or nondeterministic partial output.
-- [ ] Optimizers treat emission as an effect barrier and preserve exact count
+- [x] Optimizers treat emission as an effect barrier and preserve exact count
       and order.
-- [ ] Generated IR/C contains runtime emissions in the correct CFG blocks and
+- [x] Generated IR/C contains runtime emissions in the correct CFG blocks and
       no compile-time evaluator snapshot.
-- [ ] Canonical documentation defines supported scopes, ordering, failure,
+- [x] Canonical documentation defines supported scopes, ordering, failure,
       module, and concurrency behavior with checked examples.
-- [ ] The arithmetic benchmarks remain checksum-only.
-- [ ] Focused normal/race tests, `go test ./...`, `go test -race ./...`,
+- [x] The arithmetic benchmarks remain checksum-only.
+- [x] Focused normal/race tests, `go test ./...`, `go test -race ./...`,
       `go vet ./...`, documentation checks/build under Node 24,
       `git diff --check`, and task-index validation pass.
-- [ ] The completion record includes the final output-commit design, backend
+- [x] The completion record includes the final output-commit design, backend
       evidence, CLI fixtures, generated artifacts inspected, and any
       deliberately deferred concurrent-output work.
 
@@ -290,3 +290,102 @@ and raw samples. Do not compare it with the arithmetic benchmark baseline.
   characterize the existing fallback honestly.
 - Do not expand WASM/GPU support without their own parity and artifact tests.
 
+## Completion record
+
+Completed on 2026-07-30 with Go 1.26.1, Node 24.12.0, and Apple clang on
+Darwin/arm64.
+
+### Final design
+
+- `emit` is a non-terminating sequential statement. The session block
+  executor is now the common interpreter path for loop bodies, ordinary block
+  expressions, functions/closures, selected `if` branches, `match`/`switch`
+  arms, `try`/`catch`, and expanded macro blocks.
+- Each expression is evaluated once in source order. Comma form remains one
+  concatenated `Value`. An `emit` never becomes the block tail value.
+- Session and VM APIs return their committed output slice with a later error.
+  `run` and `vm` print that prefix on stdout before returning the diagnostic
+  for stderr rendering. Cancellation follows the same rule.
+- Bytecode child chunks merge their outputs into the parent immediately in
+  execution order. Imported user functions temporarily use the caller VM
+  output sink, so synchronous module calls join the caller's sequence.
+- Emitting expressions bypass lazy pure-expression memoization. Purity
+  analysis already reports `emit` and functions containing it as impure, and
+  source optimization retains exact emission count/order.
+- Concurrent sessions set `emitAllowed=false`. A runtime guard covers dynamic
+  calls, while `firstEmitSpan` and `validateConcurrentEmits` reject direct,
+  macro-expanded, and statically named indirect cases at an `emit`/call span
+  before task execution or native IR lowering. The stable diagnostic tells
+  the task to return a value for the caller to emit after `await`.
+- Module initialization returns a source-spanned `unsupported` error before
+  evaluating the emitted expression. Synchronous exported functions emit for
+  interpreter and VM callers. Native local-module member lowering remains the
+  pre-existing explicit `static module ... is not supported` boundary; no
+  compile-time evaluation fallback was added.
+
+### Backend evidence
+
+- `TestEmitNativeIRAndGeneratedCPlacement` inspects `main.while.body` and
+  `announce.fn0` IR blocks and the corresponding generated-C loop/function
+  bodies, then executes interpreter, VM, and native C with identical output.
+- `TestEmitNativeNestedValueRenderingParity` covers `u32`, `f32`, `f64`,
+  string, list, enum, and block-tail rendering through the tagged C ABI.
+- Tagged C runtime failures now set `ohaderror`, stop before the failed value
+  or later statements can emit, write the diagnostic to stderr, and return a
+  nonzero process status. `TestEmitNativeCommittedPrefixBeforeRuntimeFailure`
+  proves the earlier stdout prefix remains committed.
+- The generated runtime-component digest was reviewed and updated to
+  `151ab71171a8e950bcba31bb27d7738b1d1f763478eb973caf222c3c9feb68e4`
+  for the explicit native error-state checks.
+- `benchmarks/native-float-arithmetic.osr` and
+  `benchmarks/native-narrow-integers.osr` remain checksum-only; no output
+  performance claim was made.
+
+### Syntax, runtime, CLI, and documentation evidence
+
+- `internal/osiris/emit_blocks_test.go` covers top-level placement, zero/one/
+  multiple loop iterations, functions, closure capture, early return,
+  break/continue, selected/unselected branches, match/switch, try/catch,
+  macros, comma form, single evaluation, committed error/cancellation
+  prefixes, modules, concurrency rejection, purity, IR/C placement, and
+  executable parity.
+- `cmd/osiris/main_test.go` proves human program output remains on stdout and
+  JSON runtime/cancellation diagnostics remain valid envelopes on stderr for
+  both `run` and `vm`.
+- Macro cloning/template expansion now preserves expression and statement
+  spans, including `emit`.
+- `LANG.txt`, `docs/design/CLI-CONTRACT.md`, the canonical `newdocs/`
+  language/concurrency/support pages, changelog, and migration notes define
+  the final contract. The former documentation claiming parallel/race output
+  merging was removed.
+- WASM/GPU claims were not expanded. A future task may define task-local
+  output capture and deterministic concurrent merge rules.
+
+### Validation
+
+```text
+go test ./internal/osiris -run '^TestEmit' -count=1
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test -race ./internal/osiris -run '^TestEmit' -count=1
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+go test -race ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+go vet ./...
+(no output)
+
+Node 24.12.0:
+pnpm run check-reference
+Reference checks passed; navigation checks passed.
+pnpm run check-examples
+ok github.com/sphireinc/osiris/internal/osiris
+pnpm run build
+vite production build succeeded.
+```

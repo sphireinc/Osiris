@@ -213,6 +213,7 @@ type evaluator struct {
 	pending map[string]*promise
 	fpMu    sync.Mutex
 	fpMemo  map[fpKey]string
+	fpDepth map[fpKey]int
 	fpBusy  map[fpKey]struct{}
 
 	traceMu     sync.Mutex
@@ -244,6 +245,12 @@ func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 		return computeExpr(ev, expr, scope, "")
 	}
 	if exprHasTaskEffect(ev, expr, scope, nil) {
+		return computeExpr(ev, expr, scope, "")
+	}
+	// Emission is an observable sequencing barrier. Expressions which directly
+	// contain emit or call a statically known emitting function must execute on
+	// every demand rather than entering the pure-expression memoization cache.
+	if _, emits := firstEmitSpan(ev, expr, scope, nil); emits {
 		return computeExpr(ev, expr, scope, "")
 	}
 	key, err := ev.fingerprint(expr, scope)
@@ -297,6 +304,13 @@ func (ev *evaluator) evalWithKey(expr Expr, scope *scope, key string) (Value, er
 // It returns string and an error. Callers should only trust the value when the
 // error is nil.
 func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
+	if fingerprint, _, ok, err := ev.fingerprintSimple(expr, env); ok || err != nil {
+		return fingerprint, err
+	}
+	return ev.fingerprintRecursive(expr, env)
+}
+
+func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error) {
 	key := fpKey{expr: expr, scope: env}
 	ev.fpMu.Lock()
 	if v, ok := ev.fpMemo[key]; ok {
@@ -401,12 +415,53 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 			parts = append(parts, fp)
 		}
 		out = hashParts(parts...)
+	case *matchExpr:
+		subject, ferr := ev.fingerprint(n.subject, env)
+		if ferr != nil {
+			return "", ferr
+		}
+		parts := []string{"match", n.keyword.String(), subject}
+		for _, arm := range n.arms {
+			armScope := &scope{parent: env, items: make(map[string]binding)}
+			for _, name := range patternBindingNames(arm.pattern) {
+				marker := stringValue("$pattern:" + name)
+				armScope.items[name] = binding{expr: &literalExpr{value: marker}, env: armScope}
+			}
+			parts = append(parts, formatPattern(arm.pattern))
+			if arm.guard != nil {
+				guard, err := ev.fingerprint(arm.guard, armScope)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, guard)
+			}
+			body, err := ev.fingerprint(arm.body, armScope)
+			if err != nil {
+				return "", err
+			}
+			parts = append(parts, body)
+		}
+		out = hashParts(parts...)
 	case *blockExpr:
 		cur := env
+		functions := &scope{parent: cur, items: make(map[string]binding)}
+		for _, stmt := range n.stmts {
+			st, ok := stmt.(funcStmt)
+			if !ok {
+				continue
+			}
+			value := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, st.Body, functions, ev.session)
+			functions.items[st.Name] = binding{expr: &literalExpr{value: value}, env: functions}
+		}
+		if len(functions.items) > 0 {
+			cur = functions
+		}
 		parts := make([]string, 0, len(n.stmts)+2)
 		parts = append(parts, "block")
 		for _, stmt := range n.stmts {
-			parts = append(parts, fingerprintStmt(ev, stmt, cur))
+			if _, isFunction := stmt.(funcStmt); !isFunction {
+				parts = append(parts, fingerprintStmt(ev, stmt, cur))
+			}
 			switch st := stmt.(type) {
 			case letStmt:
 				cur = &scope{
@@ -427,17 +482,23 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 					},
 				}
 			case funcStmt:
-				bodyFp, err := ev.fingerprint(st.Body, cur)
+				fnScope := &scope{parent: cur, items: make(map[string]binding, len(st.Params))}
+				for _, param := range st.Params {
+					marker := stringValue("$parameter:" + param)
+					fnScope.items[param] = binding{expr: &literalExpr{value: marker}, env: fnScope}
+				}
+				bodyFp, err := ev.fingerprint(st.Body, fnScope)
 				if err != nil {
 					return "", err
 				}
-				parts = append(parts, hashParts("func", st.Name, strings.Join(st.Params, ","), bodyFp))
-				cur = &scope{
-					parent: cur,
-					items: map[string]binding{
-						st.Name: {expr: &literalExpr{value: functionValueOf(st.Name, nil)}, env: cur},
-					},
-				}
+				parts = append(parts, hashParts(
+					"func",
+					st.Name,
+					strings.Join(st.Params, ","),
+					strings.Join(st.ParamTypes, ","),
+					st.ReturnType,
+					bodyFp,
+				))
 			case whileStmt:
 				cond, err := ev.fingerprint(st.Cond, cur)
 				if err != nil {
@@ -523,6 +584,9 @@ func (ev *evaluator) fingerprint(expr Expr, env *scope) (string, error) {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, error) {
+	if ev.shouldEvaluateSimpleIteratively(expr, curScope) {
+		return ev.evalSimpleIterative(expr, curScope)
+	}
 	switch n := expr.(type) {
 	case *literalExpr:
 		return n.value, nil
@@ -636,6 +700,10 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
+	if ev.session != nil {
+		value, _, err := ev.session.evalBlockExpr(n, env, ev.session.sourceName, nil)
+		return value, err
+	}
 	cur := env
 	for _, stmt := range n.stmts {
 		switch st := stmt.(type) {
@@ -1014,7 +1082,7 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 // error is nil.
 func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if name, ok := specialFormName(n.callee); ok {
-		return evalSpecialForm(ev, name, n.args, curScope)
+		return evalSpecialForm(ev, name, n.args, curScope, n.Span)
 	}
 
 	callee, err := ev.eval(n.callee, curScope)
@@ -1031,7 +1099,7 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 			return nullValue(), err
 		}
 		value, err := callDurationComponent(callee, args)
-		return value, structuredErrorAt(err, sourceName, n.Span)
+		return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
 	}
 	if callee.kind == kindFunction && callee.fn != nil {
 		args, err := evalMany(ev, n.args, curScope)
@@ -1042,17 +1110,18 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		defer ev.popCall()
 		if callee.fn.builtin != nil {
 			value, err := callee.fn.builtin(args)
-			return value, structuredErrorAt(err, sourceName, n.Span)
+			return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
 		}
 		if callee.fn.contextBuiltin != nil {
 			value, err := callee.fn.contextBuiltin(ev.ctx, args)
-			return value, structuredErrorAt(err, sourceName, n.Span)
+			return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
 		}
 		if callee.fn.body == nil {
 			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
 		}
-		if len(args) != len(callee.fn.params) {
-			return nullValue(), fmt.Errorf("function %s expects %d arguments", callee.fn.name, len(callee.fn.params))
+		args, err = checkFunctionArguments(callee.fn, args)
+		if err != nil {
+			return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), sourceName, n.Span)
 		}
 		base := callee.fn.closure
 		if base == nil {
@@ -1075,11 +1144,22 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		v, err := sess.eval(callee.fn.body, callScope)
 		if sig, ok := asFlow(err); ok {
 			if sig.kind == flowReturn {
-				return sig.value, nil
+				value, typeErr := checkFunctionResult(callee.fn, sig.value)
+				if typeErr != nil {
+					return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, typeErr.Error()), sourceName, n.Span)
+				}
+				return value, nil
 			}
 			return nullValue(), flowError(sig.kind, "function")
 		}
-		return v, err
+		if err != nil {
+			return v, err
+		}
+		value, typeErr := checkFunctionResult(callee.fn, v)
+		if typeErr != nil {
+			return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, typeErr.Error()), sourceName, n.Span)
+		}
+		return value, nil
 	}
 	if callee.kind == kindModule {
 		return nullValue(), fmt.Errorf("cannot call module %s", callee.String())
@@ -1187,7 +1267,7 @@ func builtinHasTaskEffect(name string) bool {
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Value, error) {
+func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope, callSpan sourceSpan) (Value, error) {
 	switch name {
 	case "if":
 		if len(args) != 3 {
@@ -1240,6 +1320,9 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 		if ev.session == nil {
 			return nullValue(), fmt.Errorf("spawn requires an active session")
 		}
+		if span, ok := firstEmitSpan(ev, args[0], scope, nil); ok {
+			return nullValue(), structuredErrorAt(concurrentEmitError(), ev.session.sourceName, chooseSourceSpan(span, callSpan))
+		}
 		return ev.session.spawnTask(args[0], scope), nil
 	case "await":
 		if len(args) != 1 {
@@ -1268,12 +1351,26 @@ func evalSpecialForm(ev *evaluator, name string, args []Expr, scope *scope) (Val
 		}
 		return boolValue(task.cancelTask()), nil
 	case "parallel":
+		if span, ok := firstEmitSpanIn(ev, args, scope); ok {
+			return nullValue(), structuredErrorAt(concurrentEmitError(), ev.session.sourceName, chooseSourceSpan(span, callSpan))
+		}
 		return evalParallel(ev, args, scope)
 	case "timeout":
+		if len(args) == 2 {
+			if span, ok := firstEmitSpan(ev, args[1], scope, nil); ok {
+				return nullValue(), structuredErrorAt(concurrentEmitError(), ev.session.sourceName, chooseSourceSpan(span, callSpan))
+			}
+		}
 		return evalTimeout(ev, args, scope)
 	case "race":
+		if span, ok := firstEmitSpanIn(ev, args, scope); ok {
+			return nullValue(), structuredErrorAt(concurrentEmitError(), ev.session.sourceName, chooseSourceSpan(span, callSpan))
+		}
 		return evalRace(ev, args, scope, false)
 	case "select":
+		if span, ok := firstEmitSpanIn(ev, args, scope); ok {
+			return nullValue(), structuredErrorAt(concurrentEmitError(), ev.session.sourceName, chooseSourceSpan(span, callSpan))
+		}
 		return evalRace(ev, args, scope, true)
 	case "map":
 		return evalResultCombinator(ev, args, scope, "map")
@@ -1394,6 +1491,7 @@ func evalParallel(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 				childCtx, branchCancel := context.WithCancel(groupCtx)
 				defer branchCancel()
 				child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+				child.emitAllowed = false
 				child.scope = scope
 				child.packageName = ev.session.packageName
 				child.packageVersion = ev.session.packageVersion
@@ -1467,6 +1565,7 @@ func evalTimeout(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 	childCtx, cancel := context.WithTimeout(ev.ctx, time.Duration(ms)*time.Millisecond)
 	defer cancel()
 	child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+	child.emitAllowed = false
 	child.scope = scope
 	child.packageName = ev.session.packageName
 	child.packageVersion = ev.session.packageVersion
@@ -1568,6 +1667,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 	if ev.rt != nil && ev.rt.taskDebug {
 		for i, arg := range args {
 			child := NewSession(ev.rt, ev.ctx, ev.session.sourceName)
+			child.emitAllowed = false
 			child.scope = scope
 			child.packageName = ev.session.packageName
 			child.packageVersion = ev.session.packageVersion
@@ -1620,6 +1720,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 			childCtx, branchCancel := context.WithCancel(groupCtx)
 			defer branchCancel()
 			child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+			child.emitAllowed = false
 			child.scope = scope
 			child.packageName = ev.session.packageName
 			child.packageVersion = ev.session.packageVersion
@@ -1697,6 +1798,131 @@ func evalAsyncIO(ev *evaluator, args []Expr, scope *scope, op string, run func([
 		v, err := run(values)
 		return v, err, nil
 	}), nil
+}
+
+func firstEmitSpanIn(ev *evaluator, exprs []Expr, scope *scope) (sourceSpan, bool) {
+	for _, expr := range exprs {
+		if span, ok := firstEmitSpan(ev, expr, scope, nil); ok {
+			return span, true
+		}
+	}
+	return sourceSpan{}, false
+}
+
+func chooseSourceSpan(primary, fallback sourceSpan) sourceSpan {
+	if primary.start.line > 0 {
+		return primary
+	}
+	return fallback
+}
+
+// firstEmitSpan conservatively follows executable expression structure and
+// statically known user functions. The runtime emit guard remains authoritative
+// for dynamically obtained callables.
+func firstEmitSpan(ev *evaluator, expr Expr, scope *scope, seen map[*functionValue]struct{}) (sourceSpan, bool) {
+	switch n := expr.(type) {
+	case *callExpr:
+		if id, ok := n.callee.(*identExpr); ok && scope != nil {
+			if binding, ok := scope.lookup(id.name); ok {
+				if literal, ok := binding.expr.(*literalExpr); ok && literal.value.kind == kindFunction && literal.value.fn != nil && literal.value.fn.body != nil {
+					fn := literal.value.fn
+					if seen == nil {
+						seen = make(map[*functionValue]struct{})
+					}
+					if _, active := seen[fn]; !active {
+						next := make(map[*functionValue]struct{}, len(seen)+1)
+						for item := range seen {
+							next[item] = struct{}{}
+						}
+						next[fn] = struct{}{}
+						if span, found := firstEmitSpan(ev, fn.body, fn.closure, next); found {
+							return chooseSourceSpan(n.Span, span), true
+						}
+					}
+				}
+			}
+		}
+		if span, ok := firstEmitSpan(ev, n.callee, scope, seen); ok {
+			return span, true
+		}
+		return firstEmitSpanInSeen(ev, n.args, scope, seen)
+	case *blockExpr:
+		for _, stmt := range n.stmts {
+			switch st := stmt.(type) {
+			case emitStmt:
+				return st.Span, true
+			case letStmt:
+				if span, ok := firstEmitSpan(ev, st.Expr, scope, seen); ok {
+					return span, true
+				}
+			case whileStmt:
+				if span, ok := firstEmitSpan(ev, st.Cond, scope, seen); ok {
+					return span, true
+				}
+				if span, ok := firstEmitSpan(ev, st.Body, scope, seen); ok {
+					return span, true
+				}
+			case forStmt:
+				if span, ok := firstEmitSpan(ev, st.Iter, scope, seen); ok {
+					return span, true
+				}
+				if span, ok := firstEmitSpan(ev, st.Body, scope, seen); ok {
+					return span, true
+				}
+			case returnStmt:
+				if st.Expr != nil {
+					if span, ok := firstEmitSpan(ev, st.Expr, scope, seen); ok {
+						return span, true
+					}
+				}
+			}
+		}
+		if n.tail != nil {
+			return firstEmitSpan(ev, n.tail, scope, seen)
+		}
+	case *memberExpr:
+		return firstEmitSpan(ev, n.object, scope, seen)
+	case *unaryExpr:
+		return firstEmitSpan(ev, n.expr, scope, seen)
+	case *binaryExpr:
+		if span, ok := firstEmitSpan(ev, n.left, scope, seen); ok {
+			return span, true
+		}
+		return firstEmitSpan(ev, n.right, scope, seen)
+	case *listExpr:
+		return firstEmitSpanInSeen(ev, n.items, scope, seen)
+	case *matchExpr:
+		if span, ok := firstEmitSpan(ev, n.subject, scope, seen); ok {
+			return span, true
+		}
+		for _, arm := range n.arms {
+			if arm.guard != nil {
+				if span, ok := firstEmitSpan(ev, arm.guard, scope, seen); ok {
+					return span, true
+				}
+			}
+			if span, ok := firstEmitSpan(ev, arm.body, scope, seen); ok {
+				return span, true
+			}
+		}
+	case *tryExpr:
+		if span, ok := firstEmitSpan(ev, n.body, scope, seen); ok {
+			return span, true
+		}
+		return firstEmitSpan(ev, n.handler, scope, seen)
+	case *propagateExpr:
+		return firstEmitSpan(ev, n.expr, scope, seen)
+	}
+	return sourceSpan{}, false
+}
+
+func firstEmitSpanInSeen(ev *evaluator, exprs []Expr, scope *scope, seen map[*functionValue]struct{}) (sourceSpan, bool) {
+	for _, expr := range exprs {
+		if span, ok := firstEmitSpan(ev, expr, scope, seen); ok {
+			return span, true
+		}
+	}
+	return sourceSpan{}, false
 }
 
 // exprHasTaskEffect handles the expr has task effect step in the surrounding

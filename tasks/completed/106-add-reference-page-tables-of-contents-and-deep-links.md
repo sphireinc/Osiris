@@ -2,7 +2,7 @@
 
 **Priority:** P2  
 **Dependencies:** 039, 040, 105  
-**Status:** Blocked on task 105  
+**Status:** Complete
 
 ## Objective
 
@@ -160,3 +160,68 @@ Complete and test this phase before adding the visible table of contents.
 - Do not create a separate alias anchor for every alias unless a later task
   defines an alias-URL compatibility policy.
 
+## Completion record — 2026-07-30
+
+Implemented the single-fragment `#page/entry` route in
+`newdocs/src/reference-route.js`. The shared helper owns defensive parsing,
+canonical formatting, readable entry-anchor derivation, page-local collision
+validation, hash observation, and exact target focus. Empty, page-only, deep,
+legacy `#constants`, malformed, unknown-page, and unknown-entry routes are
+defined without introducing server routing. Existing page-only navigation
+remains compatible and returns to the page top.
+
+`ApiListing`, search results, and the new semantic **On This Page** component
+all use the same anchor helper. Every Language, Data & Numerics, I/O, Standard
+Library, and Tooling reference page renders its complete navigation
+immediately after the hero from task 105's ordered section arrays. Section
+grouping is preserved, links are ordinary canonical anchors, addressed entries
+use `aria-current="location"`, targets are programmatically focusable, and
+sticky-header clearance is supplied with `scroll-margin-top`.
+
+The initial collision audit found `let` and `let?`; `let?` now has the explicit
+stable `let-result` anchor rather than an order-dependent suffix. All 585
+current entry anchors are unique. The responsive navigation uses consistent
+desktop column tracks across short and long adjacent sections, two columns at
+the narrow breakpoint, and one column on small phones. This incorporates the
+production-review correction for uneven two-, four-, and six-entry Language
+sections.
+
+The focused navigation checker covers route tables, percent decoding,
+malformed input, unknown routes, stable expected anchors, explicit collision
+diagnostics, every TOC URL round trip, exact TOC/listing cardinality, exact
+search destinations, initial deep state, same-page changes, simulated
+back/forward transitions, observer cleanup, exact focus/scroll, and safe
+unknown targets. Production Chrome inspection covered the shared layouts on
+Language/Core, Types, I/O, `std/math`, `std/text`, and Tooling at wide and
+narrow breakpoints. The Technical Reference, chapters, and support matrix were
+left unchanged.
+
+Validation evidence:
+
+```text
+nvm use 24
+npm run check-navigation
+Reference navigation checks passed: 18 pages, 585 unique entry routes.
+
+npm run check-reference
+Reference checks passed: 17 API groups, 6 chapters, 279 built-ins,
+19 special forms, 375 named constants, 17 redirects.
+Reference navigation checks passed: 18 pages, 585 unique entry routes.
+
+PATH=/opt/homebrew/bin:$PATH GOTOOLCHAIN=local npm run check-examples
+ok github.com/sphireinc/osiris/internal/osiris
+
+npm run build
+vite v5.4.21: 52 modules transformed; production build completed.
+
+PATH=/opt/homebrew/bin:$PATH GOTOOLCHAIN=local \
+  GOCACHE=/tmp/osiris-go-cache go test ./...
+ok github.com/sphireinc/osiris/cmd/osiris
+ok github.com/sphireinc/osiris/internal/osiris
+
+git diff --check
+(no output)
+
+./scripts/check-task-index.sh
+Task index checks passed.
+```

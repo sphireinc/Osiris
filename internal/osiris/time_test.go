@@ -356,17 +356,14 @@ emit text, cmp, place
 		}
 	}
 	_, err = CompileC(context.Background(), NewRuntime(), prog)
-	if err == nil || !strings.Contains(err.Error(), `static module "std/time" is not supported`) {
-		t.Fatalf("native error = %v, want explicit std/time gate", err)
-	}
-	if !strings.Contains(err.Error(), "<time-static>:1:8") {
-		t.Fatalf("native error lacks import source location: %v", err)
+	if err == nil || !strings.Contains(err.Error(), `<time-static>:2:26:`) || !strings.Contains(err.Error(), `static module member "std/time".millisecond is not supported`) {
+		t.Fatalf("native error = %v, want explicit partial std/time gate", err)
 	}
 	versioned, err := Parse("<time-versioned-native>", "import \"std/time@1\" as time\nemit time.now()\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CompileC(context.Background(), NewRuntime(), versioned); err == nil || !strings.Contains(err.Error(), `<time-versioned-native>:1:8`) {
+	if _, err := CompileC(context.Background(), NewRuntime(), versioned); err == nil || !strings.Contains(err.Error(), `static module`) {
 		t.Fatalf("versioned native std/time error = %v", err)
 	}
 	if strings.Contains(formatted, "2030") {

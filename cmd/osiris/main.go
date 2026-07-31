@@ -265,14 +265,9 @@ func runProgram(ctx context.Context, args []string, stdout io.Writer) error {
 
 	rt := osiris.NewRuntime()
 	outputs, err := rt.Run(ctx, prog)
+	writeProgramOutputs(stdout, outputs)
 	if err != nil {
 		return err
-	}
-	for i, v := range outputs {
-		if i > 0 {
-			fmt.Fprintln(stdout)
-		}
-		fmt.Fprintln(stdout, v.String())
 	}
 	return nil
 }
@@ -306,16 +301,20 @@ func runProgramVM(ctx context.Context, args []string, stdout io.Writer) error {
 
 	rt := osiris.NewRuntime()
 	outputs, err := rt.RunVM(ctx, prog)
+	writeProgramOutputs(stdout, outputs)
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func writeProgramOutputs(stdout io.Writer, outputs []osiris.Value) {
 	for i, v := range outputs {
 		if i > 0 {
 			fmt.Fprintln(stdout)
 		}
 		fmt.Fprintln(stdout, v.String())
 	}
-	return nil
 }
 
 // runEval handles the run eval command path for the CLI. It parses the
@@ -736,7 +735,7 @@ func runCBackend(ctx context.Context, args []string, stdout io.Writer, mode cBac
 		return err
 	}
 	rt := osiris.NewRuntime()
-	options := osiris.CCompileOptions{LinalgProviderSource: linalgProvider, LinalgProviderFlags: append([]string(nil), linalgProviderFlags...)}
+	options := osiris.CCompileOptions{LinalgProviderSource: linalgProvider, LinalgProviderFlags: append([]string(nil), linalgProviderFlags...), PublicEmitSpacing: true}
 	artifact, err := osiris.CompileCWithOptions(ctx, rt, prog, options)
 	if err != nil {
 		return cliCompileError(err)

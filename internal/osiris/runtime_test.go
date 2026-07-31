@@ -1968,8 +1968,8 @@ emit timeout(0, {
 	if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "canceled") {
 		t.Fatalf("error = %v, want timeout-related error", err)
 	}
-	if len(out) != 0 {
-		t.Fatalf("len(out) = %d, want 0 after timeout failure", len(out))
+	if len(out) != 1 || out[0].String() != "[1u64, 2u64, 3u64]" {
+		t.Fatalf("out = %v, want committed parallel output before timeout failure", out)
 	}
 }
 
@@ -3620,7 +3620,7 @@ emit transpose(values)
 		t.Fatal("runtime components were not emitted in the required base-then-complex order")
 	}
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
-	const want = "d92caf20f311ae98146a54d782d47cbdc4fafe7c078ce18155491cba80e172a5"
+	const want = "e001629a58ac1e2a83c6fd623f696bf2f9d4833d34814ebc3ad5013d374be16c"
 	if got != want {
 		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
 	}
@@ -4057,12 +4057,13 @@ func TestCBackendProofGatedForListBoundsEliminationParity(t *testing.T) {
 		t.Fatalf("generated C has no main:\n%s", artifact.Source)
 	}
 	bodyAt := strings.Index(artifact.Source[mainAt:], "block_main_for_body")
-	if bodyAt < 0 {
-		t.Fatalf("generated C lost canonical for loop:\n%s", artifact.Source)
-	}
-	body := artifact.Source[mainAt+bodyAt:]
-	if !strings.Contains(body, "olistatunchecked(") {
-		t.Fatalf("proved list iteration did not remove dynamic bounds check:\n%s", body)
+	if bodyAt >= 0 {
+		body := artifact.Source[mainAt+bodyAt:]
+		if !strings.Contains(body, "olistatunchecked(") {
+			t.Fatalf("proved list iteration did not remove dynamic bounds check:\n%s", body)
+		}
+	} else if strings.Contains(artifact.Source[mainAt:], " = oat(") {
+		t.Fatalf("unrolled list iteration retained a dynamic bounds check:\n%s", artifact.Source[mainAt:])
 	}
 	exePath := filepath.Join(t.TempDir(), "native-for-bounds")
 	if err := CompileCExecutable(context.Background(), artifact.Source, exePath); err != nil {
@@ -4116,10 +4117,10 @@ func TestCBackendSmallStaticForListUnrollingParity(t *testing.T) {
 		t.Fatalf("generated C lost canonical for labels:\n%s", artifact.Source)
 	}
 	headerAt := strings.Index(artifact.Source[mainAt:], "block_main_for_header")
-	if headerAt < 0 {
-		t.Fatalf("generated C lost canonical for labels:\n%s", artifact.Source)
+	if headerAt >= 0 {
+		t.Fatalf("generated C retained the unreachable unrolled loop header:\n%s", artifact.Source[mainAt:])
 	}
-	entry := artifact.Source[mainAt : mainAt+headerAt]
+	entry := artifact.Source[mainAt:]
 	if !strings.Contains(entry, "goto block_main_for_exit") || strings.Contains(entry, "goto block_main_for_header") {
 		t.Fatalf("generated C entry did not bypass the unrolled loop header:\n%s", entry)
 	}
@@ -5919,8 +5920,8 @@ emit at(values, 0) % 0.0f32
 		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
 	}
 	out, err := exec.Command(exePath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("running executable failed: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("running executable succeeded, want runtime failure\n%s", out)
 	}
 	if !strings.Contains(string(out), "osiris native error: remainder by zero") {
 		t.Fatalf("native tagged float zero remainder = %q\n--- C ---\n%s", out, artifact.Source)
@@ -6728,10 +6729,10 @@ func TestCBackendZeroDivisionIsDefined(t *testing.T) {
 		t.Fatalf("compile executable failed: %v", err)
 	}
 	out, err := exec.Command(exePath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("running executable failed: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("running executable succeeded, want runtime failure\n%s", out)
 	}
-	if got := string(out); !strings.Contains(got, "osiris native error: division by zero") || !strings.Contains(got, "osiris native error: remainder by zero") {
+	if got := string(out); !strings.Contains(got, "osiris native error: division by zero") || strings.Contains(got, "remainder by zero") {
 		t.Fatalf("native zero diagnostics = %q", got)
 	}
 }
@@ -7411,10 +7412,10 @@ emit math.eigh(math.identity(2))
 		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
 	}
 	out, err := exec.Command(exePath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("running executable failed: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("running executable succeeded, want provider failure\n%s", out)
 	}
-	if got, want := string(out), "osiris native error: eigh numerical provider failed\nnull\n"; got != want {
+	if got, want := string(out), "osiris native error: eigh numerical provider failed\n"; got != want {
 		t.Fatalf("provider ABI mismatch output = %q, want %q\n--- C ---\n%s", got, want, artifact.Source)
 	}
 }
@@ -7950,8 +7951,8 @@ func TestCBackendTensorShapeMismatchIsReported(t *testing.T) {
 		t.Fatalf("compile executable failed: %v\n--- C ---\n%s", err, artifact.Source)
 	}
 	out, err := exec.Command(exePath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("running executable failed: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("running executable succeeded, want shape mismatch\n%s", out)
 	}
 	if !strings.Contains(string(out), "osiris native error: tensor shape mismatch") {
 		t.Fatalf("native shape-mismatch output = %q\n--- C ---\n%s", out, artifact.Source)

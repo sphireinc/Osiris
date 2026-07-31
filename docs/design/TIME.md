@@ -137,8 +137,17 @@ operations. The formatter preserves ordinary `std/time` import and call
 syntax. The inference pass reports the three exact runtime kinds and the
 documented result kinds of module calls.
 
-The native C backend does not implement these values in this release. Any
-program that imports or otherwise reaches `std/time` is rejected during native
-compilation with a source-aware unsupported-feature diagnostic. Native
-compilation must never execute `now`, parse a datetime, or precompute another
-time expression.
+The native C backend implements a source-spanned, UTC-only subset:
+`utc_location`, `rfc3339`, `date`, `add_date`, `add`, `sub`,
+`parse_duration`, `duration_string`, and `format`. Durations and datetimes are
+copied as checked signed nanoseconds; civil conversion uses the proleptic
+Gregorian calendar and `add_date` retains Go-compatible month normalization.
+The `OSR1` native codec preserves UTC datetime seconds/nanoseconds and rejects
+non-canonical or malformed input.
+
+This subset never reads the clock or host timezone database. Fixed/IANA
+locations, `now`, general parsing/layouts, timers, rounding, and unlisted
+members remain source-aware compile-time diagnostics. Evidence is
+`TestCBackendRequiredTimeBoundaryParity`,
+`TestCBackendCodecCrossDirectionParity`, and
+`TestCBackendRequiredNativeSurfaceParity`.

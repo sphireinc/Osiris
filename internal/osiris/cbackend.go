@@ -20,6 +20,10 @@ type CArtifact struct {
 // CCompileOptions selects optional native link-time facilities.
 type CCompileOptions struct {
 	LinalgProviderSource string
+	// PublicEmitSpacing matches the CLI's blank-line separation between
+	// top-level emitted values. Library callers retain the compact historical
+	// stream unless they request the public presentation contract.
+	PublicEmitSpacing bool
 	// LinalgProviderFlags are explicit linker arguments for an external system
 	// numerical library, such as "-framework", "Accelerate" on macOS or
 	// "-llapack", "-lblas" on systems that provide LAPACK separately.
@@ -57,14 +61,6 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 	if rt == nil {
 		rt = NewRuntime()
 	}
-	for _, statement := range prog.Statements {
-		if imported, ok := statement.(importStmt); ok {
-			moduleName, _ := splitModuleRef(imported.Path)
-			if moduleName == "std/time" || moduleName == "std/text" {
-				return nil, fmt.Errorf("%s:%d:%d: native C backend: static module %q is not supported", prog.SourceName, imported.PathSpan.start.line, imported.PathSpan.start.col, moduleName)
-			}
-		}
-	}
 	ir, err := rt.BuildIR(ctx, prog)
 	if err != nil {
 		return nil, err
@@ -78,12 +74,28 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 			name,
 		)
 	}
-	optimizeNativeLoops(ir)
+	if !nativeProgramHasExceptionalAsync(ir) {
+		optimizeNativeLoops(ir)
+	}
 	source, err := emitCIRWithOptions(ir, options)
 	if err != nil {
 		return nil, err
 	}
 	return &CArtifact{Source: source}, nil
+}
+
+func nativeProgramHasExceptionalAsync(program *IRProgram) bool {
+	for _, function := range program.Functions {
+		for _, block := range function.Blocks {
+			for _, instruction := range block.Instrs {
+				switch instruction.Op {
+				case "async", "try", "resultbind":
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func nativeUnsupportedFilesystemBuiltin(program *IRProgram) (string, sourceSpan, bool) {
@@ -132,7 +144,9 @@ func cEscapeString(s string) string {
 				b.WriteByte(c)
 				continue
 			}
-			b.WriteString(fmt.Sprintf(`\x%02x`, c))
+			// A fixed three-digit octal escape cannot consume following
+			// hexadecimal source characters the way C's \x escape can.
+			b.WriteString(fmt.Sprintf(`\%03o`, c))
 		}
 	}
 	return b.String()

@@ -3,6 +3,7 @@ package osiris
 import (
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 // isBindingTypeName admits the canonical scalar names and the non-numeric
@@ -10,7 +11,11 @@ import (
 // is a checked constraint; it never performs an implicit conversion.
 func isBindingTypeName(name string) bool {
 	switch name {
-	case "number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "string", "bool", "null", "list", "tensor", "enum", "function", "duration", "datetime", "location":
+	case "number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+		"f32", "f64", "string", "bool", "null", "list", "tensor", "enum",
+		"function", "error", "result", "option", "stream", "task", "module",
+		"decimal", "fixed", "interval", "modint", "complex", "bigint",
+		"bigfloat", "quantity", "dual", "duration", "datetime", "location":
 		return true
 	default:
 		return false
@@ -18,6 +23,17 @@ func isBindingTypeName(name string) bool {
 }
 
 func checkBindingType(name string, value Value, allowDefaultInteger bool) (Value, error) {
+	if strings.HasPrefix(name, "func(") {
+		expected, err := parseStaticType(name)
+		if err != nil {
+			return nullValue(), err
+		}
+		actual := staticTypeFromValue(value)
+		if staticTypesEqual(expected, actual) {
+			return value, nil
+		}
+		return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", name, name, actual.String())
+	}
 	if allowDefaultInteger && value.kind == kindUint && value.ub == nil && value.bits == 64 {
 		switch name {
 		case "number":
@@ -88,6 +104,36 @@ func bindingTypeMatches(name string, value Value) bool {
 		return value.kind == kindDateTime
 	case "location":
 		return value.kind == kindTimeLocation
+	case "error":
+		return value.kind == kindError
+	case "result":
+		return value.kind == kindResult
+	case "option":
+		return value.kind == kindOption
+	case "stream":
+		return value.kind == kindStream
+	case "task":
+		return value.kind == kindTask
+	case "module":
+		return value.kind == kindModule
+	case "decimal":
+		return value.kind == kindDecimal
+	case "fixed":
+		return value.kind == kindFixed
+	case "interval":
+		return value.kind == kindInterval
+	case "modint":
+		return value.kind == kindModInt
+	case "complex":
+		return value.kind == kindComplex
+	case "bigint":
+		return value.kind == kindBigInt
+	case "bigfloat":
+		return value.kind == kindBigFloat
+	case "quantity":
+		return value.kind == kindQuantity
+	case "dual":
+		return value.kind == kindDual
 	default:
 		return false
 	}

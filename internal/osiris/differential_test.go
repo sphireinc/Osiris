@@ -102,7 +102,7 @@ func TestDifferentialHarness(t *testing.T) {
 		{Name: "scalar-control-flow", SourcePath: "testdata/differential/scalar-control-flow.osr"},
 		{Name: "native-static-math", Source: "import \"std/math\" as math\nemit math.sqrt(81)\nemit math.clamp(12, 0, 10)\n"},
 		{Name: "numeric-boundaries", Source: "emit u8(255) + u8(1)\nemit i8(-128)\nemit 1.5f32 + 0.25f32\nemit -0.0f64\n"},
-		{Name: "bigint-is-not-native-scalar", Source: "emit bigint(\"9223372036854775808\")\n", NativeUnsupported: true},
+		{Name: "native-bigint", Source: "emit bigint(\"9223372036854775808\")\n"},
 		{Name: "structured-error", Source: "emit uint(\"not-a-number\")\n", SkipNative: true},
 		{Name: "unsupported-host-io", Source: "emit read(\"input.txt\")\n", NativeUnsupported: true},
 	} {

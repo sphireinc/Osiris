@@ -26,7 +26,9 @@ const gpuArtifactSchemaVersion = 1
 // It returns GPUArtifact and an error. Callers should only trust the value
 // when the error is nil.
 func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
-	_ = ctx
+	if _, err := NewRuntime().CheckProgram(ctx, prog); err != nil {
+		return GPUArtifact{}, err
+	}
 	plan := collectGPUPlan(prog)
 	return GPUArtifact{
 		SchemaVersion: gpuArtifactSchemaVersion,

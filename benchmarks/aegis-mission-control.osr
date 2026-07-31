@@ -1,0 +1,335 @@
+# AEGIS MISSION CONTROL
+# =====================
+#
+# A deterministic, interpreter/VM showcase workload built around a fictional
+# Europa mission. It deliberately crosses much of the Osiris language surface:
+#
+#   - canonical typed bindings and fixed-width arithmetic;
+#   - macros, recursion, lexical closures, while/for loops, and lazy blocks;
+#   - nominal and backed enums with guarded payload pattern matching;
+#   - exact decimals, bigint values, complex numbers, and measurement units;
+#   - tensors, matrices, statistics, signal processing, and linear algebra;
+#   - deterministic time, text, crypto, codecs, structured recovery, and tasks.
+#
+# The program emits a small mission report rather than its intermediate
+# telemetry, keeping it useful as a repeatable workload and a readable demo.
+
+import "std/crypto" as crypto
+import "std/list" as list
+import "std/math" as math
+import "std/signal" as signal
+import "std/text" as text
+import "std/time" as time
+
+enum MissionPhase {
+  Launch,
+  Cruise,
+  Approach,
+  Science(pass),
+  Safe(reason)
+}
+
+enum Verdict {
+  Nominal(score),
+  Watch(score, reason),
+  Abort(reason)
+}
+
+enum PacketKind: u8 {
+  Telemetry = 1u8,
+  Science = 2u8,
+  Command = 3u8
+}
+
+macro square(value) => value * value
+macro lerp(left, right, amount) => left + (right - left) * amount
+macro within(value, low, high) => value >= low && value <= high
+
+let mission_name string = "Aegis / Europa Cartographer"
+let mission_slug string = text.slug(mission_name)
+let simulation_steps u32 = 192u32
+let speed_of_light f64 = 299792458.0f64
+let europa_radius = 1560.8 * kilo * meter
+let nominal_downlink = 45 * mega
+let budget = dec("1845000000.25")
+let packet_seed u64 = 7640891576956012808u64
+
+func classify(score, determinant, thermal_margin) {
+  return if(
+    determinant <= 0.0f64,
+    Verdict.Abort("navigation matrix is singular"),
+    if(
+      score >= 0.92f64 && thermal_margin >= 0.15f64,
+      Verdict.Nominal(score),
+      Verdict.Watch(score, "reduced thermal or confidence margin")
+    )
+  )
+}
+
+let temperature_gain f64 = 1.0025f64
+let temperature_bias f64 = -0.35f64
+let radiation_gain f64 = 0.998f64
+let radiation_bias f64 = 0.012f64
+
+func temperature_calibrate(value) => value * temperature_gain + temperature_bias
+func radiation_calibrate(value) => value * radiation_gain + radiation_bias
+
+func fibonacci(n) => if(n < 2u64, n, fibonacci(n - 1u64) + fibonacci(n - 2u64))
+
+func fold_packet_ids(values) {
+  let folded u64 = packet_seed
+  for value in values {
+    let folded = bxor(rotl(folded, 9u64), u64(value))
+  }
+  return folded
+}
+
+func orbit_sweep(steps) {
+  let i u32 = 0u32
+  let theta f64 = 0.0f64
+  let altitude f64 = 100.0f64
+  let radial_velocity f64 = 0.0f64
+  let altitude_sum f64 = 0.0f64
+  let energy_sum f64 = 0.0f64
+  let minimum_altitude f64 = 1000000.0f64
+  let maximum_altitude f64 = 0.0f64
+
+  while i < steps {
+    let jitter f64 = (crypto.random("aegis-orbit", i) - 0.5f64) * 0.02f64
+    let theta f64 = theta + 0.03125f64 + jitter * 0.001f64
+    let wave f64 = math.sin(theta) * 7.5f64 + math.cos(theta * 0.37f64) * 2.25f64
+    let target_altitude f64 = 101.0f64 + wave
+    let radial_velocity f64 =
+      radial_velocity * 0.91f64 + (target_altitude - altitude) * 0.08f64
+    let altitude f64 = altitude + radial_velocity * 0.25f64
+    let kinetic f64 = 0.5f64 * square(radial_velocity)
+    let potential f64 = square(altitude - 100.0f64) * 0.015f64
+    let altitude_sum f64 = altitude_sum + altitude
+    let energy_sum f64 = energy_sum + kinetic + potential
+    let minimum_altitude f64 = math.min(minimum_altitude, altitude)
+    let maximum_altitude f64 = math.max(maximum_altitude, altitude)
+    let i u32 = i + 1u32
+  }
+
+  return [
+    altitude,
+    radial_velocity,
+    altitude_sum / f64(steps),
+    energy_sum,
+    minimum_altitude,
+    maximum_altitude,
+    theta
+  ]
+}
+
+func weighted_health(values) {
+  let index = 0
+  let weighted = 0.0
+  for value in values {
+    let weight = 1.0 + f64(index) * 0.125
+    let weighted = weighted + value * weight
+    let index = index + 1
+  }
+  return weighted / f64(len(values))
+}
+
+# Deterministic calendar planning: no host clock is consulted.
+let launch = time.date(2031, 4, 12, 9, 30, 0, 0, time.utc_location)
+let arrival = time.add_date(launch, 0, 6, 17)
+let first_science = time.add(arrival, time.parse_duration("36h45m"))
+let launch_text = time.format(launch, time.rfc3339)
+let science_text = time.format(first_science, time.rfc3339)
+let cruise_duration = time.duration_string(time.sub(arrival, launch))
+
+# Three independent deterministic jobs exercise task creation and suspension.
+let orbit_job = spawn({ orbit_sweep(simulation_steps) })
+let signal_job = spawn({
+  let raw = [
+    0.12, 0.18, 0.35, 0.82, 1.10, 0.91, 0.42, 0.21,
+    0.15, 0.24, 0.61, 1.02, 0.88, 0.46, 0.20, 0.11
+  ]
+  let window = signal.hann(8)
+  signal.convolve(raw, window)
+})
+let algebra_job = spawn({
+  let observations = matrix(6, 3, [
+    1.0, 0.2, 0.1,
+    0.9, 0.4, 0.2,
+    0.7, 0.7, 0.3,
+    0.4, 0.9, 0.5,
+    0.2, 1.0, 0.7,
+    0.1, 0.8, 1.0
+  ])
+  matmul(transpose(observations), observations)
+})
+
+let orbit = await(orbit_job)
+let filtered_signal = await(signal_job)
+let gram = await(algebra_job)
+
+# Dense numerical analysis combines tensor statistics and matrix invariants.
+let gram_determinant f64 = f64(det(gram))
+let gram_trace f64 = f64(trace(gram))
+let signal_mean f64 = f64(math.mean(filtered_signal))
+let signal_stddev f64 = f64(math.std(filtered_signal))
+let signal_p95 f64 = f64(math.quantile(filtered_signal, 0.95f64))
+
+let attitude_angle f64 = at(orbit, 6)
+let attitude = matrix(3, 3, [
+  math.cos(attitude_angle), -math.sin(attitude_angle), 0.0,
+  math.sin(attitude_angle), math.cos(attitude_angle), 0.0,
+  0.0, 0.0, 1.0
+])
+let boresight = matrix(3, 1, [0.35, 0.15, 0.92])
+let rotated_boresight = matmul(attitude, boresight)
+let pointing_norm f64 = f64(norm(rotated_boresight))
+
+# Fixed-width and arbitrary-precision arithmetic model packet bookkeeping.
+let packet_ids = list.range(32)
+let folded_packets u64 = fold_packet_ids(packet_ids)
+let packet_mask u64 = band(rotl(folded_packets, 17u64), 281474976710655u64)
+let combinatorial_space = bigint("340282366920938463463374607431768211507")
+let sequence_marker = fibonacci(20u64)
+
+# Parallel expressions preserve result order despite independent evaluation.
+let cross_checks = parallel(
+  math.round(at(orbit, 2) * 1000.0f64) / 1000.0f64,
+  math.round(signal_mean * 1000.0f64) / 1000.0f64,
+  math.round(gram_determinant * 1000.0f64) / 1000.0f64,
+  sequence_marker
+)
+
+let thermal_samples = [
+  temperature_calibrate(0.81f64),
+  temperature_calibrate(0.77f64),
+  temperature_calibrate(0.74f64),
+  temperature_calibrate(0.72f64)
+]
+let radiation_samples = [
+  radiation_calibrate(0.18f64),
+  radiation_calibrate(0.21f64),
+  radiation_calibrate(0.19f64),
+  radiation_calibrate(0.23f64)
+]
+
+let thermal_peak f64 = math.max(
+  at(thermal_samples, 0),
+  at(thermal_samples, 1),
+  at(thermal_samples, 2),
+  at(thermal_samples, 3)
+)
+let thermal_margin f64 = 1.0f64 - thermal_peak
+let health_inputs = [
+  math.clamp(1.0f64 - math.abs(at(orbit, 1)) / 5.0f64, 0.0f64, 1.0f64),
+  math.clamp(thermal_margin, 0.0f64, 1.0f64),
+  math.clamp(1.0f64 - f64(math.mean(radiation_samples)), 0.0f64, 1.0f64),
+  math.clamp(pointing_norm, 0.0f64, 1.0f64),
+  math.clamp(1.0f64 - signal_stddev / 4.0f64, 0.0f64, 1.0f64)
+]
+let health_score f64 = math.clamp(weighted_health(health_inputs), 0.0f64, 1.0f64)
+
+let phase = if(
+  within(at(orbit, 0), 85.0f64, 120.0f64),
+  MissionPhase.Science(7u64),
+  MissionPhase.Safe("orbital altitude outside science corridor")
+)
+let verdict = classify(health_score, gram_determinant, thermal_margin)
+let priority = if(health_score >= 0.9f64, PacketKind.Science, PacketKind.Telemetry)
+let risk_band = if(health_score >= 0.92f64, 0, if(health_score >= 0.75f64, 1, 2))
+
+# Structured recovery is data: this malformed conversion is intentionally
+# caught and included in the final audit record.
+let recovered_probe = try {
+  uint("telemetry-gap")
+} catch err {
+  cat("recovered/", err)
+}
+
+# Result propagation binds the successful payload while keeping failure
+# explicit at the source.
+let? accepted_pass = ok(7u64)
+
+# Complex telemetry models a phase/amplitude pair.
+let carrier = complex(
+  math.cos(attitude_angle) * signal_mean,
+  math.sin(attitude_angle) * signal_mean
+)
+let carrier_summary = [abs(carrier), math.phase(carrier)]
+
+let report_words = text.fields(
+  "  AEGIS   Europa   deterministic mission-control showcase  "
+)
+let report_title = text.upper(text.join(" / ", report_words))
+let digest = crypto.hash(
+  mission_slug,
+  phase,
+  verdict,
+  priority,
+  cross_checks,
+  packet_mask,
+  science_text,
+  carrier_summary
+)
+
+# Codecs preserve the nested public report value.
+let archive = [
+  mission_slug,
+  arrival,
+  cross_checks,
+  carrier_summary,
+  digest
+]
+let archive_roundtrip = decode(encode(archive))
+
+emit report_title
+emit [
+  ["mission", mission_slug],
+  ["launch", launch_text],
+  ["science", science_text],
+  ["cruise", cruise_duration]
+]
+emit switch risk_band {
+  0 => "green",
+  1 => "amber",
+  default => "red"
+}
+emit match phase {
+  MissionPhase.Launch => "launch",
+  MissionPhase.Cruise => "cruise",
+  MissionPhase.Approach => "approach",
+  MissionPhase.Science(pass) => cat("science-pass-", pass),
+  MissionPhase.Safe(reason) => cat("safe/", reason)
+}
+emit match verdict {
+  Verdict.Nominal(score) when score >= 0.97f64 =>
+    cat("NOMINAL/EXCELLENT@", math.round(score * 1000.0f64) / 10.0f64, "%"),
+  Verdict.Nominal(score) =>
+    cat("NOMINAL@", math.round(score * 1000.0f64) / 10.0f64, "%"),
+  Verdict.Watch(score, reason) =>
+    cat("WATCH@", math.round(score * 1000.0f64) / 10.0f64, "%/", reason),
+  Verdict.Abort(reason) =>
+    cat("ABORT/", reason)
+}
+emit [
+  ["orbit", orbit],
+  ["signal", [signal_mean, signal_stddev, signal_p95]],
+  ["gram", [gram_trace, gram_determinant]],
+  ["boresight", rotated_boresight],
+  ["carrier", carrier_summary]
+]
+emit [
+  ["packet_kind", priority],
+  ["packet_mask", packet_mask],
+  ["accepted_pass", accepted_pass],
+  ["cross_checks", cross_checks],
+  ["recovery", recovered_probe]
+]
+emit [
+  ["europa_radius", europa_radius],
+  ["nominal_downlink", nominal_downlink],
+  ["budget", budget],
+  ["light_speed", speed_of_light],
+  ["combinatorial_space", combinatorial_space]
+]
+emit archive_roundtrip
+emit cat("AEGIS-DIGEST/", digest)

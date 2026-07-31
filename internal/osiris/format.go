@@ -84,10 +84,21 @@ func formatStmt(stmt Stmt) string {
 	case macroStmt:
 		return "macro " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
 	case funcStmt:
-		if _, ok := s.Body.(*blockExpr); ok {
-			return "func " + s.Name + "(" + strings.Join(s.Params, ", ") + ") " + formatExpr(s.Body, 0)
+		params := make([]string, len(s.Params))
+		for i, name := range s.Params {
+			params[i] = name
+			if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
+				params[i] += " " + s.ParamTypes[i]
+			}
 		}
-		return "func " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
+		signature := "func " + s.Name + "(" + strings.Join(params, ", ") + ")"
+		if s.ReturnType != "" {
+			signature += " " + s.ReturnType
+		}
+		if _, ok := s.Body.(*blockExpr); ok {
+			return signature + " " + formatExpr(s.Body, 0)
+		}
+		return signature + " => " + formatExpr(s.Body, 0)
 	case returnStmt:
 		if s.Expr == nil {
 			return "return"

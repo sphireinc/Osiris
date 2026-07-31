@@ -72,12 +72,20 @@ as ordinary C integer operations.
 
 ## Static standard-library resolution
 
-The C backend resolves direct members of a statically imported `std/math`
-module at compile time. Supported members lower to native runtime helpers; the
-import and member IR instructions do not become dynamic module objects in the
-executable. An unsupported static member is a compile-time diagnostic. Dynamic
-imports, module values that escape, and non-`std/math` modules remain explicit
-lowering work rather than silently becoming null or interpreter calls.
+The C backend resolves direct members of statically imported modules at compile
+time. Supported members lower to native runtime helpers; import and member IR
+instructions do not become dynamic module objects in the executable. The
+parity-tested non-math slice is deliberately narrow:
+
+- `std/crypto.random` and `std/crypto.hash`;
+- `std/list.range(stop)`;
+- `std/signal.hann` and `std/signal.convolve`;
+- `std/text.slug`, `fields`, `upper`, and `join`; and
+- the UTC-only `std/time` operations documented below.
+
+An unsupported static member is a source-spanned compile-time diagnostic.
+Dynamic imports and module values that escape remain explicit lowering work
+rather than silently becoming null or interpreter calls.
 
 `std/math.pi` and `std/math.tau` lower as exact IEEE-754 hexadecimal C
 literals. Native float printing selects the shortest decimal that round-trips
@@ -172,7 +180,12 @@ the interpreter; `arange` retains its one-million-element safety limit.
 | Closures | arena-owned capture array | Direct closures pass borrowed copied `OValue` arguments; escaped closures own an arena copy of captures and never retain Go memory. |
 | f64 tensors | arena-owned data plus shape | Constructors and transformations return owned independent data/shape; copy-on-write helpers never mutate an input tensor. Temporary shape/data buffers are freed before return or registered by the constructor. |
 | Complex tensors | arena-owned complex data plus shape | Same as f64 tensors; mixed calculations allocate a new owned complex tensor. |
-| Errors | static message / scalar `OValue` failure | `ofail` does not borrow caller-owned temporary memory. Native code has no heap error object yet. |
+| Exact decimal and bigint values | arena-owned canonical decimal string | The fixture subset is immutable and copied by `OValue`; arithmetic outside the separately proven subset is rejected. |
+| Quantities | scalar magnitude plus immutable canonical dimension label | The parity-tested `meter` path is supported; other named quantities remain compile-time diagnostics until the full seven-axis rational ABI lands. |
+| Durations and UTC datetimes | signed nanoseconds in `int64_t` | Copied by value. The native subset has no host timezone pointer or clock dependency. |
+| Codec bytes | immutable string or copied `u8` list | Encoded buffers are arena-owned; decoder cursors borrow only for the duration of a call and decoded strings/lists own their copies. |
+| Errors and results | tagged value plus retained structured record/payload | The record retains kind, message, user message, operation/resource, source/location, cause, stack, public/debug metadata, retryability, severity, and redaction state. `ofail` records failure without writing; a matching `try` consumes it, while an unhandled main failure writes one stable diagnostic. `Result` payloads and error records are arena-retained. |
+| Tasks | arena-owned thunk, captures, terminal value/error, and state | Construction retains the thunk without executing it. First `await` runs it once; later awaits reuse the terminal state. |
 | Numerical-provider outputs | provider-owned temporary buffers copied into arena tensors | Provider adapters copy results before returning `OValue`; the generated runtime never frees provider-owned memory. |
 
 The generated executable releases its arena with `ofreeallocs` at process exit.
@@ -208,8 +221,11 @@ arena-registering constructor. Borrowed pointers must never refer to Go memory.
   multiply-accumulate loop. `norm` uses a direct sum-of-squares and square-root
   reduction.
 - An OValue is passed and returned by value.
-- Bytes, errors, closures, and tasks require explicit allocation and release
-  rules before native support is added.
+- The native `OSR1` codec covers null/bool, fixed/default scalar numerics,
+  strings, lists, f64 complex values, durations, and UTC datetimes. It checks
+  its 64 MiB size bound, recursion bound, canonical compact integers,
+  truncation, unknown tags, and trailing bytes. Unimplemented tags fail rather
+  than switching to a C-only format.
 - Generated code may not retain pointers to Go-managed Value storage.
 
 ## Errors and unsupported operations

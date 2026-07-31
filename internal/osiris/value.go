@@ -53,12 +53,27 @@ type moduleLookup func(ctx context.Context, name string) (Value, error)
 
 type functionValue struct {
 	name           string
+	signature      string
+	paramTypes     []string
+	returnType     string
 	builtin        callable
 	contextBuiltin contextCallable
 	params         []string
 	body           Expr
 	closure        *scope
+	group          *scope
+	predeclared    bool
 	session        *Session
+}
+
+// FunctionType returns the canonical static signature retained by a user
+// function value. Unannotated positions are rendered as dynamic; builtins and
+// zero-parameter functions without a return annotation return "function".
+func (v Value) FunctionType() string {
+	if v.kind != kindFunction || v.fn == nil || v.fn.signature == "" {
+		return "function"
+	}
+	return v.fn.signature
 }
 
 type moduleValue struct {
@@ -412,13 +427,72 @@ func contextFunctionValueOf(name string, fn contextCallable) Value {
 // It returns Value so callers can continue with the next stage of the pipeline
 // without re-deriving the same information.
 func userFunctionValue(name string, params []string, body Expr, closure *scope, sess *Session) Value {
+	return typedUserFunctionValue(name, params, nil, "", body, closure, sess)
+}
+
+func typedUserFunctionValue(name string, params, paramTypes []string, returnType string, body Expr, closure *scope, sess *Session) Value {
+	signature := ""
+	if len(paramTypes) > 0 || returnType != "" {
+		parts := make([]staticType, len(params))
+		for i := range parts {
+			parts[i] = dynamicStaticType
+			if i < len(paramTypes) && paramTypes[i] != "" {
+				if parsed, err := parseStaticType(paramTypes[i]); err == nil {
+					parts[i] = parsed
+				}
+			}
+		}
+		result := dynamicStaticType
+		if returnType != "" {
+			if parsed, err := parseStaticType(returnType); err == nil {
+				result = parsed
+			}
+		}
+		signature = staticType{name: "func", params: parts, result: &result}.String()
+	}
 	return Value{kind: kindFunction, fn: &functionValue{
-		name:    name,
-		params:  append([]string(nil), params...),
-		body:    body,
-		closure: closure,
-		session: sess,
+		name:       name,
+		signature:  signature,
+		paramTypes: append([]string(nil), paramTypes...),
+		returnType: returnType,
+		params:     append([]string(nil), params...),
+		body:       body,
+		closure:    closure,
+		session:    sess,
 	}}
+}
+
+func checkFunctionArguments(fn *functionValue, args []Value) ([]Value, error) {
+	if fn == nil {
+		return nil, fmt.Errorf("missing function metadata")
+	}
+	if len(args) != len(fn.params) {
+		return nil, fmt.Errorf("function %s expects %d arguments", fn.name, len(fn.params))
+	}
+	checked := append([]Value(nil), args...)
+	for i, typeName := range fn.paramTypes {
+		if typeName == "" || i >= len(checked) {
+			continue
+		}
+		value, err := checkBindingType(typeName, checked[i], false)
+		if err != nil {
+			actual := staticTypeFromValue(checked[i]).String()
+			return nil, fmt.Errorf("function %s argument %d requires %s, got %s", fn.name, i+1, typeName, actual)
+		}
+		checked[i] = value
+	}
+	return checked, nil
+}
+
+func checkFunctionResult(fn *functionValue, value Value) (Value, error) {
+	if fn == nil || fn.returnType == "" {
+		return value, nil
+	}
+	checked, err := checkBindingType(fn.returnType, value, false)
+	if err != nil {
+		return nullValue(), fmt.Errorf("function %s returns %s, requires %s", fn.name, staticTypeFromValue(value).String(), fn.returnType)
+	}
+	return checked, nil
 }
 
 // moduleValueOf handles the module value of step in the surrounding package

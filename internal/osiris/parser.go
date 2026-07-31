@@ -61,11 +61,15 @@ type macroStmt struct {
 func (macroStmt) stmtNode() {}
 
 type funcStmt struct {
-	Name     string
-	Params   []string
-	Body     Expr
-	Span     sourceSpan
-	NameSpan sourceSpan
+	Name           string
+	Params         []string
+	ParamTypes     []string
+	ParamSpans     []sourceSpan
+	ReturnType     string
+	ReturnTypeSpan sourceSpan
+	Body           Expr
+	Span           sourceSpan
+	NameSpan       sourceSpan
 }
 
 // stmtNode operates on funcStmt values and keeps the funcstmt-specific
@@ -573,12 +577,13 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		typeName := ""
-		if p.peek().kind == tokenIdent {
-			typeTok := p.next()
-			if !isBindingTypeName(typeTok.text) {
-				return nil, p.errorf(typeTok, "unknown binding type %q", typeTok.text)
+		if isTypeStart(p.peek().kind) {
+			var typeSpan sourceSpan
+			typeName, typeSpan, err = p.parseTypeName()
+			if err != nil {
+				return nil, err
 			}
-			typeName = typeTok.text
+			_ = typeSpan
 		}
 		if _, err := p.expect(tokenEqual); err != nil {
 			return nil, err
@@ -665,9 +670,17 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if _, err := p.expect(tokenLParen); err != nil {
 			return nil, err
 		}
-		params, err := p.parseNameListAllowEmpty()
+		params, paramTypes, paramSpans, err := p.parseFunctionParams()
 		if err != nil {
 			return nil, err
+		}
+		returnType := ""
+		var returnTypeSpan sourceSpan
+		if isTypeStart(p.peek().kind) {
+			returnType, returnTypeSpan, err = p.parseTypeName()
+			if err != nil {
+				return nil, err
+			}
 		}
 		var body Expr
 		if p.match(tokenArrow) {
@@ -681,7 +694,17 @@ func (p *parser) parseStmt() (Stmt, error) {
 				return nil, err
 			}
 		}
-		return funcStmt{Name: nameTok.text, Params: params, Body: body, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		return funcStmt{
+			Name:           nameTok.text,
+			Params:         params,
+			ParamTypes:     paramTypes,
+			ParamSpans:     paramSpans,
+			ReturnType:     returnType,
+			ReturnTypeSpan: returnTypeSpan,
+			Body:           body,
+			Span:           spanCover(spanFromTokens(start, nameTok), exprSpan(body)),
+			NameSpan:       spanFromToken(nameTok),
+		}, nil
 	case tokenReturn:
 		start := p.next()
 		if p.peek().kind == tokenSemicolon || p.peek().kind == tokenRBrace || p.peek().kind == tokenEOF {
@@ -1093,6 +1116,92 @@ func (p *parser) parseNameListAllowEmpty() ([]string, error) {
 		return nil, err
 	}
 	return names, nil
+}
+
+// parseFunctionParams parses the Go-style function parameter surface. A
+// parameter type is optional for compatibility with existing dynamic
+// functions; when present it follows the name without a colon.
+func (p *parser) parseFunctionParams() ([]string, []string, []sourceSpan, error) {
+	if p.match(tokenRParen) {
+		return nil, nil, nil, nil
+	}
+	var names []string
+	var types []string
+	var spans []sourceSpan
+	for {
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		typeName := ""
+		typeSpan := sourceSpan{}
+		if isTypeStart(p.peek().kind) {
+			typeName, typeSpan, err = p.parseTypeName()
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		names = append(names, name.text)
+		types = append(types, typeName)
+		spans = append(spans, spanCover(spanFromToken(name), typeSpan))
+		if p.match(tokenComma) {
+			continue
+		}
+		if _, err := p.expect(tokenRParen); err != nil {
+			return nil, nil, nil, err
+		}
+		return names, types, spans, nil
+	}
+}
+
+// parseTypeName parses canonical scalar/runtime type names and Go-style
+// function types such as func(u32, string) bool. Generic application is
+// deliberately reserved for task 112.
+func (p *parser) parseTypeName() (string, sourceSpan, error) {
+	start := p.peek()
+	if start.kind == tokenIdent || start.kind == tokenNull || start.kind == tokenEnum {
+		tok := p.next()
+		if !isBindingTypeName(tok.text) {
+			return "", sourceSpan{}, p.errorf(tok, "unknown type %q; generics are not available", tok.text)
+		}
+		return tok.text, spanFromToken(tok), nil
+	}
+	if start.kind != tokenFunc {
+		return "", sourceSpan{}, p.errorf(start, "expected type name")
+	}
+	p.next()
+	if _, err := p.expect(tokenLParen); err != nil {
+		return "", sourceSpan{}, err
+	}
+	var params []string
+	if !p.match(tokenRParen) {
+		for {
+			param, _, err := p.parseTypeName()
+			if err != nil {
+				return "", sourceSpan{}, err
+			}
+			params = append(params, param)
+			if p.match(tokenComma) {
+				continue
+			}
+			if _, err := p.expect(tokenRParen); err != nil {
+				return "", sourceSpan{}, err
+			}
+			break
+		}
+	}
+	if !isTypeStart(p.peek().kind) {
+		return "", sourceSpan{}, p.errorf(p.peek(), "function type requires a return type")
+	}
+	result, resultSpan, err := p.parseTypeName()
+	if err != nil {
+		return "", sourceSpan{}, err
+	}
+	return "func(" + strings.Join(params, ", ") + ") " + result, spanCover(spanFromToken(start), resultSpan), nil
+}
+
+func isTypeStart(kind tokenKind) bool {
+	return kind == tokenIdent || kind == tokenFunc || kind == tokenNull || kind == tokenEnum
 }
 
 // parseList operates on parser values and keeps the parser-specific behavior

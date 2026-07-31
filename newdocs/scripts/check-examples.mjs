@@ -10,6 +10,7 @@ const result = spawnSync('go', ['test', './internal/osiris', '-run', '^TestCanon
     ...process.env,
     GOCACHE: process.env.GOCACHE || '/private/tmp/osiris-docs-gocache',
     GOMODCACHE: process.env.GOMODCACHE || '/private/tmp/osiris-docs-gomodcache',
+    GOTOOLCHAIN: process.env.GOTOOLCHAIN || 'local',
   },
 });
 if (result.error) throw result.error;

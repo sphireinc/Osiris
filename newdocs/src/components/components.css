@@ -13,3 +13,15 @@
 .token.builtin { color:#f4c98a; }
 .token.number { color:#ffbd8b; }
 .token.operator,.token.punctuation { color:#d7d1e4; }
+
+/* Keep the same visual tracks when adjacent reference sections have different
+   entry counts. auto-fit would stretch a short section across the full row. */
+.page-toc-list { grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); }
+
+@media (max-width:720px) {
+  .page-toc-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+@media (max-width:430px) {
+  .page-toc-list { grid-template-columns:1fr; }
+}

@@ -65,10 +65,15 @@ emit parallel(3, 4)
 		t.Fatalf("async IR SSA verification: %v", err)
 	}
 	got := FormatIRProgram(ir)
-	for _, want := range []string{"async.spawn", "async.await", "async.parallel"} {
+	for _, want := range []string{"async.spawn", "async.await", "async.parallel", "fn spawn.task", "fn parallel.branch"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("IR output missing %q\n%s", want, got)
 		}
+	}
+	spawn := strings.Index(got, "async.spawn")
+	taskBody := strings.Index(got, "fn spawn.task")
+	if spawn < 0 || taskBody < spawn {
+		t.Fatalf("spawn body was lowered eagerly in the parent function:\n%s", got)
 	}
 	cfgProg, err := rt.BuildCFG(context.Background(), prog)
 	if err != nil {
@@ -76,5 +81,29 @@ emit parallel(3, 4)
 	}
 	if got := FormatCFGProgram(cfgProg); !strings.Contains(got, "async [spawn, await, parallel]") {
 		t.Fatalf("CFG hides async boundary:\n%s", got)
+	}
+}
+
+func TestExceptionalFormsLowerToExplicitIR(t *testing.T) {
+	prog, err := Parse("<exception-ir>", `
+func unwrap(value) => { let? answer = value; answer }
+emit try uint("bad") catch err cat("caught:", err)
+emit unwrap(ok(41))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, err := NewRuntime().BuildIR(context.Background(), prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifySSAProgram(ir); err != nil {
+		t.Fatalf("exceptional IR SSA verification: %v", err)
+	}
+	got := FormatIRProgram(ir)
+	for _, want := range []string{"try ", "resultbind", "fn try.body", "fn try.catch"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("IR output missing %q\n%s", want, got)
+		}
 	}
 }

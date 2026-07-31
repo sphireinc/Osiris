@@ -184,7 +184,7 @@ emit ordering, predicate, counted, found, cut, tokens, transformed
 	if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil {
 		t.Fatal("native compilation unexpectedly accepted std/text")
 	} else {
-		for _, want := range []string{`native C backend: static module "std/text" is not supported`, "<text-static>:1:8"} {
+		for _, want := range []string{`<text-static>:2:21:`, `native C backend: static module member "std/text".compare is not supported`} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("native diagnostic %q lacks %q", err, want)
 			}

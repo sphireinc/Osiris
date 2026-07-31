@@ -19,13 +19,14 @@
       {
         "kind": "construct",
         "name": "let?",
+        "anchor": "let-result",
         "signature": "let? name = Result-or-Option expression",
         "description": "Extract a successful `Result` or present `Option` into an immutable binding.",
         "parameters": "The expression must evaluate to `Result` or `Option`.",
         "returns": "No standalone value; the binding is available to the remaining block or scope.",
         "returnValue": "`ok(41)` binds `41`; `none()` produces `not_found`; `err(error(InvalidArgument, \"bad\"))` produces `invalid_argument`.",
         "details": [
-          "`Result` metadata and causes remain intact. Native C lowering rejects `let?` until structured `Result` lowering is implemented."
+          "`Result` metadata and causes remain intact. Native C lowers successful `Result` extraction for its parity-tested subset; failed results and options outside that subset remain explicit native boundaries."
         ],
         "errors": "A non-`Result`/non-`Option` operand is an argument error; an absent or failed container propagates its structured error.",
         "example": "let? value = ok(41)\nemit value + 1 # 42",
@@ -34,15 +35,36 @@
       {
         "kind": "construct",
         "name": "func",
-        "signature": "func name(parameters…) => expression",
-        "description": "Declare a callable lexical function.",
-        "parameters": "Each parameter is an immutable local binding. A block-bodied function may use `return` and nested control flow.",
-        "returns": "Calling the function returns its selected expression or explicit `return` value.",
-        "returnValue": "`func double(x) => x * 2`; `double(21)` returns `42u64`.",
+        "signature": "func name(parameter [Type], …) [ReturnType] => expression",
+        "description": "Declare a lexical function with optional checked parameter and return types.",
+        "parameters": "Each parameter is an immutable local binding. Write its canonical type after its name with no colon. Callback types use forms such as `func(u32) string`.",
+        "returns": "An annotated result checks every reachable `return`, tail expression, and fallthrough path before execution. An omitted result remains dynamic for compatibility.",
+        "returnValue": "`func double(value u32) u32 => value * u32(2)` has type `func(u32) u32`; `double(u32(21))` returns `42u32`.",
         "details": [
-          "Functions may capture lexical bindings. Supported native programs lower direct functions and proven closures; unsupported captures fail native compilation clearly."
+          "Functions may capture lexical bindings. Signatures are declared before bodies are checked, so recursion and mutual recursion do not require execution.",
+          "Known argument and result mismatches are source-located `type_error` diagnostics. A dynamic value crossing a typed boundary keeps a runtime guard.",
+          "Function signatures are exact: `func(u32) string` is different from `func(u64) string`. Use the broad `function` kind only when any callable is intended.",
+          "Supported native programs lower direct functions and proven closures with exact signature metadata; unsupported runtime-kind assertions fail native compilation clearly."
         ],
-        "example": "func double(x) => x * 2\nemit double(21)\n# 42u64",
+        "errors": "Unknown type names, wrong arity, incompatible arguments, inconsistent returns, and a non-`null` function that can fall through are errors.",
+        "example": "func double(value u32) u32 => value * u32(2)\nfunc apply(value u32, callback func(u32) u32) u32 => callback(value)\nemit apply(u32(21), double) # 42u32",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "emit",
+        "signature": "emit expression[, expression…]",
+        "description": "Append one value to the program's ordered output and continue execution.",
+        "parameters": "Each expression is evaluated once in source order. Multiple expressions are concatenated into one value with `, ` separators.",
+        "returns": "No block value. `emit` is a statement and does not replace a tail expression or `return`.",
+        "returnValue": "The rendered value is committed at that execution point. Earlier emissions remain visible if later work fails or is cancelled.",
+        "details": [
+          "`emit` is valid at the top level and in synchronously executed loops, functions, closures, ordinary blocks, selected call-shaped `if` branches, `match`/`switch` arms, `try`/`catch` bodies, and expanded macro blocks.",
+          "Module initialization cannot emit, but a synchronously called exported function may emit into the caller's sequence.",
+          "Concurrent `spawn`, `parallel`, `race`, `select`, and `timeout` bodies cannot emit directly or through a called function. Return a value and emit it from the synchronous caller after `await` where applicable."
+        ],
+        "errors": "Concurrent execution reports a structured error at the direct `emit` or statically known emitting call. Module initialization reports a source-spanned error.",
+        "example": "func announce(value) { emit value; return value + 1 }\nlet result = announce(4)\nemit result\n# 4u64\n# 5u64",
         "exampleStatus": "checked"
       }
     ]
@@ -177,7 +199,7 @@
         "name": "typed let",
         "signature": "let name Type = expression",
         "description": "Bind a value while requiring one canonical runtime type.",
-        "parameters": "`Type` is one of `number`, `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, `f32`, `f64`, `string`, `bool`, `null`, `list`, `tensor`, `enum`, or `function`.",
+        "parameters": "`Type` is a canonical scalar or runtime kind, or an exact function type such as `func(u32) string`.",
         "returns": "The declaration emits no value.",
         "returnValue": "An unsuffixed non-negative integer literal may be checked and fitted to an annotated integer width.",
         "details": [
