@@ -26,6 +26,7 @@ type CheckedFunction struct {
 	Name       string
 	Scope      string
 	Signature  string
+	TypeParams []string
 	Params     []CheckedBinding
 	ReturnType string
 	Span       sourceSpan
@@ -58,7 +59,14 @@ func (t staticType) String() string {
 	if t.name == "" {
 		return "dynamic"
 	}
-	return t.name
+	if len(t.params) == 0 {
+		return t.name
+	}
+	items := make([]string, len(t.params))
+	for i := range t.params {
+		items[i] = t.params[i].String()
+	}
+	return t.name + "<" + strings.Join(items, ", ") + ">"
 }
 
 func parseStaticType(text string) (staticType, error) {
@@ -67,7 +75,26 @@ func parseStaticType(text string) (staticType, error) {
 		return dynamicStaticType, nil
 	}
 	if !strings.HasPrefix(text, "func(") {
-		return staticType{name: text}, nil
+		open := strings.IndexByte(text, '<')
+		if open < 0 {
+			return staticType{name: text}, nil
+		}
+		if !strings.HasSuffix(text, ">") || open == 0 {
+			return staticType{}, fmt.Errorf("invalid generic type %q", text)
+		}
+		base := strings.TrimSpace(text[:open])
+		parts, err := splitStaticTypeList(strings.TrimSpace(text[open+1 : len(text)-1]))
+		if err != nil {
+			return staticType{}, err
+		}
+		params := make([]staticType, len(parts))
+		for i, part := range parts {
+			params[i], err = parseStaticType(part)
+			if err != nil {
+				return staticType{}, err
+			}
+		}
+		return staticType{name: base, params: params}, nil
 	}
 	depth := 0
 	closeAt := -1
@@ -121,9 +148,16 @@ func splitStaticTypeList(text string) ([]string, error) {
 		switch text[i] {
 		case '(':
 			depth++
+		case '<':
+			depth++
 		case ')':
 			if depth == 0 {
 				return nil, fmt.Errorf("invalid function type %q", text)
+			}
+			depth--
+		case '>':
+			if depth == 0 {
+				return nil, fmt.Errorf("invalid generic type %q", text)
 			}
 			depth--
 		case ',':
@@ -167,16 +201,17 @@ func (s *typeScope) lookup(name string) (staticType, bool) {
 }
 
 type typeChecker struct {
-	ctx      context.Context
-	rt       *Runtime
-	prog     *Program
-	out      *CheckedProgram
-	exprs    map[Expr]checkedExpr
-	function *funcStmt
-	expected staticType
-	structs  map[string]staticStructDef
-	aliases  map[string]string
-	newtypes map[string]string
+	ctx       context.Context
+	rt        *Runtime
+	prog      *Program
+	out       *CheckedProgram
+	exprs     map[Expr]checkedExpr
+	function  *funcStmt
+	expected  staticType
+	structs   map[string]staticStructDef
+	aliases   map[string]string
+	newtypes  map[string]string
+	functions map[string]funcStmt
 }
 
 type staticStructDef struct {
@@ -204,14 +239,15 @@ func (rt *Runtime) CheckProgram(ctx context.Context, prog *Program) (*CheckedPro
 		ctx = context.Background()
 	}
 	checker := &typeChecker{
-		ctx:      ctx,
-		rt:       rt,
-		prog:     prog,
-		out:      &CheckedProgram{Program: prog},
-		exprs:    make(map[Expr]checkedExpr),
-		structs:  make(map[string]staticStructDef),
-		aliases:  make(map[string]string),
-		newtypes: make(map[string]string),
+		ctx:       ctx,
+		rt:        rt,
+		prog:      prog,
+		out:       &CheckedProgram{Program: prog},
+		exprs:     make(map[Expr]checkedExpr),
+		structs:   make(map[string]staticStructDef),
+		aliases:   make(map[string]string),
+		newtypes:  make(map[string]string),
+		functions: make(map[string]funcStmt),
 	}
 	root := newTypeScope(nil, "main")
 	for name, value := range rt.Constants {
@@ -252,6 +288,7 @@ func (c *typeChecker) checkSeq(stmts []Stmt, scope *typeScope) error {
 	// recursive function groups never require evaluation for discovery.
 	for _, stmt := range stmts {
 		if fn, ok := stmt.(funcStmt); ok {
+			c.functions[fn.Name] = fn
 			signature, err := staticFunctionType(fn)
 			if err != nil {
 				return c.errorAt(fn.Span, "%v", err)
@@ -356,6 +393,9 @@ func (c *typeChecker) checkFunction(st funcStmt, parent *typeScope) error {
 	parent.items[st.Name] = signature
 	child := newTypeScope(parent, st.Name)
 	child.items[st.Name] = signature
+	for _, param := range st.TypeParams {
+		child.items[param.Name] = staticType{name: param.Name}
+	}
 	params := make([]CheckedBinding, len(st.Params))
 	for i, name := range st.Params {
 		paramType := dynamicStaticType
@@ -373,6 +413,7 @@ func (c *typeChecker) checkFunction(st funcStmt, parent *typeScope) error {
 		Name:       st.Name,
 		Scope:      parent.name,
 		Signature:  signature.String(),
+		TypeParams: typeParamNames(st.TypeParams),
 		Params:     params,
 		ReturnType: signature.result.String(),
 		Span:       st.Span,
@@ -489,12 +530,20 @@ func (c *typeChecker) checkExpr(expr Expr, scope *typeScope) (result checkedExpr
 	case *callExpr:
 		return c.checkCall(n, scope)
 	case *listExpr:
+		element := dynamicStaticType
+		haveElement := false
 		for _, item := range n.items {
-			if _, err := c.checkExpr(item, scope); err != nil {
+			checked, err := c.checkExpr(item, scope)
+			if err != nil {
 				return checkedExpr{}, err
 			}
+			if !haveElement {
+				element, haveElement = checked.typ, true
+			} else {
+				element = joinStaticTypes(element, checked.typ)
+			}
 		}
-		return checkedExpr{typ: staticType{name: "list"}}, nil
+		return checkedExpr{typ: staticType{name: "list", params: []staticType{element}}}, nil
 	case *tupleExpr:
 		items := make([]staticType, len(n.items))
 		for i, item := range n.items {
@@ -641,16 +690,22 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 			}
 			return checkedExpr{typ: staticType{name: "bool"}}, nil
 		case "spawn":
-			for _, arg := range call.args {
-				if _, err := c.checkExpr(arg, scope); err != nil {
+			if len(call.args) != 1 {
+				return checkedExpr{}, c.errorAt(call.Span, "spawn expects exactly one expression")
+			}
+			body, err := c.checkExpr(call.args[0], scope)
+			if err != nil {
+				return checkedExpr{}, err
+			}
+			return checkedExpr{typ: staticType{name: "task", params: []staticType{body.typ}}}, nil
+		case "await", "timeout", "race", "select", "parallel", "cancel":
+			for i, arg := range call.args {
+				checked, err := c.checkExpr(arg, scope)
+				if err != nil {
 					return checkedExpr{}, err
 				}
-			}
-			return checkedExpr{typ: staticType{name: "task"}}, nil
-		case "await", "timeout", "race", "select", "parallel", "cancel":
-			for _, arg := range call.args {
-				if _, err := c.checkExpr(arg, scope); err != nil {
-					return checkedExpr{}, err
+				if name == "await" && i == 0 && checked.typ.name == "task" && len(checked.typ.params) == 1 {
+					return checkedExpr{typ: checked.typ.params[0]}, nil
 				}
 			}
 			return checkedExpr{typ: dynamicStaticType}, nil
@@ -662,6 +717,9 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 		return checkedExpr{}, err
 	}
 	if ident, ok := call.callee.(*identExpr); ok {
+		if fn, exists := c.functions[ident.name]; exists && len(fn.TypeParams) > 0 {
+			return c.checkGenericCall(call, fn, scope)
+		}
 		if def, exists := c.structs[ident.name]; exists {
 			if len(call.args) != len(def.order) {
 				return checkedExpr{}, c.errorAt(call.Span, "%s expects %d arguments, got %d", ident.name, len(def.order), len(call.args))
@@ -746,6 +804,147 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 	return checkedExpr{typ: *callee.typ.result}, nil
 }
 
+func typeParamNames(params []typeParam) []string {
+	out := make([]string, len(params))
+	for i := range params {
+		out[i] = params[i].Name
+	}
+	return out
+}
+
+func (c *typeChecker) checkGenericCall(call *callExpr, fn funcStmt, scope *typeScope) (checkedExpr, error) {
+	if len(call.typeArgs) != 0 && len(call.typeArgs) != len(fn.TypeParams) {
+		return checkedExpr{}, c.errorAt(call.Span, "%s expects %d type arguments, got %d", fn.Name, len(fn.TypeParams), len(call.typeArgs))
+	}
+	signature, err := staticFunctionType(fn)
+	if err != nil {
+		return checkedExpr{}, c.errorAt(call.Span, "%v", err)
+	}
+	actuals := make([]staticType, len(call.args))
+	for i, arg := range call.args {
+		checked, checkErr := c.checkExpr(arg, scope)
+		if checkErr != nil {
+			return checkedExpr{}, checkErr
+		}
+		actuals[i] = checked.typ
+	}
+	if len(actuals) != len(signature.params) {
+		return checkedExpr{}, c.errorAt(call.Span, "%s expects %d arguments, got %d", fn.Name, len(signature.params), len(actuals))
+	}
+	subst := make(map[string]staticType, len(fn.TypeParams))
+	for i, text := range call.typeArgs {
+		arg, parseErr := parseStaticType(text)
+		if parseErr != nil {
+			return checkedExpr{}, c.errorAt(call.Span, "invalid type argument %q: %v", text, parseErr)
+		}
+		subst[fn.TypeParams[i].Name] = arg
+	}
+	for i, expected := range signature.params {
+		if err := inferGenericType(expected, actuals[i], subst, fn.TypeParams); err != nil {
+			return checkedExpr{}, c.errorAt(exprSpan(call.args[i]), "cannot infer type arguments for %s: %v", fn.Name, err)
+		}
+		resolved := substituteStaticType(expected, subst)
+		if _, assignErr := c.requireAssignable(resolved, actuals[i], call.args[i]); assignErr != nil {
+			return checkedExpr{}, c.errorAt(exprSpan(call.args[i]), "argument %d to %s requires %s, got %s", i+1, fn.Name, resolved.String(), actuals[i].String())
+		}
+	}
+	for _, param := range fn.TypeParams {
+		arg, ok := subst[param.Name]
+		if !ok || arg.isDynamic() {
+			return checkedExpr{}, c.errorAt(call.Span, "cannot infer type parameter %s for %s", param.Name, fn.Name)
+		}
+		if param.Bound != "" {
+			bound, parseErr := parseStaticType(param.Bound)
+			if parseErr != nil {
+				return checkedExpr{}, c.errorAt(param.Span, "invalid bound for %s: %v", param.Name, parseErr)
+			}
+			if !satisfiesGenericBound(bound, arg) {
+				return checkedExpr{}, c.errorAt(call.Span, "type argument %s for %s does not satisfy bound %s", arg.String(), param.Name, bound.String())
+			}
+		}
+	}
+	return checkedExpr{typ: substituteStaticType(*signature.result, subst)}, nil
+}
+
+func inferGenericType(expected, actual staticType, subst map[string]staticType, params []typeParam) error {
+	for _, param := range params {
+		if expected.name == param.Name && len(expected.params) == 0 && !expected.isFunction() {
+			if previous, exists := subst[param.Name]; exists {
+				if previous.name == param.Name && actual.name != param.Name && !actual.isDynamic() {
+					subst[param.Name] = actual
+					return nil
+				}
+				if !staticTypesEqual(previous, actual) {
+					return fmt.Errorf("type parameter %s has conflicting arguments %s and %s", param.Name, previous.String(), actual.String())
+				}
+			}
+			if !actual.isDynamic() {
+				subst[param.Name] = actual
+			}
+			return nil
+		}
+	}
+	if expected.isDynamic() || actual.isDynamic() {
+		return nil
+	}
+	if expected.isFunction() {
+		if !actual.isFunction() || len(expected.params) != len(actual.params) {
+			return fmt.Errorf("expected %s, got %s", expected.String(), actual.String())
+		}
+		for i := range expected.params {
+			if err := inferGenericType(expected.params[i], actual.params[i], subst, params); err != nil {
+				return err
+			}
+		}
+		return inferGenericType(*expected.result, *actual.result, subst, params)
+	}
+	if expected.name != actual.name || len(expected.params) != len(actual.params) {
+		return fmt.Errorf("expected %s, got %s", expected.String(), actual.String())
+	}
+	for i := range expected.params {
+		if err := inferGenericType(expected.params[i], actual.params[i], subst, params); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func substituteStaticType(t staticType, subst map[string]staticType) staticType {
+	if replacement, ok := subst[t.name]; ok && len(t.params) == 0 && t.result == nil {
+		return replacement
+	}
+	out := t
+	if len(t.params) > 0 {
+		out.params = make([]staticType, len(t.params))
+		for i := range t.params {
+			out.params[i] = substituteStaticType(t.params[i], subst)
+		}
+	}
+	if t.result != nil {
+		result := substituteStaticType(*t.result, subst)
+		out.result = &result
+	}
+	return out
+}
+
+func satisfiesGenericBound(bound, actual staticType) bool {
+	if bound.isDynamic() || actual.isDynamic() {
+		return true
+	}
+	if bound.name == "any" {
+		return true
+	}
+	if bound.name == "number" {
+		switch actual.name {
+		case "number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64":
+			return true
+		default:
+			return false
+		}
+	}
+	return staticTypesEqual(bound, actual)
+}
+
 func (c *typeChecker) checkStructExpr(expr *structExpr, scope *typeScope) (checkedExpr, error) {
 	if _, ok := c.structs[expr.TypeName]; !ok {
 		return checkedExpr{}, c.errorAt(expr.Span, "unknown struct %q", expr.TypeName)
@@ -787,6 +986,23 @@ func (c *typeChecker) requireAssignable(expected, actual staticType, expr Expr) 
 	actual = c.resolveAlias(actual)
 	if expected.isDynamic() || staticTypesEqual(expected, actual) {
 		return actual, nil
+	}
+	if expected.name == actual.name && len(expected.params) == 0 && actual.result == nil {
+		return actual, nil
+	}
+	if expected.name == actual.name && len(expected.params) > 0 && len(actual.params) == 0 && actual.result == nil {
+		return expected, nil
+	}
+	if !expected.isFunction() && expected.name == actual.name && len(expected.params) == len(actual.params) {
+		for i := range expected.params {
+			if actual.params[i].isDynamic() {
+				continue
+			}
+			if !staticTypesEqual(expected.params[i], actual.params[i]) {
+				return actual, fmt.Errorf("parameterized types are invariant")
+			}
+		}
+		return expected, nil
 	}
 	if outcomes := staticOutcomeExpressions(expr); len(outcomes) > 0 {
 		for _, outcome := range outcomes {
@@ -889,18 +1105,43 @@ func joinStaticTypes(left, right staticType) staticType {
 }
 
 func builtinCallType(name string, args []Expr) (staticType, bool) {
-	if isBindingTypeName(name) && name != "function" && name != "module" {
+	if name != "map" && name != "set" && isBindingTypeName(name) && name != "function" && name != "module" {
 		return staticType{name: name}, true
 	}
 	switch name {
+	case "map_new":
+		return staticType{name: "map", params: []staticType{dynamicStaticType, dynamicStaticType}}, true
+	case "map_set":
+		return staticType{name: "map", params: []staticType{dynamicStaticType, dynamicStaticType}}, true
+	case "map_get":
+		return staticType{name: "option", params: []staticType{dynamicStaticType}}, true
+	case "map_keys":
+		return staticType{name: "list", params: []staticType{dynamicStaticType}}, true
+	case "map_values":
+		return staticType{name: "list", params: []staticType{dynamicStaticType}}, true
+	case "set_new", "set_add":
+		return staticType{name: "set", params: []staticType{dynamicStaticType}}, true
+	case "set_has":
+		return staticType{name: "bool"}, true
+	case "set_values":
+		return staticType{name: "list", params: []staticType{dynamicStaticType}}, true
 	case "cat", "string", "text", "lower", "upper", "trim", "replace", "repeat", "join":
 		return staticType{name: "string"}, true
 	case "len":
 		return staticType{name: "u64"}, true
 	case "ok", "err":
-		return staticType{name: "result"}, true
+		if len(args) == 1 {
+			if name == "ok" {
+				return staticType{name: "result", params: []staticType{dynamicStaticType, staticType{name: "error"}}}, true
+			}
+			return staticType{name: "result", params: []staticType{dynamicStaticType, dynamicStaticType}}, true
+		}
+		return staticType{name: "result", params: []staticType{dynamicStaticType, dynamicStaticType}}, true
 	case "some", "none":
-		return staticType{name: "option"}, true
+		if name == "some" && len(args) == 1 {
+			return staticType{name: "option", params: []staticType{dynamicStaticType}}, true
+		}
+		return staticType{name: "option", params: []staticType{dynamicStaticType}}, true
 	case "error", "wrap":
 		return staticType{name: "error"}, true
 	}
@@ -955,6 +1196,45 @@ func staticTypeFromValue(value Value) staticType {
 			params[i] = staticTypeFromValue(item)
 		}
 		return staticType{name: "tuple", params: params}
+	case kindList:
+		element := dynamicStaticType
+		if len(value.list) > 0 {
+			element = staticTypeFromValue(value.list[0])
+			for _, item := range value.list[1:] {
+				element = joinStaticTypes(element, staticTypeFromValue(item))
+			}
+		}
+		return staticType{name: "list", params: []staticType{element}}
+	case kindResult:
+		if value.res != nil && value.res.ok {
+			return staticType{name: "result", params: []staticType{staticTypeFromValue(value.res.val), staticType{name: "error"}}}
+		}
+		return staticType{name: "result", params: []staticType{dynamicStaticType, staticType{name: "error"}}}
+	case kindOption:
+		if value.opt != nil && value.opt.present {
+			return staticType{name: "option", params: []staticType{staticTypeFromValue(value.opt.val)}}
+		}
+		return staticType{name: "option", params: []staticType{dynamicStaticType}}
+	case kindMap:
+		keyType, valueType := dynamicStaticType, dynamicStaticType
+		if value.mapValue != nil && len(value.mapValue.entries) > 0 {
+			keyType = staticTypeFromValue(value.mapValue.entries[0].key)
+			valueType = staticTypeFromValue(value.mapValue.entries[0].value)
+			for _, entry := range value.mapValue.entries[1:] {
+				keyType = joinStaticTypes(keyType, staticTypeFromValue(entry.key))
+				valueType = joinStaticTypes(valueType, staticTypeFromValue(entry.value))
+			}
+		}
+		return staticType{name: "map", params: []staticType{keyType, valueType}}
+	case kindSet:
+		element := dynamicStaticType
+		if value.setValue != nil && len(value.setValue.items) > 0 {
+			element = staticTypeFromValue(value.setValue.items[0])
+			for _, item := range value.setValue.items[1:] {
+				element = joinStaticTypes(element, staticTypeFromValue(item))
+			}
+		}
+		return staticType{name: "set", params: []staticType{element}}
 	case kindStruct:
 		if value.structType != nil {
 			return staticType{name: value.structType.name}

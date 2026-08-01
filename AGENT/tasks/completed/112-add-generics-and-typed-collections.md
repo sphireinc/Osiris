@@ -2,7 +2,7 @@
 
 **Priority:** P1
 **Dependencies:** 110, 111
-**Status:** Blocked
+**Status:** Complete
 
 ## Objective
 
@@ -48,12 +48,34 @@ algorithms can retain compile-time element and result types.
 
 ## Acceptance criteria
 
-- [ ] Generic functions and typed collection forms have one precise checker
+- [x] Generic functions and typed collection forms have one precise checker
       contract.
-- [ ] Specialization/dispatch is deterministic, bounded, and cache-safe.
-- [ ] Concrete element/result types survive every promised execution and codec
+- [x] Specialization/dispatch is deterministic, bounded, and cache-safe.
+- [x] Concrete element/result types survive every promised execution and codec
       boundary.
-- [ ] Focused positive/negative/cross-backend tests and full validation pass.
+- [x] Focused positive/negative/cross-backend tests and full validation pass.
+
+## Completion evidence
+
+- `internal/osiris/parser.go` parses bounded generic declarations, explicit
+  type arguments, recursive parameterized types, and preserves metadata through
+  macro/optimizer expansion and formatting.
+- `internal/osiris/typecheck.go` performs shared substitution and inference,
+  reports arity/conflict/bound failures, infers nested list/result/option/task
+  forms, and enforces invariant parameterized assignability.
+- `internal/osiris/collections.go`, `value.go`, `runtime.go`, and `codec.go`
+  implement ordered persistent maps and sets with scalar key eligibility,
+  duplicate semantics, deterministic rendering/iteration, and validated codec
+  tags.
+- `internal/osiris/ir.go` and `cbackend_native.go` use the documented hybrid
+  strategy: generic bodies use the tagged native ABI while compile-time generic
+  assertions are not emitted as impossible runtime checks; generic declaration
+  metadata is retained in generated artifacts.
+- `internal/osiris/generics_test.go` covers identity, explicit/inferred calls,
+  bounds, higher-order calls, recursion, interpreter/VM parity, map/set order
+  and key validity, codec round trips, and native artifact generation.
+- `AGENT/docs/design/GENERICS.md` is the canonical language/runtime contract.
+- Validation: `GOCACHE=/tmp/osiris-go-cache go test ./...` passed.
 
 ## Non-goals
 

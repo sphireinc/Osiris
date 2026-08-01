@@ -64,6 +64,7 @@ func (macroStmt) stmtNode() {}
 
 type funcStmt struct {
 	Name           string
+	TypeParams     []typeParam
 	Params         []string
 	ParamTypes     []string
 	ParamSpans     []sourceSpan
@@ -72,6 +73,14 @@ type funcStmt struct {
 	Body           Expr
 	Span           sourceSpan
 	NameSpan       sourceSpan
+}
+
+// typeParam describes one generic function parameter. Bounds are ordinary
+// Osiris type expressions; an omitted bound means any concrete type.
+type typeParam struct {
+	Name  string
+	Bound string
+	Span  sourceSpan
 }
 
 // stmtNode operates on funcStmt values and keeps the funcstmt-specific
@@ -338,9 +347,10 @@ type binaryExpr struct {
 func (binaryExpr) exprNode() {}
 
 type callExpr struct {
-	callee Expr
-	args   []Expr
-	Span   sourceSpan
+	callee   Expr
+	args     []Expr
+	typeArgs []string
+	Span     sourceSpan
 }
 
 // exprNode operates on callExpr values and keeps the callexpr-specific
@@ -759,6 +769,10 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		typeParams, err := p.parseTypeParams()
+		if err != nil {
+			return nil, err
+		}
 		if _, err := p.expect(tokenLParen); err != nil {
 			return nil, err
 		}
@@ -788,6 +802,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return funcStmt{
 			Name:           nameTok.text,
+			TypeParams:     typeParams,
 			Params:         params,
 			ParamTypes:     paramTypes,
 			ParamSpans:     paramSpans,
@@ -1101,6 +1116,25 @@ func (p *parser) parseExpr(minPrec int) (Expr, error) {
 func (p *parser) parsePostfix(left Expr) (Expr, error) {
 	for {
 		switch p.peek().kind {
+		case tokenLess:
+			// `<` is also the ordinary relational operator. Speculatively parse
+			// type arguments and restore the lexer/parser state unless the full
+			// `name<types>(...)` shape is present.
+			lexerState := *p.lexer
+			cur, peeked, lexErr := p.cur, p.peeked, p.lexErr
+			span := exprSpan(left)
+			typeArgs, end, err := p.parseTypeArgs()
+			if err == nil && p.peek().kind == tokenLParen {
+				args, callErr := p.parseCallArgs()
+				if callErr != nil {
+					return nil, callErr
+				}
+				left = &callExpr{callee: left, args: args, typeArgs: typeArgs, Span: spanCover(span, spanFromToken(end))}
+				continue
+			}
+			*p.lexer = lexerState
+			p.cur, p.peeked, p.lexErr = cur, peeked, lexErr
+			return left, nil
 		case tokenLParen:
 			span := exprSpan(left)
 			args, err := p.parseCallArgs()
@@ -1419,17 +1453,98 @@ func (p *parser) parseFunctionParams() ([]string, []string, []sourceSpan, error)
 	}
 }
 
-// parseTypeName parses canonical scalar/runtime type names and Go-style
-// function types such as func(u32, string) bool. Generic application is
-// deliberately reserved for task 112.
+func (p *parser) parseTypeParams() ([]typeParam, error) {
+	if !p.match(tokenLess) {
+		return nil, nil
+	}
+	var params []typeParam
+	seen := make(map[string]struct{})
+	for {
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[name.text]; exists {
+			return nil, p.errorf(name, "duplicate type parameter %q", name.text)
+		}
+		seen[name.text] = struct{}{}
+		bound := ""
+		endSpan := spanFromToken(name)
+		p.knownTypes[name.text] = struct{}{}
+		if p.match(tokenColon) {
+			var boundSpan sourceSpan
+			bound, boundSpan, err = p.parseTypeName()
+			if err != nil {
+				return nil, err
+			}
+			endSpan = boundSpan
+		}
+		params = append(params, typeParam{Name: name.text, Bound: bound, Span: spanCover(spanFromToken(name), endSpan)})
+		if p.match(tokenComma) {
+			continue
+		}
+		if _, err := p.expect(tokenGreater); err != nil {
+			return nil, err
+		}
+		return params, nil
+	}
+}
+
+func (p *parser) parseTypeArgs() ([]string, token, error) {
+	if _, err := p.expect(tokenLess); err != nil {
+		return nil, token{}, err
+	}
+	var args []string
+	for {
+		arg, _, err := p.parseTypeName()
+		if err != nil {
+			return nil, token{}, err
+		}
+		args = append(args, arg)
+		if p.match(tokenComma) {
+			continue
+		}
+		end, err := p.expect(tokenGreater)
+		if err != nil {
+			return nil, token{}, err
+		}
+		return args, end, nil
+	}
+}
+
+// parseTypeName parses canonical scalar/runtime type names, parameterized
+// containers, and Go-style function types such as func(u32, string) bool.
 func (p *parser) parseTypeName() (string, sourceSpan, error) {
 	start := p.peek()
 	if start.kind == tokenIdent || start.kind == tokenNull || start.kind == tokenEnum {
 		tok := p.next()
 		if _, known := p.knownTypes[tok.text]; !known {
-			return "", sourceSpan{}, p.errorf(tok, "unknown type %q; generics are not available", tok.text)
+			return "", sourceSpan{}, p.errorf(tok, "unknown type %q", tok.text)
 		}
-		return tok.text, spanFromToken(tok), nil
+		name := tok.text
+		endSpan := spanFromToken(tok)
+		if p.match(tokenLess) {
+			var args []string
+			for {
+				arg, argSpan, err := p.parseTypeName()
+				if err != nil {
+					return "", sourceSpan{}, err
+				}
+				args = append(args, arg)
+				endSpan = argSpan
+				if p.match(tokenComma) {
+					continue
+				}
+				end, err := p.expect(tokenGreater)
+				if err != nil {
+					return "", sourceSpan{}, err
+				}
+				endSpan = spanFromToken(end)
+				break
+			}
+			name += "<" + strings.Join(args, ", ") + ">"
+		}
+		return name, spanCover(spanFromToken(tok), endSpan), nil
 	}
 	if start.kind != tokenFunc {
 		return "", sourceSpan{}, p.errorf(start, "expected type name")
@@ -1470,7 +1585,7 @@ func builtinTypeSet() map[string]struct{} {
 	for _, name := range []string{
 		"number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64",
 		"string", "bool", "null", "list", "tensor", "enum", "function", "error", "result", "option",
-		"stream", "task", "module", "decimal", "fixed", "interval", "modint", "complex", "bigint",
+		"stream", "task", "map", "set", "module", "decimal", "fixed", "interval", "modint", "complex", "bigint",
 		"bigfloat", "quantity", "dual", "duration", "datetime", "location",
 	} {
 		set[name] = struct{}{}

@@ -448,6 +448,43 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 			}
 		}
 		return nil
+	case kindMap:
+		if err := buf.WriteByte(0x20); err != nil {
+			return err
+		}
+		count := 0
+		if v.mapValue != nil {
+			count = len(v.mapValue.entries)
+		}
+		buf.Write(appendUvarint(nil, uint64(count)))
+		if v.mapValue != nil {
+			for _, entry := range v.mapValue.entries {
+				if err := encodeInto(buf, entry.key); err != nil {
+					return err
+				}
+				if err := encodeInto(buf, entry.value); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	case kindSet:
+		if err := buf.WriteByte(0x21); err != nil {
+			return err
+		}
+		count := 0
+		if v.setValue != nil {
+			count = len(v.setValue.items)
+		}
+		buf.Write(appendUvarint(nil, uint64(count)))
+		if v.setValue != nil {
+			for _, item := range v.setValue.items {
+				if err := encodeInto(buf, item); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	case kindDuration:
 		if err := buf.WriteByte(0x1a); err != nil {
 			return err
@@ -958,6 +995,50 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			items = append(items, item)
 		}
 		return listValue(items), nil
+	case 0x20:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		entries := make([]mapEntry, 0, n)
+		for i := uint64(0); i < n; i++ {
+			key, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			value, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			if !mapKeyAllowed(key) {
+				return nullValue(), fmt.Errorf("encoded map key %s is not hashable", key.Kind())
+			}
+			if mapFind(entries, key) >= 0 {
+				return nullValue(), fmt.Errorf("encoded map contains duplicate key")
+			}
+			entries = append(entries, mapEntry{key: key, value: value})
+		}
+		return mapValueOf(entries), nil
+	case 0x21:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		items := make([]Value, 0, n)
+		for i := uint64(0); i < n; i++ {
+			item, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			if !mapKeyAllowed(item) {
+				return nullValue(), fmt.Errorf("encoded set value %s is not hashable", item.Kind())
+			}
+			if containsValue(items, item) {
+				return nullValue(), fmt.Errorf("encoded set contains duplicate value")
+			}
+			items = append(items, item)
+		}
+		return setValueOf(items), nil
 	case 0x1a:
 		value, err := cur.varint()
 		if err != nil {

@@ -77,7 +77,7 @@ func cloneExpr(expr Expr) Expr {
 		for i := range n.args {
 			args[i] = cloneExpr(n.args[i])
 		}
-		return &callExpr{callee: cloneExpr(n.callee), args: args, Span: n.Span}
+		return &callExpr{callee: cloneExpr(n.callee), args: args, typeArgs: append([]string(nil), n.typeArgs...), Span: n.Span}
 	case *memberExpr:
 		return &memberExpr{object: cloneExpr(n.object), name: n.name, Span: n.Span}
 	case *listExpr:
@@ -136,6 +136,7 @@ func cloneStmt(stmt Stmt) Stmt {
 		params := append([]string(nil), s.Params...)
 		return funcStmt{
 			Name:           s.Name,
+			TypeParams:     append([]typeParam(nil), s.TypeParams...),
 			Params:         params,
 			ParamTypes:     append([]string(nil), s.ParamTypes...),
 			ParamSpans:     append([]sourceSpan(nil), s.ParamSpans...),
@@ -374,6 +375,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			}
 			out = append(out, funcStmt{
 				Name:           st.Name,
+				TypeParams:     append([]typeParam(nil), st.TypeParams...),
 				Params:         append([]string(nil), st.Params...),
 				ParamTypes:     append([]string(nil), st.ParamTypes...),
 				ParamSpans:     append([]sourceSpan(nil), st.ParamSpans...),
@@ -479,7 +481,7 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 			}
 			args[i] = arg
 		}
-		return &callExpr{callee: callee, args: args, Span: n.Span}, nil
+		return &callExpr{callee: callee, args: args, typeArgs: append([]string(nil), n.typeArgs...), Span: n.Span}, nil
 	case *memberExpr:
 		obj, err := e.expandExpr(n.object, env, defs, depth+1)
 		if err != nil {
@@ -1015,7 +1017,7 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 			}
 			callArgs[i] = arg
 		}
-		return &callExpr{callee: callee, args: callArgs}, nil
+		return &callExpr{callee: callee, args: callArgs, typeArgs: append([]string(nil), n.typeArgs...), Span: n.Span}, nil
 	case *memberExpr:
 		obj, err := e.expandTemplateExpr(n.object, env, defs, params, args, renames, depth+1)
 		if err != nil {
@@ -1142,6 +1144,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			}
 			out = append(out, funcStmt{
 				Name:           fresh,
+				TypeParams:     append([]typeParam(nil), st.TypeParams...),
 				Params:         append([]string(nil), st.Params...),
 				ParamTypes:     append([]string(nil), st.ParamTypes...),
 				ParamSpans:     append([]sourceSpan(nil), st.ParamSpans...),

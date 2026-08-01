@@ -19,6 +19,7 @@ type IRFunction struct {
 	Name          string
 	SourceName    string
 	Params        []string
+	TypeParams    []string
 	ParamTypes    []string
 	ResultType    string
 	Captures      []string
@@ -848,6 +849,7 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		Name:       label,
 		SourceName: st.Name,
 		Params:     append([]string(nil), st.Params...),
+		TypeParams: typeParamNames(st.TypeParams),
 		ParamTypes: append([]string(nil), st.ParamTypes...),
 		ResultType: st.ReturnType,
 		Captures:   nil,
@@ -878,8 +880,10 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		if i < len(st.ParamSpans) {
 			span = st.ParamSpans[i]
 		}
-		child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ParamTypes[i], Args: []string{child.env[param]}, Span: span})
-		child.env[param] = checked
+		if !containsGenericTypeName(st.ParamTypes[i], st.TypeParams) {
+			child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ParamTypes[i], Args: []string{child.env[param]}, Span: span})
+			child.env[param] = checked
+		}
 	}
 
 	result, err := child.evalExpr(st.Body)
@@ -889,8 +893,10 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	if !child.terminated() {
 		if st.ReturnType != "" {
 			checked := child.newTemp()
-			child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ReturnType, Args: []string{result}, Span: st.ReturnTypeSpan})
-			result = checked
+			if !containsGenericTypeName(st.ReturnType, st.TypeParams) {
+				child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ReturnType, Args: []string{result}, Span: st.ReturnTypeSpan})
+				result = checked
+			}
 		}
 		child.emitTerm(&irReturn{Value: result, HasValue: true})
 	}
@@ -906,6 +912,31 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	b.env[st.Name] = dest
 	b.locals[st.Name] = struct{}{}
 	return false, nil
+}
+
+func containsGenericTypeName(text string, params []typeParam) bool {
+	if len(params) == 0 || text == "" {
+		return false
+	}
+	typ, err := parseStaticType(text)
+	if err != nil {
+		return false
+	}
+	var visit func(staticType) bool
+	visit = func(current staticType) bool {
+		for _, param := range params {
+			if current.name == param.Name && len(current.params) == 0 && current.result == nil {
+				return true
+			}
+		}
+		for _, child := range current.params {
+			if visit(child) {
+				return true
+			}
+		}
+		return current.result != nil && visit(*current.result)
+	}
+	return visit(typ)
 }
 
 // lowerDeferredExpr lowers an expression into a zero-argument thunk, or into

@@ -33,6 +33,8 @@ const (
 	kindUint
 	kindString
 	kindList
+	kindMap
+	kindSet
 	kindTensor
 	kindStream
 	kindTask
@@ -56,6 +58,7 @@ type moduleLookup func(ctx context.Context, name string) (Value, error)
 type functionValue struct {
 	name           string
 	signature      string
+	typeParams     []typeParam
 	paramTypes     []string
 	returnType     string
 	builtin        callable
@@ -76,6 +79,20 @@ func (v Value) FunctionType() string {
 		return "function"
 	}
 	return v.fn.signature
+}
+
+// TypeParameters returns the declared generic parameter names for a function
+// value. It is intentionally metadata-only; inference and substitution remain
+// checker responsibilities.
+func (v Value) TypeParameters() []string {
+	if v.kind != kindFunction || v.fn == nil || len(v.fn.typeParams) == 0 {
+		return nil
+	}
+	out := make([]string, len(v.fn.typeParams))
+	for i, param := range v.fn.typeParams {
+		out[i] = param.Name
+	}
+	return out
 }
 
 type moduleValue struct {
@@ -120,6 +137,19 @@ type dualValue struct {
 	tangent float64
 }
 
+type mapEntry struct {
+	key   Value
+	value Value
+}
+
+type mapValue struct {
+	entries []mapEntry
+}
+
+type setValue struct {
+	items []Value
+}
+
 type Value struct {
 	kind        valueKind
 	num         float64
@@ -144,6 +174,8 @@ type Value struct {
 	boo         bool
 	str         string
 	list        []Value
+	mapValue    *mapValue
+	setValue    *setValue
 	shape       []int
 	data        []Value
 	stream      *streamValue
@@ -407,6 +439,14 @@ func stringValue(v string) Value { return Value{kind: kindString, str: v} }
 // without re-deriving the same information.
 func listValue(v []Value) Value { return Value{kind: kindList, list: v} }
 
+func mapValueOf(entries []mapEntry) Value {
+	return Value{kind: kindMap, mapValue: &mapValue{entries: append([]mapEntry(nil), entries...)}}
+}
+
+func setValueOf(items []Value) Value {
+	return Value{kind: kindSet, setValue: &setValue{items: append([]Value(nil), items...)}}
+}
+
 func tupleValue(v []Value) Value {
 	return Value{kind: kindTuple, tuple: append([]Value(nil), v...)}
 }
@@ -468,6 +508,10 @@ func userFunctionValue(name string, params []string, body Expr, closure *scope, 
 }
 
 func typedUserFunctionValue(name string, params, paramTypes []string, returnType string, body Expr, closure *scope, sess *Session) Value {
+	return typedGenericUserFunctionValue(name, nil, params, paramTypes, returnType, body, closure, sess)
+}
+
+func typedGenericUserFunctionValue(name string, typeParams []typeParam, params, paramTypes []string, returnType string, body Expr, closure *scope, sess *Session) Value {
 	signature := ""
 	if len(paramTypes) > 0 || returnType != "" {
 		parts := make([]staticType, len(params))
@@ -490,6 +534,7 @@ func typedUserFunctionValue(name string, params, paramTypes []string, returnType
 	return Value{kind: kindFunction, fn: &functionValue{
 		name:       name,
 		signature:  signature,
+		typeParams: append([]typeParam(nil), typeParams...),
 		paramTypes: append([]string(nil), paramTypes...),
 		returnType: returnType,
 		params:     append([]string(nil), params...),
@@ -511,6 +556,9 @@ func checkFunctionArguments(fn *functionValue, args []Value) ([]Value, error) {
 		if typeName == "" || i >= len(checked) {
 			continue
 		}
+		if fn.hasGenericType(typeName) {
+			continue
+		}
 		value, err := checkBindingType(typeName, checked[i], false)
 		if err != nil {
 			actual := staticTypeFromValue(checked[i]).String()
@@ -525,11 +573,39 @@ func checkFunctionResult(fn *functionValue, value Value) (Value, error) {
 	if fn == nil || fn.returnType == "" {
 		return value, nil
 	}
+	if fn.hasGenericType(fn.returnType) {
+		return value, nil
+	}
 	checked, err := checkBindingType(fn.returnType, value, false)
 	if err != nil {
 		return nullValue(), fmt.Errorf("function %s returns %s, requires %s", fn.name, staticTypeFromValue(value).String(), fn.returnType)
 	}
 	return checked, nil
+}
+
+func (fn *functionValue) hasGenericType(text string) bool {
+	if fn == nil || len(fn.typeParams) == 0 {
+		return false
+	}
+	typ, err := parseStaticType(text)
+	if err != nil {
+		return false
+	}
+	var contains func(staticType) bool
+	contains = func(t staticType) bool {
+		for _, param := range fn.typeParams {
+			if t.name == param.Name && len(t.params) == 0 && t.result == nil {
+				return true
+			}
+		}
+		for _, param := range t.params {
+			if contains(param) {
+				return true
+			}
+		}
+		return t.result != nil && contains(*t.result)
+	}
+	return contains(typ)
 }
 
 // moduleValueOf handles the module value of step in the surrounding package
@@ -660,6 +736,10 @@ func (k valueKind) String() string {
 		return "string"
 	case kindList:
 		return "list"
+	case kindMap:
+		return "map"
+	case kindSet:
+		return "set"
 	case kindTensor:
 		return "tensor"
 	case kindStream:
@@ -746,6 +826,10 @@ func (v Value) Truthy() bool {
 		return v.str != ""
 	case kindList:
 		return len(v.list) != 0
+	case kindMap:
+		return v.mapValue != nil && len(v.mapValue.entries) != 0
+	case kindSet:
+		return v.setValue != nil && len(v.setValue.items) != 0
 	case kindTensor:
 		return len(v.data) != 0
 	case kindStream:
@@ -1497,6 +1581,26 @@ func (v Value) Equal(other Value) bool {
 			}
 		}
 		return true
+	case kindMap:
+		if other.kind != kindMap || v.mapValue == nil || other.mapValue == nil || len(v.mapValue.entries) != len(other.mapValue.entries) {
+			return false
+		}
+		for i, entry := range v.mapValue.entries {
+			if !entry.key.Equal(other.mapValue.entries[i].key) || !entry.value.Equal(other.mapValue.entries[i].value) {
+				return false
+			}
+		}
+		return true
+	case kindSet:
+		if other.kind != kindSet || v.setValue == nil || other.setValue == nil || len(v.setValue.items) != len(other.setValue.items) {
+			return false
+		}
+		for i, item := range v.setValue.items {
+			if !item.Equal(other.setValue.items[i]) {
+				return false
+			}
+		}
+		return true
 	case kindTuple:
 		if other.kind != kindTuple || len(v.tuple) != len(other.tuple) {
 			return false
@@ -1934,6 +2038,34 @@ func (v Value) String() string {
 		}
 		b.WriteByte(']')
 		return b.String()
+	case kindMap:
+		var b bytes.Buffer
+		b.WriteString("map{")
+		if v.mapValue != nil {
+			for i, entry := range v.mapValue.entries {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(entry.key.String())
+				b.WriteString(": ")
+				b.WriteString(entry.value.String())
+			}
+		}
+		b.WriteByte('}')
+		return b.String()
+	case kindSet:
+		var b bytes.Buffer
+		b.WriteString("set{")
+		if v.setValue != nil {
+			for i, item := range v.setValue.items {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(item.String())
+			}
+		}
+		b.WriteByte('}')
+		return b.String()
 	case kindTuple:
 		var b bytes.Buffer
 		b.WriteByte('(')
@@ -2153,6 +2285,24 @@ func (v Value) toInterface() any {
 		items := make([]any, len(v.list))
 		for i := range v.list {
 			items[i] = v.list[i].toInterface()
+		}
+		return items
+	case kindMap:
+		entries := make([]any, 0)
+		if v.mapValue != nil {
+			entries = make([]any, len(v.mapValue.entries))
+			for i, entry := range v.mapValue.entries {
+				entries[i] = []any{entry.key.toInterface(), entry.value.toInterface()}
+			}
+		}
+		return entries
+	case kindSet:
+		items := make([]any, 0)
+		if v.setValue != nil {
+			items = make([]any, len(v.setValue.items))
+			for i := range v.setValue.items {
+				items[i] = v.setValue.items[i].toInterface()
+			}
 		}
 		return items
 	case kindTuple:

@@ -107,7 +107,18 @@ func formatStmt(stmt Stmt) string {
 				params[i] += " " + s.ParamTypes[i]
 			}
 		}
-		signature := "func " + s.Name + "(" + strings.Join(params, ", ") + ")"
+		signature := "func " + s.Name
+		if len(s.TypeParams) > 0 {
+			typeParams := make([]string, len(s.TypeParams))
+			for i, param := range s.TypeParams {
+				typeParams[i] = param.Name
+				if param.Bound != "" {
+					typeParams[i] += ": " + param.Bound
+				}
+			}
+			signature += "<" + strings.Join(typeParams, ", ") + ">"
+		}
+		signature += "(" + strings.Join(params, ", ") + ")"
 		if s.ReturnType != "" {
 			signature += " " + s.ReturnType
 		}
@@ -158,6 +169,16 @@ func formatExpr(expr Expr, parentPrec int) string {
 	case *callExpr:
 		var b strings.Builder
 		b.WriteString(formatExpr(n.callee, precPostfix))
+		if len(n.typeArgs) > 0 {
+			b.WriteByte('<')
+			for i, arg := range n.typeArgs {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(arg)
+			}
+			b.WriteByte('>')
+		}
 		b.WriteByte('(')
 		for i, arg := range n.args {
 			if i > 0 {

@@ -13,7 +13,7 @@ func isBindingTypeName(name string) bool {
 	switch name {
 	case "number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
 		"f32", "f64", "string", "bool", "null", "list", "tensor", "enum",
-		"function", "error", "result", "option", "stream", "task", "module",
+		"function", "error", "result", "option", "stream", "task", "module", "map", "set",
 		"decimal", "fixed", "interval", "modint", "complex", "bigint",
 		"bigfloat", "quantity", "dual", "duration", "datetime", "location":
 		return true
@@ -23,6 +23,17 @@ func isBindingTypeName(name string) bool {
 }
 
 func checkBindingType(name string, value Value, allowDefaultInteger bool) (Value, error) {
+	if strings.Contains(name, "<") {
+		expected, err := parseStaticType(name)
+		if err != nil {
+			return nullValue(), err
+		}
+		actual := staticTypeFromValue(value)
+		if runtimeStaticTypeMatches(expected, actual) {
+			return value, nil
+		}
+		return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", name, name, actual.String())
+	}
 	if strings.HasPrefix(name, "func(") {
 		expected, err := parseStaticType(name)
 		if err != nil {
@@ -67,6 +78,24 @@ func checkBindingType(name string, value Value, allowDefaultInteger bool) (Value
 		return value, nil
 	}
 	return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", name, name, value.Kind())
+}
+
+func runtimeStaticTypeMatches(expected, actual staticType) bool {
+	if expected.isDynamic() || actual.isDynamic() {
+		return true
+	}
+	if expected.isFunction() {
+		return actual.isFunction() && staticTypesEqual(expected, actual)
+	}
+	if expected.name != actual.name || len(expected.params) != len(actual.params) {
+		return false
+	}
+	for i := range expected.params {
+		if !runtimeStaticTypeMatches(expected.params[i], actual.params[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func bindingTypeMatches(name string, value Value) bool {
@@ -114,6 +143,10 @@ func bindingTypeMatches(name string, value Value) bool {
 		return value.kind == kindStream
 	case "task":
 		return value.kind == kindTask
+	case "map":
+		return value.kind == kindMap
+	case "set":
+		return value.kind == kindSet
 	case "module":
 		return value.kind == kindModule
 	case "decimal":

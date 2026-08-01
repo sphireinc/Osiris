@@ -494,7 +494,7 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 			if !ok {
 				continue
 			}
-			value := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, st.Body, functions, ev.session)
+			value := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, st.Body, functions, ev.session)
 			functions.items[st.Name] = binding{expr: &literalExpr{value: value}, env: functions}
 		}
 		if len(functions.items) > 0 {
@@ -2389,6 +2389,15 @@ func numericBuiltin(args []Value, fn func([]float64) (Value, error)) (Value, err
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func registerBuiltins(dst map[string]Builtin) {
+	dst["map_new"] = mapNewValue
+	dst["map_set"] = mapSetValue
+	dst["map_get"] = mapGetValue
+	dst["map_keys"] = mapKeysValue
+	dst["map_values"] = mapValuesValue
+	dst["set_new"] = setNewValue
+	dst["set_add"] = setAddValue
+	dst["set_has"] = setHasValue
+	dst["set_values"] = setValuesValue
 	dst["hash"] = func(args []Value) (Value, error) {
 		return stringValue(hashValue(args)), nil
 	}
@@ -2548,6 +2557,16 @@ func registerBuiltins(dst map[string]Builtin) {
 		switch args[0].kind {
 		case kindList:
 			return numberValue(float64(len(args[0].list))), nil
+		case kindMap:
+			if args[0].mapValue == nil {
+				return numberValue(0), nil
+			}
+			return numberValue(float64(len(args[0].mapValue.entries))), nil
+		case kindSet:
+			if args[0].setValue == nil {
+				return numberValue(0), nil
+			}
+			return numberValue(float64(len(args[0].setValue.items))), nil
 		case kindTensor:
 			return numberValue(float64(len(args[0].data))), nil
 		case kindString:

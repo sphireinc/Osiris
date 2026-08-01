@@ -344,7 +344,7 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 	if err != nil {
 		return nil, err
 	}
-	fn := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, expanded, cur, s)
+	fn := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, expanded, cur, s)
 	for search := cur; search != nil; search = search.parent {
 		candidate, ok := search.items[st.Name]
 		if !ok {
@@ -356,6 +356,7 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 		}
 		placeholder := literal.value.fn
 		placeholder.signature = fn.fn.signature
+		placeholder.typeParams = append(placeholder.typeParams[:0], st.TypeParams...)
 		placeholder.paramTypes = append(placeholder.paramTypes[:0], st.ParamTypes...)
 		placeholder.returnType = st.ReturnType
 		placeholder.params = append(placeholder.params[:0], st.Params...)
@@ -394,7 +395,7 @@ func (s *Session) predeclareFunctionScope(stmts []Stmt, parent *scope) *scope {
 		if !ok {
 			continue
 		}
-		value := typedUserFunctionValue(st.Name, st.Params, st.ParamTypes, st.ReturnType, st.Body, group, s)
+		value := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, st.Body, group, s)
 		value.fn.group = group
 		value.fn.predeclared = true
 		group.items[st.Name] = binding{expr: &literalExpr{value: value, Span: st.NameSpan}, env: group}

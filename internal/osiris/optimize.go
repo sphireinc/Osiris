@@ -139,6 +139,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		}
 		return funcStmt{
 			Name:           s.Name,
+			TypeParams:     append([]typeParam(nil), s.TypeParams...),
 			Params:         append([]string(nil), s.Params...),
 			ParamTypes:     append([]string(nil), s.ParamTypes...),
 			ParamSpans:     append([]sourceSpan(nil), s.ParamSpans...),
@@ -283,7 +284,7 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 				return optimizeOrCall(args)
 			}
 		}
-		return &callExpr{callee: callee, args: args}
+		return &callExpr{callee: callee, args: args, typeArgs: append([]string(nil), n.typeArgs...), Span: n.Span}
 	case *listExpr:
 		items := make([]Expr, len(n.items))
 		for i, item := range n.items {

@@ -64,6 +64,12 @@ func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error
 	b.WriteString(strings.ReplaceAll(strings.TrimSpace(prog.SourceName), "\n", " "))
 	b.WriteByte('\n')
 	for _, fn := range prog.Functions[1:] {
+		if len(fn.TypeParams) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "// generic %s<%s> uses the shared tagged ABI\n", fn.SourceName, strings.Join(fn.TypeParams, ", "))
+	}
+	for _, fn := range prog.Functions[1:] {
 		if err := emitCFunction(&b, fn, false, functions, functionNames, moduleIdentities[fn.Name], complexValues, options.LinalgProviderSource != "", prog.SourceName); err != nil {
 			return "", err
 		}
@@ -1107,10 +1113,10 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				if hasProvider {
 					return fmt.Errorf("native C backend: %s provider adapter is not implemented yet", builtin)
 				}
-					return fmt.Errorf("native C backend: %s requires a configured native numerical provider", builtin)
+				return fmt.Errorf("native C backend: %s requires a configured native numerical provider", builtin)
 			}
 			if builtin == "eig" {
-					return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider")
+				return fmt.Errorf("native C backend: eig requires a configured ABI v2 native numerical provider")
 			}
 			return fmt.Errorf("native C backend: builtin %q is not supported yet", builtins[in.Text])
 		}
