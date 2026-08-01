@@ -2,7 +2,9 @@ package osiris
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -29,6 +31,70 @@ func runtimeStructType(st structStmt) *structTypeValue {
 		typ.byName[field.Name] = i
 	}
 	return typ
+}
+
+func functionBindingName(st funcStmt) string {
+	if st.ReceiverType != "" {
+		return st.ReceiverType + "." + st.Name
+	}
+	return st.Name
+}
+
+// iterationItems is the shared eager boundary used by the interpreter and
+// the compatibility VM path. Resource-backed streams remain cancellation
+// aware and are consumed one line at a time; finite values preserve their
+// existing ordering and ownership.
+func iterationItems(ctx context.Context, iter Value) ([]Value, error) {
+	switch iter.kind {
+	case kindList:
+		return append([]Value(nil), iter.list...), nil
+	case kindTuple:
+		return append([]Value(nil), iter.tuple...), nil
+	case kindString:
+		runes := []rune(iter.str)
+		items := make([]Value, len(runes))
+		for i, r := range runes {
+			items[i] = stringValue(string(r))
+		}
+		return items, nil
+	case kindTensor:
+		return append([]Value(nil), iter.data...), nil
+	case kindMap:
+		items := make([]Value, len(iter.mapValue.entries))
+		for i, entry := range iter.mapValue.entries {
+			items[i] = entry.key
+		}
+		return items, nil
+	case kindSet:
+		return append([]Value(nil), iter.setValue.items...), nil
+	case kindStream:
+		if iter.stream == nil {
+			return nil, fmt.Errorf("cannot iterate a nil stream")
+		}
+		var items []Value
+		for {
+			if ctx != nil {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+				}
+			}
+			value, err := iter.stream.readLineContext(ctx)
+			if errors.Is(err, io.EOF) {
+				return items, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			if value.kind == kindNull {
+				return items, nil
+			}
+			items = append(items, value)
+		}
+	default:
+		return nil, fmt.Errorf("value of type %s does not implement Iterable", iter.Kind())
+	}
 }
 
 // NewSession constructs a new session and wires together the internal caches,
@@ -208,6 +274,17 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		}
 		s.scope = scope
 		return nil, false, nil
+	case traitStmt:
+		return nil, false, nil
+	case implStmt:
+		for _, method := range st.Methods {
+			scope, err := s.declareFunction(s.scope, method)
+			if err != nil {
+				return nil, false, err
+			}
+			s.scope = scope
+		}
+		return nil, false, nil
 	case returnStmt, whileStmt, forStmt, breakStmt, continueStmt:
 		nextScope, err := s.execControlStmt(stmt, s.scope, baseSource, stack)
 		if err != nil {
@@ -345,8 +422,12 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 		return nil, err
 	}
 	fn := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, expanded, cur, s)
+	if fn.fn != nil {
+		fn.fn.receiver, fn.fn.receiverType = st.Receiver, st.ReceiverType
+	}
+	key := functionBindingName(st)
 	for search := cur; search != nil; search = search.parent {
-		candidate, ok := search.items[st.Name]
+		candidate, ok := search.items[key]
 		if !ok {
 			continue
 		}
@@ -377,10 +458,13 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 		fn.fn.closure = selfScope
 		fn.fn.predeclared = false
 	}
+	if st.ReceiverType != "" {
+		s.rt.registerMethod(st.ReceiverType, st.Name, fn)
+	}
 	return &scope{
 		parent: cur,
 		items: map[string]binding{
-			st.Name: {expr: &literalExpr{value: fn}, env: cur},
+			key: {expr: &literalExpr{value: fn}, env: cur},
 		},
 	}, nil
 }
@@ -391,14 +475,28 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 func (s *Session) predeclareFunctionScope(stmts []Stmt, parent *scope) *scope {
 	group := &scope{parent: parent, items: make(map[string]binding)}
 	for _, stmt := range stmts {
-		st, ok := stmt.(funcStmt)
-		if !ok {
+		methods := []funcStmt{}
+		switch st := stmt.(type) {
+		case funcStmt:
+			methods = append(methods, st)
+		case implStmt:
+			methods = append(methods, st.Methods...)
+		default:
 			continue
 		}
-		value := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, st.Body, group, s)
-		value.fn.group = group
-		value.fn.predeclared = true
-		group.items[st.Name] = binding{expr: &literalExpr{value: value, Span: st.NameSpan}, env: group}
+		for _, st := range methods {
+			value := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, st.Body, group, s)
+			if value.fn != nil {
+				value.fn.receiver, value.fn.receiverType = st.Receiver, st.ReceiverType
+			}
+			value.fn.group = group
+			value.fn.predeclared = true
+			key := functionBindingName(st)
+			group.items[key] = binding{expr: &literalExpr{value: value, Span: st.NameSpan}, env: group}
+			if st.ReceiverType != "" {
+				s.rt.registerMethod(st.ReceiverType, st.Name, value)
+			}
+		}
 	}
 	if len(group.items) == 0 {
 		return parent
@@ -462,7 +560,7 @@ func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack 
 		}
 		return cur, err
 	}
-	items, err := iter.AsList()
+	items, err := iterationItems(s.ctx, iter)
 	if err != nil {
 		return cur, err
 	}

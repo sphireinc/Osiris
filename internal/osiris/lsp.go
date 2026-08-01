@@ -844,6 +844,20 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			return nil, err
 		}
 		return scope.push(def), nil
+	case traitStmt:
+		def := &symbolDef{name: st.Name, kind: "trait", detail: fmt.Sprintf("trait with %d methods", len(st.Methods)), uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		for _, method := range st.Methods {
+			a.defs = append(a.defs, &symbolDef{name: st.Name + "." + method.Name, kind: "trait method", detail: functionDetail(method), uri: uri, span: method.NameSpan})
+		}
+		return scope.push(def), nil
+	case implStmt:
+		for _, method := range st.Methods {
+			if _, err := analyzeStmt(a, scope, uri, method, inBlock); err != nil {
+				return nil, err
+			}
+		}
+		return scope, nil
 	case funcStmt:
 		def := scope.lookup(st.Name)
 		predeclared := def != nil && def.kind == "function" && def.span == st.NameSpan
@@ -1102,7 +1116,11 @@ func functionDetail(st funcStmt) string {
 	if err != nil {
 		return "function declaration"
 	}
-	return "func " + st.Name + strings.TrimPrefix(signature.String(), "func")
+	prefix := "func "
+	if st.ReceiverType != "" {
+		prefix = "func (" + st.Receiver + " " + st.ReceiverType + ") "
+	}
+	return prefix + st.Name + strings.TrimPrefix(signature.String(), "func")
 }
 
 // packageDetail handles the package detail step in the surrounding package and

@@ -171,6 +171,10 @@ func stmtSpan(stmt Stmt) sourceSpan {
 		return st.Span
 	case exportStmt:
 		return st.Span
+	case traitStmt:
+		return st.Span
+	case implStmt:
+		return st.Span
 	default:
 		return sourceSpan{}
 	}

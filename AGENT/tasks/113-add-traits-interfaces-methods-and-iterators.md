@@ -2,7 +2,7 @@
 
 **Priority:** P1
 **Dependencies:** 110, 111, 112
-**Status:** Blocked
+**Status:** Blocked — core language/runtime slice implemented; native ABI and extended LSP tooling remain
 
 ## Objective
 
@@ -51,3 +51,34 @@ receiver methods, and a standard iteration protocol.
 
 - No class inheritance, implicit extension-method search, or unrestricted
   runtime monkey patching.
+
+## Implementation evidence and remaining blockers
+
+Implemented in this pass:
+
+- Nominal `trait`/`interface` declarations, explicit `impl Trait for Type`
+  blocks, receiver syntax, deterministic method/coherence diagnostics, trait
+  assignments, receiver binding, and dynamic member dispatch.
+- Shared iteration boundary for lists, tuples, Unicode strings, tensors, maps,
+  sets, and readable streams, including context cancellation at stream reads.
+- Generic trait-bound checking, formatter/macro/optimizer/inference/source-map
+  propagation, LSP definitions/hover/rename analysis, IR receiver metadata,
+  and an explicit native compile-time rejection for dispatch without a vtable
+  ABI.
+- Design documentation, canonical reference entries, and focused tests for
+  interpreter/VM entry parity, standalone receiver methods, nominal bounds,
+  conformance diagnostics, and the native IR boundary.
+
+Validation evidence:
+
+- `GOCACHE=/tmp/osiris-go-cache go test ./...`
+- `GOCACHE=/tmp/osiris-go-cache go vet ./...`
+- `GOCACHE=/tmp/osiris-go-cache GOMODCACHE=/tmp/osiris-go-modcache go build ./...`
+- `node docs/scripts/check-reference.mjs`
+- `git diff --check`
+
+The task remains blocked until the following acceptance items are implemented
+and tested: native vtable/witness ownership and codec representation,
+completion/signature-help LSP requests, cross-module implementation/tooling
+tests, and the full Iterator<T>/Iterable<T> lazy protocol for task/user types
+plus explicit downcast/type-test behavior.

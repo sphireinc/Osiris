@@ -212,6 +212,9 @@ type typeChecker struct {
 	aliases   map[string]string
 	newtypes  map[string]string
 	functions map[string]funcStmt
+	traits    map[string]traitStmt
+	methods   map[string]map[string]staticType
+	impls     map[string]map[string]struct{}
 }
 
 type staticStructDef struct {
@@ -248,6 +251,9 @@ func (rt *Runtime) CheckProgram(ctx context.Context, prog *Program) (*CheckedPro
 		aliases:   make(map[string]string),
 		newtypes:  make(map[string]string),
 		functions: make(map[string]funcStmt),
+		traits:    make(map[string]traitStmt),
+		methods:   make(map[string]map[string]staticType),
+		impls:     make(map[string]map[string]struct{}),
 	}
 	root := newTypeScope(nil, "main")
 	for name, value := range rt.Constants {
@@ -263,6 +269,8 @@ func (c *typeChecker) checkSeq(stmts []Stmt, scope *typeScope) error {
 	if err := c.checkContext(); err != nil {
 		return err
 	}
+	// Declarations are collected in source order before any body is checked.
+	// This makes trait conformance and method lookup independent of execution.
 	for _, stmt := range stmts {
 		switch st := stmt.(type) {
 		case structStmt:
@@ -282,18 +290,94 @@ func (c *typeChecker) checkSeq(stmts []Stmt, scope *typeScope) error {
 		case newtypeStmt:
 			c.newtypes[st.Name] = st.Target
 			scope.items[st.Name] = staticType{name: st.Name}
+		case traitStmt:
+			if _, exists := c.traits[st.Name]; exists {
+				return c.errorAt(st.NameSpan, "trait %s is declared more than once", st.Name)
+			}
+			c.traits[st.Name] = st
+			scope.items[st.Name] = staticType{name: st.Name}
+			for _, method := range st.Methods {
+				signature, err := staticFunctionType(method)
+				if err != nil {
+					return c.errorAt(method.Span, "%v", err)
+				}
+				if c.methods[st.Name] == nil {
+					c.methods[st.Name] = make(map[string]staticType)
+				}
+				if _, exists := c.methods[st.Name][method.Name]; exists {
+					return c.errorAt(method.NameSpan, "trait %s declares method %s more than once", st.Name, method.Name)
+				}
+				c.methods[st.Name][method.Name] = signature
+			}
+		case implStmt:
+			trait, exists := c.traits[st.Trait]
+			if !exists {
+				return c.errorAt(st.TraitSpan, "cannot implement unknown trait %s", st.Trait)
+			}
+			key := st.Target + "::" + st.Trait
+			if c.impls[key] != nil {
+				return c.errorAt(st.Span, "trait %s is implemented more than once for %s", st.Trait, st.Target)
+			}
+			seen := make(map[string]struct{}, len(st.Methods))
+			for _, method := range st.Methods {
+				if _, duplicate := seen[method.Name]; duplicate {
+					return c.errorAt(method.NameSpan, "method %s is implemented more than once for %s", method.Name, st.Target)
+				}
+				seen[method.Name] = struct{}{}
+				expected, required := c.methods[trait.Name][method.Name]
+				if !required {
+					return c.errorAt(method.NameSpan, "method %s is not declared by trait %s", method.Name, trait.Name)
+				}
+				actual, err := staticFunctionType(method)
+				if err != nil {
+					return c.errorAt(method.Span, "%v", err)
+				}
+				if actual.String() != expected.String() {
+					return c.errorAt(method.Span, "method %s for %s has signature %s, requires %s", method.Name, st.Target, actual.String(), expected.String())
+				}
+				if c.methods[st.Target] == nil {
+					c.methods[st.Target] = make(map[string]staticType)
+				}
+				c.methods[st.Target][method.Name] = actual
+			}
+			for method := range c.methods[trait.Name] {
+				if _, ok := seen[method]; !ok {
+					return c.errorAt(st.Span, "trait %s requires method %s for %s", trait.Name, method, st.Target)
+				}
+			}
+			c.impls[key] = seen
 		}
 	}
-	// Signatures are declared before bodies, so self recursion and mutually
-	// recursive function groups never require evaluation for discovery.
 	for _, stmt := range stmts {
 		if fn, ok := stmt.(funcStmt); ok {
-			c.functions[fn.Name] = fn
+			c.functions[functionBindingName(fn)] = fn
 			signature, err := staticFunctionType(fn)
 			if err != nil {
 				return c.errorAt(fn.Span, "%v", err)
 			}
-			scope.items[fn.Name] = signature
+			scope.items[functionBindingName(fn)] = signature
+			if fn.ReceiverType != "" {
+				if c.methods[fn.ReceiverType] == nil {
+					c.methods[fn.ReceiverType] = make(map[string]staticType)
+				}
+				if _, exists := c.methods[fn.ReceiverType][fn.Name]; exists {
+					return c.errorAt(fn.NameSpan, "method %s is declared more than once for %s", fn.Name, fn.ReceiverType)
+				}
+				c.methods[fn.ReceiverType][fn.Name] = signature
+			}
+		}
+		if impl, ok := stmt.(implStmt); ok {
+			for _, method := range impl.Methods {
+				c.functions[functionBindingName(method)] = method
+				signature, err := staticFunctionType(method)
+				if err != nil {
+					return c.errorAt(method.Span, "%v", err)
+				}
+				// Methods are found through the receiver type, not as free
+				// functions, but retaining the qualified name makes recursive
+				// lookup and diagnostics deterministic.
+				scope.items[functionBindingName(method)] = signature
+			}
 		}
 	}
 	for _, stmt := range stmts {
@@ -340,6 +424,15 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 		c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: st.Name, Scope: scope.name, Type: bindingType.String(), Span: st.NameSpan})
 	case funcStmt:
 		return c.checkFunction(st, scope)
+	case traitStmt, implStmt:
+		if impl, ok := stmt.(implStmt); ok {
+			for _, method := range impl.Methods {
+				if err := c.checkFunction(method, scope); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	case emitStmt:
 		_, err := c.checkExpr(st.Expr, scope)
 		return err
@@ -390,9 +483,12 @@ func (c *typeChecker) checkFunction(st funcStmt, parent *typeScope) error {
 	if err != nil {
 		return c.errorAt(st.Span, "%v", err)
 	}
-	parent.items[st.Name] = signature
+	parent.items[functionBindingName(st)] = signature
 	child := newTypeScope(parent, st.Name)
-	child.items[st.Name] = signature
+	child.items[functionBindingName(st)] = signature
+	if st.ReceiverType != "" {
+		child.items[st.Receiver] = staticType{name: st.ReceiverType}
+	}
 	for _, param := range st.TypeParams {
 		child.items[param.Name] = staticType{name: param.Name}
 	}
@@ -494,7 +590,13 @@ func (c *typeChecker) checkExpr(expr Expr, scope *typeScope) (result checkedExpr
 			if field, exists := def.fields[n.name]; exists {
 				return checkedExpr{typ: field}, nil
 			}
+			if method, exists := c.methods[object.typ.name][n.name]; exists {
+				return checkedExpr{typ: method}, nil
+			}
 			return checkedExpr{}, c.errorAt(n.NameSpan, "struct %s has no field %q", object.typ.name, n.name)
+		}
+		if method, exists := c.methods[object.typ.name][n.name]; exists {
+			return checkedExpr{typ: method}, nil
 		}
 		return checkedExpr{typ: dynamicStaticType}, nil
 	case *unaryExpr:
@@ -583,15 +685,22 @@ func (c *typeChecker) checkExpr(expr Expr, scope *typeScope) (result checkedExpr
 	case *blockExpr:
 		child := newTypeScope(scope, scope.name)
 		for _, stmt := range n.stmts {
-			fn, ok := stmt.(funcStmt)
-			if !ok {
-				continue
+			switch st := stmt.(type) {
+			case funcStmt:
+				signature, signatureErr := staticFunctionType(st)
+				if signatureErr != nil {
+					return checkedExpr{}, c.errorAt(st.Span, "%v", signatureErr)
+				}
+				child.items[functionBindingName(st)] = signature
+			case implStmt:
+				for _, method := range st.Methods {
+					signature, signatureErr := staticFunctionType(method)
+					if signatureErr != nil {
+						return checkedExpr{}, c.errorAt(method.Span, "%v", signatureErr)
+					}
+					child.items[functionBindingName(method)] = signature
+				}
 			}
-			signature, signatureErr := staticFunctionType(fn)
-			if signatureErr != nil {
-				return checkedExpr{}, c.errorAt(fn.Span, "%v", signatureErr)
-			}
-			child.items[fn.Name] = signature
 		}
 		for _, stmt := range n.stmts {
 			if ret, ok := stmt.(returnStmt); ok {
@@ -858,7 +967,7 @@ func (c *typeChecker) checkGenericCall(call *callExpr, fn funcStmt, scope *typeS
 			if parseErr != nil {
 				return checkedExpr{}, c.errorAt(param.Span, "invalid bound for %s: %v", param.Name, parseErr)
 			}
-			if !satisfiesGenericBound(bound, arg) {
+			if !c.satisfiesGenericBound(bound, arg) {
 				return checkedExpr{}, c.errorAt(call.Span, "type argument %s for %s does not satisfy bound %s", arg.String(), param.Name, bound.String())
 			}
 		}
@@ -945,6 +1054,16 @@ func satisfiesGenericBound(bound, actual staticType) bool {
 	return staticTypesEqual(bound, actual)
 }
 
+func (c *typeChecker) satisfiesGenericBound(bound, actual staticType) bool {
+	if satisfiesGenericBound(bound, actual) {
+		return true
+	}
+	if _, ok := c.traits[bound.name]; !ok {
+		return false
+	}
+	return c.impls[actual.name+"::"+bound.name] != nil
+}
+
 func (c *typeChecker) checkStructExpr(expr *structExpr, scope *typeScope) (checkedExpr, error) {
 	if _, ok := c.structs[expr.TypeName]; !ok {
 		return checkedExpr{}, c.errorAt(expr.Span, "unknown struct %q", expr.TypeName)
@@ -989,6 +1108,12 @@ func (c *typeChecker) requireAssignable(expected, actual staticType, expr Expr) 
 	}
 	if expected.name == actual.name && len(expected.params) == 0 && actual.result == nil {
 		return actual, nil
+	}
+	if _, trait := c.traits[expected.name]; trait {
+		if c.impls[actual.name+"::"+expected.name] == nil {
+			return actual, fmt.Errorf("type %s does not implement trait %s", actual.name, expected.name)
+		}
+		return expected, nil
 	}
 	if expected.name == actual.name && len(expected.params) > 0 && len(actual.params) == 0 && actual.result == nil {
 		return expected, nil

@@ -18,6 +18,7 @@ type IRProgram struct {
 type IRFunction struct {
 	Name          string
 	SourceName    string
+	ReceiverType  string
 	Params        []string
 	TypeParams    []string
 	ParamTypes    []string
@@ -723,6 +724,16 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		}
 		b.pb.enums[st.Name] = cases
 		return false, nil
+	case traitStmt:
+		return false, nil
+	case implStmt:
+		for _, method := range st.Methods {
+			method = irMethodFunction(method)
+			if _, err := b.lowerFuncStmt(method); err != nil {
+				return false, err
+			}
+		}
+		return false, nil
 	case structStmt, typeDeclStmt, newtypeStmt:
 		return false, fmt.Errorf("native C backend: product-type declarations are not yet supported")
 	case letStmt:
@@ -772,6 +783,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.emitInstr(IRInstr{Op: "emit", Args: []string{value}})
 		return false, nil
 	case funcStmt:
+		st = irMethodFunction(st)
 		return b.lowerFuncStmt(st)
 	case whileStmt:
 		return b.lowerWhileStmt(st)
@@ -846,13 +858,14 @@ func (b *irBuilder) nextLoopIndex(name string) string {
 func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	label := b.pb.nextFuncLabel(st.Name)
 	fn := &IRFunction{
-		Name:       label,
-		SourceName: st.Name,
-		Params:     append([]string(nil), st.Params...),
-		TypeParams: typeParamNames(st.TypeParams),
-		ParamTypes: append([]string(nil), st.ParamTypes...),
-		ResultType: st.ReturnType,
-		Captures:   nil,
+		Name:         label,
+		SourceName:   st.Name,
+		ReceiverType: st.ReceiverType,
+		Params:       append([]string(nil), st.Params...),
+		TypeParams:   typeParamNames(st.TypeParams),
+		ParamTypes:   append([]string(nil), st.ParamTypes...),
+		ResultType:   st.ReturnType,
+		Captures:     nil,
 	}
 
 	// Bind the function value in the enclosing scope before lowering the body so
@@ -912,6 +925,16 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	b.env[st.Name] = dest
 	b.locals[st.Name] = struct{}{}
 	return false, nil
+}
+
+func irMethodFunction(st funcStmt) funcStmt {
+	if st.ReceiverType == "" {
+		return st
+	}
+	st.Name = functionBindingName(st)
+	st.Params = append([]string{st.Receiver}, st.Params...)
+	st.ParamTypes = append([]string{st.ReceiverType}, st.ParamTypes...)
+	return st
 }
 
 func containsGenericTypeName(text string, params []typeParam) bool {
@@ -2029,6 +2052,10 @@ func collectScopeNamesStmt(stmt Stmt, out map[string]struct{}) {
 		out[st.Alias] = struct{}{}
 	case funcStmt:
 		out[st.Name] = struct{}{}
+	case implStmt:
+		for _, method := range st.Methods {
+			out[functionBindingName(method)] = struct{}{}
+		}
 	case whileStmt:
 		collectScopeNamesExprInto(st.Body, out)
 	case forStmt:

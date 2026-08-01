@@ -16,6 +16,11 @@ func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error
 	if prog == nil || len(prog.Functions) == 0 || prog.Functions[0].Name != "main" {
 		return "", fmt.Errorf("native C backend requires a top-level main function")
 	}
+	for _, fn := range prog.Functions {
+		if fn != nil && fn.ReceiverType != "" {
+			return "", fmt.Errorf("native C backend: receiver methods and interface dispatch require a vtable ABI; use the interpreter or VM")
+		}
+	}
 	functions := make(map[string]*IRFunction)
 	functionNames := make(map[string]string)
 	for index, candidate := range prog.Functions[1:] {

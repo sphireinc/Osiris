@@ -825,7 +825,7 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			regs[instr.dst] = value
 		case vmOpMember:
 			obj := regs[instr.a]
-			v, err := resolveMember(r.ctx, obj, instr.name)
+			v, err := resolveMember(r.ctx, obj, instr.name, r.rt)
 			if err != nil {
 				return nullValue(), err
 			}
@@ -1238,6 +1238,15 @@ func containsControlFlow(prog *Program) bool {
 func stmtContainsControl(stmt Stmt) bool {
 	switch st := stmt.(type) {
 	case funcStmt, whileStmt, forStmt, returnStmt, breakStmt, continueStmt:
+		return true
+	case traitStmt:
+		return false
+	case implStmt:
+		for _, method := range st.Methods {
+			if method.Body != nil && exprContainsControl(method.Body) {
+				return true
+			}
+		}
 		return true
 	case letStmt:
 		return exprContainsControl(st.Expr)

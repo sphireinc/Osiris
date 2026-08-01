@@ -64,6 +64,8 @@ func (macroStmt) stmtNode() {}
 
 type funcStmt struct {
 	Name           string
+	Receiver       string
+	ReceiverType   string
 	TypeParams     []typeParam
 	Params         []string
 	ParamTypes     []string
@@ -74,6 +76,33 @@ type funcStmt struct {
 	Span           sourceSpan
 	NameSpan       sourceSpan
 }
+
+// traitStmt declares a nominal behavioral contract. Method signatures are
+// intentionally represented with funcStmt so the checker and tooling share
+// the same parameter and return-type surface as ordinary functions.
+type traitStmt struct {
+	Name       string
+	TypeParams []typeParam
+	Methods    []funcStmt
+	Span       sourceSpan
+	NameSpan   sourceSpan
+}
+
+func (traitStmt) stmtNode() {}
+
+// implStmt is expanded by the runtime and checker as a deterministic group of
+// receiver methods. Keeping the group in the AST preserves source structure
+// for formatting and diagnostics.
+type implStmt struct {
+	Trait      string
+	Target     string
+	Methods    []funcStmt
+	Span       sourceSpan
+	TraitSpan  sourceSpan
+	TargetSpan sourceSpan
+}
+
+func (implStmt) stmtNode() {}
 
 // typeParam describes one generic function parameter. Bounds are ordinary
 // Osiris type expressions; an omitted bound means any concrete type.
@@ -656,6 +685,12 @@ func (p *parser) parse() (*Program, error) {
 // It returns Stmt and an error. Callers should only trust the value when the
 // error is nil.
 func (p *parser) parseStmt() (Stmt, error) {
+	if tok := p.peek(); tok.kind == tokenIdent {
+		switch tok.text {
+		case "trait", "interface", "impl":
+			return p.parseBehaviorStmt()
+		}
+	}
 	switch p.peek().kind {
 	case tokenLet:
 		start := p.next()
@@ -764,54 +799,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return macroStmt{Name: nameTok.text, Params: params, Body: body, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
 	case tokenFunc:
-		start := p.next()
-		nameTok, err := p.expect(tokenIdent)
-		if err != nil {
-			return nil, err
-		}
-		typeParams, err := p.parseTypeParams()
-		if err != nil {
-			return nil, err
-		}
-		if _, err := p.expect(tokenLParen); err != nil {
-			return nil, err
-		}
-		params, paramTypes, paramSpans, err := p.parseFunctionParams()
-		if err != nil {
-			return nil, err
-		}
-		returnType := ""
-		var returnTypeSpan sourceSpan
-		if isTypeStart(p.peek().kind) {
-			returnType, returnTypeSpan, err = p.parseTypeName()
-			if err != nil {
-				return nil, err
-			}
-		}
-		var body Expr
-		if p.match(tokenArrow) {
-			body, err = p.parseExpr(0)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			body, err = p.parseBlockExpr()
-			if err != nil {
-				return nil, err
-			}
-		}
-		return funcStmt{
-			Name:           nameTok.text,
-			TypeParams:     typeParams,
-			Params:         params,
-			ParamTypes:     paramTypes,
-			ParamSpans:     paramSpans,
-			ReturnType:     returnType,
-			ReturnTypeSpan: returnTypeSpan,
-			Body:           body,
-			Span:           spanCover(spanFromTokens(start, nameTok), exprSpan(body)),
-			NameSpan:       spanFromToken(nameTok),
-		}, nil
+		return p.parseFunctionStmt("", "", true)
 	case tokenReturn:
 		start := p.next()
 		if p.peek().kind == tokenSemicolon || p.peek().kind == tokenRBrace || p.peek().kind == tokenEOF {
@@ -1016,6 +1004,134 @@ func (p *parser) parseStmt() (Stmt, error) {
 	default:
 		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
 	}
+}
+
+func (p *parser) parseBehaviorStmt() (Stmt, error) {
+	keyword := p.next()
+	if keyword.text == "trait" || keyword.text == "interface" {
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		params, err := p.parseTypeParams()
+		if err != nil {
+			return nil, err
+		}
+		p.knownTypes[name.text] = struct{}{}
+		if _, err := p.expect(tokenLBrace); err != nil {
+			return nil, err
+		}
+		var methods []funcStmt
+		for p.peek().kind != tokenRBrace {
+			method, err := p.parseFunctionStmt("", "", false)
+			if err != nil {
+				return nil, err
+			}
+			methods = append(methods, method)
+			if !p.match(tokenComma) {
+				p.match(tokenSemicolon)
+			}
+		}
+		end, err := p.expect(tokenRBrace)
+		if err != nil {
+			return nil, err
+		}
+		return traitStmt{Name: name.text, TypeParams: params, Methods: methods, Span: spanFromTokens(keyword, end), NameSpan: spanFromToken(name)}, nil
+	}
+
+	trait, err := p.expect(tokenIdent)
+	if err != nil {
+		return nil, err
+	}
+	forTok, err := p.expect(tokenFor)
+	if err != nil {
+		return nil, err
+	}
+	if forTok.text != "for" {
+		return nil, p.errorf(forTok, "impl requires 'for' between trait and target type")
+	}
+	target, targetSpan, err := p.parseTypeName()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(tokenLBrace); err != nil {
+		return nil, err
+	}
+	var methods []funcStmt
+	for p.peek().kind != tokenRBrace {
+		method, err := p.parseFunctionStmt("self", target, true)
+		if err != nil {
+			return nil, err
+		}
+		methods = append(methods, method)
+		p.match(tokenComma)
+		p.match(tokenSemicolon)
+	}
+	end, err := p.expect(tokenRBrace)
+	if err != nil {
+		return nil, err
+	}
+	return implStmt{Trait: trait.text, Target: target, Methods: methods, Span: spanFromTokens(trait, end), TraitSpan: spanFromToken(trait), TargetSpan: targetSpan}, nil
+}
+
+func (p *parser) parseFunctionStmt(receiver, receiverType string, bodyRequired bool) (funcStmt, error) {
+	start := p.peek()
+	if _, err := p.expect(tokenFunc); err != nil {
+		return funcStmt{}, err
+	}
+	if receiver == "" && p.match(tokenLParen) {
+		receiverTok, err := p.expect(tokenIdent)
+		if err != nil {
+			return funcStmt{}, err
+		}
+		typ, _, err := p.parseTypeName()
+		if err != nil {
+			return funcStmt{}, err
+		}
+		if _, err := p.expect(tokenRParen); err != nil {
+			return funcStmt{}, err
+		}
+		receiver, receiverType = receiverTok.text, typ
+	}
+	nameTok, err := p.expect(tokenIdent)
+	if err != nil {
+		return funcStmt{}, err
+	}
+	typeParams, err := p.parseTypeParams()
+	if err != nil {
+		return funcStmt{}, err
+	}
+	if _, err := p.expect(tokenLParen); err != nil {
+		return funcStmt{}, err
+	}
+	params, paramTypes, paramSpans, err := p.parseFunctionParams()
+	if err != nil {
+		return funcStmt{}, err
+	}
+	returnType := ""
+	var returnTypeSpan sourceSpan
+	if isTypeStart(p.peek().kind) {
+		returnType, returnTypeSpan, err = p.parseTypeName()
+		if err != nil {
+			return funcStmt{}, err
+		}
+	}
+	var body Expr
+	if p.match(tokenArrow) {
+		body, err = p.parseExpr(0)
+	} else if bodyRequired {
+		body, err = p.parseBlockExpr()
+	}
+	if err != nil {
+		return funcStmt{}, err
+	}
+	endSpan := returnTypeSpan
+	if body != nil {
+		endSpan = exprSpan(body)
+	}
+	return funcStmt{Name: nameTok.text, Receiver: receiver, ReceiverType: receiverType, TypeParams: typeParams,
+		Params: params, ParamTypes: paramTypes, ParamSpans: paramSpans, ReturnType: returnType,
+		ReturnTypeSpan: returnTypeSpan, Body: body, Span: spanCover(spanFromToken(start), endSpan), NameSpan: spanFromToken(nameTok)}, nil
 }
 
 func (p *parser) parseStructStmt() (Stmt, error) {

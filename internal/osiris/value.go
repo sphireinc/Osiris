@@ -69,6 +69,9 @@ type functionValue struct {
 	group          *scope
 	predeclared    bool
 	session        *Session
+	receiver       string
+	receiverType   string
+	boundReceiver  *Value
 }
 
 // FunctionType returns the canonical static signature retained by a user
@@ -542,6 +545,17 @@ func typedGenericUserFunctionValue(name string, typeParams []typeParam, params, 
 		closure:    closure,
 		session:    sess,
 	}}
+}
+
+func bindMethodReceiver(method, receiver Value) Value {
+	if method.kind != kindFunction || method.fn == nil || method.fn.receiver == "" {
+		return method
+	}
+	copyFn := *method.fn
+	copyFn.params = append([]string{copyFn.receiver}, copyFn.params...)
+	copyFn.paramTypes = append([]string{""}, copyFn.paramTypes...)
+	copyFn.boundReceiver = &receiver
+	return Value{kind: kindFunction, fn: &copyFn}
 }
 
 func checkFunctionArguments(fn *functionValue, args []Value) ([]Value, error) {

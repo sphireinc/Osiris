@@ -20,6 +20,8 @@ type Runtime struct {
 	Builtins        map[string]Builtin
 	ContextBuiltins map[string]contextCallable
 	Constants       map[string]Value
+	methodMu        sync.RWMutex
+	methods         map[string]map[string]Value
 	moduleMu        sync.Mutex
 	modules         map[string]Value
 	registryMu      sync.Mutex
@@ -48,6 +50,7 @@ func NewRuntime() *Runtime {
 		Builtins:        make(map[string]Builtin),
 		ContextBuiltins: make(map[string]contextCallable),
 		Constants:       make(map[string]Value),
+		methods:         make(map[string]map[string]Value),
 		modules:         make(map[string]Value),
 		registries:      make(map[string]*moduleRegistry),
 		clock:           time.Now,
@@ -57,6 +60,30 @@ func NewRuntime() *Runtime {
 	registerContextBuiltins(r.ContextBuiltins)
 	registerConstants(r.Constants)
 	return r
+}
+
+func (r *Runtime) registerMethod(receiverType, name string, method Value) {
+	if r == nil || receiverType == "" || name == "" {
+		return
+	}
+	r.methodMu.Lock()
+	defer r.methodMu.Unlock()
+	methods := r.methods[receiverType]
+	if methods == nil {
+		methods = make(map[string]Value)
+		r.methods[receiverType] = methods
+	}
+	methods[name] = method
+}
+
+func (r *Runtime) lookupMethod(receiverType, name string) (Value, bool) {
+	if r == nil {
+		return Value{}, false
+	}
+	r.methodMu.RLock()
+	method, ok := r.methods[receiverType][name]
+	r.methodMu.RUnlock()
+	return method, ok
 }
 
 // SetClock installs the source used by std/time.now. Passing nil restores the
@@ -660,7 +687,7 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 		if err != nil {
 			return nullValue(), err
 		}
-		return resolveMember(ev.ctx, obj, n.name)
+		return resolveMember(ev.ctx, obj, n.name, ev.rt)
 	case *unaryExpr:
 		v, err := ev.eval(n.expr, curScope)
 		if err != nil {
@@ -1218,6 +1245,9 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		}
 		if callee.fn.body == nil {
 			return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
+		}
+		if callee.fn.boundReceiver != nil {
+			args = append([]Value{*callee.fn.boundReceiver}, args...)
 		}
 		args, err = checkFunctionArguments(callee.fn, args)
 		if err != nil {
@@ -2225,7 +2255,7 @@ func stmtHasTaskEffect(ev *evaluator, stmt Stmt, scope *scope, seen map[*functio
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
+func resolveMember(ctx context.Context, obj Value, name string, runtimes ...*Runtime) (Value, error) {
 	if obj.kind == kindError {
 		if v, ok := obj.errorRecord().member(name); ok {
 			return v, nil
@@ -2236,6 +2266,11 @@ func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
 		if obj.structValue != nil {
 			idx, ok := obj.structType.byName[name]
 			if !ok {
+				for _, rt := range runtimes {
+					if method, ok := rt.lookupMethod(obj.structType.name, name); ok {
+						return bindMethodReceiver(method, obj), nil
+					}
+				}
 				return nullValue(), fmt.Errorf("struct %s has no field %q", obj.structType.name, name)
 			}
 			return obj.structValue.fields[idx], nil
@@ -2249,6 +2284,11 @@ func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
 				items[i] = stringValue(field.name)
 			}
 			return listValue(items), nil
+		}
+		for _, rt := range runtimes {
+			if method, ok := rt.lookupMethod(obj.structType.name, name); ok {
+				return bindMethodReceiver(method, obj), nil
+			}
 		}
 		return nullValue(), fmt.Errorf("struct type %s has no member %q", obj.structType.name, name)
 	}

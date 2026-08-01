@@ -83,6 +83,18 @@ func formatStmt(stmt Stmt) string {
 		return "type " + s.Name + " = " + s.Target
 	case newtypeStmt:
 		return "newtype " + s.Name + " " + s.Target
+	case traitStmt:
+		methods := make([]string, len(s.Methods))
+		for i, method := range s.Methods {
+			methods[i] = formatFunctionSignature(method)
+		}
+		return "trait " + s.Name + " { " + strings.Join(methods, "; ") + " }"
+	case implStmt:
+		methods := make([]string, len(s.Methods))
+		for i, method := range s.Methods {
+			methods[i] = formatStmt(method)
+		}
+		return "impl " + s.Trait + " for " + s.Target + " { " + strings.Join(methods, "; ") + " }"
 	case letStmt:
 		prefix := "let "
 		if s.Unwrap {
@@ -100,32 +112,7 @@ func formatStmt(stmt Stmt) string {
 	case macroStmt:
 		return "macro " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
 	case funcStmt:
-		params := make([]string, len(s.Params))
-		for i, name := range s.Params {
-			params[i] = name
-			if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
-				params[i] += " " + s.ParamTypes[i]
-			}
-		}
-		signature := "func " + s.Name
-		if len(s.TypeParams) > 0 {
-			typeParams := make([]string, len(s.TypeParams))
-			for i, param := range s.TypeParams {
-				typeParams[i] = param.Name
-				if param.Bound != "" {
-					typeParams[i] += ": " + param.Bound
-				}
-			}
-			signature += "<" + strings.Join(typeParams, ", ") + ">"
-		}
-		signature += "(" + strings.Join(params, ", ") + ")"
-		if s.ReturnType != "" {
-			signature += " " + s.ReturnType
-		}
-		if _, ok := s.Body.(*blockExpr); ok {
-			return signature + " " + formatExpr(s.Body, 0)
-		}
-		return signature + " => " + formatExpr(s.Body, 0)
+		return formatFunction(s)
 	case returnStmt:
 		if s.Expr == nil {
 			return "return"
@@ -144,6 +131,57 @@ func formatStmt(stmt Stmt) string {
 	default:
 		return "<unknown>"
 	}
+}
+
+func formatFunctionSignature(s funcStmt) string {
+	params := make([]string, len(s.Params))
+	for i, name := range s.Params {
+		params[i] = name
+		if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
+			params[i] += " " + s.ParamTypes[i]
+		}
+	}
+	returnType := ""
+	if s.ReturnType != "" {
+		returnType = " " + s.ReturnType
+	}
+	return "func " + s.Name + "(" + strings.Join(params, ", ") + ")" + returnType
+}
+
+func formatFunction(s funcStmt) string {
+	params := make([]string, len(s.Params))
+	for i, name := range s.Params {
+		params[i] = name
+		if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
+			params[i] += " " + s.ParamTypes[i]
+		}
+	}
+	signature := "func "
+	if s.ReceiverType != "" {
+		signature += "(" + s.Receiver + " " + s.ReceiverType + ") "
+	}
+	signature += s.Name
+	if len(s.TypeParams) > 0 {
+		typeParams := make([]string, len(s.TypeParams))
+		for i, param := range s.TypeParams {
+			typeParams[i] = param.Name
+			if param.Bound != "" {
+				typeParams[i] += ": " + param.Bound
+			}
+		}
+		signature += "<" + strings.Join(typeParams, ", ") + ">"
+	}
+	signature += "(" + strings.Join(params, ", ") + ")"
+	if s.ReturnType != "" {
+		signature += " " + s.ReturnType
+	}
+	if _, ok := s.Body.(*blockExpr); ok {
+		return signature + " " + formatExpr(s.Body, 0)
+	}
+	if s.Body == nil {
+		return signature
+	}
+	return signature + " => " + formatExpr(s.Body, 0)
 }
 
 // formatExpr handles the format expr step in the surrounding package and

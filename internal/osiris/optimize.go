@@ -139,6 +139,8 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		}
 		return funcStmt{
 			Name:           s.Name,
+			Receiver:       s.Receiver,
+			ReceiverType:   s.ReceiverType,
 			TypeParams:     append([]typeParam(nil), s.TypeParams...),
 			Params:         append([]string(nil), s.Params...),
 			ParamTypes:     append([]string(nil), s.ParamTypes...),
@@ -159,7 +161,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		return whileStmt{Cond: optimizeExprWithEnv(s.Cond, nil), Body: optimizeExprWithEnv(s.Body, nil)}, nil
 	case forStmt:
 		return forStmt{Name: s.Name, Iter: optimizeExprWithEnv(s.Iter, nil), Body: optimizeExprWithEnv(s.Body, nil)}, nil
-	case structStmt, typeDeclStmt, newtypeStmt, packageStmt, exportStmt, importStmt, breakStmt, continueStmt:
+	case traitStmt, implStmt, structStmt, typeDeclStmt, newtypeStmt, packageStmt, exportStmt, importStmt, breakStmt, continueStmt:
 		return stmt, env
 	default:
 		return stmt, env

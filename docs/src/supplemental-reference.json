@@ -1762,6 +1762,141 @@
           "exampleStatus": "checked"
         }
       ]
+    },
+    {
+      "title": "Typed collections",
+      "entries": [
+        {
+          "kind": "type",
+          "name": "map",
+          "signature": "map<K, V>",
+          "description": "An ordered collection of key/value entries.",
+          "parameters": "Keys and values may use the existing runtime value families.",
+          "returns": "A `map` value.",
+          "returnValue": "Map iteration yields keys in insertion order.",
+          "details": ["Use map_new, map_set, map_get, map_keys, and map_values for explicit construction and access."],
+          "example": "emit map_new()"
+        },
+        {
+          "kind": "type",
+          "name": "set",
+          "signature": "set<T>",
+          "description": "An ordered collection of unique values.",
+          "parameters": "Values use the existing equality contract.",
+          "returns": "A `set` value.",
+          "returnValue": "Set iteration yields unique values in insertion order.",
+          "details": ["Use set_new, set_add, set_has, and set_values for explicit construction and access."],
+          "example": "emit set_new()"
+        },
+        {
+          "name": "map_new",
+          "signature": "map_new()",
+          "description": "Construct an empty ordered map.",
+          "parameters": "No arguments.",
+          "returns": "`map`.",
+          "returnValue": "A new empty map with deterministic insertion order.",
+          "details": ["Map entries retain deterministic insertion order."],
+          "errors": "Wrong arity is an error.",
+          "example": "emit map_new()",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "map_set",
+          "signature": "map_set(map, key, value)",
+          "description": "Set one ordered map entry.",
+          "parameters": "A map, key, and value.",
+          "returns": "The updated `map`.",
+          "returnValue": "Existing keys retain their position; new keys append in insertion order.",
+          "details": ["Updating a key does not move it."],
+          "errors": "Wrong arity or a non-map first argument is an error.",
+          "example": "let values = map_set(map_new(), \"a\", 1)\nemit values",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "map_get",
+          "signature": "map_get(map, key)",
+          "description": "Look up one ordered map entry.",
+          "parameters": "A map and key.",
+          "returns": "The stored value or `null`.",
+          "returnValue": "Missing keys return `null`.",
+          "details": ["Lookup does not mutate the map."],
+          "errors": "Wrong arity or a non-map first argument is an error.",
+          "example": "emit map_get(map_set(map_new(), \"a\", 1), \"a\")",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "map_keys",
+          "signature": "map_keys(map)",
+          "description": "Return ordered map keys.",
+          "parameters": "One map.",
+          "returns": "An ordered `list`.",
+          "returnValue": "Keys follow insertion order.",
+          "details": ["The returned list is a snapshot of the key order."],
+          "errors": "Wrong arity or a non-map argument is an error.",
+          "example": "emit map_keys(map_new())",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "map_values",
+          "signature": "map_values(map)",
+          "description": "Return ordered map values.",
+          "parameters": "One map.",
+          "returns": "An ordered `list`.",
+          "returnValue": "Values follow their corresponding key order.",
+          "details": ["The returned list is a snapshot of the value order."],
+          "errors": "Wrong arity or a non-map argument is an error.",
+          "example": "emit map_values(map_new())",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "set_new",
+          "signature": "set_new()",
+          "description": "Construct an empty ordered set.",
+          "parameters": "No arguments.",
+          "returns": "`set`.",
+          "returnValue": "A new empty set with deterministic insertion order.",
+          "details": ["Set membership uses the value equality contract."],
+          "errors": "Wrong arity is an error.",
+          "example": "emit set_new()",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "set_add",
+          "signature": "set_add(set, value)",
+          "description": "Add one value to an ordered set.",
+          "parameters": "A set and value.",
+          "returns": "The updated `set`.",
+          "returnValue": "Duplicate values do not create another entry.",
+          "details": ["New values append in insertion order."],
+          "errors": "Wrong arity or a non-set first argument is an error.",
+          "example": "emit set_add(set_new(), 1)",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "set_has",
+          "signature": "set_has(set, value)",
+          "description": "Test set membership.",
+          "parameters": "A set and value.",
+          "returns": "`bool`.",
+          "returnValue": "Returns true when the value is present.",
+          "details": ["Membership does not change set order."],
+          "errors": "Wrong arity or a non-set first argument is an error.",
+          "example": "emit set_has(set_new(), 1)",
+          "exampleStatus": "checked"
+        },
+        {
+          "name": "set_values",
+          "signature": "set_values(set)",
+          "description": "Return ordered set values.",
+          "parameters": "One set.",
+          "returns": "An ordered `list`.",
+          "returnValue": "Values follow insertion order.",
+          "details": ["The returned list is a snapshot of the set order."],
+          "errors": "Wrong arity or a non-set argument is an error.",
+          "example": "emit set_values(set_new())",
+          "exampleStatus": "checked"
+        }
+      ]
     }
   ]
 }

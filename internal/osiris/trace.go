@@ -108,6 +108,10 @@ func statementKind(stmt Stmt) string {
 		return "break"
 	case continueStmt:
 		return "continue"
+	case traitStmt:
+		return "trait"
+	case implStmt:
+		return "impl"
 	default:
 		return fmt.Sprintf("%T", stmt)
 	}

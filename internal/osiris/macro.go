@@ -357,6 +357,26 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			case typeDeclStmt:
 				curScope = &scope{parent: curScope, items: map[string]binding{decl.Name: {expr: &literalExpr{value: functionValueOf(decl.Name, nil)}, env: curScope}}}
 			}
+		case traitStmt:
+			if mode == seqBlock {
+				return nil, nil, nil, fmt.Errorf("traits are only allowed at top level")
+			}
+			out = append(out, st)
+		case implStmt:
+			if mode == seqBlock {
+				return nil, nil, nil, fmt.Errorf("implementations are only allowed at top level")
+			}
+			methods := make([]funcStmt, len(st.Methods))
+			for i, method := range st.Methods {
+				body, err := e.expandExpr(method.Body, curScope, curDefs, depth+1)
+				if err != nil {
+					return nil, nil, nil, err
+				}
+				method.Body = body
+				methods[i] = method
+			}
+			st.Methods = methods
+			out = append(out, st)
 		case exportStmt:
 			if mode == seqBlock {
 				return nil, nil, nil, fmt.Errorf("export is only allowed at top level")
@@ -375,6 +395,8 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			}
 			out = append(out, funcStmt{
 				Name:           st.Name,
+				Receiver:       st.Receiver,
+				ReceiverType:   st.ReceiverType,
 				TypeParams:     append([]typeParam(nil), st.TypeParams...),
 				Params:         append([]string(nil), st.Params...),
 				ParamTypes:     append([]string(nil), st.ParamTypes...),
@@ -1144,6 +1166,8 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			}
 			out = append(out, funcStmt{
 				Name:           fresh,
+				Receiver:       st.Receiver,
+				ReceiverType:   st.ReceiverType,
 				TypeParams:     append([]typeParam(nil), st.TypeParams...),
 				Params:         append([]string(nil), st.Params...),
 				ParamTypes:     append([]string(nil), st.ParamTypes...),

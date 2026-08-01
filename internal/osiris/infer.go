@@ -272,6 +272,8 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 		return inferTypeInfo{known: true, kind: st.Name}
 	case funcStmt:
 		return inferFunctionStmt(st, scope, out)
+	case traitStmt, implStmt:
+		return inferTypeInfo{known: true, kind: "behavior"}
 	case emitStmt:
 		return inferExpr(st.Expr, scope, out)
 	case returnStmt:

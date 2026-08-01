@@ -366,5 +366,41 @@
         "exampleStatus": "checked"
       }
     ]
+  },
+  {
+    "title": "Traits, methods, and iteration",
+    "entries": [
+      {
+        "kind": "construct",
+        "name": "trait",
+        "signature": "trait Name { func method(...) ReturnType; }",
+        "description": "Declare a nominal behavioral contract. `interface` is an accepted spelling with the same semantics.",
+        "parameters": "Each method signature names its ordinary parameters and optional return type. A type conforms only through an explicit `impl Trait for Type` declaration.",
+        "returns": "A statically checked trait boundary.",
+        "returnValue": "A value assigned to a trait type retains its underlying runtime value and dispatches declared methods through the nominal implementation.",
+        "details": [
+          "Duplicate methods, missing implementations, duplicate implementations, and signature conflicts are deterministic source-spanned checker errors.",
+          "Trait and interface values use the underlying runtime value; equality does not compare vtable identity. Native C rejects dispatch until its vtable ABI is available.",
+          "A receiver method may be declared as `func (value Type) method(...) ReturnType => expression` or in the short form inside an `impl` block."
+        ],
+        "example": "trait Printable { func render() string; }\nstruct Point { value u64 }\nimpl Printable for Point { func render() string => \"point\" }\nlet point = Point { value: 1 }\nemit point.render()\n# \"point\"",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "for-iteration",
+        "signature": "for name in iterable { ... }",
+        "description": "Consume the shared iteration contract with cancellation-aware resource boundaries.",
+        "parameters": "Lists, tuples, Unicode strings, tensors, maps, sets, and readable streams are supported. Maps yield ordered keys and streams yield lines until EOF.",
+        "returns": "No standalone value; the loop item is scoped to the body.",
+        "returnValue": "The loop body observes each item in iteration order; an empty iterable executes zero times.",
+        "details": [
+          "Existing list order and loop control behavior remain compatible. Unsupported values produce a runtime type error.",
+          "Stream iteration observes the current context before each read and stops only at EOF or cancellation."
+        ],
+        "example": "for letter in \"go\" { emit letter }\n# \"g\"\n# \"o\"",
+        "exampleStatus": "checked"
+      }
+    ]
   }
 ]
