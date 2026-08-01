@@ -338,6 +338,44 @@ func (library *FFILibrary) Call(name string, args []Value) (Value, error) {
 	if len(args) != len(declaration.Args) {
 		return nullValue(), fmt.Errorf("ffi: %s expects %d argument(s), got %d", name, len(declaration.Args), len(args))
 	}
+	if ffiStringSignature(declaration) {
+		values := make([]string, len(args))
+		for i, arg := range args {
+			if arg.kind != kindString || strings.IndexByte(arg.str, 0) >= 0 {
+				return nullValue(), fmt.Errorf("ffi: %s argument %d expects a NUL-free string", name, i+1)
+			}
+			values[i] = arg.str
+		}
+		result, err := native.callString(declaration.Symbol, values)
+		if err != nil {
+			return nullValue(), networkFailure("ffi_call", name, err)
+		}
+		return stringValue(result), nil
+	}
+	if ffiConstBufferSignature(declaration) {
+		buffers := make([][]byte, len(args))
+		for i, arg := range args {
+			data, err := bytesFromValue(arg)
+			if err != nil {
+				return nullValue(), fmt.Errorf("ffi: %s argument %d expects byte-compatible const_buffer", name, i+1)
+			}
+			buffers[i] = data
+		}
+		result, err := native.callConstBufferInteger(declaration.Symbol, buffers)
+		if err != nil {
+			return nullValue(), networkFailure("ffi_call", name, err)
+		}
+		switch declaration.Result {
+		case "void":
+			return nullValue(), nil
+		case "bool":
+			return boolValue(result != 0), nil
+		case "u8", "u16", "u32", "u64":
+			return uintValue(uint64(result), uint8(uintWidth(declaration.Result))), nil
+		default:
+			return intValue(big.NewInt(result), intWidth(declaration.Result)), nil
+		}
+	}
 	if !ffiScalarSignature(declaration) {
 		return nullValue(), fmt.Errorf("ffi: %s uses an ABI shape not supported by the direct v1 adapter", name)
 	}
@@ -397,6 +435,36 @@ func ffiScalarSignature(function *FFIFunction) bool {
 		}
 	}
 	return floatResult || function.Result == "void" || function.Result == "bool" || ffiIntegerType(function.Result)
+}
+
+func ffiStringSignature(function *FFIFunction) bool {
+	if function == nil || function.Result != "string" || len(function.Args) > 4 {
+		return false
+	}
+	if function.Ownership != "borrowed" {
+		return false
+	}
+	for _, argument := range function.Args {
+		if argument != "string" {
+			return false
+		}
+	}
+	return true
+}
+
+func ffiConstBufferSignature(function *FFIFunction) bool {
+	if function == nil || len(function.Args) > 2 || function.Ownership != "borrowed" {
+		return false
+	}
+	if function.Result != "void" && function.Result != "bool" && !ffiIntegerType(function.Result) {
+		return false
+	}
+	for _, argument := range function.Args {
+		if argument != "const_buffer" {
+			return false
+		}
+	}
+	return len(function.Args) > 0
 }
 
 func ffiIntegerType(name string) bool {

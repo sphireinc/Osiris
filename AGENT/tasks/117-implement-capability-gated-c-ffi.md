@@ -8,14 +8,16 @@
 
 `internal/osiris/ffi.go` now validates ABI-v1 manifests, exposes capability
 grants/revocation, parses `ffi "manifest" as name`, and provides hosted/VM
-library loading and direct scalar symbol calls through the Unix adapter. The
-fixture library and focused hash, capability, call, and exactly-once close
-tests pass.
+library loading and direct scalar, borrowed-string, and copy-in
+`const_buffer` symbol calls through the Unix adapter. The fixture library and
+focused hash, capability, call, marshalling, and exactly-once close tests pass.
 
 This task is not complete yet: declarations for strings, buffers, structs,
-opaque typed handles, constants, and callbacks; callback lifetime/cancellation;
-generated-C parity; packaging; and cross-platform sanitizer/race evidence are
-still required.
+opaque typed handles, constants, and callbacks; mutable/owned buffer lifetime;
+callback lifetime/cancellation; generated-C parity; packaging; and
+cross-platform sanitizer/race evidence are still required. The current direct
+adapter intentionally rejects those shapes instead of coercing them to raw
+pointers.
 
 ## Objective
 

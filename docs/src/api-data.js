@@ -203,11 +203,11 @@ const toolingModule = {
     entries: [{
       name: 'FFI manifest ABI v1',
       signature: 'FFIManifest.Validate(grants) / LoadFFIManifest(path, grants)',
-      description: 'Validates a project-local, digest-pinned C ABI manifest before any native library is opened. Direct language-level symbol invocation remains unsupported until the platform loader adapter is complete.',
+      description: 'Validates a project-local, digest-pinned C ABI manifest before any native library is opened. The hosted adapter executes the tested scalar, borrowed-string, and const_buffer subset through the pinned dynamic loader; generated-C invocation remains unsupported.',
       parameters: 'The manifest declares an absolute library path, SHA-256 digest, platform/architecture, capabilities, C symbols, exact scalar/string/buffer/opaque-handle types, calling convention, thread affinity, and ownership.',
       returns: 'A validated manifest or a security/ABI diagnostic. No raw pointer or integer address is returned.',
-      returnValue: 'v1 would support exact scalar widths plus explicit UTF-8 string/byte buffers. Lists, tensors, complex, decimal/bigint, units, errors, tasks, streams, modules, and callbacks are excluded from the direct ABI.',
-      details: ['Dynamic search paths, environment-driven loader fallback, arbitrary symbols, network acquisition, callbacks, re-entrancy, and background threads are denied by the design.', 'Every result must declare borrowed, caller-owned, or host-retained ownership. Failed calls never transfer ownership; owned values require a matching declared release function.'],
+      returnValue: 'The hosted adapter supports exact scalar widths, borrowed NUL-free strings, and borrowed copy-in `const_buffer` arguments with integer/bool/void results. Lists, tensors, complex, decimal/bigint, units, errors, tasks, streams, modules, mutable buffers, owned buffers, and callbacks are excluded from the direct adapter.',
+      details: ['String arguments are copied to temporary NUL-terminated C storage and string results are copied immediately. `const_buffer` arguments are copied to C-owned storage and passed with explicit lengths; the current adapter accepts one or two buffers.', 'Dynamic search paths, environment-driven loader fallback, arbitrary symbols, network acquisition, callbacks, re-entrancy, and background threads are denied by the design. Every result must declare borrowed, caller-owned, or host-retained ownership. Failed calls never transfer ownership; owned values require a matching declared release function.'],
       example: '{"abi_version":1,"library":"example-math","sha256":"…","capabilities":["ffi.math"],"functions":[{"name":"add_f64","args":["f64","f64"],"result":"f64","ownership":"borrowed"}]}',
     }, {
       name: 'std/net expanded host networking',

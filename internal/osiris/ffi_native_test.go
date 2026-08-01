@@ -46,6 +46,8 @@ func TestManifestPinnedNativeFFIScalarCalls(t *testing.T) {
 		Functions: []FFIFunction{
 			{Name: "add_i64", Symbol: "osiris_ffi_add_i64", Args: []string{"i64", "i64"}, Result: "i64", Ownership: "borrowed", CallingConvention: "c", ThreadAffinity: "any"},
 			{Name: "mul_f64", Symbol: "osiris_ffi_mul_f64", Args: []string{"f64", "f64"}, Result: "f64", Ownership: "borrowed", CallingConvention: "c", ThreadAffinity: "any"},
+			{Name: "join_strings", Symbol: "osiris_ffi_join_strings", Args: []string{"string", "string"}, Result: "string", Ownership: "borrowed", CallingConvention: "c", ThreadAffinity: "any"},
+			{Name: "sum_buffer", Symbol: "osiris_ffi_sum_buffer", Args: []string{"const_buffer"}, Result: "i64", Ownership: "borrowed", CallingConvention: "c", ThreadAffinity: "any"},
 		},
 	}
 	data, err := json.Marshal(manifest)
@@ -67,6 +69,14 @@ func TestManifestPinnedNativeFFIScalarCalls(t *testing.T) {
 	product, err := library.Call("mul_f64", []Value{numberValue(1.5), numberValue(2.0)})
 	if err != nil || math.Abs(product.num-3.0) > 1e-12 {
 		t.Fatalf("float call = %s, err = %v", product.String(), err)
+	}
+	joined, err := library.Call("join_strings", []Value{stringValue("osiris"), stringValue(" ffi")})
+	if err != nil || joined.String() != `"osiris ffi"` {
+		t.Fatalf("string call = %s, err = %v", joined.String(), err)
+	}
+	sum, err := library.Call("sum_buffer", []Value{listValue([]Value{uintValue(1, 8), uintValue(2, 8), uintValue(3, 8)})})
+	if err != nil || sum.String() != "6i64" {
+		t.Fatalf("const_buffer call = %s, err = %v", sum.String(), err)
 	}
 }
 

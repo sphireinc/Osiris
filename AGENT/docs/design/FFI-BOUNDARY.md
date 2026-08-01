@@ -1,8 +1,9 @@
 # FFI boundary v1
 
 The repository implements manifest validation, capability grants, a pinned
-dynamic loader, bounded scalar calls, and idempotent opaque-handle lifetime
-tokens in `internal/osiris/ffi.go`. The declaration form is:
+dynamic loader, bounded scalar/string/const-buffer calls, and idempotent
+opaque-handle lifetime tokens in `internal/osiris/ffi.go`. The declaration form
+is:
 
 ```osiris
 ffi "/absolute/project/math.ffi.json" as math
@@ -31,7 +32,9 @@ duplicate symbols before any library is opened.
 | Family | v1 status |
 | --- | --- |
 | null, bool, fixed-width signed/unsigned integers, f32/f64 | supported only with exact declared width |
-| UTF-8 strings and byte buffers | supported with `(pointer,length)` and explicit borrowed/owned result convention |
+| NUL-free strings | supported for borrowed C results and borrowed string arguments; returned bytes are copied into an Osiris string |
+| `const_buffer` | supported for borrowed, copy-in byte arguments with an explicit `(pointer,length)` ABI; the adapter currently accepts one or two buffers and integer/bool/void results |
+| mutable `buffer` | schema-validated but rejected by the direct adapter until mutable ownership and post-call visibility are specified |
 | lists, maps, tensors, complex, decimal/bigint, units, errors, tasks, streams, modules, functions/closures | excluded from v1 direct ABI; adapt through a separately versioned owned buffer codec if needed |
 
 Every result is declared `borrowed`, `owned`, `transferred`, or `retained`.
@@ -42,9 +45,15 @@ a borrowed value.
 ## Errors, callbacks, threading, determinism
 
 The maintained direct adapter supports up to four homogeneous fixed-width
-integer or floating-point arguments and scalar results. It resolves every
-declared symbol before returning a library handle, uses `RTLD_NOW|RTLD_LOCAL`,
-and unloads exactly once. Strings, buffers, opaque handles, constants, and
+integer or floating-point arguments and scalar results. It also supports
+borrowed NUL-free strings and one or two `const_buffer` arguments. String
+arguments are copied into temporary NUL-terminated C strings; string results
+are copied immediately from borrowed foreign memory. `const_buffer` arguments
+are copied into temporary C-owned storage and passed as a pointer plus byte
+length, so the foreign function cannot retain an Osiris or Go pointer. The
+adapter resolves every declared symbol before returning a library handle, uses
+`RTLD_NOW|RTLD_LOCAL`, and unloads exactly once. Mutable buffers, owned string
+or buffer results, opaque handles as call arguments/results, constants, and
 callbacks remain schema-validated but are rejected by the call adapter until
 their dedicated marshalling/lifetime implementations land; they are not
 silently coerced to pointers. Calls are synchronous and cancellation cannot
