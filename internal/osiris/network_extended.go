@@ -217,14 +217,19 @@ func udpReceiveContextValue(ctx context.Context, args []Value) (Value, error) {
 		// read. The watcher only exists for this unbounded operation and is
 		// stopped before the socket is reused by the caller.
 		stopped := make(chan struct{})
+		exited := make(chan struct{})
 		go func() {
+			defer close(exited)
 			select {
 			case <-ctx.Done():
 				_ = conn.SetReadDeadline(time.Now())
 			case <-stopped:
 			}
 		}()
-		defer close(stopped)
+		defer func() {
+			close(stopped)
+			<-exited
+		}()
 	}
 	buffer := make([]byte, limit)
 	n, peer, err := conn.ReadFromUDP(buffer)
