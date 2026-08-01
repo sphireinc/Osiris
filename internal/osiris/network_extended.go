@@ -272,23 +272,23 @@ func closeUDPSocketValue(args []Value) (Value, error) {
 
 func dnsLookupContextValue(ctx context.Context, args []Value) (Value, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return nullValue(), fmt.Errorf("dns_lookup expects host and optional service")
+		return nullValue(), fmt.Errorf("dns_lookup expects host and optional resolver policy")
 	}
 	host, err := args[0].AsString()
 	if err != nil {
 		return nullValue(), err
 	}
-	service := ""
+	policy := "system"
 	if len(args) == 2 {
-		service, err = args[1].AsString()
+		policy, err = args[1].AsString()
 		if err != nil {
 			return nullValue(), err
 		}
 	}
-	if service != "" {
-		return nullValue(), fmt.Errorf("dns_lookup service form is not supported; use dns_lookup(host)")
+	if policy != "system" && policy != "go" {
+		return nullValue(), fmt.Errorf("dns_lookup resolver policy must be %q or %q", "system", "go")
 	}
-	resolver := net.Resolver{}
+	resolver := net.Resolver{PreferGo: policy == "go"}
 	values, err := resolver.LookupHost(ctx, host)
 	if err != nil {
 		return nullValue(), networkFailure("dns_lookup", host, err)

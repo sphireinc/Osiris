@@ -213,7 +213,7 @@ const toolingModule = {
       name: 'std/net expanded host networking',
       signature: 'udp_bind / udp_connect / udp_send / udp_receive / dns_lookup / tls_dial / http_get / http_request / http_serve',
       description: 'Provides bounded, cancellable hosted networking beyond TCP. HTTP/2, QUIC, WebSockets, proxy discovery, and insecure TLS modes are not included.',
-      parameters: 'UDP is capped at 1 MiB per packet; HTTP headers are capped at 256 entries and bodies at 8 MiB; redirects are capped at five. `udp_receive` returns bytes, peer address, and truncation status.',
+      parameters: 'UDP is capped at 1 MiB per packet; HTTP headers are capped at 256 entries and bodies at 8 MiB; redirects are capped at five. `udp_receive` returns bytes, peer address, and truncation status. `dns_lookup(host, policy)` accepts the explicit `system` or `go` resolver policy and sorts/deduplicates addresses.',
       returns: 'Owned UDP or TLS stream resources, deterministic DNS address lists, or HTTP response maps with sorted header pairs.',
       details: ['TLS uses certificate and hostname verification, TLS 1.2 minimum, and HTTP/1.1 ALPN.', 'Native C rejects these host resources with a source-spanned capability diagnostic.'],
       example: 'import "std/net" as net\nlet socket = net.udp_bind("127.0.0.1:0")\ndefer { close(socket) }\n# udp_receive(socket, 65536, 1000) -> (bytes, peer, truncated)',

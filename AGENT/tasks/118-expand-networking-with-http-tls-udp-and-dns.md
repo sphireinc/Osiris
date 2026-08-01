@@ -7,7 +7,7 @@
 ## Current implementation evidence
 
 The hosted `std/net` module now exposes bounded UDP bind/connect/send/receive,
-sorted DNS lookup, verified TLS client dialing and server configuration,
+sorted DNS lookup with explicit `system`/`go` resolver policy, verified TLS client dialing and server configuration,
 bounded HTTP/1.1 request/get plus request/response body streams, and a
 cancellable static HTTP responder. UDP peer/truncation metadata, DNS ordering,
 HTTP limits, structured network errors, native source diagnostics, and

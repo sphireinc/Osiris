@@ -73,6 +73,21 @@ func TestDNSLookupIsSortedAndUnique(t *testing.T) {
 	}
 }
 
+func TestDNSLookupAcceptsExplicitResolverPolicies(t *testing.T) {
+	for _, policy := range []string{"system", "go"} {
+		values, err := dnsLookupContextValue(context.Background(), []Value{stringValue("localhost"), stringValue(policy)})
+		if err != nil {
+			t.Fatalf("policy %q: %v", policy, err)
+		}
+		if values.kind != kindList || len(values.list) == 0 {
+			t.Fatalf("policy %q values = %s, want non-empty list", policy, values.String())
+		}
+	}
+	if _, err := dnsLookupContextValue(context.Background(), []Value{stringValue("localhost"), stringValue("custom")}); err == nil || !strings.Contains(err.Error(), "resolver policy") {
+		t.Fatalf("invalid policy error = %v", err)
+	}
+}
+
 func TestHTTPRequestIsBoundedAndDeterministic(t *testing.T) {
 	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Add("X-Z", "last")
