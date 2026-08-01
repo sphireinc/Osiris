@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
+	"strings"
+	"sync"
+	"time"
 )
 
 type vmOp uint8
@@ -22,6 +26,7 @@ const (
 	vmOpMember
 	vmOpImport
 	vmOpEmit
+	vmOpDefer
 	vmOpBlock
 	vmOpIf
 	vmOpLogicalAnd
@@ -32,6 +37,23 @@ const (
 	vmOpStructUpdate
 	vmOpIndex
 	vmOpTupleBind
+	vmOpFunc
+	vmOpReturn
+	vmOpWhile
+	vmOpFor
+	vmOpBreak
+	vmOpContinue
+	vmOpSpawn
+	vmOpAwait
+	vmOpCancel
+	vmOpTimeout
+	vmOpParallel
+	vmOpRace
+	vmOpSelect
+	vmOpResultMap
+	vmOpAsyncBuiltin
+	vmOpTry
+	vmOpPropagate
 )
 
 type vmChunk struct {
@@ -44,22 +66,30 @@ type vmChunk struct {
 }
 
 type vmInstr struct {
-	op         vmOp
-	dst        int
-	a          int
-	b          int
-	tok        tokenKind
-	name       string
-	text       string
-	value      Value
-	mutable    bool
-	args       []int
-	fieldNames []string
-	names      []string
-	body       *vmChunk
-	alt        *vmChunk
-	arms       []vmMatchArm
-	span       sourceSpan
+	op           vmOp
+	dst          int
+	a            int
+	b            int
+	tok          tokenKind
+	name         string
+	text         string
+	value        Value
+	mutable      bool
+	args         []int
+	fieldNames   []string
+	names        []string
+	params       []string
+	paramTypes   []string
+	typeParams   []typeParam
+	returnType   string
+	receiver     string
+	receiverType string
+	iter         int
+	chunks       []*vmChunk
+	body         *vmChunk
+	alt          *vmChunk
+	arms         []vmMatchArm
+	span         sourceSpan
 }
 
 type vmMatchArm struct {
@@ -201,6 +231,84 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name, mutable: st.Mutable})
 		}
 		return nil
+	case funcStmt:
+		bodyCompiler := newVMCompiler(c.chunk.sourceName)
+		bodyCompiler.chunk.packageName = c.chunk.packageName
+		if body, ok := st.Body.(*blockExpr); ok {
+			for _, bodyStmt := range body.stmts {
+				if err := bodyCompiler.compileStmt(bodyStmt); err != nil {
+					return err
+				}
+			}
+			if body.tail != nil {
+				reg, err := bodyCompiler.compileExpr(body.tail)
+				if err != nil {
+					return err
+				}
+				bodyCompiler.emit(vmInstr{op: vmOpReturn, a: reg})
+			}
+		} else if st.Body != nil {
+			reg, err := bodyCompiler.compileExpr(st.Body)
+			if err != nil {
+				return err
+			}
+			bodyCompiler.emit(vmInstr{op: vmOpReturn, a: reg})
+		}
+		reg := c.alloc()
+		c.emit(vmInstr{op: vmOpFunc, dst: reg, name: st.Name, body: bodyCompiler.chunk,
+			params: append([]string(nil), st.Params...), paramTypes: append([]string(nil), st.ParamTypes...),
+			typeParams: append([]typeParam(nil), st.TypeParams...), returnType: st.ReturnType,
+			receiver: st.Receiver, receiverType: st.ReceiverType})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		return nil
+	case implStmt:
+		for _, method := range st.Methods {
+			if err := c.compileStmt(method); err != nil {
+				return err
+			}
+		}
+		return nil
+	case traitStmt:
+		return nil
+	case returnStmt:
+		if st.Expr == nil {
+			c.emit(vmInstr{op: vmOpReturn, a: -1})
+			return nil
+		}
+		reg, err := c.compileExpr(st.Expr)
+		if err != nil {
+			return err
+		}
+		c.emit(vmInstr{op: vmOpReturn, a: reg})
+		return nil
+	case whileStmt:
+		cond, err := c.compileExprChunk(st.Cond)
+		if err != nil {
+			return err
+		}
+		body, err := c.compileExprChunk(st.Body)
+		if err != nil {
+			return err
+		}
+		c.emit(vmInstr{op: vmOpWhile, body: cond, alt: body, span: st.Span})
+		return nil
+	case forStmt:
+		iter, err := c.compileExpr(st.Iter)
+		if err != nil {
+			return err
+		}
+		body, err := c.compileExprChunk(st.Body)
+		if err != nil {
+			return err
+		}
+		c.emit(vmInstr{op: vmOpFor, a: iter, name: st.Name, body: body, span: st.Span})
+		return nil
+	case breakStmt:
+		c.emit(vmInstr{op: vmOpBreak})
+		return nil
+	case continueStmt:
+		c.emit(vmInstr{op: vmOpContinue})
+		return nil
 	case assignStmt:
 		reg, err := c.compileExpr(st.Expr)
 		if err != nil {
@@ -219,6 +327,17 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			return err
 		}
 		c.emit(vmInstr{op: vmOpEmit, a: reg})
+		return nil
+	case deferStmt:
+		body, ok := st.Body.(*blockExpr)
+		if !ok {
+			return fmt.Errorf("defer requires a block expression")
+		}
+		child := newVMCompiler(c.chunk.sourceName)
+		if _, err := child.compileExpr(body); err != nil {
+			return err
+		}
+		c.emit(vmInstr{op: vmOpDefer, body: child.chunk})
 		return nil
 	case macroStmt:
 		return fmt.Errorf("macro statements must be expanded before bytecode compilation")
@@ -283,6 +402,8 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 				return c.compileAndCall(n)
 			case "or":
 				return c.compileOrCall(n)
+			default:
+				return c.compileConcurrentCall(name, n)
 			}
 		}
 		callee, err := c.compileExpr(n.callee)
@@ -391,6 +512,26 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 		dst := c.alloc()
 		c.emit(vmInstr{op: vmOpMatch, dst: dst, a: subject, arms: arms})
 		return dst, nil
+	case *tryExpr:
+		body, err := c.compileExprChunk(n.body)
+		if err != nil {
+			return 0, err
+		}
+		handler, err := c.compileExprChunk(n.handler)
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpTry, dst: dst, body: body, alt: handler, name: n.catchName, span: n.Span})
+		return dst, nil
+	case *propagateExpr:
+		body, err := c.compileExprChunk(n.expr)
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpPropagate, dst: dst, body: body, span: n.Span})
+		return dst, nil
 	default:
 		return 0, fmt.Errorf("internal error: unknown expression type %T", expr)
 	}
@@ -403,26 +544,34 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 // It returns int and an error. Callers should only trust the value when the
 // error is nil.
 func (c *vmCompiler) compileBlockExpr(n *blockExpr) (int, error) {
+	sub, err := c.compileBlockChunk(n)
+	if err != nil {
+		return 0, err
+	}
+	dst := c.alloc()
+	c.emit(vmInstr{op: vmOpBlock, dst: dst, body: sub})
+	return dst, nil
+}
+
+func (c *vmCompiler) compileBlockChunk(n *blockExpr) (*vmChunk, error) {
 	sub := newVMCompiler(c.chunk.sourceName)
 	sub.chunk.packageName = c.chunk.packageName
 	sub.chunk.exports = append([]string(nil), c.chunk.exports...)
 	for _, stmt := range n.stmts {
 		if err := sub.compileStmt(stmt); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 	var result int = -1
 	if n.tail != nil {
 		reg, err := sub.compileExpr(n.tail)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		result = reg
 	}
 	sub.chunk.result = result
-	dst := c.alloc()
-	c.emit(vmInstr{op: vmOpBlock, dst: dst, body: sub.chunk})
-	return dst, nil
+	return sub.chunk, nil
 }
 
 // compileExprChunk operates on vmCompiler values and keeps the
@@ -432,6 +581,9 @@ func (c *vmCompiler) compileBlockExpr(n *blockExpr) (int, error) {
 // It returns *vmChunk and an error. Callers should only trust the value when
 // the error is nil.
 func (c *vmCompiler) compileExprChunk(expr Expr) (*vmChunk, error) {
+	if block, ok := expr.(*blockExpr); ok {
+		return c.compileBlockChunk(block)
+	}
 	sub := newVMCompiler(c.chunk.sourceName)
 	sub.chunk.packageName = c.chunk.packageName
 	sub.chunk.exports = append([]string(nil), c.chunk.exports...)
@@ -514,6 +666,95 @@ func (c *vmCompiler) compileOrCall(n *callExpr) (int, error) {
 	dst := c.alloc()
 	c.emit(vmInstr{op: vmOpLogicalOr, dst: dst, a: left, body: right})
 	return dst, nil
+}
+
+func (c *vmCompiler) compileConcurrentCall(name string, n *callExpr) (int, error) {
+	if name == "spawn" || name == "await" || name == "cancel" {
+		if len(n.args) != 1 {
+			return 0, fmt.Errorf("%s expects 1 argument", name)
+		}
+		body, err := c.compileExprChunk(n.args[0])
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		op := vmOpSpawn
+		if name == "await" {
+			op = vmOpAwait
+		} else if name == "cancel" {
+			op = vmOpCancel
+		}
+		c.emit(vmInstr{op: op, dst: dst, body: body, span: n.Span})
+		return dst, nil
+	}
+	if name == "timeout" {
+		if len(n.args) != 2 {
+			return 0, fmt.Errorf("timeout expects 2 arguments")
+		}
+		duration, err := c.compileExprChunk(n.args[0])
+		if err != nil {
+			return 0, err
+		}
+		body, err := c.compileExprChunk(n.args[1])
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpTimeout, dst: dst, body: duration, alt: body, span: n.Span})
+		return dst, nil
+	}
+	if name == "parallel" || name == "race" || name == "select" {
+		if len(n.args) == 0 {
+			return 0, fmt.Errorf("%s expects at least 1 argument", name)
+		}
+		chunks := make([]*vmChunk, len(n.args))
+		for i, arg := range n.args {
+			chunk, err := c.compileExprChunk(arg)
+			if err != nil {
+				return 0, err
+			}
+			chunks[i] = chunk
+		}
+		dst := c.alloc()
+		op := vmOpParallel
+		if name == "race" {
+			op = vmOpRace
+		} else if name == "select" {
+			op = vmOpSelect
+		}
+		c.emit(vmInstr{op: op, dst: dst, chunks: chunks, span: n.Span})
+		return dst, nil
+	}
+	if name == "map" || name == "map_error" || name == "flat_map" {
+		if len(n.args) != 2 {
+			return 0, fmt.Errorf("%s expects result and function", name)
+		}
+		input, err := c.compileExprChunk(n.args[0])
+		if err != nil {
+			return 0, err
+		}
+		callback, err := c.compileExprChunk(n.args[1])
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpResultMap, dst: dst, text: name, body: input, alt: callback, span: n.Span})
+		return dst, nil
+	}
+	if strings.HasSuffix(name, "_async") {
+		chunks := make([]*vmChunk, len(n.args))
+		for i, arg := range n.args {
+			chunk, err := c.compileExprChunk(arg)
+			if err != nil {
+				return 0, err
+			}
+			chunks[i] = chunk
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpAsyncBuiltin, dst: dst, text: name, chunks: chunks, span: n.Span})
+		return dst, nil
+	}
+	return 0, fmt.Errorf("unsupported VM special form %q", name)
 }
 
 // compileLogicalBinary operates on vmCompiler values and keeps the
@@ -613,15 +854,50 @@ func (f *vmFrame) child(bindings map[string]Value) *vmFrame {
 	return child
 }
 
-type vmRunner struct {
-	rt        *Runtime
-	ctx       context.Context
-	source    string
-	stack     []string
-	frame     *vmFrame
-	outputs   []Value
-	constRegs []Value
+func snapshotVMFrame(frame *vmFrame) *vmFrame {
+	if frame == nil {
+		return &vmFrame{}
+	}
+	copyFrame := &vmFrame{parent: snapshotVMFrame(frame.parent)}
+	if len(frame.locals) > 0 {
+		copyFrame.locals = make(map[string]Value, len(frame.locals))
+		for name, value := range frame.locals {
+			copyFrame.locals[name] = value
+		}
+	}
+	if len(frame.mutable) > 0 {
+		copyFrame.mutable = make(map[string]bool, len(frame.mutable))
+		for name, mutable := range frame.mutable {
+			copyFrame.mutable[name] = mutable
+		}
+	}
+	return copyFrame
 }
+
+type vmRunner struct {
+	rt            *Runtime
+	ctx           context.Context
+	source        string
+	stack         []string
+	frame         *vmFrame
+	outputs       []Value
+	constRegs     []Value
+	cleanups      []*vmChunk
+	cleanupActive bool
+	emitAllowed   bool
+}
+
+type vmReturnSignal struct{ value Value }
+
+func (s *vmReturnSignal) Error() string { return "vm function returned" }
+
+type vmBreakSignal struct{}
+
+func (s *vmBreakSignal) Error() string { return "vm loop break" }
+
+type vmContinueSignal struct{}
+
+func (s *vmContinueSignal) Error() string { return "vm loop continue" }
 
 // run operates on vmRunner values and keeps the vmrunner-specific behavior
 // attached to the receiver so callers can use the method as the natural entry
@@ -629,10 +905,16 @@ type vmRunner struct {
 //
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
-func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
+func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
+	defer func() {
+		if cleanupErr := r.runCleanups(); cleanupErr != nil {
+			value = nullValue()
+			err = combineCleanupErrors(err, cleanupErr)
+		}
+	}()
 	regs := make([]Value, chunk.maxReg+1)
 	for _, instr := range chunk.code {
-		if err := r.ctx.Err(); err != nil {
+		if err := r.ctx.Err(); err != nil && !r.cleanupActive {
 			return nullValue(), err
 		}
 		switch instr.op {
@@ -657,6 +939,13 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			}
 			return nullValue(), fmt.Errorf("undefined name %q", instr.name)
 		case vmOpBind:
+			// An immutable binding introduces a new lexical scope node. Function
+			// declarations remain in the current node so their closure can see
+			// the self-binding for recursion; subsequent `let` bindings cannot
+			// retroactively change the scope captured by an earlier closure.
+			if !instr.mutable && regs[instr.a].kind != kindFunction {
+				r.frame = r.frame.child(nil)
+			}
 			r.frame.bind(instr.name, regs[instr.a], instr.mutable)
 		case vmOpAssign:
 			if !r.frame.assign(instr.name, regs[instr.a]) {
@@ -677,6 +966,13 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			}
 			regs[instr.dst] = value
 		case vmOpTypeAssert:
+			// Trait/interface assignments are proven by the shared checker and
+			// represented at runtime by the concrete receiver value. The VM does
+			// not need to manufacture a second nominal wrapper for that proof.
+			if regs[instr.a].kind == kindStruct && !bindingTypeMatches(instr.text, regs[instr.a]) {
+				regs[instr.dst] = regs[instr.a]
+				continue
+			}
 			value, err := checkBindingType(instr.text, regs[instr.a], false)
 			if err != nil {
 				return nullValue(), err
@@ -739,6 +1035,9 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			for i, reg := range instr.args {
 				args[i] = regs[reg]
 			}
+			if callee.fn.boundReceiver != nil {
+				args = append([]Value{*callee.fn.boundReceiver}, args...)
+			}
 			if callee.fn.builtin != nil {
 				out, err := callee.fn.builtin(args)
 				if err != nil {
@@ -755,49 +1054,36 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				regs[instr.dst] = out
 				continue
 			}
-			if callee.fn.session == nil || callee.fn.body == nil {
-				return nullValue(), fmt.Errorf("function %s is missing executable body", callee.fn.name)
-			}
-			checkedArgs, err := checkFunctionArguments(callee.fn, args)
-			if err != nil {
-				return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
-			}
-			args = checkedArgs
-			base := callee.fn.closure
-			if base == nil {
-				base = &scope{}
-			}
-			callScope := &scope{
-				parent: base,
-				items:  make(map[string]binding, len(callee.fn.params)),
-			}
-			for i, name := range callee.fn.params {
-				callScope.items[name] = binding{expr: &literalExpr{value: args[i]}, env: callScope}
-			}
-			callSession := callee.fn.session
-			previousOutputs := callSession.outputs
-			callSession.outputs = &r.outputs
-			out, err := callSession.eval(callee.fn.body, callScope)
-			callSession.outputs = previousOutputs
-			if sig, ok := asFlow(err); ok {
-				if sig.kind == flowReturn {
-					value, typeErr := checkFunctionResult(callee.fn, sig.value)
-					if typeErr != nil {
-						return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, typeErr.Error()), r.source, instr.span)
-					}
-					regs[instr.dst] = value
-					continue
+			if callee.fn.vmBody != nil {
+				checkedArgs, err := checkFunctionArguments(callee.fn, args)
+				if err != nil {
+					return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
 				}
-				return nullValue(), flowError(sig.kind, "function")
+				parent := callee.fn.vmClosure
+				if parent == nil {
+					parent = r.frame
+				}
+				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
+					frame: &vmFrame{parent: parent}, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+				for i, name := range callee.fn.params {
+					child.frame.bind(name, checkedArgs[i], false)
+				}
+				out, err := child.run(callee.fn.vmBody)
+				r.outputs = append(r.outputs, child.outputs...)
+				if signal, ok := err.(*vmReturnSignal); ok {
+					out, err = signal.value, nil
+				}
+				if err != nil {
+					return nullValue(), err
+				}
+				out, err = checkFunctionResult(callee.fn, out)
+				if err != nil {
+					return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
+				}
+				regs[instr.dst] = out
+				continue
 			}
-			if err != nil {
-				return nullValue(), err
-			}
-			out, err = checkFunctionResult(callee.fn, out)
-			if err != nil {
-				return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
-			}
-			regs[instr.dst] = out
+			return nullValue(), fmt.Errorf("function %s is not available to the VM", callee.fn.name)
 		case vmOpList:
 			items := make([]Value, len(instr.args))
 			for i, reg := range instr.args {
@@ -863,13 +1149,229 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			}
 			regs[instr.dst] = v
 		case vmOpImport:
-			mod, err := r.rt.loadModule(r.ctx, instr.text, r.source, r.stack)
+			mod, err := r.rt.loadModuleVM(r.ctx, instr.text, r.source, r.stack)
 			if err != nil {
 				return nullValue(), err
 			}
 			regs[instr.dst] = mod
 		case vmOpEmit:
+			if !r.emitAllowed {
+				return nullValue(), concurrentEmitError()
+			}
 			r.outputs = append(r.outputs, regs[instr.a])
+		case vmOpDefer:
+			if instr.body == nil {
+				return nullValue(), fmt.Errorf("defer has no cleanup body")
+			}
+			r.cleanups = append(r.cleanups, instr.body)
+		case vmOpFunc:
+			function := typedGenericUserFunctionValue(instr.name, instr.typeParams, instr.params, instr.paramTypes, instr.returnType, nil, nil, nil)
+			function.fn.vmBody = instr.body
+			function.fn.vmClosure = r.frame
+			function.fn.receiver = instr.receiver
+			function.fn.receiverType = instr.receiverType
+			if instr.receiverType != "" {
+				r.rt.registerMethod(instr.receiverType, instr.name, function)
+			}
+			regs[instr.dst] = function
+		case vmOpReturn:
+			if instr.a < 0 || instr.a >= len(regs) {
+				return nullValue(), &vmReturnSignal{value: nullValue()}
+			}
+			return nullValue(), &vmReturnSignal{value: regs[instr.a]}
+		case vmOpBreak:
+			return nullValue(), &vmBreakSignal{}
+		case vmOpContinue:
+			return nullValue(), &vmContinueSignal{}
+		case vmOpSpawn:
+			if instr.body == nil {
+				return nullValue(), fmt.Errorf("spawn has no body")
+			}
+			regs[instr.dst] = r.rt.spawnVMTask(r.ctx, r.source, instr.body, snapshotVMFrame(r.frame))
+		case vmOpAwait:
+			value, awaitErr := r.runChild(instr.body)
+			if awaitErr != nil {
+				return nullValue(), awaitErr
+			}
+			task, taskErr := value.AsTask()
+			if taskErr != nil {
+				return nullValue(), taskErr
+			}
+			out, taskErr := task.await(r.ctx, &r.outputs)
+			if taskErr != nil {
+				return nullValue(), taskErr
+			}
+			regs[instr.dst] = out
+		case vmOpCancel:
+			value, cancelErr := r.runChild(instr.body)
+			if cancelErr != nil {
+				return nullValue(), cancelErr
+			}
+			task, taskErr := value.AsTask()
+			if taskErr != nil {
+				return nullValue(), taskErr
+			}
+			regs[instr.dst] = boolValue(task.cancelTask())
+		case vmOpTimeout:
+			duration, durationErr := r.runChild(instr.body)
+			if durationErr != nil {
+				return nullValue(), durationErr
+			}
+			ms, durationErr := duration.Int()
+			if durationErr != nil || ms < 0 {
+				return nullValue(), fmt.Errorf("timeout expects non-negative integer milliseconds")
+			}
+			childCtx, cancel := context.WithTimeout(r.ctx, time.Duration(ms)*time.Millisecond)
+			child := &vmRunner{rt: r.rt, ctx: childCtx, source: r.source, stack: r.stack,
+				frame: r.frame.child(nil), emitAllowed: false}
+			out, bodyErr := child.run(instr.alt)
+			cancel()
+			r.outputs = append(r.outputs, child.outputs...)
+			if signal, ok := bodyErr.(*vmReturnSignal); ok {
+				out, bodyErr = signal.value, nil
+			}
+			if bodyErr != nil {
+				if childCtx.Err() == context.DeadlineExceeded {
+					return nullValue(), fmt.Errorf("timeout after %dms", ms)
+				}
+				return nullValue(), bodyErr
+			}
+			regs[instr.dst] = out
+		case vmOpParallel, vmOpRace, vmOpSelect:
+			out, branchErr := r.runVMConcurrent(instr.op, instr.chunks)
+			if branchErr != nil {
+				return nullValue(), branchErr
+			}
+			regs[instr.dst] = out
+		case vmOpResultMap:
+			out, mapErr := r.runVMResultMap(instr.text, instr.body, instr.alt)
+			if mapErr != nil {
+				return nullValue(), mapErr
+			}
+			regs[instr.dst] = out
+		case vmOpAsyncBuiltin:
+			out, asyncErr := r.runVMAsyncBuiltin(instr.text, instr.chunks)
+			if asyncErr != nil {
+				return nullValue(), asyncErr
+			}
+			regs[instr.dst] = out
+		case vmOpTry:
+			out, bodyErr := r.runChild(instr.body)
+			if bodyErr == nil {
+				regs[instr.dst] = out
+				continue
+			}
+			if _, flow := bodyErr.(*vmReturnSignal); flow {
+				return nullValue(), bodyErr
+			}
+			if _, flow := bodyErr.(*vmBreakSignal); flow {
+				return nullValue(), bodyErr
+			}
+			if _, flow := bodyErr.(*vmContinueSignal); flow {
+				return nullValue(), bodyErr
+			}
+			errorValue := errorValueFromGoError(normalizeError(bodyErr, r.source))
+			out, handlerErr := r.runChildWithBindings(instr.alt, map[string]Value{instr.name: errorValue})
+			if handlerErr != nil {
+				return nullValue(), handlerErr
+			}
+			regs[instr.dst] = out
+		case vmOpPropagate:
+			out, bodyErr := r.runChild(instr.body)
+			if bodyErr != nil {
+				return nullValue(), bodyErr
+			}
+			switch out.kind {
+			case kindResult:
+				if out.res == nil || out.res.ok {
+					regs[instr.dst] = out
+					continue
+				}
+				return nullValue(), &vmReturnSignal{value: errorValueFromRecord(out.res.err)}
+			case kindOption:
+				if out.opt != nil && out.opt.present {
+					regs[instr.dst] = out.opt.val
+					continue
+				}
+				return nullValue(), &vmReturnSignal{value: errorValueFromRecord(newOsirisError(ErrorKindNotFound, "option is empty"))}
+			case kindError:
+				if record := out.errorRecord(); record != nil {
+					return nullValue(), &vmReturnSignal{value: errorValueFromRecord(record)}
+				}
+				return nullValue(), &vmReturnSignal{value: errorValue(out.errMsg)}
+			default:
+				regs[instr.dst] = out
+			}
+		case vmOpWhile:
+			loopFrame := r.frame
+			carryNames := vmLoopCarryNames(r.frame)
+		whileLoop:
+			for {
+				conditionRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
+					frame: loopFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+				condition, conditionErr := conditionRunner.run(instr.body)
+				r.outputs = append(r.outputs, conditionRunner.outputs...)
+				if conditionErr != nil {
+					return nullValue(), conditionErr
+				}
+				if !condition.Truthy() {
+					break
+				}
+				iterationFrame := loopFrame.child(nil)
+				bodyRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
+					frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+				_, bodyErr := bodyRunner.run(instr.alt)
+				r.outputs = append(r.outputs, bodyRunner.outputs...)
+				loopFrame = bodyRunner.frame
+				vmPropagateLoopCarries(loopFrame, r.frame, carryNames)
+				if bodyErr != nil {
+					switch bodyErr.(type) {
+					case *vmBreakSignal:
+						break whileLoop
+					case *vmContinueSignal:
+						continue
+					default:
+						return nullValue(), bodyErr
+					}
+				}
+			}
+		case vmOpFor:
+			value := regs[instr.a]
+			cursor, cursorErr := newIterationCursor(NewSession(r.rt, r.ctx, r.source), value)
+			if cursorErr != nil {
+				return nullValue(), cursorErr
+			}
+			loopFrame := r.frame.child(nil)
+			carryNames := vmLoopCarryNames(r.frame)
+			delete(carryNames, instr.name)
+		forLoop:
+			for {
+				item, done, nextErr := cursor.next(r.ctx)
+				if nextErr != nil {
+					return nullValue(), nextErr
+				}
+				if done {
+					break
+				}
+				iterationFrame := loopFrame.child(nil)
+				iterationFrame.bind(instr.name, item, false)
+				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
+					frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+				_, bodyErr := child.run(instr.body)
+				r.outputs = append(r.outputs, child.outputs...)
+				loopFrame = child.frame
+				vmPropagateLoopCarries(loopFrame, r.frame, carryNames)
+				if bodyErr != nil {
+					switch bodyErr.(type) {
+					case *vmBreakSignal:
+						break forLoop
+					case *vmContinueSignal:
+						continue
+					default:
+						return nullValue(), bodyErr
+					}
+				}
+			}
 		case vmOpBlock:
 			v, err := r.runChild(instr.body)
 			if err != nil {
@@ -946,10 +1448,366 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			return nullValue(), fmt.Errorf("unknown opcode %d", instr.op)
 		}
 	}
+	if err := r.ctx.Err(); err != nil && !r.cleanupActive {
+		return nullValue(), err
+	}
 	if chunk.result >= 0 && chunk.result < len(regs) {
 		return regs[chunk.result], nil
 	}
 	return nullValue(), nil
+}
+
+func vmLoopCarryNames(frame *vmFrame) map[string]struct{} {
+	carryNames := make(map[string]struct{})
+	for current := frame; current != nil; current = current.parent {
+		for name := range current.locals {
+			carryNames[name] = struct{}{}
+		}
+	}
+	return carryNames
+}
+
+func vmPropagateLoopCarries(loopFrame, target *vmFrame, names map[string]struct{}) {
+	for name := range names {
+		updated, ok := loopFrame.lookup(name)
+		if !ok {
+			continue
+		}
+		for current := target; current != nil; current = current.parent {
+			if _, exists := current.locals[name]; exists {
+				current.locals[name] = updated
+				break
+			}
+		}
+	}
+}
+
+// loadModuleVM evaluates a source module through the same VM compiler and
+// runner as the entry program. Stdlib modules remain runtime-provided values;
+// source modules never re-enter Session.eval merely because they were reached
+// through an import.
+func (rt *Runtime) loadModuleVM(ctx context.Context, ref, base string, stack []string) (Value, error) {
+	ref, selector := splitModuleRef(ref)
+	if strings.HasPrefix(ref, "std/") {
+		if selector != "" {
+			ref += "@" + selector
+		}
+		return rt.loadModule(ctx, ref, base, stack)
+	}
+	path, _, err := resolveModulePath(ref, base)
+	if err != nil {
+		return nullValue(), err
+	}
+	rt.moduleMu.Lock()
+	if cached, ok := rt.modules[path]; ok {
+		rt.moduleMu.Unlock()
+		return cached, nil
+	}
+	rt.moduleMu.Unlock()
+	for _, seen := range stack {
+		if seen == path {
+			return nullValue(), importCycleError(stack, path)
+		}
+	}
+	source, err := os.ReadFile(path)
+	if err != nil {
+		return nullValue(), err
+	}
+	program, err := Parse(path, string(source))
+	if err != nil {
+		return nullValue(), err
+	}
+	session := NewSession(rt, ctx, path)
+	expanded, err := session.ExpandProgram(program)
+	if err != nil {
+		return nullValue(), err
+	}
+	if _, err := rt.CheckProgram(ctx, expanded); err != nil {
+		return nullValue(), err
+	}
+	compiler := newVMCompiler(path)
+	chunk, err := compiler.compileProgram(expanded)
+	if err != nil {
+		return nullValue(), err
+	}
+	frame := &vmFrame{}
+	runner := &vmRunner{rt: rt, ctx: ctx, source: path, stack: append(append([]string(nil), stack...), path), frame: frame, emitAllowed: false}
+	if _, err := runner.run(chunk); err != nil {
+		return nullValue(), err
+	}
+	if chunk.packageName == "" || len(chunk.exports) == 0 {
+		return nullValue(), fmt.Errorf("module %s exported nothing", path)
+	}
+	exports := make(map[string]Value, len(chunk.exports))
+	for _, name := range chunk.exports {
+		value, ok := frame.lookup(name)
+		if !ok {
+			return nullValue(), fmt.Errorf("module %s exports undefined name %q", chunk.packageName, name)
+		}
+		exports[name] = value
+	}
+	module := moduleValueOf(chunk.packageName, packageVersion(expanded), func(_ context.Context, name string) (Value, error) {
+		if value, ok := exports[name]; ok {
+			return value, nil
+		}
+		return nullValue(), fmt.Errorf("module %s has no member %q", chunk.packageName, name)
+	}, exports)
+	rt.moduleMu.Lock()
+	rt.modules[path] = module
+	rt.moduleMu.Unlock()
+	return module, nil
+}
+
+func packageVersion(program *Program) string {
+	if packageStmt, ok := firstPackage(program); ok {
+		return packageStmt.Version
+	}
+	return ""
+}
+
+func (r *vmRunner) runVMChunk(ctx context.Context, chunk *vmChunk, frame *vmFrame, emitAllowed bool) (Value, error, []Value) {
+	child := &vmRunner{rt: r.rt, ctx: ctx, source: r.source, stack: r.stack, frame: frame, emitAllowed: emitAllowed}
+	value, err := child.run(chunk)
+	if signal, ok := err.(*vmReturnSignal); ok {
+		value, err = signal.value, nil
+	}
+	return value, err, child.outputs
+}
+
+func (r *vmRunner) runVMConcurrent(op vmOp, chunks []*vmChunk) (Value, error) {
+	if len(chunks) == 0 {
+		if op == vmOpParallel {
+			return listValue(nil), nil
+		}
+		return nullValue(), fmt.Errorf("concurrent form expects at least one branch")
+	}
+	type result struct {
+		index   int
+		value   Value
+		err     error
+		outputs []Value
+	}
+	runBranch := func(ctx context.Context, index int) result {
+		value, err, outputs := r.runVMChunk(ctx, chunks[index], snapshotVMFrame(r.frame), false)
+		return result{index: index, value: value, err: err, outputs: outputs}
+	}
+	if r.rt != nil && r.rt.taskDebug {
+		branches := make([]result, 0, len(chunks))
+		for i := range chunks {
+			branch := runBranch(r.ctx, i)
+			if branch.err != nil {
+				return nullValue(), branch.err
+			}
+			r.outputs = append(r.outputs, branch.outputs...)
+			branches = append(branches, branch)
+			if op == vmOpRace {
+				return branch.value, nil
+			}
+			if op == vmOpSelect {
+				return listValue([]Value{uintValue(uint64(i), 64), branch.value}), nil
+			}
+		}
+		values := make([]Value, len(chunks))
+		for i, branch := range branches {
+			values[i] = branch.value
+		}
+		return listValue(values), nil
+	}
+	groupCtx, cancel := context.WithCancel(r.ctx)
+	defer cancel()
+	results := make(chan result, len(chunks))
+	var wait sync.WaitGroup
+	for i := range chunks {
+		i := i
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			branch := runBranch(groupCtx, i)
+			select {
+			case results <- branch:
+			case <-groupCtx.Done():
+			}
+		}()
+	}
+	go func() {
+		wait.Wait()
+		close(results)
+	}()
+	if op == vmOpRace || op == vmOpSelect {
+		for branch := range results {
+			if branch.err != nil {
+				cancel()
+				return nullValue(), branch.err
+			}
+			cancel()
+			r.outputs = append(r.outputs, branch.outputs...)
+			if op == vmOpSelect {
+				return listValue([]Value{uintValue(uint64(branch.index), 64), branch.value}), nil
+			}
+			return branch.value, nil
+		}
+		return nullValue(), r.ctx.Err()
+	}
+	branches := make([]result, len(chunks))
+	for branch := range results {
+		if branch.err != nil {
+			cancel()
+			return nullValue(), branch.err
+		}
+		branches[branch.index] = branch
+	}
+	values := make([]Value, len(branches))
+	for i, branch := range branches {
+		values[i] = branch.value
+		r.outputs = append(r.outputs, branch.outputs...)
+	}
+	return listValue(values), nil
+}
+
+func (r *vmRunner) runVMCallable(function Value, args []Value) (Value, error) {
+	if function.kind != kindFunction || function.fn == nil {
+		return nullValue(), fmt.Errorf("value %s is not callable", function.Kind())
+	}
+	fn := function.fn
+	if fn.boundReceiver != nil {
+		args = append([]Value{*fn.boundReceiver}, args...)
+	}
+	checked, err := checkFunctionArguments(fn, args)
+	if err != nil {
+		return nullValue(), err
+	}
+	if fn.builtin != nil {
+		return fn.builtin(checked)
+	}
+	if fn.contextBuiltin != nil {
+		return fn.contextBuiltin(r.ctx, checked)
+	}
+	if fn.vmBody == nil {
+		return nullValue(), fmt.Errorf("function %s is not available to the VM", fn.name)
+	}
+	parent := fn.vmClosure
+	if parent == nil {
+		parent = r.frame
+	}
+	frame := &vmFrame{parent: parent}
+	for i, name := range fn.params {
+		frame.bind(name, checked[i], false)
+	}
+	value, err, outputs := r.runVMChunk(r.ctx, fn.vmBody, frame, r.emitAllowed)
+	r.outputs = append(r.outputs, outputs...)
+	if err != nil {
+		return nullValue(), err
+	}
+	return checkFunctionResult(fn, value)
+}
+
+func (r *vmRunner) runVMResultMap(kind string, inputChunk, callbackChunk *vmChunk) (Value, error) {
+	input, err := r.runChild(inputChunk)
+	if err != nil {
+		return nullValue(), err
+	}
+	callback, err := r.runChild(callbackChunk)
+	if err != nil {
+		return nullValue(), err
+	}
+	if input.kind != kindResult || input.res == nil {
+		return nullValue(), fmt.Errorf("%s expects a result", kind)
+	}
+	call := func(value Value) (Value, error) { return r.runVMCallable(callback, []Value{value}) }
+	switch kind {
+	case "map":
+		if !input.res.ok {
+			return inheritMustHandle(input, resultErrValue(input.res.err)), nil
+		}
+		value, err := call(input.res.val)
+		if err != nil {
+			return nullValue(), err
+		}
+		return inheritMustHandle(input, resultOkValue(value)), nil
+	case "map_error":
+		if input.res.ok {
+			return inheritMustHandle(input, resultOkValue(input.res.val)), nil
+		}
+		value, err := call(errorValueFromRecord(input.res.err))
+		if err != nil {
+			return nullValue(), err
+		}
+		if record, recordErr := value.AsError(); recordErr == nil && record != nil {
+			return inheritMustHandle(input, resultErrValue(record)), nil
+		}
+		message, messageErr := value.AsString()
+		if messageErr != nil {
+			return nullValue(), fmt.Errorf("map_error callback must return error or string")
+		}
+		return inheritMustHandle(input, resultErrValue(newOsirisError(ErrorKindUnknown, message))), nil
+	case "flat_map":
+		if !input.res.ok {
+			return inheritMustHandle(input, resultErrValue(input.res.err)), nil
+		}
+		value, err := call(input.res.val)
+		if err != nil {
+			return nullValue(), err
+		}
+		switch value.kind {
+		case kindResult:
+			return inheritMustHandle(input, value), nil
+		case kindOption:
+			if value.opt != nil && value.opt.present {
+				return inheritMustHandle(input, resultOkValue(value.opt.val)), nil
+			}
+			return inheritMustHandle(input, resultErrValue(newOsirisError(ErrorKindNotFound, "option is empty"))), nil
+		default:
+			return nullValue(), fmt.Errorf("flat_map callback must return result or option")
+		}
+	}
+	return nullValue(), fmt.Errorf("unknown result combinator %q", kind)
+}
+
+func (r *vmRunner) runVMAsyncBuiltin(name string, chunks []*vmChunk) (Value, error) {
+	values := make([]Value, len(chunks))
+	for i, chunk := range chunks {
+		value, err := r.runChild(chunk)
+		if err != nil {
+			return nullValue(), err
+		}
+		values[i] = value
+	}
+	var call Builtin
+	switch name {
+	case "read_async":
+		call = readValue
+	case "readbytes_async":
+		call = readBytesValue
+	case "write_async":
+		call = writeValue
+	case "lines_async":
+		call = linesValue
+	case "csv_async":
+		call = csvValue
+	case "jsonparse_async":
+		call = jsonParseValue
+	default:
+		return nullValue(), fmt.Errorf("unknown async builtin %q", name)
+	}
+	return NewSession(r.rt, r.ctx, r.source).spawnValueTask(func(context.Context) (Value, error, []Value) {
+		value, err := call(values)
+		return value, err, nil
+	}), nil
+}
+
+func (r *vmRunner) runCleanups() error {
+	previousCleanup := r.cleanupActive
+	r.cleanupActive = true
+	defer func() { r.cleanupActive = previousCleanup }()
+	var cleanupErr error
+	for i := len(r.cleanups) - 1; i >= 0; i-- {
+		_, err := r.runChild(r.cleanups[i])
+		if err != nil {
+			cleanupErr = combineCleanupErrors(cleanupErr, err)
+		}
+	}
+	r.cleanups = nil
+	return cleanupErr
 }
 
 func vmMatchArmsToMatchArms(arms []vmMatchArm) []matchArm {
@@ -972,11 +1830,13 @@ func (r *vmRunner) runChild(chunk *vmChunk) (Value, error) {
 		return nullValue(), nil
 	}
 	child := &vmRunner{
-		rt:     r.rt,
-		ctx:    r.ctx,
-		source: r.source,
-		stack:  r.stack,
-		frame:  r.frame.child(nil),
+		rt:            r.rt,
+		ctx:           r.ctx,
+		source:        r.source,
+		stack:         r.stack,
+		frame:         r.frame.child(nil),
+		cleanupActive: r.cleanupActive,
+		emitAllowed:   r.emitAllowed,
 	}
 	value, err := child.run(chunk)
 	r.outputs = append(r.outputs, child.outputs...)
@@ -994,11 +1854,13 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 		return nullValue(), nil
 	}
 	child := &vmRunner{
-		rt:     r.rt,
-		ctx:    r.ctx,
-		source: r.source,
-		stack:  r.stack,
-		frame:  r.frame.child(bindings),
+		rt:            r.rt,
+		ctx:           r.ctx,
+		source:        r.source,
+		stack:         r.stack,
+		frame:         r.frame.child(bindings),
+		cleanupActive: r.cleanupActive,
+		emitAllowed:   r.emitAllowed,
 	}
 	value, err := child.run(chunk)
 	r.outputs = append(r.outputs, child.outputs...)
@@ -1220,137 +2082,21 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	if _, err := r.CheckProgram(ctx, expanded); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
-	if containsControlFlow(expanded) {
-		outputs, err := sess.ExecProgram(expanded, false, nil)
-		if err != nil {
-			return outputs, normalizeError(err, prog.SourceName)
-		}
-		return outputs, nil
-	}
 	compiler := newVMCompiler(prog.SourceName)
 	chunk, err := compiler.compileProgram(expanded)
 	if err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
 	runner := &vmRunner{
-		rt:     r,
-		ctx:    ctx,
-		source: prog.SourceName,
-		stack:  nil,
-		frame:  &vmFrame{},
+		rt:          r,
+		ctx:         ctx,
+		source:      prog.SourceName,
+		stack:       nil,
+		frame:       &vmFrame{},
+		emitAllowed: true,
 	}
 	if _, err := runner.run(chunk); err != nil {
 		return runner.outputs, normalizeError(err, prog.SourceName)
 	}
 	return runner.outputs, nil
-}
-
-// containsControlFlow handles the contains control flow step in the
-// surrounding package and returns bool.
-//
-// It returns bool so callers can continue with the next stage of the pipeline
-// without re-deriving the same information.
-func containsControlFlow(prog *Program) bool {
-	if prog == nil {
-		return false
-	}
-	for _, stmt := range prog.Statements {
-		if stmtContainsControl(stmt) {
-			return true
-		}
-	}
-	return false
-}
-
-// stmtContainsControl handles the stmt contains control step in the
-// surrounding package and returns bool.
-//
-// It returns bool so callers can continue with the next stage of the pipeline
-// without re-deriving the same information.
-func stmtContainsControl(stmt Stmt) bool {
-	switch st := stmt.(type) {
-	case funcStmt, whileStmt, forStmt, returnStmt, breakStmt, continueStmt:
-		return true
-	case traitStmt:
-		return false
-	case implStmt:
-		for _, method := range st.Methods {
-			if method.Body != nil && exprContainsControl(method.Body) {
-				return true
-			}
-		}
-		return true
-	case letStmt:
-		return exprContainsControl(st.Expr)
-	case emitStmt:
-		return exprContainsControl(st.Expr)
-	case macroStmt:
-		return exprContainsControl(st.Body)
-	case importStmt, packageStmt, exportStmt:
-		return false
-	default:
-		return false
-	}
-}
-
-// exprContainsControl handles the expr contains control step in the
-// surrounding package and returns bool.
-//
-// It returns bool so callers can continue with the next stage of the pipeline
-// without re-deriving the same information.
-func exprContainsControl(expr Expr) bool {
-	switch n := expr.(type) {
-	case *blockExpr:
-		for _, stmt := range n.stmts {
-			if stmtContainsControl(stmt) {
-				return true
-			}
-		}
-		return n.tail != nil && exprContainsControl(n.tail)
-	case *callExpr:
-		if name, ok := specialFormName(n.callee); ok {
-			switch name {
-			case "spawn", "await", "cancel", "parallel", "timeout", "race", "select", "map", "map_error", "flat_map", "read_async", "readbytes_async", "write_async", "lines_async", "csv_async", "jsonparse_async":
-				return true
-			}
-		}
-		if exprContainsControl(n.callee) {
-			return true
-		}
-		for _, arg := range n.args {
-			if exprContainsControl(arg) {
-				return true
-			}
-		}
-		return false
-	case *memberExpr:
-		return exprContainsControl(n.object)
-	case *unaryExpr:
-		return exprContainsControl(n.expr)
-	case *binaryExpr:
-		return exprContainsControl(n.left) || exprContainsControl(n.right)
-	case *listExpr:
-		for _, item := range n.items {
-			if exprContainsControl(item) {
-				return true
-			}
-		}
-		return false
-	case *matchExpr:
-		if exprContainsControl(n.subject) {
-			return true
-		}
-		for _, arm := range n.arms {
-			if exprContainsControl(arm.body) {
-				return true
-			}
-		}
-		return false
-	case *tryExpr:
-		return true
-	case *propagateExpr:
-		return true
-	default:
-		return false
-	}
 }

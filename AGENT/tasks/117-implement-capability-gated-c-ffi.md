@@ -4,6 +4,19 @@
 **Dependencies:** 036, 041, 046, 047, 109, 116
 **Status:** Blocked
 
+## Current implementation evidence
+
+`internal/osiris/ffi.go` now validates ABI-v1 manifests, exposes capability
+grants/revocation, parses `ffi "manifest" as name`, and provides hosted/VM
+library loading and direct scalar symbol calls through the Unix adapter. The
+fixture library and focused hash, capability, call, and exactly-once close
+tests pass.
+
+This task is not complete yet: declarations for strings, buffers, structs,
+opaque typed handles, constants, and callbacks; callback lifetime/cancellation;
+generated-C parity; packaging; and cross-platform sanitizer/race evidence are
+still required.
+
 ## Objective
 
 Turn the approved FFI design into a production-safe C interoperability slice

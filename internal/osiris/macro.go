@@ -455,6 +455,12 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			out = append(out, st)
 		case continueStmt:
 			out = append(out, st)
+		case deferStmt:
+			body, err := e.expandExpr(st.Body, curScope, curDefs, depth+1)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			out = append(out, deferStmt{Body: body, Span: st.Span})
 		default:
 			return nil, nil, nil, fmt.Errorf("internal error: unknown statement type %T", stmt)
 		}

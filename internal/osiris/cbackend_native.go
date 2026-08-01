@@ -624,6 +624,11 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			}
 			fmt.Fprintf(b, "  oprint(%s);\n", a)
 		}
+	case "cleanup":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: cleanup expects one thunk")
+		}
+		fmt.Fprintf(b, "  (void)ocall(%s, NULL, 0);\n", vars[in.Args[0]])
 	case "makefunc":
 		wrapper, ok := functionNames[in.Text]
 		if !ok {

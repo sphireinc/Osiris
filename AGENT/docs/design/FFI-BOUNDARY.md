@@ -1,8 +1,19 @@
-# FFI boundary v1 (design only)
+# FFI boundary v1
 
-No general FFI is implemented or enabled by default. This document specifies
-the required contract for a future C ABI; Go interoperability must use the
-same manifest/capability model rather than bypassing it.
+The repository implements manifest validation, capability grants, a pinned
+dynamic loader, bounded scalar calls, and idempotent opaque-handle lifetime
+tokens in `internal/osiris/ffi.go`. The declaration form is:
+
+```osiris
+ffi "/absolute/project/math.ffi.json" as math
+emit ffi_call(math, "add_i64", 20i64, 22i64)
+ffi_close(math)
+```
+
+The host must grant the manifest capability before running the program:
+`runtime.GrantCapability("ffi.math")`. Native C compilation rejects these
+host-loader calls with a source-spanned diagnostic until a generated-C adapter
+is configured; it never proxies through the interpreter.
 
 ## Manifest and loading
 
@@ -11,7 +22,9 @@ a logical library identity, exact SHA-256 digest, exported declaration names,
 and requested capabilities. Dynamic library search paths, environment-driven
 loader fallback, arbitrary symbol lookup, and network acquisition are denied.
 The host config supplies an allowlisted absolute library path matching the
-manifest digest. A future loader must reject mismatch before loading.
+manifest digest. `LoadFFIManifest` rejects mismatch, unknown fields, platform
+or architecture mismatches, missing capabilities, unsupported types, and
+duplicate symbols before any library is opened.
 
 ## Values and ownership
 
@@ -21,19 +34,21 @@ manifest digest. A future loader must reject mismatch before loading.
 | UTF-8 strings and byte buffers | supported with `(pointer,length)` and explicit borrowed/owned result convention |
 | lists, maps, tensors, complex, decimal/bigint, units, errors, tasks, streams, modules, functions/closures | excluded from v1 direct ABI; adapt through a separately versioned owned buffer codec if needed |
 
-Every result is declared `borrowed`, `owned_by_caller`, or `retained_by_host`.
-Owned buffers require a manifest-declared matching release function. Failed
-calls must not transfer ownership. No callback may retain a borrowed value.
+Every result is declared `borrowed`, `owned`, `transferred`, or `retained`.
+`FFIHandle.Close` is idempotent and clears the opaque value before invoking a
+release hook. Failed calls must not transfer ownership. No callback may retain
+a borrowed value.
 
 ## Errors, callbacks, threading, determinism
 
-Calls return a status code plus an optional owned error buffer; status-to-
-`OsirisError` mapping preserves a public message and source call-site while
-redacting host debug data. Callbacks, re-entrant calls, background threads,
-and long-lived pointers are excluded from v1. Calls are synchronous and only
-allowed when the requested capability and deterministic-mode policy permit
-them. Cancellation is cooperative: a future ABI must accept a cancellation
-token or explicitly declare non-cancelable behavior.
+The maintained direct adapter supports up to four homogeneous fixed-width
+integer or floating-point arguments and scalar results. It resolves every
+declared symbol before returning a library handle, uses `RTLD_NOW|RTLD_LOCAL`,
+and unloads exactly once. Strings, buffers, opaque handles, constants, and
+callbacks remain schema-validated but are rejected by the call adapter until
+their dedicated marshalling/lifetime implementations land; they are not
+silently coerced to pointers. Calls are synchronous and cancellation cannot
+interrupt a foreign function that did not declare a cancellation ABI.
 
 ## Capability and security policy
 

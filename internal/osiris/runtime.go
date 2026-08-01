@@ -37,6 +37,8 @@ type Runtime struct {
 	clock           func() time.Time
 	locationMu      sync.RWMutex
 	locationLoader  func(string) (*time.Location, error)
+	capabilityMu    sync.RWMutex
+	capabilities    map[string]bool
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -55,9 +57,13 @@ func NewRuntime() *Runtime {
 		registries:      make(map[string]*moduleRegistry),
 		clock:           time.Now,
 		locationLoader:  time.LoadLocation,
+		capabilities:    make(map[string]bool),
 	}
 	registerBuiltins(r.Builtins)
 	registerContextBuiltins(r.ContextBuiltins)
+	r.ContextBuiltins["ffi_load"] = r.ffiLoadContextValue
+	r.ContextBuiltins["ffi_call"] = ffiCallContextValue
+	r.ContextBuiltins["ffi_close"] = ffiCloseContextValue
 	registerConstants(r.Constants)
 	return r
 }
@@ -308,7 +314,7 @@ func scopeHasMutableCell(s *scope) bool {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func (ev *evaluator) evalWithKey(expr Expr, scope *scope, key string) (Value, error) {
-	if err := ev.ctx.Err(); err != nil {
+	if err := ev.ctx.Err(); err != nil && (ev.session == nil || !ev.session.cleanupActive) {
 		return nullValue(), err
 	}
 	ev.mu.Lock()
@@ -379,7 +385,7 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 	)
 	switch n := expr.(type) {
 	case *literalExpr:
-		out = hashParts("lit", n.value.Kind(), n.value.String())
+		out = hashParts("lit", fingerprintValue(n.value))
 	case *identExpr:
 		b, ok := env.lookup(n.name)
 		if !ok {
@@ -673,6 +679,15 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 	ev.fpMemo[key] = out
 	ev.fpMu.Unlock()
 	return out, nil
+}
+
+func fingerprintValue(value Value) string {
+	if value.kind == kindError {
+		if record := value.errorRecord(); record != nil {
+			return hashParts(value.Kind(), record.publicPairs().String(), metadataMapValue(record.debugMetadata).String())
+		}
+	}
+	return hashParts(value.Kind(), value.String())
 }
 
 // computeExpr handles the compute expr step in the surrounding package and
@@ -3076,6 +3091,9 @@ func registerBuiltins(dst map[string]Builtin) {
 		if len(args) == 1 && args[0].kind == kindTCPListener {
 			return closeTCPListenerValue(args)
 		}
+		if len(args) == 1 && args[0].kind == kindUDPSocket {
+			return closeUDPSocketValue(args)
+		}
 		return closeStreamValue(args)
 	}
 	dst["error"] = func(args []Value) (Value, error) { return errorBuiltin(args) }
@@ -3113,6 +3131,18 @@ func registerContextBuiltins(dst map[string]contextCallable) {
 	dst["tcp_listen"] = tcpListenContextValue
 	dst["tcp_accept"] = tcpAcceptContextValue
 	dst["tcp_dial"] = tcpDialContextValue
+	dst["tls_listen"] = tlsListenContextValue
+	dst["udp_bind"] = udpBindContextValue
+	dst["udp_connect"] = udpConnectContextValue
+	dst["udp_send"] = udpSendContextValue
+	dst["udp_receive"] = udpReceiveContextValue
+	dst["dns_lookup"] = dnsLookupContextValue
+	dst["tls_dial"] = tlsDialContextValue
+	dst["tls_dial_config"] = tlsDialConfigContextValue
+	dst["http_get"] = httpGetContextValue
+	dst["http_request"] = httpRequestContextValue
+	dst["http_request_stream"] = httpRequestStreamContextValue
+	dst["http_serve"] = httpServeContextValue
 	dst["readline"] = readLineContextValue
 	dst["readchunk"] = readChunkContextValue
 	dst["transfer"] = transferContextValue

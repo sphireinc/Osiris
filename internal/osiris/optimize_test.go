@@ -55,7 +55,7 @@ emit simplify(9)
 		"emit 3u64",
 		"emit tensor([2, 2], [2, 4, 6, 8])",
 		`emit "a71d6f42cb1e038c2222b9c1942e3c58c34cc699af0bfc63d59ca51f120b0cce"`,
-		"func simplify(x) { let y = x; let z = x; return x }",
+		"func simplify(x) { let y = x; let z = y; return x }",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("optimized program missing %q\n%s", want, got)

@@ -94,6 +94,8 @@ func statementKind(stmt Stmt) string {
 		return "newtype"
 	case emitStmt:
 		return "emit"
+	case deferStmt:
+		return "defer"
 	case importStmt:
 		return "import"
 	case macroStmt:

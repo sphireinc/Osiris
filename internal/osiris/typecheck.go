@@ -515,6 +515,9 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 	case emitStmt:
 		_, err := c.checkExpr(st.Expr, scope)
 		return err
+	case deferStmt:
+		_, err := c.checkExpr(st.Body, scope)
+		return err
 	case returnStmt:
 		if c.function == nil {
 			return c.errorAt(st.Span, "return is only valid inside a function")

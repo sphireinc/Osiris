@@ -4,6 +4,19 @@
 **Dependencies:** 011, 012, 035, 045, 046, 116, 117
 **Status:** Blocked
 
+## Current implementation evidence
+
+The hosted `std/net` module now exposes bounded UDP bind/connect/send/receive,
+sorted DNS lookup, verified TLS client dialing and server configuration,
+bounded HTTP/1.1 request/get plus request/response body streams, and a
+cancellable static HTTP responder. UDP peer/truncation metadata, DNS ordering,
+HTTP limits, structured network errors, native source diagnostics, and
+sandbox-safe local tests are covered.
+
+This task is not complete yet: dynamic server handlers, explicit resolver
+policy, malformed-protocol/security corpus, cross-platform race fixtures, and
+the complete cleanup/FFI integration remain.
+
 ## Objective
 
 Provide a bounded, cancellable application-networking standard library beyond

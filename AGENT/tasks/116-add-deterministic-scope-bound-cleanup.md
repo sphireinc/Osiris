@@ -4,6 +4,19 @@
 **Dependencies:** 013, 045, 102, 109
 **Status:** Ready
 
+## Current implementation evidence
+
+`defer { ... }` is parsed, formatted, type-checked, macro-expanded, and
+implemented with LIFO cleanup frames in the interpreter and VM. Native IR now
+lowers cleanup thunks on normal, return, loop-break, and loop-continue edges.
+Cancellation is suppressed while cleanup runs, and body/cleanup failures
+preserve both causes. Focused tests cover LIFO order, cancellation, dual
+failures, and the native cleanup edge.
+
+This task is not complete yet: the full return/break/continue/task/resource
+matrix, resource protocol integration, optimizer/IR ownership assertions, and
+sanitizer/race evidence are still required.
+
 ## Objective
 
 Add one universal cleanup mechanism that runs reliably on normal return,

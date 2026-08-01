@@ -45,6 +45,8 @@ const (
 	kindTuple
 	kindDual
 	kindTCPListener
+	kindUDPSocket
+	kindFFILibrary
 	kindDuration
 	kindDateTime
 	kindTimeLocation
@@ -69,6 +71,8 @@ type functionValue struct {
 	group          *scope
 	predeclared    bool
 	session        *Session
+	vmBody         *vmChunk
+	vmClosure      *vmFrame
 	receiver       string
 	receiverType   string
 	boundReceiver  *Value
@@ -195,6 +199,8 @@ type Value struct {
 	tuple       []Value
 	dual        *dualValue
 	listener    *tcpListener
+	udp         *udpSocket
+	ffi         *FFILibrary
 	duration    int64
 	datetime    *dateTimeValue
 	location    *timeLocationValue
@@ -321,6 +327,14 @@ func dualValueOf(primal, tangent float64) Value {
 
 func tcpListenerValueOf(listener *tcpListener) Value {
 	return Value{kind: kindTCPListener, listener: listener}
+}
+
+func udpSocketValueOf(socket *udpSocket) Value {
+	return Value{kind: kindUDPSocket, udp: socket}
+}
+
+func ffiLibraryValueOf(library *FFILibrary) Value {
+	return Value{kind: kindFFILibrary, ffi: library}
 }
 
 func durationValue(nanoseconds int64) Value {
@@ -688,6 +702,12 @@ func (v Value) Kind() string {
 	if v.kind == kindTCPListener {
 		return "tcp_listener"
 	}
+	if v.kind == kindUDPSocket {
+		return "udp_socket"
+	}
+	if v.kind == kindFFILibrary {
+		return "ffi_library"
+	}
 	if v.kind == kindFixed && v.fx != nil {
 		return fmt.Sprintf("fixed[%d,%d]", v.fx.width, v.fx.frac)
 	}
@@ -774,6 +794,10 @@ func (k valueKind) String() string {
 		return "dual"
 	case kindTCPListener:
 		return "tcp_listener"
+	case kindUDPSocket:
+		return "udp_socket"
+	case kindFFILibrary:
+		return "ffi_library"
 	case kindDuration:
 		return "duration"
 	case kindDateTime:
@@ -813,6 +837,10 @@ func (v Value) Truthy() bool {
 		return v.dual != nil && (v.dual.primal != 0 || v.dual.tangent != 0)
 	case kindTCPListener:
 		return v.listener != nil && v.listener.listener != nil
+	case kindUDPSocket:
+		return v.udp != nil && v.udp.isOpen()
+	case kindFFILibrary:
+		return v.ffi != nil
 	case kindDuration:
 		return v.duration != 0
 	case kindDateTime, kindTimeLocation:
@@ -1652,6 +1680,8 @@ func (v Value) Equal(other Value) bool {
 		return true
 	case kindStream:
 		return other.kind == kindStream && v.stream != nil && other.stream != nil && v.stream == other.stream
+	case kindFFILibrary:
+		return other.kind == kindFFILibrary && v.ffi != nil && v.ffi == other.ffi
 	case kindTask:
 		return other.kind == kindTask && v.task != nil && other.task != nil && v.task == other.task
 	case kindFunction:
@@ -1998,6 +2028,13 @@ func (v Value) String() string {
 			return "<tcp-listener>"
 		}
 		return "<tcp-listener " + v.listener.address() + ">"
+	case kindUDPSocket:
+		if v.udp == nil {
+			return "<udp-socket>"
+		}
+		return "<udp-socket " + v.udp.address() + ">"
+	case kindFFILibrary:
+		return "<ffi-library>"
 	case kindDuration:
 		return `duration(` + strconv.Quote(formatDuration(v.duration)) + `)`
 	case kindDateTime:
@@ -2222,6 +2259,13 @@ func (v Value) toInterface() any {
 			return nil
 		}
 		return map[string]any{"tcp_listener": v.listener.address()}
+	case kindUDPSocket:
+		if v.udp == nil {
+			return nil
+		}
+		return map[string]any{"udp_socket": v.udp.address()}
+	case kindFFILibrary:
+		return map[string]any{"ffi_library": true}
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.publicInterface()

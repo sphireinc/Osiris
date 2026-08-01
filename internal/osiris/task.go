@@ -66,6 +66,41 @@ func (s *Session) spawnValueTask(run func(context.Context) (Value, error, []Valu
 	return taskValueOf(task)
 }
 
+// spawnVMTask starts a task from a compiled VM chunk. It deliberately shares
+// taskValue's cancellation, tracing, and exactly-once completion contract while
+// avoiding a Session evaluator in the VM path.
+func (r *Runtime) spawnVMTask(parent context.Context, source string, chunk *vmChunk, frame *vmFrame) Value {
+	if parent == nil {
+		parent = context.Background()
+	}
+	childCtx, cancel := context.WithCancel(parent)
+	if r == nil {
+		r = NewRuntime()
+	}
+	task := newTaskValue(r, r.nextTaskID(), cancel)
+	r.recordTaskTrace("task.spawn", task.id, "pending", "spawned")
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				task.complete(nullValue(), fmt.Errorf("task panicked: %v", recovered), nil)
+			}
+		}()
+		runner := &vmRunner{rt: r, ctx: childCtx, source: source, frame: frame, emitAllowed: false}
+		value, err := runner.run(chunk)
+		if signal, ok := err.(*vmReturnSignal); ok {
+			value, err = signal.value, nil
+		}
+		if signal, ok := err.(*vmBreakSignal); ok {
+			err = fmt.Errorf("break outside loop in task: %w", signal)
+		}
+		if signal, ok := err.(*vmContinueSignal); ok {
+			err = fmt.Errorf("continue outside loop in task: %w", signal)
+		}
+		task.complete(value, err, runner.outputs)
+	}()
+	return taskValueOf(task)
+}
+
 // complete operates on taskValue values and keeps the taskvalue-specific
 // behavior attached to the receiver so callers can use the method as the
 // natural entry point for that data structure.

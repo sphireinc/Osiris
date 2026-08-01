@@ -92,7 +92,7 @@ func (ev *evaluator) fingerprintSimple(expr Expr, env *scope) (string, int, bool
 			switch n := frame.expr.(type) {
 			case *literalExpr:
 				complete(simpleFingerprintResult{
-					hash:  hashParts("lit", n.value.Kind(), n.value.String()),
+					hash:  hashParts("lit", fingerprintValue(n.value)),
 					depth: 1,
 				}, true)
 			case *identExpr:

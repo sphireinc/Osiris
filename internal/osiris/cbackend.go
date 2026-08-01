@@ -74,6 +74,21 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 			name,
 		)
 	}
+	if name, span, ok := nativeUnsupportedNetworkingBuiltin(ir); ok {
+		return nil, fmt.Errorf(
+			"%s:%d:%d: native C backend: networking builtin %q is not supported by the hosted-only native ABI",
+			prog.SourceName,
+			span.start.line,
+			span.start.col,
+			name,
+		)
+	}
+	if name, span, ok := nativeUnsupportedFFIBuiltin(ir); ok {
+		return nil, fmt.Errorf(
+			"%s:%d:%d: native C backend: FFI builtin %q requires the hosted capability loader",
+			prog.SourceName, span.start.line, span.start.col, name,
+		)
+	}
 	if !nativeProgramHasExceptionalAsync(ir) {
 		optimizeNativeLoops(ir)
 	}
@@ -82,6 +97,137 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 		return nil, err
 	}
 	return &CArtifact{Source: source}, nil
+}
+
+func nativeProgramContainsDefer(prog *Program) (sourceSpan, bool) {
+	if prog == nil {
+		return sourceSpan{}, false
+	}
+	for _, stmt := range prog.Statements {
+		if span, ok := nativeStmtContainsDefer(stmt); ok {
+			return span, true
+		}
+	}
+	return sourceSpan{}, false
+}
+
+func nativeStmtContainsDefer(stmt Stmt) (sourceSpan, bool) {
+	switch st := stmt.(type) {
+	case deferStmt:
+		return st.Span, true
+	case letStmt:
+		return nativeExprContainsDefer(st.Expr)
+	case assignStmt:
+		return nativeExprContainsDefer(st.Expr)
+	case emitStmt:
+		return nativeExprContainsDefer(st.Expr)
+	case returnStmt:
+		if st.Expr == nil {
+			return sourceSpan{}, false
+		}
+		return nativeExprContainsDefer(st.Expr)
+	case whileStmt:
+		if span, ok := nativeExprContainsDefer(st.Cond); ok {
+			return span, true
+		}
+		return nativeExprContainsDefer(st.Body)
+	case forStmt:
+		if span, ok := nativeExprContainsDefer(st.Iter); ok {
+			return span, true
+		}
+		return nativeExprContainsDefer(st.Body)
+	case funcStmt:
+		return nativeExprContainsDefer(st.Body)
+	case implStmt:
+		for _, method := range st.Methods {
+			if span, ok := nativeExprContainsDefer(method.Body); ok {
+				return span, true
+			}
+		}
+	}
+	return sourceSpan{}, false
+}
+
+func nativeExprContainsDefer(expr Expr) (sourceSpan, bool) {
+	switch n := expr.(type) {
+	case *blockExpr:
+		for _, stmt := range n.stmts {
+			if span, ok := nativeStmtContainsDefer(stmt); ok {
+				return span, true
+			}
+		}
+		return nativeExprContainsDefer(n.tail)
+	case *callExpr:
+		if span, ok := nativeExprContainsDefer(n.callee); ok {
+			return span, true
+		}
+		for _, arg := range n.args {
+			if span, ok := nativeExprContainsDefer(arg); ok {
+				return span, true
+			}
+		}
+	case *memberExpr:
+		return nativeExprContainsDefer(n.object)
+	case *indexExpr:
+		if span, ok := nativeExprContainsDefer(n.Object); ok {
+			return span, true
+		}
+		return nativeExprContainsDefer(n.Index)
+	case *unaryExpr:
+		return nativeExprContainsDefer(n.expr)
+	case *binaryExpr:
+		if span, ok := nativeExprContainsDefer(n.left); ok {
+			return span, true
+		}
+		return nativeExprContainsDefer(n.right)
+	case *listExpr:
+		for _, item := range n.items {
+			if span, ok := nativeExprContainsDefer(item); ok {
+				return span, true
+			}
+		}
+	case *tupleExpr:
+		for _, item := range n.items {
+			if span, ok := nativeExprContainsDefer(item); ok {
+				return span, true
+			}
+		}
+	case *structExpr:
+		for _, field := range n.Fields {
+			if span, ok := nativeExprContainsDefer(field.Expr); ok {
+				return span, true
+			}
+		}
+	case *structUpdateExpr:
+		if span, ok := nativeExprContainsDefer(n.Base); ok {
+			return span, true
+		}
+		for _, field := range n.Fields {
+			if span, ok := nativeExprContainsDefer(field.Expr); ok {
+				return span, true
+			}
+		}
+	case *matchExpr:
+		if span, ok := nativeExprContainsDefer(n.subject); ok {
+			return span, true
+		}
+		for _, arm := range n.arms {
+			if span, ok := nativeExprContainsDefer(arm.guard); ok {
+				return span, true
+			}
+			if span, ok := nativeExprContainsDefer(arm.body); ok {
+				return span, true
+			}
+		}
+	case *tryExpr:
+		if span, ok := nativeExprContainsDefer(n.body); ok {
+			return span, true
+		}
+		return nativeExprContainsDefer(n.handler)
+	case *propagateExpr:
+		return nativeExprContainsDefer(n.expr)
+	}
+	return sourceSpan{}, false
 }
 
 func nativeProgramHasExceptionalAsync(program *IRProgram) bool {
@@ -113,6 +259,47 @@ func nativeUnsupportedFilesystemBuiltin(program *IRProgram) (string, sourceSpan,
 					continue
 				}
 				if _, ok := unsupported[instruction.Text]; ok {
+					return instruction.Text, instruction.Span, true
+				}
+			}
+		}
+	}
+	return "", sourceSpan{}, false
+}
+
+func nativeUnsupportedNetworkingBuiltin(program *IRProgram) (string, sourceSpan, bool) {
+	if program == nil {
+		return "", sourceSpan{}, false
+	}
+	unsupported := map[string]struct{}{
+		"tcp_listen": {}, "tcp_accept": {}, "tcp_dial": {},
+		"udp_bind": {}, "udp_connect": {}, "udp_send": {}, "udp_receive": {},
+		"dns_lookup": {}, "tls_dial": {}, "tls_dial_config": {}, "tls_listen": {},
+		"http_get": {}, "http_request": {}, "http_request_stream": {}, "http_serve": {},
+	}
+	for _, function := range program.Functions {
+		for _, block := range function.Blocks {
+			for _, instruction := range block.Instrs {
+				if instruction.Op != "builtin" {
+					continue
+				}
+				if _, ok := unsupported[instruction.Text]; ok {
+					return instruction.Text, instruction.Span, true
+				}
+			}
+		}
+	}
+	return "", sourceSpan{}, false
+}
+
+func nativeUnsupportedFFIBuiltin(program *IRProgram) (string, sourceSpan, bool) {
+	if program == nil {
+		return "", sourceSpan{}, false
+	}
+	for _, function := range program.Functions {
+		for _, block := range function.Blocks {
+			for _, instruction := range block.Instrs {
+				if instruction.Op == "builtin" && (instruction.Text == "ffi_load" || instruction.Text == "ffi_call" || instruction.Text == "ffi_close") {
 					return instruction.Text, instruction.Span, true
 				}
 			}

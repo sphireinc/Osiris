@@ -117,6 +117,8 @@ func formatStmt(stmt Stmt) string {
 		return s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:
 		return "emit " + formatEmitExpr(s.Expr)
+	case deferStmt:
+		return "defer " + formatExpr(s.Body, 0)
 	case macroStmt:
 		return "macro " + s.Name + "(" + strings.Join(s.Params, ", ") + ") => " + formatExpr(s.Body, 0)
 	case funcStmt:

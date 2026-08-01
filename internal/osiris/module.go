@@ -462,9 +462,21 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
 		return makeModule(name, version, map[string]Value{
-			"tcp_listen": contextFunctionValueOf("std/net.tcp_listen", tcpListenContextValue),
-			"tcp_accept": contextFunctionValueOf("std/net.tcp_accept", tcpAcceptContextValue),
-			"tcp_dial":   contextFunctionValueOf("std/net.tcp_dial", tcpDialContextValue),
+			"tcp_listen":          contextFunctionValueOf("std/net.tcp_listen", tcpListenContextValue),
+			"tcp_accept":          contextFunctionValueOf("std/net.tcp_accept", tcpAcceptContextValue),
+			"tcp_dial":            contextFunctionValueOf("std/net.tcp_dial", tcpDialContextValue),
+			"tls_listen":          contextFunctionValueOf("std/net.tls_listen", tlsListenContextValue),
+			"udp_bind":            contextFunctionValueOf("std/net.udp_bind", udpBindContextValue),
+			"udp_connect":         contextFunctionValueOf("std/net.udp_connect", udpConnectContextValue),
+			"udp_send":            contextFunctionValueOf("std/net.udp_send", udpSendContextValue),
+			"udp_receive":         contextFunctionValueOf("std/net.udp_receive", udpReceiveContextValue),
+			"dns_lookup":          contextFunctionValueOf("std/net.dns_lookup", dnsLookupContextValue),
+			"tls_dial":            contextFunctionValueOf("std/net.tls_dial", tlsDialContextValue),
+			"tls_dial_config":     contextFunctionValueOf("std/net.tls_dial_config", tlsDialConfigContextValue),
+			"http_get":            contextFunctionValueOf("std/net.http_get", httpGetContextValue),
+			"http_request":        contextFunctionValueOf("std/net.http_request", httpRequestContextValue),
+			"http_request_stream": contextFunctionValueOf("std/net.http_request_stream", httpRequestStreamContextValue),
+			"http_serve":          contextFunctionValueOf("std/net.http_serve", httpServeContextValue),
 		}), nil
 	case "std/list":
 		version := "1.0.0"

@@ -1,8 +1,10 @@
-# Minimal TCP networking design
+# Bounded TCP and application networking design
 
-Task 011 introduces only explicit TCP resources. It does not expose raw file
-descriptors, polling registrations, UDP, TLS, DNS caching, HTTP, callbacks, or
-background accept loops.
+The hosted networking surface includes explicit TCP resources plus bounded UDP,
+DNS lookup, TLS client/server configuration, and HTTP/1.1 client/server
+primitives. It does not expose raw file descriptors, polling registrations,
+HTTP/2 or HTTP/3, QUIC, WebSockets, proxy auto-discovery, system credential
+stores, callbacks, or background accept loops.
 
 ## Resource model
 
@@ -47,13 +49,35 @@ and platform-specific options must return a documented capability result or
 structured unsupported error when they eventually become public; they must not
 quietly alter portable stream behavior.
 
+## UDP, DNS, TLS, and HTTP
+
+`udp_bind(address)` and `udp_connect(address)` return owned packet endpoints.
+`udp_send(socket, data[, peer])` is bounded to 1 MiB. `udp_receive` returns a
+tuple of byte list, peer address, and a conservative truncation flag; callers
+must choose a sufficient maximum to distinguish an exactly full datagram.
+`dns_lookup(host)` returns sorted, duplicate-free addresses and observes the
+operation context.
+
+`tls_dial` uses certificate and hostname verification, TLS 1.2 minimum, and
+ALPN `http/1.1`; `tls_dial_config` accepts an explicit PEM root set. Neither
+form accepts an insecure-skip-verify option. `tls_listen` requires absolute
+certificate/key paths, TLS 1.2 minimum, and advertises HTTP/1.1. `http_get`
+and `http_request` use HTTP/1.1, cap redirects at five, headers at 256 entries,
+and request/response bodies at 8 MiB. Response headers are returned as sorted
+`[name, value]` pairs. `http_request_stream` exposes a bounded `body_stream`
+whose ownership lasts until `close`; the same stream API can supply a request
+body. `http_serve` is a cancellable static responder intended for local
+fixtures and health endpoints; dynamic Osiris callbacks are not allowed to
+outlive their task and remain a separate API.
+
 ## Validation and native boundary
 
 Loopback-only integration tests must cover listen/dial/accept, bidirectional
 line/chunk transfer, close/unblock behavior, deadline, and cancellation.
 The deterministic task-debug scheduler must retain observable ordering and
 termination. Networking is interpreter/VM host I/O only; native lowering must
-reject it until a separate native runtime ABI and capability policy exist.
+reject it with a source-spanned capability diagnostic until a separate native
+runtime ABI and capability policy exist.
 
 ## Runtime and ownership boundary
 

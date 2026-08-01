@@ -201,14 +201,22 @@ const toolingModule = {
   sections: orderReferenceSections([{
     title: 'Release provenance',
     entries: [{
-      name: 'FFI boundary (design only)',
-      signature: 'ffi manifest ABI v1 — not implemented',
-      description: 'Defines the future C/Go interoperability boundary without exposing arbitrary host calls. General FFI is currently unsupported.',
-      parameters: 'A future declaration must be a project-local, ABI-versioned manifest with a digest-pinned allowlisted library, explicit scalar/buffer signatures, ownership, and trusted-host capability grants.',
-      returns: 'No current runtime value or callable API. This is a design contract for future implementation.',
+      name: 'FFI manifest ABI v1',
+      signature: 'FFIManifest.Validate(grants) / LoadFFIManifest(path, grants)',
+      description: 'Validates a project-local, digest-pinned C ABI manifest before any native library is opened. Direct language-level symbol invocation remains unsupported until the platform loader adapter is complete.',
+      parameters: 'The manifest declares an absolute library path, SHA-256 digest, platform/architecture, capabilities, C symbols, exact scalar/string/buffer/opaque-handle types, calling convention, thread affinity, and ownership.',
+      returns: 'A validated manifest or a security/ABI diagnostic. No raw pointer or integer address is returned.',
       returnValue: 'v1 would support exact scalar widths plus explicit UTF-8 string/byte buffers. Lists, tensors, complex, decimal/bigint, units, errors, tasks, streams, modules, and callbacks are excluded from the direct ABI.',
       details: ['Dynamic search paths, environment-driven loader fallback, arbitrary symbols, network acquisition, callbacks, re-entrancy, and background threads are denied by the design.', 'Every result must declare borrowed, caller-owned, or host-retained ownership. Failed calls never transfer ownership; owned values require a matching declared release function.'],
       example: '{"abi_version":1,"library":"example-math","sha256":"…","capabilities":["ffi.math"],"functions":[{"name":"add_f64","args":["f64","f64"],"result":"f64","ownership":"borrowed"}]}',
+    }, {
+      name: 'std/net expanded host networking',
+      signature: 'udp_bind / udp_connect / udp_send / udp_receive / dns_lookup / tls_dial / http_get / http_request / http_serve',
+      description: 'Provides bounded, cancellable hosted networking beyond TCP. HTTP/2, QUIC, WebSockets, proxy discovery, and insecure TLS modes are not included.',
+      parameters: 'UDP is capped at 1 MiB per packet; HTTP headers are capped at 256 entries and bodies at 8 MiB; redirects are capped at five. `udp_receive` returns bytes, peer address, and truncation status.',
+      returns: 'Owned UDP or TLS stream resources, deterministic DNS address lists, or HTTP response maps with sorted header pairs.',
+      details: ['TLS uses certificate and hostname verification, TLS 1.2 minimum, and HTTP/1.1 ALPN.', 'Native C rejects these host resources with a source-spanned capability diagnostic.'],
+      example: 'import "std/net" as net\nlet socket = net.udp_bind("127.0.0.1:0")\ndefer { close(socket) }\n# udp_receive(socket, 65536, 1000) -> (bytes, peer, truncated)',
     }, {
       name: 'Compatibility and deprecations',
       signature: 'OSIRIS_SUPPRESS_WARNINGS=OSIRIS-Dnnn osiris <command>',

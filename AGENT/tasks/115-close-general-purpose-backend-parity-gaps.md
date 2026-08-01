@@ -4,6 +4,19 @@
 **Dependencies:** 025, 026, 028, 034, 109
 **Status:** Ready
 
+## Current implementation evidence
+
+The VM now executes ordinary functions, closures, typed returns, recursion,
+trait/impl methods, `while`, `for`, `break`, `continue`, modules, and task
+special forms as bytecode chunks; focused parity, inventory, and full-
+repository tests pass. Native C continues to reject unsupported host features
+with source-spanned diagnostics.
+
+This task is not complete yet: the machine-checked inventory is now present, but
+the complete stable-surface differential corpus, native ownership/error parity,
+portable Linux/macOS execution, and sanitizer evidence required by this task
+are not complete. Do not move this record until those claims are closed.
+
 ## Objective
 
 Make the public VM and native C compiler complete for the existing stable

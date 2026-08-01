@@ -28,6 +28,7 @@ const (
 	tokenIn
 	tokenBreak
 	tokenContinue
+	tokenDefer
 	tokenPackage
 	tokenExport
 	tokenEnum
@@ -35,6 +36,7 @@ const (
 	tokenType
 	tokenNewtype
 	tokenImport
+	tokenFFI
 	tokenMatch
 	tokenSwitch
 	tokenAs
@@ -139,6 +141,8 @@ func (k tokenKind) String() string {
 		return "break"
 	case tokenContinue:
 		return "continue"
+	case tokenDefer:
+		return "defer"
 	case tokenPackage:
 		return "package"
 	case tokenExport:
@@ -153,6 +157,8 @@ func (k tokenKind) String() string {
 		return "newtype"
 	case tokenImport:
 		return "import"
+	case tokenFFI:
+		return "ffi"
 	case tokenMatch:
 		return "match"
 	case tokenSwitch:
@@ -463,6 +469,8 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenBreak, text: text, line: startLine, col: startCol}, nil
 	case "continue":
 		return token{kind: tokenContinue, text: text, line: startLine, col: startCol}, nil
+	case "defer":
+		return token{kind: tokenDefer, text: text, line: startLine, col: startCol}, nil
 	case "package":
 		return token{kind: tokenPackage, text: text, line: startLine, col: startCol}, nil
 	case "export":
@@ -477,6 +485,8 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenNewtype, text: text, line: startLine, col: startCol}, nil
 	case "import":
 		return token{kind: tokenImport, text: text, line: startLine, col: startCol}, nil
+	case "ffi":
+		return token{kind: tokenFFI, text: text, line: startLine, col: startCol}, nil
 	case "match":
 		return token{kind: tokenMatch, text: text, line: startLine, col: startCol}, nil
 	case "switch":

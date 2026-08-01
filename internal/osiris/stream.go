@@ -22,6 +22,7 @@ type streamValue struct {
 	conn    net.Conn
 	reader  *bufio.Reader
 	writer  *bufio.Writer
+	closer  io.Closer
 	closed  bool
 }
 
@@ -845,7 +846,8 @@ func (s *streamValue) close() (Value, error) {
 		return boolValue(false), nil
 	}
 	s.closed = true
-	writer, file, conn, path := s.writer, s.file, s.conn, s.path
+	writer, file, conn, closer, path := s.writer, s.file, s.conn, s.closer, s.path
+	s.closer = nil
 	s.mu.Unlock()
 	var firstErr error
 	if writer != nil {
@@ -867,6 +869,11 @@ func (s *streamValue) close() (Value, error) {
 			if firstErr == nil {
 				firstErr = err
 			}
+		}
+	}
+	if closer != nil && closer != file && closer != conn {
+		if err := closer.Close(); err != nil && firstErr == nil {
+			firstErr = filesystemHostFailure("close", path, err)
 		}
 	}
 	if firstErr != nil {

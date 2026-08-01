@@ -207,7 +207,23 @@
       "documentation": ["https://sphireinc.github.io/Osiris/#chapter-native"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendObjectAndExecutable", "internal/osiris/runtime_test.go#TestCBackendReportsTaggedFallbackReason"]},
-      "notes": "Osiris can lower a tested subset through C and invoke the system C compiler. A public foreign-function interface is not implemented."
+      "notes": "Osiris can lower a tested subset through C and invoke the system C compiler. Manifest validation and opaque handle lifetime tokens exist for the FFI boundary, but direct C symbol invocation remains an explicit unsupported native capability until a loader/ABI adapter is added."
+    },
+    {
+      "id": "scope-bound-cleanup",
+      "label": "Lexical scope-bound cleanup",
+      "documentation": ["https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#io"],
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/scope_cleanup_test.go#TestDeferRunsInLIFOOrderAtScopeExit", "internal/osiris/scope_cleanup_test.go#TestDeferRunsWhenTheBodyIsCancelled", "internal/osiris/scope_cleanup_test.go#TestDeferPreservesBodyErrorWhenCleanupAlsoFails", "internal/osiris/scope_cleanup_test.go#TestNativeDeferLowersCleanupEdge"]},
+      "notes": "`defer { ... }` registers a lexical cleanup and executes actions exactly once in LIFO order across normal, failure, and cancellation exits in the interpreter and VM. Native C lowers the cleanup thunk on normal and return edges; exceptional host-resource cleanup remains separately audited."
+    },
+    {
+      "id": "std-networking-expanded",
+      "label": "std/net UDP, DNS, TLS, and HTTP/1.1",
+      "documentation": ["https://sphireinc.github.io/Osiris/#io"],
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/network_extended_test.go#TestUDPBoundedPacketContract", "internal/osiris/network_extended_test.go#TestDNSLookupIsSortedAndUnique", "internal/osiris/network_extended_test.go#TestHTTPRequestIsBoundedAndDeterministic"]},
+      "notes": "Hosted Go support is bounded and context-aware: UDP preserves peer/truncation metadata, DNS results are sorted and deduplicated, TLS requires certificate verification with TLS 1.2 minimum, and HTTP/1.1 enforces header, redirect, and body limits. Native C rejects host networking."
     }
   ]
 }

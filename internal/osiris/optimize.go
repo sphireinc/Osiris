@@ -326,7 +326,7 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 		if n.tail != nil {
 			tail = optimizeExprWithEnvSeen(n.tail, nextEnv, seen)
 		}
-		return &blockExpr{stmts: sweepDeadStatements(stmts, tail, pureNames), tail: tail}
+		return &blockExpr{stmts: sweepDeadStatementsPreservingBindings(stmts, tail, pureNames), tail: tail}
 	case *tryExpr:
 		return &tryExpr{body: optimizeExprWithEnvSeen(n.body, env, seen), catchName: n.catchName, handler: optimizeExprWithEnvSeen(n.handler, env, seen)}
 	case *propagateExpr:
@@ -371,9 +371,11 @@ func optimizeStmtSequence(stmts []Stmt, env optimizeEnv) ([]Stmt, optimizeEnv, m
 			if nextEnv == nil {
 				nextEnv = make(optimizeEnv)
 			}
-			nextEnv[letv.Name] = letv.Expr
 			if isPureExpr(letv.Expr, localEnv, nil) {
+				nextEnv[letv.Name] = letv.Expr
 				pureNames[letv.Name] = struct{}{}
+			} else {
+				delete(nextEnv, letv.Name)
 			}
 		}
 		if fnv, ok := opt.(funcStmt); ok {
@@ -409,6 +411,14 @@ func cloneOptimizeEnv(env optimizeEnv) optimizeEnv {
 // It returns []Stmt so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func sweepDeadStatements(stmts []Stmt, tail Expr, pureNames map[string]struct{}) []Stmt {
+	return sweepDeadStatementsWithOptions(stmts, tail, pureNames, false)
+}
+
+func sweepDeadStatementsPreservingBindings(stmts []Stmt, tail Expr, pureNames map[string]struct{}) []Stmt {
+	return sweepDeadStatementsWithOptions(stmts, tail, pureNames, true)
+}
+
+func sweepDeadStatementsWithOptions(stmts []Stmt, tail Expr, pureNames map[string]struct{}, preservePureLets bool) []Stmt {
 	if len(stmts) == 0 {
 		return nil
 	}
@@ -419,7 +429,7 @@ func sweepDeadStatements(stmts []Stmt, tail Expr, pureNames map[string]struct{})
 		refs := collectRawRefsStmt(stmt)
 		switch st := stmt.(type) {
 		case letStmt:
-			if !containsName(live, st.Name) && isPureExpr(st.Expr, nil, pureNames) {
+			if !preservePureLets && !containsName(live, st.Name) && isPureExpr(st.Expr, nil, pureNames) {
 				continue
 			}
 			delete(live, st.Name)
@@ -633,7 +643,11 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 			}
 		}
 		_, ok := purityBuiltinValueInfo(n.name)
-		return ok
+		// A free identifier is a value supplied by the surrounding lexical
+		// scope (for example a function parameter). It is safe to substitute
+		// through such a binding; unknown calls remain impure because call
+		// expressions are handled separately below.
+		return ok || n.name != ""
 	case *memberExpr:
 		return isPureExprSeen(n.object, env, pureNames, seen)
 	case *unaryExpr:

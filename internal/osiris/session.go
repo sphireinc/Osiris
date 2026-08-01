@@ -25,6 +25,20 @@ type Session struct {
 	exportOrder    []string
 	exportSet      map[string]struct{}
 	macros         map[string]*macroDef
+	cleanupFrames  []*cleanupFrame
+	cleanupActive  bool
+}
+
+type cleanupAction struct {
+	body       Expr
+	env        *scope
+	sourceName string
+	stack      []string
+}
+
+type cleanupFrame struct {
+	actions []cleanupAction
+	done    bool
 }
 
 func runtimeStructType(st structStmt) *structTypeValue {
@@ -256,6 +270,66 @@ func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	return sess
 }
 
+func (s *Session) pushCleanupFrame() *cleanupFrame {
+	frame := &cleanupFrame{}
+	s.cleanupFrames = append(s.cleanupFrames, frame)
+	return frame
+}
+
+func (s *Session) registerCleanup(body Expr, env *scope, sourceName string, stack []string) {
+	if len(s.cleanupFrames) == 0 {
+		return
+	}
+	frame := s.cleanupFrames[len(s.cleanupFrames)-1]
+	frame.actions = append(frame.actions, cleanupAction{
+		body:       body,
+		env:        env,
+		sourceName: sourceName,
+		stack:      append([]string(nil), stack...),
+	})
+}
+
+func (s *Session) runCleanupFrame(frame *cleanupFrame) error {
+	if frame == nil || frame.done {
+		return nil
+	}
+	if len(s.cleanupFrames) == 0 {
+		return nil
+	}
+	index := len(s.cleanupFrames) - 1
+	if s.cleanupFrames[index] != frame {
+		return fmt.Errorf("internal error: cleanup frame is not the active scope")
+	}
+	actions := append([]cleanupAction(nil), frame.actions...)
+	s.cleanupFrames = s.cleanupFrames[:index]
+	frame.done = true
+	previousCleanup := s.cleanupActive
+	s.cleanupActive = true
+	defer func() { s.cleanupActive = previousCleanup }()
+	var cleanupErr error
+	for i := len(actions) - 1; i >= 0; i-- {
+		action := actions[i]
+		if _, _, err := s.evalBlockExpr(action.body, action.env, action.sourceName, action.stack); err != nil {
+			cleanupErr = combineCleanupErrors(cleanupErr, normalizeError(err, action.sourceName))
+		}
+	}
+	return cleanupErr
+}
+
+func combineCleanupErrors(primary, cleanup error) error {
+	if primary == nil {
+		return cleanup
+	}
+	if cleanup == nil {
+		return primary
+	}
+	var record, cause *OsirisError
+	if errors.As(primary, &record) && errors.As(cleanup, &cause) && record != nil && cause != nil {
+		return record.withCause(cause)
+	}
+	return fmt.Errorf("%v; cleanup failed: %w", primary, cleanup)
+}
+
 // ExecSource operates on Session values and keeps the session-specific
 // behavior attached to the receiver so callers can use the method as the
 // natural entry point for that data structure.
@@ -276,7 +350,7 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 //
 // It returns the values committed before execution stopped and an error. A
 // non-nil error does not discard earlier successful emit statements.
-func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([]Value, error) {
+func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (outputs []Value, execErr error) {
 	if _, err := s.rt.CheckProgram(s.ctx, prog); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
@@ -295,11 +369,16 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 	}
 	s.macros = cloneMacroDefs(expandedMacros)
 	s.scope = s.predeclareFunctionScope(prog.Statements, s.scope)
-	var outputs []Value
 	prevOutputs := s.outputs
 	s.outputs = &outputs
 	defer func() {
 		s.outputs = prevOutputs
+	}()
+	frame := s.pushCleanupFrame()
+	defer func() {
+		if cleanupErr := s.runCleanupFrame(frame); cleanupErr != nil {
+			execErr = combineCleanupErrors(execErr, cleanupErr)
+		}
 	}()
 	for _, stmt := range prog.Statements {
 		if err := s.checkContext(); err != nil {
@@ -318,6 +397,13 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) ([
 			}
 			outputs = append(outputs, v...)
 		}
+	}
+	if err := s.checkContext(); err != nil {
+		return outputs, err
+	}
+	cleanupErr := s.runCleanupFrame(frame)
+	if cleanupErr != nil {
+		return outputs, cleanupErr
 	}
 	if moduleMode {
 		if s.packageName == "" {
@@ -473,17 +559,15 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			}
 			return nil, false, nil
 		}
-		value, err := s.ev.eval(expr, s.scope)
-		if err != nil {
-			return nil, false, err
-		}
 		s.scope = &scope{
 			parent: s.scope,
 			items: map[string]binding{st.Name: {
-				expr: &literalExpr{value: value}, env: s.scope,
-				cell: &bindingCell{value: value},
+				expr: expr, env: s.scope,
 			}},
 		}
+		return nil, false, nil
+	case deferStmt:
+		s.registerCleanup(st.Body, s.scope, baseSource, stack)
 		return nil, false, nil
 	case assignStmt:
 		b, ok := s.scope.lookup(st.Name)
@@ -781,9 +865,16 @@ func (s *Session) execLoopBodyWithScope(body Expr, curScope *scope, baseSource s
 //
 // It returns Value, *scope, error so callers can continue with the next stage
 // of the pipeline without re-deriving the same information.
-func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, stack []string) (Value, *scope, error) {
+func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, stack []string) (value Value, nextScope *scope, err error) {
 	switch n := body.(type) {
 	case *blockExpr:
+		frame := s.pushCleanupFrame()
+		defer func() {
+			if cleanupErr := s.runCleanupFrame(frame); cleanupErr != nil {
+				err = combineCleanupErrors(err, cleanupErr)
+				value = nullValue()
+			}
+		}()
 		cur := s.predeclareFunctionScope(n.stmts, curScope)
 		for _, stmt := range n.stmts {
 			if err := s.checkContext(); err != nil {
@@ -806,17 +897,15 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					}
 					expr = &literalExpr{value: value}
 				}
-				value, err := s.ev.eval(expr, cur)
-				if err != nil {
-					return nullValue(), cur, err
-				}
 				cur = &scope{
 					parent: cur,
 					items: map[string]binding{st.Name: {
-						expr: &literalExpr{value: value}, env: cur,
-						cell: &bindingCell{value: value}, mutable: st.Mutable,
+						expr: expr, env: cur,
+						mutable: st.Mutable,
 					}},
 				}
+			case deferStmt:
+				s.registerCleanup(st.Body, cur, baseSource, stack)
 			case assignStmt:
 				b, ok := cur.lookup(st.Name)
 				if !ok || b.cell == nil || !b.mutable {
@@ -900,6 +989,9 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 // It returns an error when the active context has been canceled or expired.
 func (s *Session) checkContext() error {
 	if s == nil || s.ctx == nil {
+		return nil
+	}
+	if s.cleanupActive {
 		return nil
 	}
 	return s.ctx.Err()

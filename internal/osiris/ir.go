@@ -374,6 +374,7 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 		return nil, err
 	}
 	if !mainBuilder.terminated() {
+		mainBuilder.emitCleanups()
 		mainBuilder.emitTerm(&irReturn{})
 	}
 	pb.prog.Functions = append([]*IRFunction{mainFn}, pb.prog.Functions...)
@@ -456,17 +457,19 @@ type irBuilder struct {
 	env       map[string]string
 	locals    map[string]struct{}
 	loopStack []irLoopCtx
+	cleanups  []string
 }
 
 type irLoopCtx struct {
-	kind      string
-	header    *IRBlock
-	exit      *IRBlock
-	carry     []string
-	loopVar   string
-	loopIter  string
-	loopLen   string
-	loopIndex string
+	kind        string
+	header      *IRBlock
+	exit        *IRBlock
+	carry       []string
+	cleanupBase int
+	loopVar     string
+	loopIter    string
+	loopLen     string
+	loopIndex   string
 }
 
 // newIRBuilder handles the new irbuilder step in the surrounding package and
@@ -482,13 +485,14 @@ func newIRBuilder(pb *irProgramBuilder, fn *IRFunction, prefix string) *irBuilde
 	entry := &IRBlock{Name: prefix + ".entry"}
 	st.blocks = append(st.blocks, entry)
 	return &irBuilder{
-		pb:     pb,
-		fn:     fn,
-		state:  st,
-		block:  entry,
-		prefix: prefix,
-		env:    make(map[string]string),
-		locals: make(map[string]struct{}),
+		pb:       pb,
+		fn:       fn,
+		state:    st,
+		block:    entry,
+		prefix:   prefix,
+		env:      make(map[string]string),
+		locals:   make(map[string]struct{}),
+		cleanups: nil,
 	}
 }
 
@@ -508,6 +512,7 @@ func (b *irBuilder) fork() *irBuilder {
 		env:       cloneStringMap(b.env),
 		locals:    cloneNameSet(b.locals),
 		loopStack: append([]irLoopCtx(nil), b.loopStack...),
+		cleanups:  append([]string(nil), b.cleanups...),
 	}
 }
 
@@ -798,6 +803,17 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		}
 		b.emitInstr(IRInstr{Op: "emit", Args: []string{value}})
 		return false, nil
+	case deferStmt:
+		body, ok := st.Body.(*blockExpr)
+		if !ok {
+			return false, fmt.Errorf("native C backend: defer requires a block expression")
+		}
+		thunk, err := b.lowerDeferredExpr(body, "defer.cleanup", nil)
+		if err != nil {
+			return false, err
+		}
+		b.cleanups = append(b.cleanups, thunk)
+		return false, nil
 	case funcStmt:
 		st = irMethodFunction(st)
 		return b.lowerFuncStmt(st)
@@ -807,6 +823,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		return b.lowerForStmt(st)
 	case returnStmt:
 		if st.Expr == nil {
+			b.emitCleanups()
 			b.emitTerm(&irReturn{})
 			return true, nil
 		}
@@ -824,6 +841,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: b.fn.ResultType, Args: []string{value}, Span: st.Span})
 			value = checked
 		}
+		b.emitCleanups()
 		b.emitTerm(&irReturn{Value: value, HasValue: true})
 		return true, nil
 	case breakStmt:
@@ -831,6 +849,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			return false, fmt.Errorf("break used outside of a loop")
 		}
 		ctx := b.loopStack[len(b.loopStack)-1]
+		b.emitCleanupsTo(ctx.cleanupBase)
 		b.emitTerm(&irJump{Target: ctx.exit.Name, Args: b.argsForNames(ctx.carry)})
 		return true, nil
 	case continueStmt:
@@ -838,6 +857,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			return false, fmt.Errorf("continue used outside of a loop")
 		}
 		ctx := b.loopStack[len(b.loopStack)-1]
+		b.emitCleanupsTo(ctx.cleanupBase)
 		args := b.argsForNames(ctx.carry)
 		if ctx.kind == "for" {
 			args = append(args, ctx.loopIter, ctx.loopLen, b.nextLoopIndex(ctx.loopIndex))
@@ -847,6 +867,29 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 	default:
 		return false, fmt.Errorf("internal error: unknown statement type %T", stmt)
 	}
+}
+
+// emitCleanups appends the registered lexical cleanup thunks in reverse
+// registration order. The stack is consumed so a return edge cannot execute a
+// thunk twice while the IR is being assembled.
+func (b *irBuilder) emitCleanups() {
+	for i := len(b.cleanups) - 1; i >= 0; i-- {
+		b.emitInstr(IRInstr{Op: "cleanup", Args: []string{b.cleanups[i]}})
+	}
+	b.cleanups = nil
+}
+
+func (b *irBuilder) emitCleanupsTo(base int) {
+	if base < 0 {
+		base = 0
+	}
+	if base > len(b.cleanups) {
+		base = len(b.cleanups)
+	}
+	for i := len(b.cleanups) - 1; i >= base; i-- {
+		b.emitInstr(IRInstr{Op: "cleanup", Args: []string{b.cleanups[i]}})
+	}
+	b.cleanups = b.cleanups[:base]
 }
 
 // nextLoopIndex operates on irBuilder values and keeps the irbuilder-specific
@@ -920,6 +963,7 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		return false, err
 	}
 	if !child.terminated() {
+		child.emitCleanups()
 		if st.ReturnType != "" {
 			checked := child.newTemp()
 			if !containsGenericTypeName(st.ReturnType, st.TypeParams) {
@@ -1076,7 +1120,7 @@ func (b *irBuilder) lowerWhileStmt(st whileStmt) (bool, error) {
 		FalseArgs:   append([]string(nil), headerParams...),
 	})
 
-	loopCtx := irLoopCtx{kind: "while", header: header, exit: exit, carry: carry}
+	loopCtx := irLoopCtx{kind: "while", header: header, exit: exit, carry: carry, cleanupBase: len(b.cleanups)}
 	b.loopStack = append(b.loopStack, loopCtx)
 
 	b.block = body
@@ -1173,14 +1217,15 @@ func (b *irBuilder) lowerForStmt(st forStmt) (bool, error) {
 	})
 
 	loopCtx := irLoopCtx{
-		kind:      "for",
-		header:    header,
-		exit:      exit,
-		carry:     carry,
-		loopVar:   st.Name,
-		loopIter:  iterTemp,
-		loopLen:   lenTemp,
-		loopIndex: idxTemp,
+		kind:        "for",
+		header:      header,
+		exit:        exit,
+		carry:       carry,
+		cleanupBase: len(b.cleanups),
+		loopVar:     st.Name,
+		loopIter:    iterTemp,
+		loopLen:     lenTemp,
+		loopIndex:   idxTemp,
 	}
 	b.loopStack = append(b.loopStack, loopCtx)
 
@@ -1425,6 +1470,7 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 	case *tupleExpr, *structExpr, *structUpdateExpr, *indexExpr:
 		return "", fmt.Errorf("native C backend: product-type expressions are not yet supported")
 	case *blockExpr:
+		cleanupBase := len(b.cleanups)
 		for _, stmt := range n.stmts {
 			terminated, err := b.lowerStmt(stmt)
 			if err != nil {
@@ -1437,9 +1483,21 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		if n.tail == nil {
 			tmp := b.newTemp()
 			b.emitInstr(IRInstr{Dest: tmp, Op: "const", Value: nullValue()})
+			for i := len(b.cleanups) - 1; i >= cleanupBase; i-- {
+				b.emitInstr(IRInstr{Op: "cleanup", Args: []string{b.cleanups[i]}})
+			}
+			b.cleanups = b.cleanups[:cleanupBase]
 			return tmp, nil
 		}
-		return b.evalExpr(n.tail)
+		value, err := b.evalExpr(n.tail)
+		if err != nil {
+			return "", err
+		}
+		for i := len(b.cleanups) - 1; i >= cleanupBase; i-- {
+			b.emitInstr(IRInstr{Op: "cleanup", Args: []string{b.cleanups[i]}})
+		}
+		b.cleanups = b.cleanups[:cleanupBase]
+		return value, nil
 	case *tryExpr:
 		body, err := b.lowerDeferredExpr(n.body, "try.body", nil)
 		if err != nil {

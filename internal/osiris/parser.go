@@ -57,6 +57,13 @@ type emitStmt struct {
 // effects or through a separate error path when one exists.
 func (emitStmt) stmtNode() {}
 
+type deferStmt struct {
+	Body Expr
+	Span sourceSpan
+}
+
+func (deferStmt) stmtNode() {}
+
 type macroStmt struct {
 	Name     string
 	Params   []string
@@ -809,6 +816,13 @@ func (p *parser) parseStmt() (Stmt, error) {
 			},
 			Span: spanFromToken(start),
 		}, nil
+	case tokenDefer:
+		start := p.next()
+		body, err := p.parseExpr(0)
+		if err != nil {
+			return nil, err
+		}
+		return deferStmt{Body: body, Span: spanCover(spanFromToken(start), exprSpan(body))}, nil
 	case tokenMacro:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
@@ -1033,8 +1047,26 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
+	case tokenFFI:
+		start := p.next()
+		pathTok, err := p.expect(tokenString)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(tokenAs); err != nil {
+			return nil, err
+		}
+		aliasTok, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		return letStmt{
+			Name: aliasTok.text,
+			Expr: &callExpr{callee: &identExpr{name: "ffi_load", Span: spanFromToken(start)}, args: []Expr{&literalExpr{value: stringValue(pathTok.text), Span: spanFromToken(pathTok)}}, Span: spanFromTokens(start, aliasTok)},
+			Span: spanFromTokens(start, aliasTok), NameSpan: spanFromToken(aliasTok),
+		}, nil
 	default:
-		return nil, p.errorf(p.peek(), "expected statement starting with let, var, emit, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
+		return nil, p.errorf(p.peek(), "expected statement starting with let, var, ffi, emit, defer, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
 	}
 }
 
@@ -1855,7 +1887,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			return &blockExpr{stmts: stmts, tail: tail}, nil
 		}
 		switch p.peek().kind {
-		case tokenLet, tokenVar, tokenConst, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
+		case tokenLet, tokenVar, tokenConst, tokenImport, tokenFFI, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit, tokenDefer:
 			stmt, err := p.parseStmt()
 			if err != nil {
 				return nil, err
