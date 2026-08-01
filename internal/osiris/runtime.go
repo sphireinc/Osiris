@@ -2292,6 +2292,15 @@ func resolveMember(ctx context.Context, obj Value, name string, runtimes ...*Run
 		}
 		return nullValue(), fmt.Errorf("struct type %s has no member %q", obj.structType.name, name)
 	}
+	// Primitive receiver methods use the same nominal registry as struct
+	// methods. Interface values retain their concrete tagged value, so dynamic
+	// dispatch deliberately resolves the concrete static type here.
+	receiverType := staticTypeFromValue(obj).name
+	for _, rt := range runtimes {
+		if method, ok := rt.lookupMethod(receiverType, name); ok {
+			return bindMethodReceiver(method, obj), nil
+		}
+	}
 	mod, err := obj.AsModule()
 	if err != nil {
 		return nullValue(), fmt.Errorf("cannot access member %q on %s", name, obj.Kind())

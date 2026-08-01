@@ -2,6 +2,9 @@ package osiris
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -110,10 +113,52 @@ emit point.render()
 	}
 }
 
+func TestTraitImplementationSurvivesModuleLoad(t *testing.T) {
+	dir := t.TempDir()
+	modulePath := filepath.Join(dir, "shapes.osr")
+	module := `package shapes 1.0.0
+export point
+trait Printable { func render() string; }
+struct Point { value u64 }
+impl Printable for Point { func render() string => "module-point" }
+let point = Point { value: 1 }
+`
+	if err := os.WriteFile(modulePath, []byte(module), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := "import " + quoteString(modulePath) + " as shapes\nemit shapes.point.render()\n"
+	values, err := NewSession(NewRuntime(), context.Background(), filepath.Join(dir, "main.osr")).ExecSource(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0].String() != `"module-point"` {
+		t.Fatalf("module method output %v", values)
+	}
+}
+
+func TestUserIteratorProtocolIsLazyAndTerminates(t *testing.T) {
+	source := `struct Cursor { value u64 }
+struct Source { value u64 }
+func (source Source) iter() => Cursor { value: source.value }
+func (cursor Cursor) next() => none()
+let source = Source { value: 1 }
+for item in source { emit item }
+`
+	values, err := NewSession(NewRuntime(), context.Background(), "iterator.osr").ExecSource(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 0 {
+		t.Fatalf("empty user iterator emitted %v", values)
+	}
+}
+
 func TestTraitIRMetadataAndNativeBoundary(t *testing.T) {
 	source := `trait Incrementable { func next() u64; }
-impl Incrementable for u64 { func next() u64 => 2u64 }
-emit 1u64
+impl Incrementable for u64 { func next() u64 => u64(2) }
+emit (u64(1)).next()
+let incrementable Incrementable = u64(1)
+emit incrementable.next()
 `
 	prog, err := Parse("native-trait.osr", source)
 	if err != nil {
@@ -133,7 +178,29 @@ emit 1u64
 	if !found {
 		t.Fatalf("IR functions %v did not retain receiver metadata", len(ir.Functions))
 	}
-	if _, err := CompileC(context.Background(), rt, prog); err == nil || !strings.Contains(err.Error(), "vtable ABI") {
-		t.Fatalf("native result %v, want explicit dispatch boundary", err)
+	interpreter, err := rt.Run(context.Background(), prog)
+	if err != nil {
+		t.Fatalf("interpreter witness dispatch: %v", err)
+	}
+	if got := valuesOutput(interpreter); got != "2u64\n2u64\n" {
+		t.Fatalf("interpreter witness output = %q", got)
+	}
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("native result %v", err)
+	}
+	if !strings.Contains(artifact.Source, "oregistermethod(\"u64\", \"next\"") || !strings.Contains(artifact.Source, "omethodtype") {
+		t.Fatalf("native artifact does not contain witness registration:\n%s", artifact.Source)
+	}
+	executable := filepath.Join(t.TempDir(), "native-trait")
+	if err := CompileCExecutable(context.Background(), artifact.Source, executable); err != nil {
+		t.Fatalf("native witness artifact does not compile: %v", err)
+	}
+	output, err := exec.Command(executable).CombinedOutput()
+	if err != nil {
+		t.Fatalf("native witness executable: %v\n%s", err, output)
+	}
+	if got := string(output); got != "2u64\n2u64\n" {
+		t.Fatalf("native witness output = %q, want %q", got, "2u64\\n2u64\\n")
 	}
 }

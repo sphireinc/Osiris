@@ -193,10 +193,13 @@ messageLoop:
 				"capabilities": map[string]any{
 					// 2 is TextDocumentSyncKind.Incremental. Every edit is
 					// applied against the current document with UTF-16 positions.
-					"textDocumentSync":   map[string]any{"openClose": true, "change": 2},
-					"hoverProvider":      true,
-					"definitionProvider": true,
-					"renameProvider":     true,
+					"textDocumentSync":      map[string]any{"openClose": true, "change": 2},
+					"hoverProvider":         true,
+					"definitionProvider":    true,
+					"referencesProvider":    true,
+					"completionProvider":    map[string]any{"triggerCharacters": []string{".", "("}},
+					"signatureHelpProvider": map[string]any{"triggerCharacters": []string{"(", ","}},
+					"renameProvider":        true,
 				},
 			}, nil); err != nil {
 				return err
@@ -268,6 +271,42 @@ messageLoop:
 				return err
 			}
 			resp, err := s.definition(params.TextDocument.URI, params.Position)
+			if err != nil {
+				return s.writeResponse(msg.ID, nil, err)
+			}
+			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
+				return err
+			}
+		case "textDocument/references":
+			var params referencesParams
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				return err
+			}
+			resp, err := s.references(params.TextDocument.URI, params.Position)
+			if err != nil {
+				return s.writeResponse(msg.ID, nil, err)
+			}
+			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
+				return err
+			}
+		case "textDocument/completion":
+			var params completionParams
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				return err
+			}
+			resp, err := s.completion(params.TextDocument.URI, params.Position)
+			if err != nil {
+				return s.writeResponse(msg.ID, nil, err)
+			}
+			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
+				return err
+			}
+		case "textDocument/signatureHelp":
+			var params signatureHelpParams
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				return err
+			}
+			resp, err := s.signatureHelp(params.TextDocument.URI, params.Position)
 			if err != nil {
 				return s.writeResponse(msg.ID, nil, err)
 			}
@@ -397,6 +436,136 @@ func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
 		return lspLocation{URI: def.uri, Range: s.rangeForURI(def.uri, def.span)}, nil
 	}
 	return nil, nil
+}
+
+type lspCompletionItem struct {
+	Label  string `json:"label"`
+	Kind   int    `json:"kind,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type lspSignatureParameter struct {
+	Label string `json:"label"`
+}
+
+type lspSignatureInformation struct {
+	Label      string                  `json:"label"`
+	Parameters []lspSignatureParameter `json:"parameters,omitempty"`
+}
+
+type lspSignatureHelp struct {
+	Signatures      []lspSignatureInformation `json:"signatures"`
+	ActiveSignature int                       `json:"activeSignature,omitempty"`
+	ActiveParameter int                       `json:"activeParameter,omitempty"`
+}
+
+func (s *languageServer) completion(uri string, pos lspPosition) ([]lspCompletionItem, error) {
+	state := s.docs[uri]
+	if state == nil {
+		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if state.analysis == nil {
+		return []lspCompletionItem{}, nil
+	}
+	seen := make(map[string]lspCompletionItem)
+	for _, def := range state.analysis.defs {
+		if def == nil || def.name == "" {
+			continue
+		}
+		label := def.name
+		if dot := strings.LastIndexByte(label, '.'); dot >= 0 {
+			label = label[dot+1:]
+		}
+		kind := 6
+		switch def.kind {
+		case "function", "builtin", "trait method":
+			kind = 3
+		case "struct", "type alias", "newtype", "trait", "enum":
+			kind = 7
+		case "variable", "param", "iter":
+			kind = 6
+		}
+		seen[label] = lspCompletionItem{Label: label, Kind: kind, Detail: def.detail}
+	}
+	items := make([]lspCompletionItem, 0, len(seen))
+	for _, item := range seen {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+	return items, nil
+}
+
+func (s *languageServer) references(uri string, pos lspPosition) ([]lspLocation, error) {
+	state := s.docs[uri]
+	if state == nil {
+		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if state.analysis == nil {
+		return []lspLocation{}, nil
+	}
+	ref, target := state.analysis.findAt(toSourcePosInText(state.text, pos))
+	if ref != nil {
+		target = ref.target
+	}
+	if target == nil {
+		return []lspLocation{}, nil
+	}
+	locations := make([]lspLocation, 0, len(state.analysis.refs)+1)
+	if target.uri == uri && target.span.start.line != 0 {
+		locations = append(locations, lspLocation{URI: target.uri, Range: s.rangeForURI(target.uri, target.span)})
+	}
+	for _, candidate := range state.analysis.refs {
+		if candidate.target == target {
+			locations = append(locations, lspLocation{URI: uri, Range: s.rangeForURI(uri, candidate.span)})
+		}
+	}
+	return locations, nil
+}
+
+func (s *languageServer) signatureHelp(uri string, pos lspPosition) (*lspSignatureHelp, error) {
+	state := s.docs[uri]
+	if state == nil {
+		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if state.analysis == nil {
+		return nil, nil
+	}
+	offset, ok := lspUTF16Offset(state.text, pos)
+	if !ok {
+		return nil, fmt.Errorf("invalid signature-help position")
+	}
+	prefix := state.text[:offset]
+	open := strings.LastIndexByte(prefix, '(')
+	if open < 0 {
+		return nil, nil
+	}
+	nameEnd := open
+	for nameEnd > 0 && (prefix[nameEnd-1] == ' ' || prefix[nameEnd-1] == '\t') {
+		nameEnd--
+	}
+	nameStart := nameEnd
+	for nameStart > 0 {
+		r, size := utf8.DecodeLastRuneInString(prefix[:nameStart])
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.') {
+			break
+		}
+		nameStart -= size
+	}
+	name := prefix[nameStart:nameEnd]
+	if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+		name = name[dot+1:]
+	}
+	var detail string
+	for _, def := range state.analysis.defs {
+		if def != nil && def.name == name && def.detail != "" {
+			detail = def.detail
+			break
+		}
+	}
+	if detail == "" {
+		return nil, nil
+	}
+	return &lspSignatureHelp{Signatures: []lspSignatureInformation{{Label: detail}}}, nil
 }
 
 // RenameDocument returns a formatted, dry-run rewrite of the symbol at pos.
@@ -682,6 +851,27 @@ type hoverParams struct {
 }
 
 type definitionParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position lspPosition `json:"position"`
+}
+
+type referencesParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position lspPosition `json:"position"`
+}
+
+type completionParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Position lspPosition `json:"position"`
+}
+
+type signatureHelpParams struct {
 	TextDocument struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`

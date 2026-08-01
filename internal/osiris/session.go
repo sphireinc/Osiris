@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
+	"unicode/utf8"
 )
 
 type Session struct {
@@ -15,6 +17,7 @@ type Session struct {
 	scope          *scope
 	ev             *evaluator
 	outputs        *[]Value
+	outputsMu      sync.Mutex
 	emitAllowed    bool
 	moduleStack    []string
 	packageName    string
@@ -40,60 +43,178 @@ func functionBindingName(st funcStmt) string {
 	return st.Name
 }
 
-// iterationItems is the shared eager boundary used by the interpreter and
-// the compatibility VM path. Resource-backed streams remain cancellation
-// aware and are consumed one line at a time; finite values preserve their
-// existing ordering and ownership.
-func iterationItems(ctx context.Context, iter Value) ([]Value, error) {
-	switch iter.kind {
+// iterationCursor is the common lazy boundary used by the interpreter and VM.
+// It keeps only cursor state, so finite collections are not copied and streams
+// are not drained before the first loop body executes.
+type iterationCursor interface {
+	next(context.Context) (Value, bool, error)
+}
+
+type indexedIterationCursor struct {
+	value Value
+	index int
+}
+
+func (c *indexedIterationCursor) next(ctx context.Context) (Value, bool, error) {
+	if err := contextError(ctx); err != nil {
+		return nullValue(), false, err
+	}
+	switch c.value.kind {
 	case kindList:
-		return append([]Value(nil), iter.list...), nil
+		if c.index >= len(c.value.list) {
+			return nullValue(), true, nil
+		}
+		v := c.value.list[c.index]
+		c.index++
+		return v, false, nil
 	case kindTuple:
-		return append([]Value(nil), iter.tuple...), nil
-	case kindString:
-		runes := []rune(iter.str)
-		items := make([]Value, len(runes))
-		for i, r := range runes {
-			items[i] = stringValue(string(r))
+		if c.index >= len(c.value.tuple) {
+			return nullValue(), true, nil
 		}
-		return items, nil
+		v := c.value.tuple[c.index]
+		c.index++
+		return v, false, nil
 	case kindTensor:
-		return append([]Value(nil), iter.data...), nil
+		if c.index >= len(c.value.data) {
+			return nullValue(), true, nil
+		}
+		v := c.value.data[c.index]
+		c.index++
+		return v, false, nil
 	case kindMap:
-		items := make([]Value, len(iter.mapValue.entries))
-		for i, entry := range iter.mapValue.entries {
-			items[i] = entry.key
+		if c.value.mapValue == nil || c.index >= len(c.value.mapValue.entries) {
+			return nullValue(), true, nil
 		}
-		return items, nil
+		v := c.value.mapValue.entries[c.index].key
+		c.index++
+		return v, false, nil
 	case kindSet:
-		return append([]Value(nil), iter.setValue.items...), nil
-	case kindStream:
-		if iter.stream == nil {
-			return nil, fmt.Errorf("cannot iterate a nil stream")
+		if c.value.setValue == nil || c.index >= len(c.value.setValue.items) {
+			return nullValue(), true, nil
 		}
-		var items []Value
-		for {
-			if ctx != nil {
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				default:
-				}
-			}
-			value, err := iter.stream.readLineContext(ctx)
-			if errors.Is(err, io.EOF) {
-				return items, nil
-			}
-			if err != nil {
-				return nil, err
-			}
-			if value.kind == kindNull {
-				return items, nil
-			}
-			items = append(items, value)
-		}
+		v := c.value.setValue.items[c.index]
+		c.index++
+		return v, false, nil
 	default:
-		return nil, fmt.Errorf("value of type %s does not implement Iterable", iter.Kind())
+		return nullValue(), false, fmt.Errorf("value of type %s does not implement Iterable", c.value.Kind())
+	}
+}
+
+type stringIterationCursor struct {
+	value string
+	index int
+}
+
+func (c *stringIterationCursor) next(ctx context.Context) (Value, bool, error) {
+	if err := contextError(ctx); err != nil {
+		return nullValue(), false, err
+	}
+	if c.index >= len(c.value) {
+		return nullValue(), true, nil
+	}
+	r, size := utf8.DecodeRuneInString(c.value[c.index:])
+	c.index += size
+	return stringValue(string(r)), false, nil
+}
+
+type streamIterationCursor struct{ stream *streamValue }
+
+func (c *streamIterationCursor) next(ctx context.Context) (Value, bool, error) {
+	if err := contextError(ctx); err != nil {
+		return nullValue(), false, err
+	}
+	if c.stream == nil {
+		return nullValue(), false, fmt.Errorf("cannot iterate a nil stream")
+	}
+	v, err := c.stream.readLineContext(ctx)
+	if errors.Is(err, io.EOF) || v.kind == kindNull {
+		return nullValue(), true, nil
+	}
+	if err != nil {
+		return nullValue(), false, err
+	}
+	return v, false, nil
+}
+
+type taskIterationCursor struct {
+	task    Value
+	started bool
+	session *Session
+}
+
+func (c *taskIterationCursor) next(ctx context.Context) (Value, bool, error) {
+	if err := contextError(ctx); err != nil {
+		return nullValue(), false, err
+	}
+	if c.started {
+		return nullValue(), true, nil
+	}
+	c.started = true
+	v, err := c.session.eval(&callExpr{callee: &identExpr{name: "await"}, args: []Expr{&literalExpr{value: c.task}}}, c.session.scope)
+	return v, false, err
+}
+
+type protocolIterationCursor struct {
+	session *Session
+	value   Value
+	done    bool
+}
+
+func (c *protocolIterationCursor) next(ctx context.Context) (Value, bool, error) {
+	if err := contextError(ctx); err != nil {
+		return nullValue(), false, err
+	}
+	if c.done {
+		return nullValue(), true, nil
+	}
+	v, err := c.session.eval(&callExpr{callee: &memberExpr{object: &literalExpr{value: c.value}, name: "next"}}, c.session.scope)
+	if err != nil {
+		return nullValue(), false, err
+	}
+	record := v.optionRecord()
+	if record == nil {
+		return nullValue(), false, fmt.Errorf("Iterator.next must return Option<T>, got %s", v.Kind())
+	}
+	if !record.present {
+		c.done = true
+		return nullValue(), true, nil
+	}
+	return record.val, false, nil
+}
+
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+func newIterationCursor(s *Session, value Value) (iterationCursor, error) {
+	switch value.kind {
+	case kindList, kindTuple, kindTensor, kindMap, kindSet:
+		return &indexedIterationCursor{value: value}, nil
+	case kindString:
+		return &stringIterationCursor{value: value.str}, nil
+	case kindStream:
+		return &streamIterationCursor{stream: value.stream}, nil
+	case kindTask:
+		return &taskIterationCursor{task: value, session: s}, nil
+	case kindStruct:
+		if s == nil {
+			return nil, fmt.Errorf("value of type %s does not implement Iterable", value.Kind())
+		}
+		v, err := s.eval(&callExpr{callee: &memberExpr{object: &literalExpr{value: value}, name: "iter"}}, s.scope)
+		if err != nil {
+			return nil, fmt.Errorf("value of type %s does not implement Iterable: %w", value.Kind(), err)
+		}
+		return &protocolIterationCursor{session: s, value: v}, nil
+	default:
+		return nil, fmt.Errorf("value of type %s does not implement Iterable", value.Kind())
 	}
 }
 
@@ -372,7 +493,9 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			return nil, false, structuredErrorAt(normalizeError(err, s.sourceName), s.sourceName, st.Span)
 		}
 		if s.outputs != nil {
+			s.outputsMu.Lock()
 			*s.outputs = append(*s.outputs, v)
+			s.outputsMu.Unlock()
 		}
 		return []Value{v}, true, nil
 	default:
@@ -560,13 +683,20 @@ func (s *Session) execFor(st forStmt, curScope *scope, baseSource string, stack 
 		}
 		return cur, err
 	}
-	items, err := iterationItems(s.ctx, iter)
+	cursor, err := newIterationCursor(s, iter)
 	if err != nil {
 		return cur, err
 	}
-	for _, item := range items {
+	for {
 		if err := s.checkContext(); err != nil {
 			return cur, err
+		}
+		item, done, err := cursor.next(s.ctx)
+		if err != nil {
+			return cur, err
+		}
+		if done {
+			break
 		}
 		iterScope := &scope{
 			parent: cur,
@@ -683,7 +813,9 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					return nullValue(), cur, structuredErrorAt(normalizeError(err, s.sourceName), s.sourceName, st.Span)
 				}
 				if s.outputs != nil {
+					s.outputsMu.Lock()
 					*s.outputs = append(*s.outputs, v)
+					s.outputsMu.Unlock()
 				}
 			case packageStmt, exportStmt:
 				return nullValue(), cur, fmt.Errorf("%s is not allowed in block expressions", statementKind(st))

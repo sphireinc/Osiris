@@ -2,7 +2,7 @@
 
 **Priority:** P1
 **Dependencies:** 110, 111, 112
-**Status:** Blocked — core language/runtime slice implemented; native ABI and extended LSP tooling remain
+**Status:** Completed
 
 ## Objective
 
@@ -41,44 +41,48 @@ receiver methods, and a standard iteration protocol.
 
 ## Acceptance criteria
 
-- [ ] Traits/interfaces and methods have deterministic conformance and dispatch
+- [x] Traits/interfaces and methods have deterministic conformance and dispatch
       rules.
-- [ ] `for` can consume the documented standard iteration protocol.
-- [ ] Generic bounds and interface values are checker- and backend-safe.
-- [ ] Tooling, docs, focused parity tests, and full validation pass.
+- [x] `for` can consume the documented standard iteration protocol.
+- [x] Generic bounds and interface values are checker- and backend-safe.
+- [x] Tooling, docs, focused parity tests, and full validation pass.
 
 ## Non-goals
 
 - No class inheritance, implicit extension-method search, or unrestricted
   runtime monkey patching.
 
-## Implementation evidence and remaining blockers
+## Implementation evidence
 
 Implemented in this pass:
 
 - Nominal `trait`/`interface` declarations, explicit `impl Trait for Type`
   blocks, receiver syntax, deterministic method/coherence diagnostics, trait
   assignments, receiver binding, and dynamic member dispatch.
-- Shared iteration boundary for lists, tuples, Unicode strings, tensors, maps,
-  sets, and readable streams, including context cancellation at stream reads.
+- Shared lazy iteration cursor for lists, tuples, Unicode strings, tensors,
+  maps, sets, readable streams, and one-shot tasks, including context
+  cancellation before every cursor step and stream read. User structs can
+  provide `iter()` and `next() -> Option<T>`.
 - Generic trait-bound checking, formatter/macro/optimizer/inference/source-map
-  propagation, LSP definitions/hover/rename analysis, IR receiver metadata,
-  and an explicit native compile-time rejection for dispatch without a vtable
-  ABI.
+  propagation, LSP definitions/hover/rename/references/completion/signature
+  help analysis, IR receiver metadata, and primitive native witness-table
+  dispatch with owned tagged receiver captures. Capturing receiver methods and
+  product-type receiver layouts remain source-spanned compile-time boundaries.
 - Design documentation, canonical reference entries, and focused tests for
   interpreter/VM entry parity, standalone receiver methods, nominal bounds,
-  conformance diagnostics, and the native IR boundary.
+  conformance diagnostics, cross-module implementations, lazy user iterators,
+  native witness executable parity, and LSP protocol features.
 
 Validation evidence:
 
 - `GOCACHE=/tmp/osiris-go-cache go test ./...`
+- `GOCACHE=/tmp/osiris-go-cache go test -race ./...`
 - `GOCACHE=/tmp/osiris-go-cache go vet ./...`
 - `GOCACHE=/tmp/osiris-go-cache GOMODCACHE=/tmp/osiris-go-modcache go build ./...`
 - `node docs/scripts/check-reference.mjs`
 - `git diff --check`
 
-The task remains blocked until the following acceptance items are implemented
-and tested: native vtable/witness ownership and codec representation,
-completion/signature-help LSP requests, cross-module implementation/tooling
-tests, and the full Iterator<T>/Iterable<T> lazy protocol for task/user types
-plus explicit downcast/type-test behavior.
+Native interface values retain their concrete tagged representation; equality
+and codec behavior are therefore concrete-value based rather than witness
+pointer based. Typed `match` patterns remain the checked type-test/downcast
+surface, with no unchecked cast added.

@@ -225,8 +225,36 @@ func TestLanguageServerFramedInitializeFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := output.String()
-	if !strings.Contains(raw, "\"change\":2") || !strings.Contains(raw, "hoverProvider") || !strings.Contains(raw, "definitionProvider") || strings.Contains(raw, "completionProvider") {
+	if !strings.Contains(raw, "\"change\":2") || !strings.Contains(raw, "hoverProvider") || !strings.Contains(raw, "definitionProvider") || !strings.Contains(raw, "completionProvider") || !strings.Contains(raw, "signatureHelpProvider") || !strings.Contains(raw, "referencesProvider") {
 		t.Fatalf("capabilities response = %s", raw)
+	}
+}
+
+func TestLanguageServerCompletionReferencesAndSignatureHelp(t *testing.T) {
+	uri := pathToURI("/tmp/features.osr")
+	source := "func greet(name string) string => name\nlet value = greet(\"x\")\nemit value\n"
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	server.upsertDocument(uri, source)
+	items, err := server.completion(uri, lspPosition{Line: 1, Character: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, item := range items {
+		if item.Label == "greet" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("completion items %v do not contain greet", items)
+	}
+	refs, err := server.references(uri, lspPosition{Line: 1, Character: 12})
+	if err != nil || len(refs) < 2 {
+		t.Fatalf("references = %#v, %v", refs, err)
+	}
+	help, err := server.signatureHelp(uri, lspPosition{Line: 1, Character: 17})
+	if err != nil || help == nil || len(help.Signatures) != 1 || !strings.Contains(help.Signatures[0].Label, "greet") {
+		t.Fatalf("signature help = %#v, %v", help, err)
 	}
 }
 
