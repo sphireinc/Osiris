@@ -16,6 +16,7 @@ const (
 	tokenString
 	tokenLet
 	tokenVar
+	tokenConst
 	tokenEmit
 	tokenMacro
 	tokenFunc
@@ -114,6 +115,8 @@ func (k tokenKind) String() string {
 		return "let"
 	case tokenVar:
 		return "var"
+	case tokenConst:
+		return "const"
 	case tokenEmit:
 		return "emit"
 	case tokenMacro:
@@ -433,7 +436,11 @@ func (l *lexer) scanIdent() (token, error) {
 	case "let":
 		return token{kind: tokenLet, text: text, line: startLine, col: startCol}, nil
 	case "var":
-		return token{kind: tokenVar, text: text, line: startLine, col: startCol}, nil
+		// var remains contextual so the statistical var(...) builtin is still
+		// callable in expression position.
+		return token{kind: tokenIdent, text: text, line: startLine, col: startCol}, nil
+	case "const":
+		return token{kind: tokenConst, text: text, line: startLine, col: startCol}, nil
 	case "emit":
 		return token{kind: tokenEmit, text: text, line: startLine, col: startCol}, nil
 	case "macro":

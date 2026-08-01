@@ -22,6 +22,7 @@ type letStmt struct {
 	Expr     Expr
 	Unwrap   bool
 	Mutable  bool
+	Const    bool
 	Span     sourceSpan
 	NameSpan sourceSpan
 }
@@ -698,6 +699,11 @@ func (p *parser) parse() (*Program, error) {
 // error is nil.
 func (p *parser) parseStmt() (Stmt, error) {
 	if tok := p.peek(); tok.kind == tokenIdent {
+		if tok.text == "var" && p.peekSecond().kind != tokenEqual {
+			// var is contextual so var(...) remains available as the statistical
+			// builtin in expression position.
+			p.cur.kind = tokenVar
+		}
 		if p.peekSecond().kind == tokenEqual {
 			name := p.next()
 			p.next()
@@ -713,9 +719,10 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 	}
 	switch p.peek().kind {
-	case tokenLet, tokenVar:
+	case tokenLet, tokenVar, tokenConst:
 		start := p.next()
 		mutable := start.kind == tokenVar
+		constant := start.kind == tokenConst
 		unwrap := p.match(tokenQuestion)
 		if p.match(tokenLParen) {
 			names, err := p.parseNameListAllowEmpty()
@@ -729,8 +736,8 @@ func (p *parser) parseStmt() (Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			if mutable {
-				return nil, p.errorf(start, "var does not support tuple destructuring")
+			if mutable || constant {
+				return nil, p.errorf(start, "%s does not support tuple destructuring", start.text)
 			}
 			return letStmt{Names: names, Expr: expr, Unwrap: unwrap, Span: spanFromToken(start)}, nil
 		}
@@ -769,7 +776,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 				literal.defaultInteger = false
 			}
 		}
-		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Mutable: mutable, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Mutable: mutable, Const: constant, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
 	case tokenEmit:
 		start := p.next()
 		expr, err := p.parseExpr(0)
@@ -1848,7 +1855,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			return &blockExpr{stmts: stmts, tail: tail}, nil
 		}
 		switch p.peek().kind {
-		case tokenLet, tokenVar, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
+		case tokenLet, tokenVar, tokenConst, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
 			stmt, err := p.parseStmt()
 			if err != nil {
 				return nil, err
@@ -1857,6 +1864,16 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			for p.match(tokenSemicolon) {
 			}
 		case tokenIdent:
+			if p.peek().text == "var" && p.peekSecond().kind != tokenEqual {
+				stmt, err := p.parseStmt()
+				if err != nil {
+					return nil, err
+				}
+				stmts = append(stmts, stmt)
+				for p.match(tokenSemicolon) {
+				}
+				continue
+			}
 			if p.peekSecond().kind == tokenEqual {
 				stmt, err := p.parseStmt()
 				if err != nil {

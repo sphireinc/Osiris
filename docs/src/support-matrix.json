@@ -26,6 +26,14 @@
       "notes": "Interpreter and VM preserve exact annotated widths and callable signatures, while unannotated source remains dynamic. Native C supports the parity-tested represented kinds and exact closure signatures; annotations for runtime kinds absent from the C ABI are source-spanned compile-time boundaries. WASM snapshot generation and GPU planning run the shared checker before producing artifacts. LSP exposes typed diagnostics, hover, definition, references, completion, rename, and signature-help methods."
     },
     {
+      "id": "deterministic-state-and-mutation",
+      "label": "Constants, immutable runtime bindings, and mutable locals",
+      "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#tooling"],
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
+      "evidence": {"tests": ["internal/osiris/state_mutation_test.go#TestConstLetAndVarHaveDistinctContracts", "internal/osiris/state_mutation_test.go#TestConstRequiresStaticInitializerAndPreservesVarBuiltin", "internal/osiris/state_mutation_test.go#TestMutableLocalsAreDeterministicAcrossInterpreterAndVM", "internal/osiris/state_mutation_test.go#TestMutableNativeParity"]},
+      "notes": "`const` initializers are statically restricted, `let` values are eagerly initialized immutable runtime bindings, and `var` uses explicit ordered assignment barriers. Interpreter, VM, and supported native C paths preserve the same observations; aggregate field/index mutation remains an explicit unsupported boundary."
+    },
+    {
       "id": "types-and-numeric-families",
       "label": "Types, numeric families, units, and exact values",
       "documentation": ["https://sphireinc.github.io/Osiris/#types"],

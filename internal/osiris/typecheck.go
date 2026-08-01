@@ -16,11 +16,12 @@ type CheckedProgram struct {
 }
 
 type CheckedBinding struct {
-	Name    string
-	Scope   string
-	Type    string
-	Mutable bool
-	Span    sourceSpan
+	Name     string
+	Scope    string
+	Type     string
+	Mutable  bool
+	Constant bool
+	Span     sourceSpan
 }
 
 type CheckedFunction struct {
@@ -183,14 +184,15 @@ func splitStaticTypeList(text string) ([]string, error) {
 }
 
 type typeScope struct {
-	parent  *typeScope
-	name    string
-	items   map[string]staticType
-	mutable map[string]bool
+	parent   *typeScope
+	name     string
+	items    map[string]staticType
+	mutable  map[string]bool
+	constant map[string]bool
 }
 
 func newTypeScope(parent *typeScope, name string) *typeScope {
-	return &typeScope{parent: parent, name: name, items: make(map[string]staticType), mutable: make(map[string]bool)}
+	return &typeScope{parent: parent, name: name, items: make(map[string]staticType), mutable: make(map[string]bool), constant: make(map[string]bool)}
 }
 
 func (s *typeScope) lookup(name string) (staticType, bool) {
@@ -209,6 +211,45 @@ func (s *typeScope) lookupMutable(name string) (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+func (s *typeScope) lookupConstant(name string) (bool, bool) {
+	for cur := s; cur != nil; cur = cur.parent {
+		if _, ok := cur.items[name]; ok {
+			return cur.constant[name], true
+		}
+	}
+	return false, false
+}
+
+func isConstExpr(expr Expr, scope *typeScope) bool {
+	switch n := expr.(type) {
+	case *literalExpr:
+		return true
+	case *identExpr:
+		constant, ok := scope.lookupConstant(n.name)
+		return ok && constant
+	case *unaryExpr:
+		return isConstExpr(n.expr, scope)
+	case *binaryExpr:
+		return isConstExpr(n.left, scope) && isConstExpr(n.right, scope)
+	case *listExpr:
+		for _, item := range n.items {
+			if !isConstExpr(item, scope) {
+				return false
+			}
+		}
+		return true
+	case *tupleExpr:
+		for _, item := range n.items {
+			if !isConstExpr(item, scope) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 type typeChecker struct {
@@ -269,6 +310,7 @@ func (rt *Runtime) CheckProgram(ctx context.Context, prog *Program) (*CheckedPro
 	root := newTypeScope(nil, "main")
 	for name, value := range rt.Constants {
 		root.items[name] = staticTypeFromValue(value)
+		root.constant[name] = true
 	}
 	if err := checker.checkSeq(prog.Statements, root); err != nil {
 		return nil, err
@@ -433,7 +475,16 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 		}
 		scope.items[st.Name] = bindingType
 		scope.mutable[st.Name] = st.Mutable
-		c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: st.Name, Scope: scope.name, Type: bindingType.String(), Mutable: st.Mutable, Span: st.NameSpan})
+		if st.Const {
+			if st.Unwrap {
+				return c.errorAt(st.Span, "const does not support let? propagation")
+			}
+			if !isConstExpr(st.Expr, scope) {
+				return c.errorAt(st.Span, "const initializer must be statically evaluable")
+			}
+			scope.constant[st.Name] = true
+		}
+		c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: st.Name, Scope: scope.name, Type: bindingType.String(), Mutable: st.Mutable, Constant: st.Const, Span: st.NameSpan})
 	case assignStmt:
 		mutable, exists := scope.lookupMutable(st.Name)
 		if !exists {

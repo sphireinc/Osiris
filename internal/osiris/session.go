@@ -473,11 +473,16 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			}
 			return nil, false, nil
 		}
+		value, err := s.ev.eval(expr, s.scope)
+		if err != nil {
+			return nil, false, err
+		}
 		s.scope = &scope{
 			parent: s.scope,
-			items: map[string]binding{
-				st.Name: {expr: expr, env: s.scope},
-			},
+			items: map[string]binding{st.Name: {
+				expr: &literalExpr{value: value}, env: s.scope,
+				cell: &bindingCell{value: value},
+			}},
 		}
 		return nil, false, nil
 	case assignStmt:
@@ -801,18 +806,16 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					}
 					expr = &literalExpr{value: value}
 				}
+				value, err := s.ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
 				cur = &scope{
 					parent: cur,
-					items: map[string]binding{
-						st.Name: {expr: expr, env: cur},
-					},
-				}
-				if st.Mutable {
-					value, err := s.ev.eval(expr, cur.parent)
-					if err != nil {
-						return nullValue(), cur, err
-					}
-					cur.items[st.Name] = binding{expr: &literalExpr{value: value}, env: cur.parent, cell: &bindingCell{value: value}, mutable: true}
+					items: map[string]binding{st.Name: {
+						expr: &literalExpr{value: value}, env: cur,
+						cell: &bindingCell{value: value}, mutable: st.Mutable,
+					}},
 				}
 			case assignStmt:
 				b, ok := cur.lookup(st.Name)

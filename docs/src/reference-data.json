@@ -442,15 +442,39 @@
         },
         {
           "kind": "construct",
+          "name": "const",
+          "syntax": "const name = statically-evaluable-expression",
+          "returns": "constant binding",
+          "summary": "Introduce an immutable compile-time or module-level constant.",
+          "details": [
+            "The initializer may use literals, earlier constants, pure unary/binary operations, lists, or tuples.",
+            "Calls, I/O, tasks, runtime-dependent values, mutable bindings, and later assignments are rejected."
+          ],
+          "example": "const limit = 2 + 3\nemit limit"
+        },
+        {
+          "kind": "construct",
           "name": "let",
           "syntax": "let name = expression",
           "returns": "binding",
           "summary": "Introduce a lexical binding.",
           "details": [
-            "Bindings are scoped to the surrounding block or file.",
+            "Bindings are scoped to the surrounding block or file and are initialized once at runtime.",
             "Shadowing is allowed and is used deliberately throughout the language."
           ],
           "example": "let seed = \"osiris::demo\""
+        },
+        {
+          "kind": "construct",
+          "name": "var",
+          "syntax": "var name = expression; name = expression",
+          "returns": "mutable binding",
+          "summary": "Introduce a mutable local cell and replace its value explicitly.",
+          "details": [
+            "Only `var` locals may be assigned. `let`, `const`, parameters, imports, struct fields, and collection indexes remain immutable.",
+            "`var` is contextual so the statistical `var(...)` builtin remains available in expression position."
+          ],
+          "example": "var count = 0\ncount = count + 1\nemit count"
         },
         {
           "kind": "construct",

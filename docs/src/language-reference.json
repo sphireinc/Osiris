@@ -11,7 +11,7 @@
         "returns": "No standalone value; the binding is available in the remaining lexical scope.",
         "returnValue": "`let answer = 42` binds `answer` to `42u64`.",
         "details": [
-          "A later assignment to the same binding is rejected. Inner scopes may deliberately shadow an outer binding."
+          "A later assignment to the same binding is rejected. The initializer is evaluated once at runtime, so it may depend on calls and runtime values. Inner scopes may deliberately shadow an outer binding."
         ],
         "example": "let answer = 42\nemit answer\n# 42u64",
         "exampleStatus": "checked"
@@ -72,6 +72,22 @@
   {
     "title": "Deterministic state",
     "entries": [
+      {
+        "kind": "construct",
+        "name": "const",
+        "signature": "const name = statically-evaluable-expression",
+        "description": "Declare an immutable compile-time or module-level constant.",
+        "parameters": "The initializer may use literals, earlier constants, pure unary/binary operators, lists, or tuples. It may not call functions or depend on runtime, task, I/O, or mutable state.",
+        "returns": "No standalone value; the constant is available in the remaining lexical scope.",
+        "returnValue": "`const limit = 2 + 3` binds `limit` to the immutable value `5u64`.",
+        "details": [
+          "`const` is checked before execution and is never assignable. Use `let` when initialization must depend on runtime values or function calls.",
+          "Constants can be referenced by later constants, `let` bindings, and `var` initializers. Their value identity is still ordinary immutable value semantics."
+        ],
+        "errors": "A non-static initializer, `let?`, duplicate name, or assignment to a constant is a source-located error.",
+        "example": "const limit = 2 + 3\nlet runtime = limit + 1\nemit runtime\n# 6u64",
+        "exampleStatus": "checked"
+      },
       {
         "kind": "construct",
         "name": "var",

@@ -127,7 +127,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		} else {
 			delete(env, s.Name)
 		}
-		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Mutable: s.Mutable, Span: s.Span, NameSpan: s.NameSpan}, env
+		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Mutable: s.Mutable, Const: s.Const, Span: s.Span, NameSpan: s.NameSpan}, env
 	case assignStmt:
 		expr := optimizeExprWithEnv(s.Expr, env)
 		if env == nil {

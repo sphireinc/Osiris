@@ -124,7 +124,7 @@ func cloneStmt(stmt Stmt) Stmt {
 		names := append([]string(nil), s.Names...)
 		return exportStmt{Names: names}
 	case letStmt:
-		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: cloneExpr(s.Expr), Unwrap: s.Unwrap, Mutable: s.Mutable, Span: s.Span, NameSpan: s.NameSpan}
+		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: cloneExpr(s.Expr), Unwrap: s.Unwrap, Mutable: s.Mutable, Const: s.Const, Span: s.Span, NameSpan: s.NameSpan}
 	case assignStmt:
 		return assignStmt{Name: s.Name, Expr: cloneExpr(s.Expr), Span: s.Span, NameSpan: s.NameSpan}
 	case emitStmt:
@@ -310,7 +310,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, letStmt{Name: st.Name, Names: append([]string(nil), st.Names...), Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Span: st.Span, NameSpan: st.NameSpan})
+			out = append(out, letStmt{Name: st.Name, Names: append([]string(nil), st.Names...), Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
 			curScope = &scope{
 				parent: curScope,
 				items: map[string]binding{
@@ -1144,7 +1144,7 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 				return nil, err
 			}
 			fresh := e.freshName(st.Name)
-			out = append(out, letStmt{Name: fresh, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Span: st.Span, NameSpan: st.NameSpan})
+			out = append(out, letStmt{Name: fresh, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
 			curRenames[st.Name] = fresh
 			curScope = &scope{
 				parent: curScope,

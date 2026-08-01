@@ -1,11 +1,12 @@
 # Deterministic state and mutation
 
-Task 114 introduces a deliberately small mutation model. The language remains
-value-oriented: `let` bindings, function parameters, structs, tuples, and
-collections are immutable values. A program may opt into sequential local
-state with `var` and a name assignment.
+Task 114 introduces a deliberately small state model. The language remains
+value-oriented: `const` and `let` bindings, function parameters, structs,
+tuples, and collections are immutable values. A program may opt into
+sequential local state with `var` and a name assignment.
 
 ```osiris
+const limit = 3
 var total = 0
 for item in values {
     total = total + item
@@ -15,7 +16,13 @@ emit total
 
 ## Contract
 
-- `let` is immutable. `var name = expression` creates a mutable local cell.
+- `const name = expression` is a compile-time/module-level constant. Its
+  initializer is restricted to statically evaluable literals, constant names,
+  pure unary/binary operations, lists, and tuples. It cannot depend on a
+  runtime call, task, I/O, or mutable binding.
+- `let` is an immutable runtime binding. Its initializer is evaluated once at
+  declaration time and may depend on runtime values and function calls.
+- `var name = expression` creates a mutable local cell.
 - `name = expression` is the only assignment form in this release. The target
   must resolve to a mutable local; parameters, imports, `let` names, struct
   fields, and collection indexes are not assignable.
@@ -40,12 +47,14 @@ emit total
 
 ## Backend and analysis requirements
 
-The parser represents `var` and assignment explicitly. Type checking records
-mutability and rejects writes to immutable bindings before execution. The
-interpreter stores mutable locals in cells, while the VM and SSA IR lower an
-assignment as a named state transition. Native lowering uses the same SSA
-value replacement, retaining the assignment marker as an optimization barrier
-in the generated artifact. No backend may evaluate a mutation at compile time.
+The parser represents `const`, `let`, `var`, and assignment explicitly. Type
+checking records constant/mutable status, validates constant initializers, and
+rejects writes to immutable bindings before execution. The interpreter eagerly
+installs both constant and `let` values, while mutable locals use cells. The VM
+and SSA IR lower an assignment as a named state transition. Native lowering
+uses the same SSA value replacement, retaining the assignment marker as an
+optimization barrier in the generated artifact. No backend may evaluate a
+runtime `let`, `var`, or assignment at compile time.
 
 The alias, purity, inference, optimizer, macro, source-map, formatter, LSP,
 and shape-validation passes must preserve these statement forms. In-place
@@ -66,3 +75,7 @@ Existing programs continue to use immutable `let`. Code that previously relied
 on shadowing should use a uniquely named `var` and explicit assignments; this
 avoids changing the meaning of closures or loop bindings. Aggregate updates
 continue to use `with`, `setat`, and other value-returning builders.
+`var` is contextual rather than a globally reserved expression token, so the
+existing statistical builtin `var(...)` remains callable. At declaration
+position it has the mutable-local meaning; in expression position it retains
+the builtin meaning.

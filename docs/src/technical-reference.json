@@ -27,7 +27,7 @@
           "rows": [
             [
               "Reserved keywords",
-              "`let var emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
+              "`const let var emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
               "These always lex as keyword tokens."
             ],
             [
@@ -88,7 +88,8 @@
       "summary": "Declarations introduce immutable lexical names, explicit mutable locals, module metadata, imports/exports, functions, macros, and nominal enums.",
       "paragraphs": [
         "`let` binds the value of its initializer. `let?` first unwraps a `Result` or `Option`. `var` installs a mutable local cell, and `name = expression` replaces it only after the right-hand side succeeds. A typed binding checks a canonical runtime kind; it is not an implicit conversion.",
-        "Functions close over lexical scope and may annotate parameters and results without a colon. The checker declares signatures before checking bodies, so recursive groups do not require execution. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module."
+        "Functions close over lexical scope and may annotate parameters and results without a colon. The checker declares signatures before checking bodies, so recursive groups do not require execution. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module.",
+        "The declaration forms are `const name = constExpression`, `let name = expression`, and `var name = expression`; assignment is `name = expression`. `constExpression` is limited to literals, earlier constants, pure unary/binary operations, lists, and tuples."
       ],
       "syntax": [
         {
@@ -785,6 +786,7 @@
             "break",
             "catch",
             "continue",
+            "const",
             "emit",
             "enum",
             "export",

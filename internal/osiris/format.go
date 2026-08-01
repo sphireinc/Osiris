@@ -97,6 +97,9 @@ func formatStmt(stmt Stmt) string {
 		return "impl " + s.Trait + " for " + s.Target + " { " + strings.Join(methods, "; ") + " }"
 	case letStmt:
 		prefix := "let "
+		if s.Const {
+			prefix = "const "
+		}
 		if s.Mutable {
 			prefix = "var "
 		}
