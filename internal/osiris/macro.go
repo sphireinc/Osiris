@@ -307,7 +307,7 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			out = append(out, letStmt{Name: st.Name, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Span: st.Span, NameSpan: st.NameSpan})
+			out = append(out, letStmt{Name: st.Name, Names: append([]string(nil), st.Names...), Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Span: st.Span, NameSpan: st.NameSpan})
 			curScope = &scope{
 				parent: curScope,
 				items: map[string]binding{
@@ -342,6 +342,20 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 				return nil, nil, nil, fmt.Errorf("package is only allowed at top level")
 			}
 			out = append(out, st)
+		case structStmt, typeDeclStmt, newtypeStmt:
+			if mode == seqBlock {
+				return nil, nil, nil, fmt.Errorf("type declarations are only allowed at top level")
+			}
+			out = append(out, st)
+			switch decl := st.(type) {
+			case structStmt:
+				curScope = &scope{parent: curScope, items: map[string]binding{decl.Name: {expr: &literalExpr{value: structTypeValueOf(runtimeStructType(decl))}, env: curScope}}}
+			case newtypeStmt:
+				typ := &structTypeValue{name: decl.Name, target: decl.Target, newtype: true, fields: []structFieldValue{{name: "value", typeName: decl.Target}}, byName: map[string]int{"value": 0}}
+				curScope = &scope{parent: curScope, items: map[string]binding{decl.Name: {expr: &literalExpr{value: structTypeValueOf(typ)}, env: curScope}}}
+			case typeDeclStmt:
+				curScope = &scope{parent: curScope, items: map[string]binding{decl.Name: {expr: &literalExpr{value: functionValueOf(decl.Name, nil)}, env: curScope}}}
+			}
 		case exportStmt:
 			if mode == seqBlock {
 				return nil, nil, nil, fmt.Errorf("export is only allowed at top level")
@@ -482,6 +496,50 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 			items[i] = item
 		}
 		return &listExpr{items: items, Span: n.Span}, nil
+	case *tupleExpr:
+		items := make([]Expr, len(n.items))
+		for i := range n.items {
+			item, err := e.expandExpr(n.items[i], env, defs, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			items[i] = item
+		}
+		return &tupleExpr{items: items, Span: n.Span}, nil
+	case *structExpr:
+		fields := make([]structFieldExpr, len(n.Fields))
+		for i, field := range n.Fields {
+			value, err := e.expandExpr(field.Expr, env, defs, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fields[i] = structFieldExpr{Name: field.Name, Expr: value, Span: field.Span}
+		}
+		return &structExpr{TypeName: n.TypeName, Fields: fields, Span: n.Span}, nil
+	case *structUpdateExpr:
+		base, err := e.expandExpr(n.Base, env, defs, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		fields := make([]structFieldExpr, len(n.Fields))
+		for i, field := range n.Fields {
+			value, err := e.expandExpr(field.Expr, env, defs, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fields[i] = structFieldExpr{Name: field.Name, Expr: value, Span: field.Span}
+		}
+		return &structUpdateExpr{Base: base, Fields: fields, Span: n.Span}, nil
+	case *indexExpr:
+		object, err := e.expandExpr(n.Object, env, defs, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		index, err := e.expandExpr(n.Index, env, defs, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &indexExpr{Object: object, Index: index, Span: n.Span}, nil
 	case *matchExpr:
 		subject, err := e.expandExpr(n.subject, env, defs, depth+1)
 		if err != nil {

@@ -415,6 +415,50 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 			parts = append(parts, fp)
 		}
 		out = hashParts(parts...)
+	case *tupleExpr:
+		parts := []string{"tuple"}
+		for _, item := range n.items {
+			fp, ferr := ev.fingerprint(item, env)
+			if ferr != nil {
+				return "", ferr
+			}
+			parts = append(parts, fp)
+		}
+		out = hashParts(parts...)
+	case *structExpr:
+		parts := []string{"struct", n.TypeName}
+		for _, field := range n.Fields {
+			fp, ferr := ev.fingerprint(field.Expr, env)
+			if ferr != nil {
+				return "", ferr
+			}
+			parts = append(parts, field.Name, fp)
+		}
+		out = hashParts(parts...)
+	case *structUpdateExpr:
+		base, ferr := ev.fingerprint(n.Base, env)
+		if ferr != nil {
+			return "", ferr
+		}
+		parts := []string{"struct-update", base}
+		for _, field := range n.Fields {
+			fp, ferr := ev.fingerprint(field.Expr, env)
+			if ferr != nil {
+				return "", ferr
+			}
+			parts = append(parts, field.Name, fp)
+		}
+		out = hashParts(parts...)
+	case *indexExpr:
+		object, ferr := ev.fingerprint(n.Object, env)
+		if ferr != nil {
+			return "", ferr
+		}
+		index, ferr := ev.fingerprint(n.Index, env)
+		if ferr != nil {
+			return "", ferr
+		}
+		out = hashParts("index", object, index)
 	case *matchExpr:
 		subject, ferr := ev.fingerprint(n.subject, env)
 		if ferr != nil {
@@ -535,6 +579,12 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 				parts = append(parts, "continue")
 			case macroStmt:
 				return "", fmt.Errorf("macro statements must be expanded before evaluation")
+			case structStmt:
+				parts = append(parts, hashParts("struct", st.Name, formatStmt(st)))
+			case typeDeclStmt:
+				parts = append(parts, hashParts("type", st.Name, st.Target))
+			case newtypeStmt:
+				parts = append(parts, hashParts("newtype", st.Name, st.Target))
 			}
 		}
 		if n.tail != nil {
@@ -627,6 +677,49 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 			return nullValue(), err
 		}
 		return listValue(items), nil
+	case *tupleExpr:
+		items, err := evalMany(ev, n.items, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		return tupleValue(items), nil
+	case *structExpr:
+		base, err := ev.eval(&identExpr{name: n.TypeName}, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		if base.kind != kindStruct || base.structType == nil {
+			return nullValue(), fmt.Errorf("%s is not a struct type", n.TypeName)
+		}
+		values, err := evalStructFields(ev, base.structType, n.Fields, curScope, nil)
+		if err != nil {
+			return nullValue(), err
+		}
+		return structInstanceValueOf(base.structType, values), nil
+	case *structUpdateExpr:
+		base, err := ev.eval(n.Base, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		if base.kind != kindStruct || base.structType == nil || base.structValue == nil {
+			return nullValue(), fmt.Errorf("struct update requires a struct value")
+		}
+		values := append([]Value(nil), base.structValue.fields...)
+		updated, err := evalStructFields(ev, base.structType, n.Fields, curScope, values)
+		if err != nil {
+			return nullValue(), err
+		}
+		return structInstanceValueOf(base.structType, updated), nil
+	case *indexExpr:
+		object, err := ev.eval(n.Object, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		index, err := ev.eval(n.Index, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		return atValue([]Value{object, index})
 	case *blockExpr:
 		v, _, err := ev.session.evalBlockExpr(n, curScope, ev.session.sourceName, nil)
 		return v, err
@@ -1101,6 +1194,13 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		value, err := callDurationComponent(callee, args)
 		return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
 	}
+	if callee.kind == kindStruct && callee.structType != nil {
+		args, err := evalMany(ev, n.args, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		return constructStruct(callee.structType, args)
+	}
 	if callee.kind == kindFunction && callee.fn != nil {
 		args, err := evalMany(ev, n.args, curScope)
 		if err != nil {
@@ -1165,6 +1265,85 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		return nullValue(), fmt.Errorf("cannot call module %s", callee.String())
 	}
 	return nullValue(), fmt.Errorf("value %s is not callable", callee.Kind())
+}
+
+func constructStruct(typ *structTypeValue, args []Value) (Value, error) {
+	if typ == nil {
+		return nullValue(), fmt.Errorf("missing struct type")
+	}
+	if typ.newtype {
+		if len(args) != 1 {
+			return nullValue(), fmt.Errorf("%s expects 1 argument", typ.name)
+		}
+		value := args[0]
+		if isBindingTypeName(typ.target) || strings.HasPrefix(typ.target, "func(") {
+			if _, err := checkBindingType(typ.target, value, false); err != nil {
+				return nullValue(), fmt.Errorf("%s requires %s: %w", typ.name, typ.target, err)
+			}
+		} else if value.kind != kindStruct || value.structType == nil || value.structType.name != typ.target || value.structValue == nil {
+			return nullValue(), fmt.Errorf("%s requires %s, got %s", typ.name, typ.target, value.Kind())
+		}
+		return structInstanceValueOf(typ, args), nil
+	}
+	if len(args) != len(typ.fields) {
+		return nullValue(), fmt.Errorf("%s expects %d arguments, got %d", typ.name, len(typ.fields), len(args))
+	}
+	for i, arg := range args {
+		if err := requireRuntimeDeclaredType(typ.fields[i].typeName, arg); err != nil {
+			return nullValue(), fmt.Errorf("%s field %s: %w", typ.name, typ.fields[i].name, err)
+		}
+	}
+	return structInstanceValueOf(typ, args), nil
+}
+
+func requireRuntimeDeclaredType(typeName string, value Value) error {
+	if isBindingTypeName(typeName) || strings.HasPrefix(typeName, "func(") {
+		if _, err := checkBindingType(typeName, value, false); err != nil {
+			return err
+		}
+		return nil
+	}
+	if value.kind == kindStruct && value.structType != nil && value.structValue != nil && value.structType.name == typeName {
+		return nil
+	}
+	return fmt.Errorf("requires %s, got %s", typeName, value.Kind())
+}
+
+func evalStructFields(ev *evaluator, typ *structTypeValue, fields []structFieldExpr, scope *scope, values []Value) ([]Value, error) {
+	if typ == nil || typ.newtype {
+		return nil, fmt.Errorf("field initializer requires an ordinary struct")
+	}
+	if values == nil {
+		values = make([]Value, len(typ.fields))
+		for i := range values {
+			values[i] = nullValue()
+		}
+	}
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		idx, ok := typ.byName[field.Name]
+		if !ok {
+			return nil, fmt.Errorf("struct %s has no field %q", typ.name, field.Name)
+		}
+		if _, exists := seen[field.Name]; exists {
+			return nil, fmt.Errorf("struct initializer repeats field %q", field.Name)
+		}
+		seen[field.Name] = struct{}{}
+		value, err := ev.eval(field.Expr, scope)
+		if err != nil {
+			return nil, err
+		}
+		if err := requireRuntimeDeclaredType(typ.fields[idx].typeName, value); err != nil {
+			return nil, fmt.Errorf("field %s.%s: %w", typ.name, field.Name, err)
+		}
+		values[idx] = value
+	}
+	for i, value := range values {
+		if value.kind == kindNull {
+			return nil, fmt.Errorf("struct %s is missing field %q", typ.name, typ.fields[i].name)
+		}
+	}
+	return values, nil
 }
 
 // beginTraceFrame operates on evaluator values and keeps the
@@ -2052,6 +2231,26 @@ func resolveMember(ctx context.Context, obj Value, name string) (Value, error) {
 			return v, nil
 		}
 		return nullValue(), fmt.Errorf("error values do not have member %q", name)
+	}
+	if obj.kind == kindStruct && obj.structType != nil {
+		if obj.structValue != nil {
+			idx, ok := obj.structType.byName[name]
+			if !ok {
+				return nullValue(), fmt.Errorf("struct %s has no field %q", obj.structType.name, name)
+			}
+			return obj.structValue.fields[idx], nil
+		}
+		if name == "name" {
+			return stringValue(obj.structType.name), nil
+		}
+		if name == "fields" {
+			items := make([]Value, len(obj.structType.fields))
+			for i, field := range obj.structType.fields {
+				items[i] = stringValue(field.name)
+			}
+			return listValue(items), nil
+		}
+		return nullValue(), fmt.Errorf("struct type %s has no member %q", obj.structType.name, name)
 	}
 	mod, err := obj.AsModule()
 	if err != nil {

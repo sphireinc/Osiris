@@ -59,7 +59,7 @@
 108|tasks/completed/108-make-emit-consistent-in-sequential-blocks.md|complete|unassigned|004,018,025,035,040,045,107|Sequential emit parity, committed-error prefixes, concurrency guards, IR/C evidence, CLI, and docs validated
 109|tasks/completed/109-compile-mission-control-showcase-through-native-c.md|complete|codex|002,004,013,018,025,028,029,030,032,033,035,040,045,046,100,101,103,104|Portable native surface and standalone mission-control showcase parity completed with normal/race/docs/Linux sanitizer evidence
 110|tasks/completed/110-add-typed-functions-and-static-checking.md|complete|unassigned|006,013,018,025,038,109|Go-style typed functions, exact callable metadata, shared pre-execution checking, backend guards, LSP/inference/IR integration, and canonical docs complete
-111|tasks/111-add-structs-tuples-aliases-and-newtypes.md|ready|unassigned|018,028,036,110|Add immutable structs with Go-style field tags, tuples, aliases, and nominal newtypes on the completed static checker
+111|tasks/completed/111-add-structs-tuples-aliases-and-newtypes.md|complete|codex|018,028,036,110|Add immutable structs with Go-style field tags, tuples, aliases, and nominal newtypes on the completed static checker
 112|tasks/112-add-generics-and-typed-collections.md|blocked|unassigned|110,111|Wait for tasks 110 and 111; then add generics and parameterized collections
 113|tasks/113-add-traits-interfaces-methods-and-iterators.md|blocked|unassigned|110,111,112|Wait for the static and generic type foundations; then add behavioral abstraction and iteration
 114|tasks/114-define-deterministic-state-and-mutation.md|blocked|unassigned|045,110,111|Wait for typed functions and structs; then define deterministic mutable state across tasks and backends

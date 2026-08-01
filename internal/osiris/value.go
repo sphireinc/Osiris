@@ -39,6 +39,8 @@ const (
 	kindFunction
 	kindModule
 	kindEnum
+	kindStruct
+	kindTuple
 	kindDual
 	kindTCPListener
 	kindDuration
@@ -84,6 +86,26 @@ type moduleValue struct {
 	enumCases map[string]enumCase
 }
 
+type structFieldValue struct {
+	name      string
+	typeName  string
+	tag       string
+	tagValues map[string]string
+}
+
+type structTypeValue struct {
+	name    string
+	fields  []structFieldValue
+	byName  map[string]int
+	newtype bool
+	target  string
+}
+
+type structInstanceValue struct {
+	typ    *structTypeValue
+	fields []Value
+}
+
 // enumValue is the nominal runtime identity of one declared enum case.  The
 // enum declaration itself is exposed as a module-like namespace so cases use
 // ordinary member access (for example, Status.Ready).
@@ -99,45 +121,48 @@ type dualValue struct {
 }
 
 type Value struct {
-	kind     valueKind
-	num      float64
-	fbits    uint16
-	bfloat   bool
-	dec      *big.Rat
-	fx       *fixedValue
-	iv       *intervalValue
-	mi       *modIntValue
-	cx       complex128
-	bi       *big.Int
-	bf       *big.Float
-	i        *big.Int
-	ibits    uint16
-	qty      *quantityValue
-	u        uint64
-	bits     uint8
-	ub       *big.Int
-	ubits    uint16
-	packed   bool
-	native   bool
-	boo      bool
-	str      string
-	list     []Value
-	shape    []int
-	data     []Value
-	stream   *streamValue
-	task     *taskValue
-	err      *OsirisError
-	errMsg   string
-	res      *resultValue
-	opt      *optionValue
-	fn       *functionValue
-	mod      *moduleValue
-	enum     *enumValue
-	dual     *dualValue
-	listener *tcpListener
-	duration int64
-	datetime *dateTimeValue
-	location *timeLocationValue
+	kind        valueKind
+	num         float64
+	fbits       uint16
+	bfloat      bool
+	dec         *big.Rat
+	fx          *fixedValue
+	iv          *intervalValue
+	mi          *modIntValue
+	cx          complex128
+	bi          *big.Int
+	bf          *big.Float
+	i           *big.Int
+	ibits       uint16
+	qty         *quantityValue
+	u           uint64
+	bits        uint8
+	ub          *big.Int
+	ubits       uint16
+	packed      bool
+	native      bool
+	boo         bool
+	str         string
+	list        []Value
+	shape       []int
+	data        []Value
+	stream      *streamValue
+	task        *taskValue
+	err         *OsirisError
+	errMsg      string
+	res         *resultValue
+	opt         *optionValue
+	fn          *functionValue
+	mod         *moduleValue
+	enum        *enumValue
+	structType  *structTypeValue
+	structValue *structInstanceValue
+	tuple       []Value
+	dual        *dualValue
+	listener    *tcpListener
+	duration    int64
+	datetime    *dateTimeValue
+	location    *timeLocationValue
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -382,6 +407,18 @@ func stringValue(v string) Value { return Value{kind: kindString, str: v} }
 // without re-deriving the same information.
 func listValue(v []Value) Value { return Value{kind: kindList, list: v} }
 
+func tupleValue(v []Value) Value {
+	return Value{kind: kindTuple, tuple: append([]Value(nil), v...)}
+}
+
+func structTypeValueOf(typ *structTypeValue) Value {
+	return Value{kind: kindStruct, structType: typ}
+}
+
+func structInstanceValueOf(typ *structTypeValue, fields []Value) Value {
+	return Value{kind: kindStruct, structType: typ, structValue: &structInstanceValue{typ: typ, fields: append([]Value(nil), fields...)}}
+}
+
 // tensorValue handles the tensor value step in the surrounding package and
 // returns Value.
 //
@@ -573,6 +610,9 @@ func (v Value) Kind() string {
 		}
 		return "uf" + strconv.FormatUint(uint64(v.bits), 10)
 	}
+	if v.kind == kindStruct && v.structType != nil {
+		return v.structType.name
+	}
 	return v.kind.String()
 }
 
@@ -632,6 +672,10 @@ func (k valueKind) String() string {
 		return "module"
 	case kindEnum:
 		return "enum"
+	case kindStruct:
+		return "struct"
+	case kindTuple:
+		return "tuple"
 	case kindDual:
 		return "dual"
 	case kindTCPListener:
@@ -710,6 +754,10 @@ func (v Value) Truthy() bool {
 		return v.task != nil
 	case kindFunction, kindModule:
 		return true
+	case kindStruct:
+		return true
+	case kindTuple:
+		return len(v.tuple) != 0
 	default:
 		return false
 	}
@@ -1449,6 +1497,26 @@ func (v Value) Equal(other Value) bool {
 			}
 		}
 		return true
+	case kindTuple:
+		if other.kind != kindTuple || len(v.tuple) != len(other.tuple) {
+			return false
+		}
+		for i := range v.tuple {
+			if !v.tuple[i].Equal(other.tuple[i]) {
+				return false
+			}
+		}
+		return true
+	case kindStruct:
+		if other.kind != kindStruct || v.structType == nil || other.structType == nil || v.structType.name != other.structType.name || v.structValue == nil || other.structValue == nil || len(v.structValue.fields) != len(other.structValue.fields) {
+			return false
+		}
+		for i := range v.structValue.fields {
+			if !v.structValue.fields[i].Equal(other.structValue.fields[i]) {
+				return false
+			}
+		}
+		return true
 	case kindTensor:
 		if other.kind != kindTensor || len(v.shape) != len(other.shape) || len(v.data) != len(other.data) {
 			return false
@@ -1866,6 +1934,35 @@ func (v Value) String() string {
 		}
 		b.WriteByte(']')
 		return b.String()
+	case kindTuple:
+		var b bytes.Buffer
+		b.WriteByte('(')
+		for i, item := range v.tuple {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(item.String())
+		}
+		if len(v.tuple) == 1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(')')
+		return b.String()
+	case kindStruct:
+		if v.structType == nil {
+			return "<struct>"
+		}
+		if v.structValue == nil {
+			return v.structType.name
+		}
+		if v.structType.newtype && len(v.structValue.fields) == 1 {
+			return v.structType.name + "(" + v.structValue.fields[0].String() + ")"
+		}
+		parts := make([]string, len(v.structType.fields))
+		for i, field := range v.structType.fields {
+			parts[i] = field.name + ": " + v.structValue.fields[i].String()
+		}
+		return v.structType.name + " { " + strings.Join(parts, ", ") + " }"
 	case kindTensor:
 		return formatTensor(v.shape, v.data)
 	case kindStream:
@@ -2056,6 +2153,38 @@ func (v Value) toInterface() any {
 		items := make([]any, len(v.list))
 		for i := range v.list {
 			items[i] = v.list[i].toInterface()
+		}
+		return items
+	case kindTuple:
+		items := make([]any, len(v.tuple))
+		for i := range v.tuple {
+			items[i] = v.tuple[i].toInterface()
+		}
+		return items
+	case kindStruct:
+		if v.structType == nil || v.structValue == nil {
+			return nil
+		}
+		items := make(map[string]any, len(v.structType.fields))
+		for i, field := range v.structType.fields {
+			key := field.name
+			if tag, ok := field.tagValues["json"]; ok {
+				parts := strings.Split(tag, ",")
+				if len(parts) > 0 && parts[0] != "-" && parts[0] != "" {
+					key = parts[0]
+				}
+				if len(parts) > 0 && parts[0] == "-" {
+					continue
+				}
+				omitEmpty := false
+				for _, option := range parts[1:] {
+					omitEmpty = omitEmpty || option == "omitempty"
+				}
+				if omitEmpty && !v.structValue.fields[i].Truthy() {
+					continue
+				}
+			}
+			items[key] = v.structValue.fields[i].toInterface()
 		}
 		return items
 	case kindTensor:

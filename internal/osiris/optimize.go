@@ -127,7 +127,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		} else {
 			delete(env, s.Name)
 		}
-		return letStmt{Name: s.Name, Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
+		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
 	case emitStmt:
 		return emitStmt{Expr: optimizeExprWithEnv(s.Expr, env), Span: s.Span}, env
 	case macroStmt:
@@ -158,7 +158,7 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		return whileStmt{Cond: optimizeExprWithEnv(s.Cond, nil), Body: optimizeExprWithEnv(s.Body, nil)}, nil
 	case forStmt:
 		return forStmt{Name: s.Name, Iter: optimizeExprWithEnv(s.Iter, nil), Body: optimizeExprWithEnv(s.Body, nil)}, nil
-	case packageStmt, exportStmt, importStmt, breakStmt, continueStmt:
+	case structStmt, typeDeclStmt, newtypeStmt, packageStmt, exportStmt, importStmt, breakStmt, continueStmt:
 		return stmt, env
 	default:
 		return stmt, env
@@ -290,6 +290,26 @@ func optimizeExprWithEnvSeen(expr Expr, env optimizeEnv, seen map[string]struct{
 			items[i] = optimizeExprWithEnvSeen(item, env, seen)
 		}
 		return &listExpr{items: items}
+	case *tupleExpr:
+		items := make([]Expr, len(n.items))
+		for i, item := range n.items {
+			items[i] = optimizeExprWithEnvSeen(item, env, seen)
+		}
+		return &tupleExpr{items: items}
+	case *structExpr:
+		fields := make([]structFieldExpr, len(n.Fields))
+		for i, field := range n.Fields {
+			fields[i] = structFieldExpr{Name: field.Name, Expr: optimizeExprWithEnvSeen(field.Expr, env, seen), Span: field.Span}
+		}
+		return &structExpr{TypeName: n.TypeName, Fields: fields, Span: n.Span}
+	case *structUpdateExpr:
+		fields := make([]structFieldExpr, len(n.Fields))
+		for i, field := range n.Fields {
+			fields[i] = structFieldExpr{Name: field.Name, Expr: optimizeExprWithEnvSeen(field.Expr, env, seen), Span: field.Span}
+		}
+		return &structUpdateExpr{Base: optimizeExprWithEnvSeen(n.Base, env, seen), Fields: fields, Span: n.Span}
+	case *indexExpr:
+		return &indexExpr{Object: optimizeExprWithEnvSeen(n.Object, env, seen), Index: optimizeExprWithEnvSeen(n.Index, env, seen), Span: n.Span}
 	case *blockExpr:
 		stmts, nextEnv, pureNames := optimizeStmtSequence(n.stmts, env)
 		var tail Expr
@@ -460,6 +480,22 @@ func collectRawRefsExprInto(expr Expr, out map[string]struct{}) {
 		for _, item := range n.items {
 			collectRawRefsExprInto(item, out)
 		}
+	case *tupleExpr:
+		for _, item := range n.items {
+			collectRawRefsExprInto(item, out)
+		}
+	case *structExpr:
+		for _, field := range n.Fields {
+			collectRawRefsExprInto(field.Expr, out)
+		}
+	case *structUpdateExpr:
+		collectRawRefsExprInto(n.Base, out)
+		for _, field := range n.Fields {
+			collectRawRefsExprInto(field.Expr, out)
+		}
+	case *indexExpr:
+		collectRawRefsExprInto(n.Object, out)
+		collectRawRefsExprInto(n.Index, out)
 	case *blockExpr:
 		for _, stmt := range n.stmts {
 			collectRawRefsStmtInto(stmt, out)
@@ -614,6 +650,32 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 			}
 		}
 		return true
+	case *tupleExpr:
+		for _, item := range n.items {
+			if !isPureExprSeen(item, env, pureNames, seen) {
+				return false
+			}
+		}
+		return true
+	case *structExpr:
+		for _, field := range n.Fields {
+			if !isPureExprSeen(field.Expr, env, pureNames, seen) {
+				return false
+			}
+		}
+		return true
+	case *structUpdateExpr:
+		if !isPureExprSeen(n.Base, env, pureNames, seen) {
+			return false
+		}
+		for _, field := range n.Fields {
+			if !isPureExprSeen(field.Expr, env, pureNames, seen) {
+				return false
+			}
+		}
+		return true
+	case *indexExpr:
+		return isPureExprSeen(n.Object, env, pureNames, seen) && isPureExprSeen(n.Index, env, pureNames, seen)
 	case *blockExpr:
 		shadow := cloneOptimizeEnv(env)
 		for _, stmt := range n.stmts {

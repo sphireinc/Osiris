@@ -792,13 +792,17 @@
             "let",
             "macro",
             "match",
+            "newtype",
             "null",
             "package",
             "return",
+            "struct",
             "switch",
             "true",
             "try",
-            "while"
+            "type",
+            "while",
+            "with"
           ]
         },
         {
@@ -959,7 +963,52 @@
             "repl",
             "help"
           ]
+        },
+        {
+          "title": "Product-type declarations",
+          "items": ["struct", "tuple", "type", "newtype", "with"]
         }
+      ]
+    },
+    {
+      "id": "product-types",
+      "title": "Structs, Tuples, Aliases, and Newtypes",
+      "summary": "Product values are immutable, ordered, and explicit about nominal identity.",
+      "syntax": [
+        {
+          "label": "DECLARATIONS",
+          "code": "struct Name { field Type [`namespace:\"value\"`] … }\ntype Alias = ExistingType\nnewtype Name ExistingType"
+        },
+        {
+          "label": "VALUES",
+          "code": "Name { field: expression, … }\nName(argument, …)\nvalue.field\nvalue with { field: expression, … }\n(expression, expression, …)\ntuple[index]\nlet (name, name) = tuple"
+        }
+      ],
+      "tables": [
+        {
+          "title": "Product-type rules",
+          "columns": ["Form", "Identity", "Operations"],
+          "rows": [
+            ["struct", "Nominal declaration name", "Named or positional construction, field access, copied `with` update, structural equality"],
+            ["tuple", "Structural and ordered", "Indexing, destructuring, equality; heterogeneous item types are allowed"],
+            ["type", "Target identity", "Explicit constructor naming an existing type; no new runtime kind"],
+            ["newtype", "Distinct nominal wrapper", "Explicit `Name(value)` construction and `.value` access; no implicit target conversion"]
+          ]
+        },
+        {
+          "title": "Field tags",
+          "columns": ["Rule", "Contract"],
+          "rows": [
+            ["Syntax", "Backtick text contains space-separated `namespace:\"value\"` pairs; values use Go string escaping"],
+            ["JSON", "The `json` namespace selects the serialized field name; `-` omits a field and `omitempty` omits empty values"],
+            ["Other namespaces", "Unknown tags are retained verbatim for codecs and tooling"],
+            ["Validation", "Duplicate namespaces, malformed quoting, duplicate fields, and unknown initializer fields are source errors"]
+          ]
+        }
+      ],
+      "paragraphs": [
+        "Struct fields retain declaration order and declared type metadata. Struct values are immutable; `with` returns a copy with selected fields replaced. Tuples retain item order and support heterogeneous values.",
+        "Aliases are naming conveniences. Newtypes are nominal boundaries and require explicit construction or extraction. The interpreter and VM preserve these identities through equality, rendering, and codec round-trips; native C currently rejects product-type lowering at compile time rather than silently erasing identity."
       ]
     }
   ],
@@ -1165,7 +1214,9 @@
     "uint",
     "string",
     "list",
+    "struct",
     "tensor",
+    "tuple",
     "stream",
     "task",
     "function",

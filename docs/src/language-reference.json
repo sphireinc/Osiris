@@ -284,5 +284,87 @@
         "exampleStatus": "checked"
       }
     ]
+  },
+  {
+    "title": "Structs, tuples, aliases, and newtypes",
+    "entries": [
+      {
+        "kind": "construct",
+        "name": "struct",
+        "signature": "struct Name { field Type `namespace:\"value\"` … }",
+        "description": "Declare an immutable, ordered product type with named fields and optional Go-style metadata tags.",
+        "parameters": "Each field has a unique name and canonical type. Tags are space-separated `namespace:\"value\"` pairs; the `json` namespace controls JSON names and `omitempty`.",
+        "returns": "A nominal struct type and its positional constructor.",
+        "returnValue": "`Point { x: 1, y: 2 }` constructs a `Point` value; `point.x` reads a field.",
+          "details": [
+          "Fields retain declaration order, tags, and their declared types. Struct equality requires the same nominal type and equal fields. Values are immutable; use `with` for a copied update.",
+          "Unknown tag namespaces are preserved for codecs and tooling. Duplicate namespaces, malformed quoting, duplicate fields, missing fields, and unknown initializer fields are rejected with source locations.",
+          "A struct may name a previously declared or self-referential struct field type. Values remain finite immutable trees: construction cannot create an implicit cycle or mutable back-reference."
+        ],
+        "errors": "Invalid tags, duplicate or missing fields, wrong constructor arity, and field access on a non-struct are errors.",
+        "example": "struct Point { x u64 `json:\"x\"`, y u64 `json:\"y\"` }\nlet point = Point { x: u64(1), y: u64(2) }\nlet moved = point with { x: u64(3) }\nemit moved.x\n# 3u64",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "tuple",
+        "signature": "(expression, expression, …)",
+        "description": "Construct an ordered heterogeneous tuple.",
+        "parameters": "Tuple items may have different types and are evaluated from left to right.",
+        "returns": "A tuple value indexed with `[index]` or destructured in a `let` binding.",
+        "returnValue": "`(\"ready\", u64(3))[1]` is `3u64`.",
+        "details": [
+          "Tuple equality is ordered and structural. `let (name, count) = value` binds each item immutably; the number of names must match the tuple length."
+        ],
+        "errors": "Non-integer or out-of-range indexes and destructuring a non-tuple are errors.",
+        "example": "let pair = (\"ready\", u64(3))\nlet (state, count) = pair\nemit state, count\n# \"ready\", 3u64",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "type",
+        "signature": "type Alias = ExistingType",
+        "description": "Declare an identity-preserving alias for an existing type.",
+        "parameters": "The target must be a known canonical or previously declared type.",
+        "returns": "An alias constructor with the target type's runtime identity and conversion rules.",
+        "returnValue": "`type Count = u64`; `Count(3)` produces `3u64`.",
+        "details": [
+          "Aliases do not create a new nominal runtime kind. They are useful for naming domain concepts while retaining ordinary assignment and arithmetic compatibility."
+        ],
+        "errors": "Unknown targets and incompatible uses are errors.",
+        "example": "type Count = u64\nlet count = Count(3)\nemit count\n# 3u64",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "newtype",
+        "signature": "newtype Name ExistingType",
+        "description": "Declare a nominal wrapper that requires explicit construction and preserves its own runtime identity.",
+        "parameters": "One existing type. Construct with `Name(value)` and access the wrapped value through `.value`.",
+        "returns": "A distinct nominal type; it does not implicitly coerce to its target type.",
+        "returnValue": "`newtype UserID u64`; `UserID(u64(7)).value` is `7u64`.",
+        "details": [
+          "Newtypes compare only with the same nominal type, serialize their declared fields, and require explicit conversion at typed boundaries."
+        ],
+        "errors": "Implicit assignment to the target type, wrong constructor arity, and invalid target types are errors.",
+        "example": "newtype UserID u64\nlet id = UserID(u64(7))\nemit id.value\n# 7u64",
+        "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "with",
+        "signature": "value with { field: expression, … }",
+        "description": "Create an immutable copy of a struct with selected fields replaced.",
+        "parameters": "The base must be a struct value; each update field must be declared by that struct.",
+        "returns": "A new value of the same nominal struct type.",
+        "returnValue": "`point with { x: u64(3) }` leaves `point` unchanged and returns a copy with `x` set to `3u64`.",
+        "details": [
+          "Updates preserve declaration order, field tags, and nominal identity. Missing fields retain their original values."
+        ],
+        "errors": "Updating an unknown field or a non-struct value is an error.",
+        "example": "struct Point { x u64, y u64 }\nlet point = Point { x: u64(1), y: u64(2) }\nlet moved = point with { x: u64(3) }\nemit point.x, moved.x\n# 1u64, 3u64",
+        "exampleStatus": "checked"
+      }
+    ]
   }
 ]

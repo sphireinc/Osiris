@@ -26,6 +26,11 @@ const (
 	vmOpLogicalAnd
 	vmOpLogicalOr
 	vmOpMatch
+	vmOpTuple
+	vmOpStruct
+	vmOpStructUpdate
+	vmOpIndex
+	vmOpTupleBind
 )
 
 type vmChunk struct {
@@ -38,19 +43,21 @@ type vmChunk struct {
 }
 
 type vmInstr struct {
-	op    vmOp
-	dst   int
-	a     int
-	b     int
-	tok   tokenKind
-	name  string
-	text  string
-	value Value
-	args  []int
-	body  *vmChunk
-	alt   *vmChunk
-	arms  []vmMatchArm
-	span  sourceSpan
+	op         vmOp
+	dst        int
+	a          int
+	b          int
+	tok        tokenKind
+	name       string
+	text       string
+	value      Value
+	args       []int
+	fieldNames []string
+	names      []string
+	body       *vmChunk
+	alt        *vmChunk
+	arms       []vmMatchArm
+	span       sourceSpan
 }
 
 type vmMatchArm struct {
@@ -150,6 +157,27 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		c.emit(vmInstr{op: vmOpConst, dst: reg, value: enumNamespaceValue(st.Name, st.Cases)})
 		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
 		return nil
+	case structStmt:
+		reg := c.alloc()
+		c.emit(vmInstr{op: vmOpConst, dst: reg, value: structTypeValueOf(runtimeStructType(st))})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		return nil
+	case typeDeclStmt:
+		reg := c.alloc()
+		c.emit(vmInstr{op: vmOpConst, dst: reg, value: functionValueOf(st.Name, func(args []Value) (Value, error) {
+			if len(args) != 1 {
+				return nullValue(), fmt.Errorf("%s expects 1 argument", st.Name)
+			}
+			return args[0], nil
+		})})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		return nil
+	case newtypeStmt:
+		reg := c.alloc()
+		typ := &structTypeValue{name: st.Name, target: st.Target, newtype: true, fields: []structFieldValue{{name: "value", typeName: st.Target}}, byName: map[string]int{"value": 0}}
+		c.emit(vmInstr{op: vmOpConst, dst: reg, value: structTypeValueOf(typ)})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		return nil
 	case letStmt:
 		reg, err := c.compileExpr(st.Expr)
 		if err != nil {
@@ -165,7 +193,11 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			c.emit(vmInstr{op: vmOpTypeAssert, dst: checked, a: reg, text: st.Type})
 			reg = checked
 		}
-		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		if len(st.Names) > 0 {
+			c.emit(vmInstr{op: vmOpTupleBind, a: reg, names: append([]string(nil), st.Names...)})
+		} else {
+			c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		}
 		return nil
 	case importStmt:
 		reg := c.alloc()
@@ -270,6 +302,60 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 		}
 		dst := c.alloc()
 		c.emit(vmInstr{op: vmOpList, dst: dst, args: items})
+		return dst, nil
+	case *tupleExpr:
+		items := make([]int, len(n.items))
+		for i, item := range n.items {
+			reg, err := c.compileExpr(item)
+			if err != nil {
+				return 0, err
+			}
+			items[i] = reg
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpTuple, dst: dst, args: items})
+		return dst, nil
+	case *structExpr:
+		args := make([]int, len(n.Fields))
+		names := make([]string, len(n.Fields))
+		for i, field := range n.Fields {
+			reg, err := c.compileExpr(field.Expr)
+			if err != nil {
+				return 0, err
+			}
+			args[i], names[i] = reg, field.Name
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpStruct, dst: dst, name: n.TypeName, args: args, fieldNames: names})
+		return dst, nil
+	case *structUpdateExpr:
+		base, err := c.compileExpr(n.Base)
+		if err != nil {
+			return 0, err
+		}
+		args := make([]int, len(n.Fields))
+		names := make([]string, len(n.Fields))
+		for i, field := range n.Fields {
+			reg, err := c.compileExpr(field.Expr)
+			if err != nil {
+				return 0, err
+			}
+			args[i], names[i] = reg, field.Name
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpStructUpdate, dst: dst, a: base, args: args, fieldNames: names})
+		return dst, nil
+	case *indexExpr:
+		object, err := c.compileExpr(n.Object)
+		if err != nil {
+			return 0, err
+		}
+		index, err := c.compileExpr(n.Index)
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpIndex, dst: dst, a: object, b: index})
 		return dst, nil
 	case *blockExpr:
 		return c.compileBlockExpr(n)
@@ -544,6 +630,14 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			return nullValue(), fmt.Errorf("undefined name %q", instr.name)
 		case vmOpBind:
 			r.frame.bind(instr.name, regs[instr.a])
+		case vmOpTupleBind:
+			value := regs[instr.a]
+			if value.kind != kindTuple || len(value.tuple) != len(instr.names) {
+				return nullValue(), fmt.Errorf("tuple destructuring requires %d values", len(instr.names))
+			}
+			for i, name := range instr.names {
+				r.frame.bind(name, value.tuple[i])
+			}
 		case vmOpResultBind:
 			value, err := unwrapBinding(regs[instr.a])
 			if err != nil {
@@ -587,6 +681,18 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				out, err := callDurationComponent(callee, args)
 				if err != nil {
 					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
+				}
+				regs[instr.dst] = out
+				continue
+			}
+			if callee.kind == kindStruct && callee.structType != nil {
+				args := make([]Value, len(instr.args))
+				for i, reg := range instr.args {
+					args[i] = regs[reg]
+				}
+				out, err := constructStruct(callee.structType, args)
+				if err != nil {
+					return nullValue(), err
 				}
 				regs[instr.dst] = out
 				continue
@@ -666,6 +772,57 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 				items[i] = regs[reg]
 			}
 			regs[instr.dst] = listValue(items)
+		case vmOpTuple:
+			items := make([]Value, len(instr.args))
+			for i, reg := range instr.args {
+				items[i] = regs[reg]
+			}
+			regs[instr.dst] = tupleValue(items)
+		case vmOpStruct:
+			callee, ok := r.frame.lookup(instr.name)
+			if !ok {
+				return nullValue(), fmt.Errorf("undefined name %q", instr.name)
+			}
+			if callee.kind != kindStruct || callee.structType == nil {
+				return nullValue(), fmt.Errorf("%s is not a struct type", instr.name)
+			}
+			values := make([]Value, len(callee.structType.fields))
+			for i := range values {
+				values[i] = nullValue()
+			}
+			for i, reg := range instr.args {
+				idx, ok := callee.structType.byName[instr.fieldNames[i]]
+				if !ok {
+					return nullValue(), fmt.Errorf("struct %s has no field %q", instr.name, instr.fieldNames[i])
+				}
+				values[idx] = regs[reg]
+			}
+			for i, value := range values {
+				if value.kind == kindNull {
+					return nullValue(), fmt.Errorf("struct %s is missing field %q", instr.name, callee.structType.fields[i].name)
+				}
+			}
+			regs[instr.dst] = structInstanceValueOf(callee.structType, values)
+		case vmOpStructUpdate:
+			base := regs[instr.a]
+			if base.kind != kindStruct || base.structType == nil || base.structValue == nil {
+				return nullValue(), fmt.Errorf("struct update requires a struct value")
+			}
+			values := append([]Value(nil), base.structValue.fields...)
+			for i, reg := range instr.args {
+				idx, ok := base.structType.byName[instr.fieldNames[i]]
+				if !ok {
+					return nullValue(), fmt.Errorf("struct %s has no field %q", base.structType.name, instr.fieldNames[i])
+				}
+				values[idx] = regs[reg]
+			}
+			regs[instr.dst] = structInstanceValueOf(base.structType, values)
+		case vmOpIndex:
+			value, err := atValue([]Value{regs[instr.a], regs[instr.b]})
+			if err != nil {
+				return nullValue(), err
+			}
+			regs[instr.dst] = value
 		case vmOpMember:
 			obj := regs[instr.a]
 			v, err := resolveMember(r.ctx, obj, instr.name)

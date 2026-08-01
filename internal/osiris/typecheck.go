@@ -67,9 +67,6 @@ func parseStaticType(text string) (staticType, error) {
 		return dynamicStaticType, nil
 	}
 	if !strings.HasPrefix(text, "func(") {
-		if !isBindingTypeName(text) {
-			return staticType{}, fmt.Errorf("unknown type %q", text)
-		}
 		return staticType{name: text}, nil
 	}
 	depth := 0
@@ -177,6 +174,14 @@ type typeChecker struct {
 	exprs    map[Expr]checkedExpr
 	function *funcStmt
 	expected staticType
+	structs  map[string]staticStructDef
+	aliases  map[string]string
+	newtypes map[string]string
+}
+
+type staticStructDef struct {
+	fields map[string]staticType
+	order  []string
 }
 
 type checkedExpr struct {
@@ -199,11 +204,14 @@ func (rt *Runtime) CheckProgram(ctx context.Context, prog *Program) (*CheckedPro
 		ctx = context.Background()
 	}
 	checker := &typeChecker{
-		ctx:   ctx,
-		rt:    rt,
-		prog:  prog,
-		out:   &CheckedProgram{Program: prog},
-		exprs: make(map[Expr]checkedExpr),
+		ctx:      ctx,
+		rt:       rt,
+		prog:     prog,
+		out:      &CheckedProgram{Program: prog},
+		exprs:    make(map[Expr]checkedExpr),
+		structs:  make(map[string]staticStructDef),
+		aliases:  make(map[string]string),
+		newtypes: make(map[string]string),
 	}
 	root := newTypeScope(nil, "main")
 	for name, value := range rt.Constants {
@@ -218,6 +226,27 @@ func (rt *Runtime) CheckProgram(ctx context.Context, prog *Program) (*CheckedPro
 func (c *typeChecker) checkSeq(stmts []Stmt, scope *typeScope) error {
 	if err := c.checkContext(); err != nil {
 		return err
+	}
+	for _, stmt := range stmts {
+		switch st := stmt.(type) {
+		case structStmt:
+			def := staticStructDef{fields: make(map[string]staticType), order: make([]string, len(st.Fields))}
+			for i, field := range st.Fields {
+				typ, err := parseStaticType(field.Type)
+				if err != nil {
+					return c.errorAt(field.Span, "%v", err)
+				}
+				def.fields[field.Name], def.order[i] = typ, field.Name
+			}
+			c.structs[st.Name] = def
+			scope.items[st.Name] = staticType{name: st.Name}
+		case typeDeclStmt:
+			c.aliases[st.Name] = st.Target
+			scope.items[st.Name] = staticType{name: st.Target}
+		case newtypeStmt:
+			c.newtypes[st.Name] = st.Target
+			scope.items[st.Name] = staticType{name: st.Name}
+		}
 	}
 	// Signatures are declared before bodies, so self recursion and mutually
 	// recursive function groups never require evaluation for discovery.
@@ -247,6 +276,16 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 		value, err := c.checkExpr(st.Expr, scope)
 		if err != nil {
 			return err
+		}
+		if len(st.Names) > 0 {
+			if value.typ.name != "tuple" || len(value.typ.params) != len(st.Names) {
+				return c.errorAt(st.Span, "tuple destructuring requires %d values", len(st.Names))
+			}
+			for i, name := range st.Names {
+				scope.items[name] = value.typ.params[i]
+				c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: name, Scope: scope.name, Type: value.typ.params[i].String(), Span: st.Span})
+			}
+			return nil
 		}
 		bindingType := value.typ
 		if st.Type != "" {
@@ -303,7 +342,7 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 		scope.items[st.Alias] = staticType{name: "module"}
 	case enumStmt:
 		scope.items[st.Name] = staticType{name: "module"}
-	case macroStmt, packageStmt, exportStmt, breakStmt, continueStmt:
+	case structStmt, typeDeclStmt, newtypeStmt, macroStmt, packageStmt, exportStmt, breakStmt, continueStmt:
 		return nil
 	}
 	return nil
@@ -406,8 +445,15 @@ func (c *typeChecker) checkExpr(expr Expr, scope *typeScope) (result checkedExpr
 		}
 		return checkedExpr{typ: dynamicStaticType}, nil
 	case *memberExpr:
-		if _, err := c.checkExpr(n.object, scope); err != nil {
+		object, err := c.checkExpr(n.object, scope)
+		if err != nil {
 			return checkedExpr{}, err
+		}
+		if def, ok := c.structs[object.typ.name]; ok {
+			if field, exists := def.fields[n.name]; exists {
+				return checkedExpr{typ: field}, nil
+			}
+			return checkedExpr{}, c.errorAt(n.NameSpan, "struct %s has no field %q", object.typ.name, n.name)
 		}
 		return checkedExpr{typ: dynamicStaticType}, nil
 	case *unaryExpr:
@@ -449,6 +495,42 @@ func (c *typeChecker) checkExpr(expr Expr, scope *typeScope) (result checkedExpr
 			}
 		}
 		return checkedExpr{typ: staticType{name: "list"}}, nil
+	case *tupleExpr:
+		items := make([]staticType, len(n.items))
+		for i, item := range n.items {
+			value, err := c.checkExpr(item, scope)
+			if err != nil {
+				return checkedExpr{}, err
+			}
+			items[i] = value.typ
+		}
+		return checkedExpr{typ: staticType{name: "tuple", params: items}}, nil
+	case *structExpr:
+		return c.checkStructExpr(n, scope)
+	case *structUpdateExpr:
+		base, err := c.checkExpr(n.Base, scope)
+		if err != nil {
+			return checkedExpr{}, err
+		}
+		if _, ok := c.structs[base.typ.name]; !ok {
+			return checkedExpr{}, c.errorAt(n.Span, "struct update requires a struct value")
+		}
+		if err := c.checkStructFields(base.typ.name, n.Fields, scope, true); err != nil {
+			return checkedExpr{}, err
+		}
+		return checkedExpr{typ: base.typ}, nil
+	case *indexExpr:
+		object, err := c.checkExpr(n.Object, scope)
+		if err != nil {
+			return checkedExpr{}, err
+		}
+		if _, err := c.checkExpr(n.Index, scope); err != nil {
+			return checkedExpr{}, err
+		}
+		if object.typ.name == "tuple" {
+			return checkedExpr{typ: dynamicStaticType}, nil
+		}
+		return checkedExpr{typ: dynamicStaticType}, nil
 	case *blockExpr:
 		child := newTypeScope(scope, scope.name)
 		for _, stmt := range n.stmts {
@@ -580,6 +662,49 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 		return checkedExpr{}, err
 	}
 	if ident, ok := call.callee.(*identExpr); ok {
+		if def, exists := c.structs[ident.name]; exists {
+			if len(call.args) != len(def.order) {
+				return checkedExpr{}, c.errorAt(call.Span, "%s expects %d arguments, got %d", ident.name, len(def.order), len(call.args))
+			}
+			for i, arg := range call.args {
+				actual, err := c.checkExpr(arg, scope)
+				if err != nil {
+					return checkedExpr{}, err
+				}
+				if _, err := c.requireAssignable(def.fields[def.order[i]], actual.typ, arg); err != nil {
+					return checkedExpr{}, c.errorAt(exprSpan(arg), "field %s.%s requires %s, got %s", ident.name, def.order[i], def.fields[def.order[i]].String(), actual.typ.String())
+				}
+			}
+			return checkedExpr{typ: staticType{name: ident.name}}, nil
+		}
+		if target, exists := c.newtypes[ident.name]; exists {
+			if len(call.args) != 1 {
+				return checkedExpr{}, c.errorAt(call.Span, "%s expects 1 argument, got %d", ident.name, len(call.args))
+			}
+			actual, err := c.checkExpr(call.args[0], scope)
+			if err != nil {
+				return checkedExpr{}, err
+			}
+			targetType, _ := parseStaticType(target)
+			if _, err := c.requireAssignable(targetType, actual.typ, call.args[0]); err != nil {
+				return checkedExpr{}, c.errorAt(exprSpan(call.args[0]), "%s requires %s, got %s", ident.name, targetType.String(), actual.typ.String())
+			}
+			return checkedExpr{typ: staticType{name: ident.name}}, nil
+		}
+		if target, exists := c.aliases[ident.name]; exists {
+			if len(call.args) != 1 {
+				return checkedExpr{}, c.errorAt(call.Span, "%s expects 1 argument, got %d", ident.name, len(call.args))
+			}
+			actual, err := c.checkExpr(call.args[0], scope)
+			if err != nil {
+				return checkedExpr{}, err
+			}
+			targetType, _ := parseStaticType(target)
+			if _, err := c.requireAssignable(targetType, actual.typ, call.args[0]); err != nil {
+				return checkedExpr{}, c.errorAt(exprSpan(call.args[0]), "%s requires %s, got %s", ident.name, targetType.String(), actual.typ.String())
+			}
+			return checkedExpr{typ: targetType}, nil
+		}
 		if result, known := builtinCallType(ident.name, call.args); known {
 			for _, arg := range call.args {
 				if _, err := c.checkExpr(arg, scope); err != nil {
@@ -621,7 +746,45 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 	return checkedExpr{typ: *callee.typ.result}, nil
 }
 
+func (c *typeChecker) checkStructExpr(expr *structExpr, scope *typeScope) (checkedExpr, error) {
+	if _, ok := c.structs[expr.TypeName]; !ok {
+		return checkedExpr{}, c.errorAt(expr.Span, "unknown struct %q", expr.TypeName)
+	}
+	if err := c.checkStructFields(expr.TypeName, expr.Fields, scope, false); err != nil {
+		return checkedExpr{}, err
+	}
+	return checkedExpr{typ: staticType{name: expr.TypeName}}, nil
+}
+
+func (c *typeChecker) checkStructFields(typeName string, fields []structFieldExpr, scope *typeScope, update bool) error {
+	def := c.structs[typeName]
+	seen := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		expected, ok := def.fields[field.Name]
+		if !ok {
+			return c.errorAt(field.Span, "struct %s has no field %q", typeName, field.Name)
+		}
+		if _, exists := seen[field.Name]; exists {
+			return c.errorAt(field.Span, "struct initializer repeats field %q", field.Name)
+		}
+		seen[field.Name] = struct{}{}
+		actual, err := c.checkExpr(field.Expr, scope)
+		if err != nil {
+			return err
+		}
+		if _, err := c.requireAssignable(expected, actual.typ, field.Expr); err != nil {
+			return c.errorAt(field.Span, "field %s.%s requires %s, got %s", typeName, field.Name, expected.String(), actual.typ.String())
+		}
+	}
+	if !update && len(seen) != len(def.fields) {
+		return c.errorAt(sourceSpan{}, "struct %s initializer is missing fields", typeName)
+	}
+	return nil
+}
+
 func (c *typeChecker) requireAssignable(expected, actual staticType, expr Expr) (staticType, error) {
+	expected = c.resolveAlias(expected)
+	actual = c.resolveAlias(actual)
 	if expected.isDynamic() || staticTypesEqual(expected, actual) {
 		return actual, nil
 	}
@@ -652,6 +815,25 @@ func (c *typeChecker) requireAssignable(expected, actual staticType, expr Expr) 
 		}
 	}
 	return actual, fmt.Errorf("not assignable")
+}
+
+func (c *typeChecker) resolveAlias(t staticType) staticType {
+	seen := make(map[string]struct{})
+	for {
+		target, ok := c.aliases[t.name]
+		if !ok {
+			return t
+		}
+		if _, exists := seen[t.name]; exists {
+			return t
+		}
+		seen[t.name] = struct{}{}
+		parsed, err := parseStaticType(target)
+		if err != nil {
+			return t
+		}
+		t = parsed
+	}
 }
 
 // staticOutcomeExpressions returns the value-producing alternatives of a
@@ -767,6 +949,17 @@ func staticTypeFromValue(value Value) staticType {
 			}
 		}
 		return staticType{name: "function"}
+	case kindTuple:
+		params := make([]staticType, len(value.tuple))
+		for i, item := range value.tuple {
+			params[i] = staticTypeFromValue(item)
+		}
+		return staticType{name: "tuple", params: params}
+	case kindStruct:
+		if value.structType != nil {
+			return staticType{name: value.structType.name}
+		}
+		return staticType{name: "struct"}
 	default:
 		return staticType{name: value.Kind()}
 	}

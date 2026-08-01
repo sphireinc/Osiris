@@ -53,6 +53,7 @@ func BuildSourceMap(prog *Program) SourceMap {
 		switch st := stmt.(type) {
 		case letStmt:
 			walkExpr(st.Expr, idx)
+		case structStmt, typeDeclStmt, newtypeStmt:
 		case emitStmt:
 			walkExpr(st.Expr, idx)
 		case macroStmt:
@@ -98,6 +99,22 @@ func BuildSourceMap(prog *Program) SourceMap {
 			for _, item := range n.items {
 				walkExpr(item, parent)
 			}
+		case *tupleExpr:
+			for _, item := range n.items {
+				walkExpr(item, parent)
+			}
+		case *structExpr:
+			for _, field := range n.Fields {
+				walkExpr(field.Expr, parent)
+			}
+		case *structUpdateExpr:
+			walkExpr(n.Base, parent)
+			for _, field := range n.Fields {
+				walkExpr(field.Expr, parent)
+			}
+		case *indexExpr:
+			walkExpr(n.Object, parent)
+			walkExpr(n.Index, parent)
 		case *tryExpr:
 			walkExpr(n.body, parent)
 			walkExpr(n.handler, parent)
@@ -125,6 +142,12 @@ func BuildSourceMap(prog *Program) SourceMap {
 func stmtSpan(stmt Stmt) sourceSpan {
 	switch st := stmt.(type) {
 	case letStmt:
+		return st.Span
+	case structStmt:
+		return st.Span
+	case typeDeclStmt:
+		return st.Span
+	case newtypeStmt:
 		return st.Span
 	case emitStmt:
 		return st.Span

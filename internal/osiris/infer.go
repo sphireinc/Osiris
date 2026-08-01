@@ -255,6 +255,21 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 		scope.items[st.Name] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "enum"}, owner: scope.fn}
 		out.Bindings = append(out.Bindings, *bind)
 		return inferTypeInfo{known: true, kind: "enum"}
+	case structStmt:
+		bind := &InferBinding{Name: st.Name, Scope: scope.name, Kind: "struct"}
+		scope.items[st.Name] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: "struct"}, owner: scope.fn}
+		out.Bindings = append(out.Bindings, *bind)
+		return inferTypeInfo{known: true, kind: "struct"}
+	case typeDeclStmt:
+		bind := &InferBinding{Name: st.Name, Scope: scope.name, Kind: st.Target}
+		scope.items[st.Name] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: st.Target}, owner: scope.fn}
+		out.Bindings = append(out.Bindings, *bind)
+		return inferTypeInfo{known: true, kind: st.Target}
+	case newtypeStmt:
+		bind := &InferBinding{Name: st.Name, Scope: scope.name, Kind: st.Name}
+		scope.items[st.Name] = &inferBindingState{binding: bind, info: inferTypeInfo{known: true, kind: st.Name}, owner: scope.fn}
+		out.Bindings = append(out.Bindings, *bind)
+		return inferTypeInfo{known: true, kind: st.Name}
 	case funcStmt:
 		return inferFunctionStmt(st, scope, out)
 	case emitStmt:
@@ -542,6 +557,26 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 			outKind = "tensor"
 		}
 		return inferTypeInfo{known: true, kind: outKind, shape: append([]int{len(n.items)}, sub.shape...)}
+	case *tupleExpr:
+		for _, item := range n.items {
+			_ = inferExpr(item, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "tuple", shape: []int{len(n.items)}}
+	case *structExpr:
+		for _, field := range n.Fields {
+			_ = inferExpr(field.Expr, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: n.TypeName}
+	case *structUpdateExpr:
+		base := inferExpr(n.Base, scope, out)
+		for _, field := range n.Fields {
+			_ = inferExpr(field.Expr, scope, out)
+		}
+		return base
+	case *indexExpr:
+		_ = inferExpr(n.Object, scope, out)
+		_ = inferExpr(n.Index, scope, out)
+		return inferTypeInfo{kind: "unknown"}
 	case *blockExpr:
 		child := scope.childForBlock()
 		for _, stmt := range n.stmts {

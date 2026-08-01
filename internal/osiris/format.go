@@ -70,10 +70,26 @@ func formatStmt(stmt Stmt) string {
 			backing = ": " + s.Backing
 		}
 		return "enum " + s.Name + backing + " { " + strings.Join(cases, ", ") + " }"
+	case structStmt:
+		fields := make([]string, len(s.Fields))
+		for i, field := range s.Fields {
+			fields[i] = field.Name + " " + field.Type
+			if field.Tag != "" {
+				fields[i] += " `" + field.Tag + "`"
+			}
+		}
+		return "struct " + s.Name + " { " + strings.Join(fields, ", ") + " }"
+	case typeDeclStmt:
+		return "type " + s.Name + " = " + s.Target
+	case newtypeStmt:
+		return "newtype " + s.Name + " " + s.Target
 	case letStmt:
 		prefix := "let "
 		if s.Unwrap {
 			prefix = "let? "
+		}
+		if len(s.Names) > 0 {
+			return prefix + "(" + strings.Join(s.Names, ", ") + ") = " + formatExpr(s.Expr, 0)
 		}
 		if s.Type != "" {
 			return prefix + s.Name + " " + s.Type + " = " + formatExpr(s.Expr, 0)
@@ -166,6 +182,34 @@ func formatExpr(expr Expr, parentPrec int) string {
 		}
 		b.WriteByte(']')
 		return b.String()
+	case *tupleExpr:
+		var b strings.Builder
+		b.WriteByte('(')
+		for i, item := range n.items {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(formatExpr(item, 0))
+		}
+		if len(n.items) == 1 {
+			b.WriteByte(',')
+		}
+		b.WriteByte(')')
+		return b.String()
+	case *structExpr:
+		return n.TypeName + " " + formatStructFieldExprs(n.Fields)
+	case *structUpdateExpr:
+		s := formatExpr(n.Base, precPostfix) + " with " + formatStructFieldExprs(n.Fields)
+		if precPostfix < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
+	case *indexExpr:
+		s := formatExpr(n.Object, precPostfix) + "[" + formatExpr(n.Index, 0) + "]"
+		if precPostfix < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
 	case *blockExpr:
 		var b strings.Builder
 		b.WriteByte('{')
@@ -281,6 +325,21 @@ func formatEmitExpr(expr Expr) string {
 		parts = append(parts, formatExpr(call.args[i], 0))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func formatStructFieldExprs(fields []structFieldExpr) string {
+	var b strings.Builder
+	b.WriteString("{ ")
+	for i, field := range fields {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(field.Name)
+		b.WriteString(": ")
+		b.WriteString(formatExpr(field.Expr, 0))
+	}
+	b.WriteString(" }")
+	return b.String()
 }
 
 // formatTensorSource handles the format tensor source step in the surrounding

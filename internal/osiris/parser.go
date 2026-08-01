@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -16,6 +17,7 @@ type Stmt interface {
 
 type letStmt struct {
 	Name     string
+	Names    []string
 	Type     string
 	Expr     Expr
 	Unwrap   bool
@@ -238,6 +240,43 @@ func isDefaultIntegerLiteral(text string) bool {
 
 func (enumStmt) stmtNode() {}
 
+type structField struct {
+	Name      string
+	Type      string
+	Tag       string
+	TagValues map[string]string
+	Span      sourceSpan
+	NameSpan  sourceSpan
+}
+
+type structStmt struct {
+	Name     string
+	Fields   []structField
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (structStmt) stmtNode() {}
+
+type typeDeclStmt struct {
+	Name     string
+	Target   string
+	Alias    bool
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (typeDeclStmt) stmtNode() {}
+
+type newtypeStmt struct {
+	Name     string
+	Target   string
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (newtypeStmt) stmtNode() {}
+
 type Expr interface {
 	exprNode()
 }
@@ -382,6 +421,43 @@ type listExpr struct {
 // effects or through a separate error path when one exists.
 func (listExpr) exprNode() {}
 
+type tupleExpr struct {
+	items []Expr
+	Span  sourceSpan
+}
+
+func (tupleExpr) exprNode() {}
+
+type structFieldExpr struct {
+	Name string
+	Expr Expr
+	Span sourceSpan
+}
+
+type structExpr struct {
+	TypeName string
+	Fields   []structFieldExpr
+	Span     sourceSpan
+}
+
+func (structExpr) exprNode() {}
+
+type structUpdateExpr struct {
+	Base   Expr
+	Fields []structFieldExpr
+	Span   sourceSpan
+}
+
+func (structUpdateExpr) exprNode() {}
+
+type indexExpr struct {
+	Object Expr
+	Index  Expr
+	Span   sourceSpan
+}
+
+func (indexExpr) exprNode() {}
+
 type matchExpr struct {
 	subject Expr
 	arms    []matchArm
@@ -513,7 +589,7 @@ func (listPattern) patternNode() {}
 // It returns *Program and an error. Callers should only trust the value when
 // the error is nil.
 func Parse(sourceName, src string) (*Program, error) {
-	p := &parser{sourceName: sourceName, lexer: newLexer(src)}
+	p := &parser{sourceName: sourceName, lexer: newLexer(src), knownTypes: builtinTypeSet(), knownStructs: make(map[string]struct{})}
 	prog, err := p.parse()
 	if err != nil {
 		return nil, normalizeError(err, sourceName)
@@ -522,11 +598,13 @@ func Parse(sourceName, src string) (*Program, error) {
 }
 
 type parser struct {
-	sourceName string
-	lexer      *lexer
-	cur        token
-	peeked     bool
-	lexErr     error
+	sourceName   string
+	lexer        *lexer
+	knownTypes   map[string]struct{}
+	knownStructs map[string]struct{}
+	cur          token
+	peeked       bool
+	lexErr       error
 }
 
 // parse operates on parser values and keeps the parser-specific behavior
@@ -572,6 +650,20 @@ func (p *parser) parseStmt() (Stmt, error) {
 	case tokenLet:
 		start := p.next()
 		unwrap := p.match(tokenQuestion)
+		if p.match(tokenLParen) {
+			names, err := p.parseNameListAllowEmpty()
+			if err != nil {
+				return nil, err
+			}
+			if _, err := p.expect(tokenEqual); err != nil {
+				return nil, err
+			}
+			expr, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			return letStmt{Names: names, Expr: expr, Unwrap: unwrap, Span: spanFromToken(start)}, nil
+		}
 		nameTok, err := p.expect(tokenIdent)
 		if err != nil {
 			return nil, err
@@ -860,6 +952,38 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, p.errorf(name, "enum %q must declare at least one case", name.text)
 		}
 		return enumStmt{Name: name.text, Backing: backing, Cases: cases, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
+	case tokenStruct:
+		return p.parseStructStmt()
+	case tokenType:
+		start := p.next()
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := p.expect(tokenEqual); err != nil {
+			return nil, err
+		}
+		target, targetSpan, err := p.parseTypeName()
+		if err != nil {
+			return nil, err
+		}
+		p.knownTypes[name.text] = struct{}{}
+		if _, isStruct := p.knownStructs[target]; isStruct {
+			p.knownStructs[name.text] = struct{}{}
+		}
+		return typeDeclStmt{Name: name.text, Target: target, Alias: true, NameSpan: spanFromToken(name), Span: spanCover(spanFromToken(start), targetSpan)}, nil
+	case tokenNewtype:
+		start := p.next()
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		target, targetSpan, err := p.parseTypeName()
+		if err != nil {
+			return nil, err
+		}
+		p.knownTypes[name.text] = struct{}{}
+		return newtypeStmt{Name: name.text, Target: target, NameSpan: spanFromToken(name), Span: spanCover(spanFromToken(start), targetSpan)}, nil
 	case tokenImport:
 		start := p.next()
 		pathTok, err := p.expect(tokenString)
@@ -875,8 +999,64 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
 	default:
-		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, enum, or import")
+		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
 	}
+}
+
+func (p *parser) parseStructStmt() (Stmt, error) {
+	start := p.next()
+	name, err := p.expect(tokenIdent)
+	if err != nil {
+		return nil, err
+	}
+	// Register before parsing fields so a declaration may contain a recursive
+	// field reference. Recursive values are still rejected by construction;
+	// this only makes the type name available to the parser and checker.
+	p.knownTypes[name.text] = struct{}{}
+	p.knownStructs[name.text] = struct{}{}
+	if _, err := p.expect(tokenLBrace); err != nil {
+		return nil, err
+	}
+	fields := make([]structField, 0, 4)
+	seen := make(map[string]struct{})
+	for p.peek().kind != tokenRBrace {
+		fieldName, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[fieldName.text]; exists {
+			return nil, p.errorf(fieldName, "struct %q declares field %q more than once", name.text, fieldName.text)
+		}
+		seen[fieldName.text] = struct{}{}
+		fieldType, _, err := p.parseTypeName()
+		if err != nil {
+			return nil, err
+		}
+		field := structField{Name: fieldName.text, Type: fieldType, NameSpan: spanFromToken(fieldName)}
+		if p.peek().kind == tokenTag {
+			tagTok := p.next()
+			values, tagErr := parseStructTag(tagTok.text)
+			if tagErr != nil {
+				return nil, p.errorf(tagTok, "%v", tagErr)
+			}
+			field.Tag, field.TagValues = tagTok.text, values
+			field.Span = spanCover(field.NameSpan, spanFromToken(tagTok))
+		} else {
+			field.Span = field.NameSpan
+		}
+		fields = append(fields, field)
+		if !p.match(tokenComma) && !p.match(tokenSemicolon) && p.peek().kind != tokenRBrace && p.peek().kind != tokenIdent {
+			return nil, p.errorf(p.peek(), "expected , ; or } after struct field")
+		}
+	}
+	end, err := p.expect(tokenRBrace)
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) == 0 {
+		return nil, p.errorf(name, "struct %q must declare at least one field", name.text)
+	}
+	return structStmt{Name: name.text, Fields: fields, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
 }
 
 // parseExpr operates on parser values and keeps the parser-specific behavior
@@ -935,6 +1115,24 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 				return nil, err
 			}
 			left = &memberExpr{object: left, name: nameTok.text, Span: spanCover(exprSpan(left), spanFromToken(nameTok)), NameSpan: spanFromToken(nameTok)}
+		case tokenLBracket:
+			p.next()
+			index, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			end, err := p.expect(tokenRBracket)
+			if err != nil {
+				return nil, err
+			}
+			left = &indexExpr{Object: left, Index: index, Span: spanCover(exprSpan(left), spanFromToken(end))}
+		case tokenWith:
+			p.next()
+			fields, end, err := p.parseStructFieldExprs()
+			if err != nil {
+				return nil, err
+			}
+			left = &structUpdateExpr{Base: left, Fields: fields, Span: spanCover(exprSpan(left), spanFromToken(end))}
 		case tokenQuestion:
 			tok := p.next()
 			left = &propagateExpr{expr: left, Span: spanFromToken(tok)}
@@ -988,12 +1186,44 @@ func (p *parser) parsePrefix() (Expr, error) {
 		return &literalExpr{value: nullValue(), Span: spanFromToken(tok)}, nil
 	case tokenIdent:
 		p.next()
+		if p.peek().kind == tokenLBrace {
+			if _, known := p.knownStructs[tok.text]; !known {
+				return &identExpr{name: tok.text, Span: spanFromToken(tok)}, nil
+			}
+			fields, end, err := p.parseStructFieldExprs()
+			if err != nil {
+				return nil, err
+			}
+			return &structExpr{TypeName: tok.text, Fields: fields, Span: spanCover(spanFromToken(tok), spanFromToken(end))}, nil
+		}
 		return &identExpr{name: tok.text, Span: spanFromToken(tok)}, nil
 	case tokenLParen:
 		p.next()
+		if p.match(tokenRParen) {
+			return &tupleExpr{Span: spanFromToken(tok)}, nil
+		}
 		expr, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
+		}
+		if p.match(tokenComma) {
+			items := []Expr{expr}
+			for {
+				if p.match(tokenRParen) {
+					return &tupleExpr{items: items, Span: spanFromToken(tok)}, nil
+				}
+				item, err := p.parseExpr(0)
+				if err != nil {
+					return nil, err
+				}
+				items = append(items, item)
+				if !p.match(tokenComma) {
+					if _, err := p.expect(tokenRParen); err != nil {
+						return nil, err
+					}
+					return &tupleExpr{items: items, Span: spanFromToken(tok)}, nil
+				}
+			}
 		}
 		if _, err := p.expect(tokenRParen); err != nil {
 			return nil, err
@@ -1066,6 +1296,41 @@ func (p *parser) parseCallArgs() ([]Expr, error) {
 		}
 		return args, nil
 	}
+}
+
+func (p *parser) parseStructFieldExprs() ([]structFieldExpr, token, error) {
+	_, err := p.expect(tokenLBrace)
+	if err != nil {
+		return nil, token{}, err
+	}
+	fields := make([]structFieldExpr, 0, 4)
+	seen := make(map[string]struct{})
+	for p.peek().kind != tokenRBrace {
+		name, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, token{}, err
+		}
+		if _, exists := seen[name.text]; exists {
+			return nil, token{}, p.errorf(name, "struct initializer repeats field %q", name.text)
+		}
+		seen[name.text] = struct{}{}
+		if _, err := p.expect(tokenColon); err != nil {
+			return nil, token{}, err
+		}
+		value, err := p.parseExpr(0)
+		if err != nil {
+			return nil, token{}, err
+		}
+		fields = append(fields, structFieldExpr{Name: name.text, Expr: value, Span: spanCover(spanFromToken(name), exprSpan(value))})
+		if !p.match(tokenComma) && !p.match(tokenSemicolon) && p.peek().kind != tokenRBrace {
+			return nil, token{}, p.errorf(p.peek(), "expected , ; or } after struct initializer")
+		}
+	}
+	end, err := p.expect(tokenRBrace)
+	if err != nil {
+		return nil, token{}, err
+	}
+	return fields, end, nil
 }
 
 // parseNameList operates on parser values and keeps the parser-specific
@@ -1161,7 +1426,7 @@ func (p *parser) parseTypeName() (string, sourceSpan, error) {
 	start := p.peek()
 	if start.kind == tokenIdent || start.kind == tokenNull || start.kind == tokenEnum {
 		tok := p.next()
-		if !isBindingTypeName(tok.text) {
+		if _, known := p.knownTypes[tok.text]; !known {
 			return "", sourceSpan{}, p.errorf(tok, "unknown type %q; generics are not available", tok.text)
 		}
 		return tok.text, spanFromToken(tok), nil
@@ -1198,6 +1463,74 @@ func (p *parser) parseTypeName() (string, sourceSpan, error) {
 		return "", sourceSpan{}, err
 	}
 	return "func(" + strings.Join(params, ", ") + ") " + result, spanCover(spanFromToken(start), resultSpan), nil
+}
+
+func builtinTypeSet() map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, name := range []string{
+		"number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64",
+		"string", "bool", "null", "list", "tensor", "enum", "function", "error", "result", "option",
+		"stream", "task", "module", "decimal", "fixed", "interval", "modint", "complex", "bigint",
+		"bigfloat", "quantity", "dual", "duration", "datetime", "location",
+	} {
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+// parseStructTag validates the namespace:"value" pairs accepted by Go-style
+// field tags. The raw spelling is retained separately so unknown namespaces
+// can survive a parse/format round trip.
+func parseStructTag(raw string) (map[string]string, error) {
+	values := make(map[string]string)
+	for i := 0; i < len(raw); {
+		for i < len(raw) && (raw[i] == ' ' || raw[i] == '\t' || raw[i] == '\n' || raw[i] == '\r') {
+			i++
+		}
+		if i == len(raw) {
+			break
+		}
+		start := i
+		for i < len(raw) && raw[i] > ' ' && raw[i] != ':' && raw[i] != '"' && raw[i] != '\'' && raw[i] != 0x7f {
+			i++
+		}
+		if start == i || i >= len(raw) || raw[i] != ':' {
+			return nil, fmt.Errorf("malformed struct tag near %q", raw[start:])
+		}
+		key := raw[start:i]
+		if _, exists := values[key]; exists {
+			return nil, fmt.Errorf("duplicate struct tag namespace %q", key)
+		}
+		i++
+		if i >= len(raw) || raw[i] != '"' {
+			return nil, fmt.Errorf("struct tag namespace %q requires a quoted value", key)
+		}
+		valueStart := i
+		i++
+		escaped := false
+		for i < len(raw) {
+			if raw[i] == '"' && !escaped {
+				i++
+				break
+			}
+			if raw[i] == '\\' && !escaped {
+				escaped = true
+			} else {
+				escaped = false
+			}
+			i++
+		}
+		if i > len(raw) || raw[i-1] != '"' {
+			return nil, fmt.Errorf("unterminated struct tag value for namespace %q", key)
+		}
+		quoted := raw[valueStart:i]
+		value, err := strconv.Unquote(quoted)
+		if err != nil {
+			return nil, fmt.Errorf("invalid struct tag value for namespace %q: %v", key, err)
+		}
+		values[key] = value
+	}
+	return values, nil
 }
 
 func isTypeStart(kind tokenKind) bool {
@@ -1379,6 +1712,14 @@ func exprSpan(expr Expr) sourceSpan {
 	case *memberExpr:
 		return n.Span
 	case *listExpr:
+		return n.Span
+	case *tupleExpr:
+		return n.Span
+	case *structExpr:
+		return n.Span
+	case *structUpdateExpr:
+		return n.Span
+	case *indexExpr:
 		return n.Span
 	case *matchExpr:
 		return n.Span

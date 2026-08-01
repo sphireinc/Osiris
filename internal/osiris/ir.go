@@ -722,7 +722,12 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		}
 		b.pb.enums[st.Name] = cases
 		return false, nil
+	case structStmt, typeDeclStmt, newtypeStmt:
+		return false, fmt.Errorf("native C backend: product-type declarations are not yet supported")
 	case letStmt:
+		if len(st.Names) > 0 {
+			return false, fmt.Errorf("native C backend: tuple destructuring is not yet supported")
+		}
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
 		if err != nil {
@@ -1347,6 +1352,8 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		tmp := b.newTemp()
 		b.emitInstr(IRInstr{Dest: tmp, Op: "list", Args: items})
 		return tmp, nil
+	case *tupleExpr, *structExpr, *structUpdateExpr, *indexExpr:
+		return "", fmt.Errorf("native C backend: product-type expressions are not yet supported")
 	case *blockExpr:
 		for _, stmt := range n.stmts {
 			terminated, err := b.lowerStmt(stmt)

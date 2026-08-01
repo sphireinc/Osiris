@@ -29,13 +29,18 @@ const (
 	tokenPackage
 	tokenExport
 	tokenEnum
+	tokenStruct
+	tokenType
+	tokenNewtype
 	tokenImport
 	tokenMatch
 	tokenSwitch
 	tokenAs
+	tokenWith
 	tokenTrue
 	tokenFalse
 	tokenNull
+	tokenTag
 	tokenLParen
 	tokenRParen
 	tokenLBrace
@@ -134,6 +139,12 @@ func (k tokenKind) String() string {
 		return "export"
 	case tokenEnum:
 		return "enum"
+	case tokenStruct:
+		return "struct"
+	case tokenType:
+		return "type"
+	case tokenNewtype:
+		return "newtype"
 	case tokenImport:
 		return "import"
 	case tokenMatch:
@@ -142,12 +153,16 @@ func (k tokenKind) String() string {
 		return "switch"
 	case tokenAs:
 		return "as"
+	case tokenWith:
+		return "with"
 	case tokenTrue:
 		return "true"
 	case tokenFalse:
 		return "false"
 	case tokenNull:
 		return "null"
+	case tokenTag:
+		return "tag"
 	case tokenLParen:
 		return "("
 	case tokenRParen:
@@ -381,6 +396,8 @@ func (l *lexer) nextToken() (token, error) {
 		return l.nextToken()
 	case '"':
 		return l.scanString()
+	case '`':
+		return l.scanTag()
 	}
 
 	if unicode.IsDigit(ch) || (ch == '.' && l.hasDigitAhead(1)) {
@@ -440,6 +457,12 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenExport, text: text, line: startLine, col: startCol}, nil
 	case "enum":
 		return token{kind: tokenEnum, text: text, line: startLine, col: startCol}, nil
+	case "struct":
+		return token{kind: tokenStruct, text: text, line: startLine, col: startCol}, nil
+	case "type":
+		return token{kind: tokenType, text: text, line: startLine, col: startCol}, nil
+	case "newtype":
+		return token{kind: tokenNewtype, text: text, line: startLine, col: startCol}, nil
 	case "import":
 		return token{kind: tokenImport, text: text, line: startLine, col: startCol}, nil
 	case "match":
@@ -448,6 +471,8 @@ func (l *lexer) scanIdent() (token, error) {
 		return token{kind: tokenSwitch, text: text, line: startLine, col: startCol}, nil
 	case "as":
 		return token{kind: tokenAs, text: text, line: startLine, col: startCol}, nil
+	case "with":
+		return token{kind: tokenWith, text: text, line: startLine, col: startCol}, nil
 	case "true":
 		return token{kind: tokenTrue, text: text, line: startLine, col: startCol}, nil
 	case "false":
@@ -542,6 +567,28 @@ func (l *lexer) scanString() (token, error) {
 		l.advance(w)
 	}
 	return token{}, fmt.Errorf("unterminated string at %d:%d", startLine, startCol)
+}
+
+// scanTag scans a Go-style raw field tag. The delimiters are not part of the
+// token text; preserving the contents verbatim lets the parser validate and
+// retain unknown namespaces without changing their spelling.
+func (l *lexer) scanTag() (token, error) {
+	startLine, startCol := l.line, l.col
+	l.advance(1)
+	start := l.off
+	for l.off < len(l.src) {
+		r, w := utf8.DecodeRuneInString(l.src[l.off:])
+		if r == '`' {
+			text := l.src[start:l.off]
+			l.advance(w)
+			return token{kind: tokenTag, text: text, line: startLine, col: startCol}, nil
+		}
+		if r == '\n' || r == '\r' {
+			return token{}, fmt.Errorf("unterminated field tag at %d:%d", startLine, startCol)
+		}
+		l.advance(w)
+	}
+	return token{}, fmt.Errorf("unterminated field tag at %d:%d", startLine, startCol)
 }
 
 // skipSpace operates on lexer values and keeps the lexer-specific behavior

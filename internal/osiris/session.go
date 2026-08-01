@@ -3,6 +3,7 @@ package osiris
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 type Session struct {
@@ -19,6 +20,15 @@ type Session struct {
 	exportOrder    []string
 	exportSet      map[string]struct{}
 	macros         map[string]*macroDef
+}
+
+func runtimeStructType(st structStmt) *structTypeValue {
+	typ := &structTypeValue{name: st.Name, fields: make([]structFieldValue, len(st.Fields)), byName: make(map[string]int, len(st.Fields))}
+	for i, field := range st.Fields {
+		typ.fields[i] = structFieldValue{name: field.Name, typeName: field.Type, tag: field.Tag, tagValues: cloneStringMap(field.TagValues)}
+		typ.byName[field.Name] = i
+	}
+	return typ
 }
 
 // NewSession constructs a new session and wires together the internal caches,
@@ -165,6 +175,27 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			},
 		}
 		return nil, false, nil
+	case structStmt:
+		typ := runtimeStructType(st)
+		s.scope = &scope{parent: s.scope, items: map[string]binding{
+			st.Name: {expr: &literalExpr{value: structTypeValueOf(typ)}, env: s.scope},
+		}}
+		return nil, false, nil
+	case typeDeclStmt:
+		// Transparent aliases are constructor aliases at runtime; the static
+		// checker remains responsible for their type identity.
+		alias := functionValueOf(st.Name, func(args []Value) (Value, error) {
+			if len(args) != 1 {
+				return nullValue(), fmt.Errorf("%s expects 1 argument", st.Name)
+			}
+			return args[0], nil
+		})
+		s.scope = &scope{parent: s.scope, items: map[string]binding{st.Name: {expr: &literalExpr{value: alias}, env: s.scope}}}
+		return nil, false, nil
+	case newtypeStmt:
+		typ := &structTypeValue{name: st.Name, target: st.Target, newtype: true, fields: []structFieldValue{{name: "value", typeName: st.Target}}, byName: map[string]int{"value": 0}}
+		s.scope = &scope{parent: s.scope, items: map[string]binding{st.Name: {expr: &literalExpr{value: structTypeValueOf(typ)}, env: s.scope}}}
+		return nil, false, nil
 	case macroStmt:
 		if err := s.registerMacro(st.Name, st.Params, st.Body); err != nil {
 			return nil, false, err
@@ -207,11 +238,28 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			if err != nil {
 				return nil, false, err
 			}
-			value, err = checkBindingType(st.Type, value, false)
-			if err != nil {
-				return nil, false, fmt.Errorf("let %s: %w", st.Name, err)
+			if isBindingTypeName(st.Type) || strings.HasPrefix(st.Type, "func(") {
+				value, err = checkBindingType(st.Type, value, false)
+				if err != nil {
+					return nil, false, fmt.Errorf("let %s: %w", st.Name, err)
+				}
 			}
 			expr = &literalExpr{value: value}
+		}
+		if len(st.Names) > 0 {
+			value, err := s.ev.eval(expr, s.scope)
+			if err != nil {
+				return nil, false, err
+			}
+			if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
+				return nil, false, fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
+			}
+			cur := s.scope
+			for i, name := range st.Names {
+				cur = &scope{parent: cur, items: map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}}}
+			}
+			s.scope = cur
+			return nil, false, nil
 		}
 		s.scope = &scope{
 			parent: s.scope,

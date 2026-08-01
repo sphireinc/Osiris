@@ -804,9 +804,29 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			a.enumCases[caseDef.name] = caseDef
 		}
 		return scope.push(def), nil
+	case structStmt:
+		def := &symbolDef{name: st.Name, kind: "struct", detail: fmt.Sprintf("struct with %d fields", len(st.Fields)), uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		return scope.push(def), nil
+	case typeDeclStmt:
+		def := &symbolDef{name: st.Name, kind: "type alias", detail: "alias of " + st.Target, uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		return scope.push(def), nil
+	case newtypeStmt:
+		def := &symbolDef{name: st.Name, kind: "newtype", detail: "newtype of " + st.Target, uri: uri, span: st.NameSpan}
+		a.defs = append(a.defs, def)
+		return scope.push(def), nil
 	case letStmt:
 		if err := analyzeExpr(a, scope, uri, st.Expr); err != nil {
 			return nil, err
+		}
+		if len(st.Names) > 0 {
+			for _, name := range st.Names {
+				item := &symbolDef{name: name, kind: "variable", detail: "tuple binding", uri: uri, span: st.Span}
+				a.defs = append(a.defs, item)
+				scope = scope.push(item)
+			}
+			return scope, nil
 		}
 		def := &symbolDef{name: st.Name, kind: "variable", detail: "binding", uri: uri, span: st.NameSpan}
 		a.defs = append(a.defs, def)
@@ -928,6 +948,32 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 				return err
 			}
 		}
+	case *tupleExpr:
+		for _, item := range n.items {
+			if err := analyzeExpr(a, scope, uri, item); err != nil {
+				return err
+			}
+		}
+	case *structExpr:
+		for _, field := range n.Fields {
+			if err := analyzeExpr(a, scope, uri, field.Expr); err != nil {
+				return err
+			}
+		}
+	case *structUpdateExpr:
+		if err := analyzeExpr(a, scope, uri, n.Base); err != nil {
+			return err
+		}
+		for _, field := range n.Fields {
+			if err := analyzeExpr(a, scope, uri, field.Expr); err != nil {
+				return err
+			}
+		}
+	case *indexExpr:
+		if err := analyzeExpr(a, scope, uri, n.Object); err != nil {
+			return err
+		}
+		return analyzeExpr(a, scope, uri, n.Index)
 	case *tryExpr:
 		if err := analyzeExpr(a, scope, uri, n.body); err != nil {
 			return err

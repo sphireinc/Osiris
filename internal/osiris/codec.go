@@ -475,6 +475,56 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 		}
 		buf.Write(appendUvarint(nil, uint64(v.datetime.nanosecond)))
 		return encodeTimeLocation(buf, v.datetime.location)
+	case kindTuple:
+		if err := buf.WriteByte(0x1d); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.tuple))))
+		for _, item := range v.tuple {
+			if err := encodeInto(buf, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	case kindStruct:
+		if v.structType == nil || v.structValue == nil {
+			return fmt.Errorf("cannot encode incomplete struct value")
+		}
+		if err := buf.WriteByte(0x1e); err != nil {
+			return err
+		}
+		if err := encodeCodecString(buf, v.structType.name); err != nil {
+			return err
+		}
+		if err := encodeCodecString(buf, v.structType.target); err != nil {
+			return err
+		}
+		if v.structType.newtype {
+			if err := buf.WriteByte(1); err != nil {
+				return err
+			}
+		} else if err := buf.WriteByte(0); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.structType.fields))))
+		if len(v.structType.fields) != len(v.structValue.fields) {
+			return fmt.Errorf("cannot encode struct with mismatched field count")
+		}
+		for i, field := range v.structType.fields {
+			if err := encodeCodecString(buf, field.name); err != nil {
+				return err
+			}
+			if err := encodeCodecString(buf, field.typeName); err != nil {
+				return err
+			}
+			if err := encodeCodecString(buf, field.tag); err != nil {
+				return err
+			}
+			if err := encodeInto(buf, v.structValue.fields[i]); err != nil {
+				return err
+			}
+		}
+		return nil
 	case kindStream:
 		return fmt.Errorf("stream values cannot be encoded")
 	default:
@@ -937,9 +987,95 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			return nullValue(), err
 		}
 		return dateTimeValueFromTime(time.Unix(seconds, int64(nanosecond)).In(location.goLocation()), location)
+	case 0x1d:
+		n, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if n > uint64(cur.remaining()) {
+			return nullValue(), fmt.Errorf("invalid tuple element count")
+		}
+		items := make([]Value, 0, n)
+		for i := uint64(0); i < n; i++ {
+			item, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			items = append(items, item)
+		}
+		return tupleValue(items), nil
+	case 0x1e:
+		name, err := decodeCodecString(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		target, err := decodeCodecString(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		newtypeFlag, err := cur.byte()
+		if err != nil {
+			return nullValue(), err
+		}
+		count, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if count > uint64(cur.remaining()) {
+			return nullValue(), fmt.Errorf("invalid struct field count")
+		}
+		typ := &structTypeValue{name: name, target: target, newtype: newtypeFlag != 0, fields: make([]structFieldValue, 0, count), byName: make(map[string]int)}
+		values := make([]Value, 0, count)
+		for i := uint64(0); i < count; i++ {
+			fieldName, err := decodeCodecString(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			fieldType, err := decodeCodecString(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			tagText, err := decodeCodecString(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			tagValues, tagErr := parseStructTag(tagText)
+			if tagErr != nil {
+				return nullValue(), fmt.Errorf("invalid encoded struct tag: %w", tagErr)
+			}
+			if _, duplicate := typ.byName[fieldName]; duplicate {
+				return nullValue(), fmt.Errorf("duplicate encoded struct field %q", fieldName)
+			}
+			typ.byName[fieldName] = len(typ.fields)
+			typ.fields = append(typ.fields, structFieldValue{name: fieldName, typeName: fieldType, tag: tagText, tagValues: tagValues})
+			value, err := decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			values = append(values, value)
+		}
+		return structInstanceValueOf(typ, values), nil
 	default:
 		return nullValue(), fmt.Errorf("unknown encoded tag 0x%02x", tag)
 	}
+}
+
+func encodeCodecString(buf *bytes.Buffer, text string) error {
+	buf.Write(appendUvarint(nil, uint64(len(text))))
+	_, err := buf.WriteString(text)
+	return err
+}
+
+func decodeCodecString(cur *byteCursor) (string, error) {
+	n, err := cur.uvarint()
+	if err != nil {
+		return "", err
+	}
+	raw, err := cur.take(int(n))
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
 }
 
 func encodeTimeLocation(buf *bytes.Buffer, location *timeLocationValue) error {
