@@ -290,6 +290,8 @@ func aliasStmt(stmt Stmt, scope *aliasScope, out *AliasProgram) aliasInfo {
 		info := aliasExpr(st.Expr, scope, out)
 		scope.bindLocal(st.Name, info, out, true)
 		return info
+	case assignStmt:
+		return aliasExpr(st.Expr, scope, out)
 	case importStmt:
 		info := freshAliasInfo("module", "import "+st.Path)
 		scope.bindLocal(st.Alias, info, out, true)
@@ -733,6 +735,8 @@ func aliasBlockExpr(expr *blockExpr, scope *aliasScope, out *AliasProgram) alias
 		case letStmt:
 			info := aliasExpr(st.Expr, cur, out)
 			cur.bindLocal(st.Name, info, out, cur.report)
+		case assignStmt:
+			_ = aliasExpr(st.Expr, cur, out)
 		case importStmt:
 			info := freshAliasInfo("module", "import "+st.Path)
 			cur.bindLocal(st.Alias, info, out, cur.report)

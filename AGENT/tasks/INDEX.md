@@ -24,11 +24,11 @@ all recorded dependencies satisfied and is the next selection candidate.
 ## Current selection
 
 - **Active:** none.
-- **Ready:** task 111 continues the type/data sequence; tasks 115, 116, 123,
+- **Ready:** tasks 115, 116, 123,
   and 124 are independently ready.
-- **Blocked:** tasks 112–114, 117–122, 125, and 126 name their exact
+- **Blocked:** tasks 117–122, 125, and 126 name their exact
   prerequisite work in `tasks/index.tsv`.
-- **Complete:** tasks 001–049 and 100–110 are complete.
+- **Complete:** tasks 001–049 and 100–114 are complete.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a

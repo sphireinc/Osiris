@@ -2,7 +2,7 @@
 
 **Priority:** P1
 **Dependencies:** 045, 110, 111
-**Status:** Blocked
+**Status:** Completed
 
 ## Objective
 
@@ -43,11 +43,27 @@ value updates without sacrificing determinism, alias safety, or task isolation.
 
 ## Acceptance criteria
 
-- [ ] The state model is documented before implementation and preserves
+- [x] The state model is documented before implementation and preserves
       deterministic observable behavior.
-- [ ] Mutation is explicit in analysis/IR and cannot be unsafely optimized.
-- [ ] Cross-backend, race, aliasing, and cleanup tests prove the contract.
-- [ ] Documentation and full validation pass.
+- [x] Mutation is explicit in analysis/IR and cannot be unsafely optimized.
+- [x] Cross-backend, race, aliasing, and cleanup tests prove the contract.
+- [x] Documentation and full validation pass.
+
+## Completion evidence
+
+- Design: `docs/design/STATE-AND-MUTATION.md` defines `var`, atomic
+  assignment, value-semantic aggregate updates, closure cells, task snapshots,
+  cancellation, error, loop, and cleanup behavior.
+- Implementation: parser, formatter, type checking, interpreter, VM, SSA IR,
+  native C, macro expansion, alias/purity/inference/shape analysis, optimizer,
+  source maps, tracing, LSP, GPU planning, and visualization preserve the
+  explicit assignment barrier. Field and index mutation remain rejected by
+  design; `with` and value-returning builders are the aggregate update boundary.
+- Tests: `internal/osiris/state_mutation_test.go` covers parse/format, loop
+  state, interpreter/VM/IR/native parity, closure cells, task isolation,
+  failed-RHS atomicity, and aggregate alias safety. Full `go test ./...`,
+  `go test -race ./...`, `go vet ./...`, `go build ./...`,
+  `node docs/scripts/check-reference.mjs`, and `git diff --check` pass.
 
 ## Non-goals
 

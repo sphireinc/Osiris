@@ -244,6 +244,12 @@ func inferStmt(stmt Stmt, scope *inferScope, out *InferProgram) inferTypeInfo {
 		scope.items[st.Name] = &inferBindingState{binding: bind, info: info, owner: scope.fn}
 		out.Bindings = append(out.Bindings, *bind)
 		return info
+	case assignStmt:
+		info := inferExpr(st.Expr, scope, out)
+		if state, ok := scope.lookup(st.Name); ok {
+			state.info = info
+		}
+		return info
 	case importStmt:
 		bind := &InferBinding{Name: st.Alias, Scope: scope.name, Kind: "module"}
 		moduleName, _ := splitModuleRef(st.Path)

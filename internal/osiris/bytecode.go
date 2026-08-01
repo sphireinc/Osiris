@@ -12,6 +12,7 @@ const (
 	vmOpConst vmOp = iota
 	vmOpLoadName
 	vmOpBind
+	vmOpAssign
 	vmOpResultBind
 	vmOpTypeAssert
 	vmOpUnary
@@ -51,6 +52,7 @@ type vmInstr struct {
 	name       string
 	text       string
 	value      Value
+	mutable    bool
 	args       []int
 	fieldNames []string
 	names      []string
@@ -155,7 +157,7 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 	case enumStmt:
 		reg := c.alloc()
 		c.emit(vmInstr{op: vmOpConst, dst: reg, value: enumNamespaceValue(st.Name, st.Cases)})
-		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name, mutable: false})
 		return nil
 	case structStmt:
 		reg := c.alloc()
@@ -196,8 +198,15 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		if len(st.Names) > 0 {
 			c.emit(vmInstr{op: vmOpTupleBind, a: reg, names: append([]string(nil), st.Names...)})
 		} else {
-			c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+			c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name, mutable: st.Mutable})
 		}
+		return nil
+	case assignStmt:
+		reg, err := c.compileExpr(st.Expr)
+		if err != nil {
+			return err
+		}
+		c.emit(vmInstr{op: vmOpAssign, a: reg, name: st.Name})
 		return nil
 	case importStmt:
 		reg := c.alloc()
@@ -533,8 +542,9 @@ func (c *vmCompiler) compileLogicalBinary(n *binaryExpr) (int, error) {
 }
 
 type vmFrame struct {
-	parent *vmFrame
-	locals map[string]Value
+	parent  *vmFrame
+	locals  map[string]Value
+	mutable map[string]bool
 }
 
 // lookup operates on vmFrame values and keeps the vmframe-specific behavior
@@ -555,17 +565,34 @@ func (f *vmFrame) lookup(name string) (Value, bool) {
 	return Value{}, false
 }
 
+func (f *vmFrame) assign(name string, v Value) bool {
+	for cur := f; cur != nil; cur = cur.parent {
+		if _, ok := cur.locals[name]; ok {
+			if !cur.mutable[name] {
+				return false
+			}
+			cur.locals[name] = v
+			return true
+		}
+	}
+	return false
+}
+
 // bind operates on vmFrame values and keeps the vmframe-specific behavior
 // attached to the receiver so callers can use the method as the natural entry
 // point for that data structure.
 //
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
-func (f *vmFrame) bind(name string, v Value) {
+func (f *vmFrame) bind(name string, v Value, mutable bool) {
 	if f.locals == nil {
 		f.locals = make(map[string]Value)
 	}
+	if f.mutable == nil {
+		f.mutable = make(map[string]bool)
+	}
 	f.locals[name] = v
+	f.mutable[name] = mutable
 }
 
 // child operates on vmFrame values and keeps the vmframe-specific behavior
@@ -578,6 +605,7 @@ func (f *vmFrame) child(bindings map[string]Value) *vmFrame {
 	child := &vmFrame{parent: f}
 	if len(bindings) > 0 {
 		child.locals = make(map[string]Value, len(bindings))
+		child.mutable = make(map[string]bool, len(bindings))
 		for k, v := range bindings {
 			child.locals[k] = v
 		}
@@ -629,14 +657,18 @@ func (r *vmRunner) run(chunk *vmChunk) (Value, error) {
 			}
 			return nullValue(), fmt.Errorf("undefined name %q", instr.name)
 		case vmOpBind:
-			r.frame.bind(instr.name, regs[instr.a])
+			r.frame.bind(instr.name, regs[instr.a], instr.mutable)
+		case vmOpAssign:
+			if !r.frame.assign(instr.name, regs[instr.a]) {
+				return nullValue(), fmt.Errorf("cannot assign to immutable or undefined name %q", instr.name)
+			}
 		case vmOpTupleBind:
 			value := regs[instr.a]
 			if value.kind != kindTuple || len(value.tuple) != len(instr.names) {
 				return nullValue(), fmt.Errorf("tuple destructuring requires %d values", len(instr.names))
 			}
 			for i, name := range instr.names {
-				r.frame.bind(name, value.tuple[i])
+				r.frame.bind(name, value.tuple[i], false)
 			}
 		case vmOpResultBind:
 			value, err := unwrapBinding(regs[instr.a])

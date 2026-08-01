@@ -70,6 +70,27 @@
     ]
   },
   {
+    "title": "Deterministic state",
+    "entries": [
+      {
+        "kind": "construct",
+        "name": "var",
+        "signature": "var name = expression; name = expression",
+        "description": "Create a mutable local cell and replace its value explicitly.",
+        "parameters": "The declaration initializer is evaluated before the cell is installed. An assignment target must be a mutable local; `let` bindings, parameters, imports, struct fields, and collection indexes are not assignable.",
+        "returns": "No standalone value. Assignment commits only after its right-hand side succeeds.",
+        "returnValue": "`var total = 0` installs `total`; `total = total + 2` commits `2u64` to that cell.",
+        "details": [
+          "Values remain copy-on-write and aggregate updates remain value-semantic. A closure observes later writes to its captured cell, while a spawned task receives a value snapshot and cannot write the parent task's cell.",
+          "Assignments are ordered barriers. Errors and cancellation leave the previous value unchanged; use `with`, `setat`, and other value-returning builders for aggregate updates."
+        ],
+        "errors": "Undefined or immutable targets, unsupported field/index targets, failed right-hand sides, and cancellation are errors.",
+        "example": "var total = 0\ntotal = total + 2\nemit total\n# 2u64",
+        "exampleStatus": "checked"
+      }
+    ]
+  },
+  {
     "title": "Result and Option conversion",
     "entries": [
       {

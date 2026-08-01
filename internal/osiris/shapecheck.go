@@ -141,6 +141,9 @@ func validateStmtShapes(stmt Stmt, env *shapeEnv) error {
 		if info.known {
 			env.bind(st.Name, info)
 		}
+	case assignStmt:
+		_, err := shapeOfExpr(st.Expr, env)
+		return err
 	case emitStmt:
 		_, err := shapeOfExpr(st.Expr, env)
 		return err

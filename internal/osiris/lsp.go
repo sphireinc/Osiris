@@ -1021,6 +1021,8 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		def := &symbolDef{name: st.Name, kind: "variable", detail: "binding", uri: uri, span: st.NameSpan}
 		a.defs = append(a.defs, def)
 		return scope.push(def), nil
+	case assignStmt:
+		return scope, analyzeExpr(a, scope, uri, st.Expr)
 	case emitStmt:
 		return scope, analyzeExpr(a, scope, uri, st.Expr)
 	case macroStmt:

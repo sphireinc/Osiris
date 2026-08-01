@@ -53,6 +53,8 @@ func BuildSourceMap(prog *Program) SourceMap {
 		switch st := stmt.(type) {
 		case letStmt:
 			walkExpr(st.Expr, idx)
+		case assignStmt:
+			walkExpr(st.Expr, idx)
 		case structStmt, typeDeclStmt, newtypeStmt:
 		case emitStmt:
 			walkExpr(st.Expr, idx)
@@ -142,6 +144,8 @@ func BuildSourceMap(prog *Program) SourceMap {
 func stmtSpan(stmt Stmt) sourceSpan {
 	switch st := stmt.(type) {
 	case letStmt:
+		return st.Span
+	case assignStmt:
 		return st.Span
 	case structStmt:
 		return st.Span

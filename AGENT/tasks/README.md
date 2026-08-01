@@ -43,9 +43,9 @@ codecs, and the exact static-module members it uses.
 
 ### Wave 8 - static types and application data
 
-Task 110 is complete. Continue with 111, then 112, 113, and 114; task 111 is
-ready and the later tasks remain blocked on the type/data foundations named in
-`index.tsv`.
+Tasks 110–114 are complete: typed functions, product types, generics,
+behavioral abstractions, iteration, and deterministic local state now have
+their implementation, parity tests, and documentation evidence.
 
 ### Wave 9 - execution, resources, and interoperability
 

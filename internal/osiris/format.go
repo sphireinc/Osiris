@@ -97,6 +97,9 @@ func formatStmt(stmt Stmt) string {
 		return "impl " + s.Trait + " for " + s.Target + " { " + strings.Join(methods, "; ") + " }"
 	case letStmt:
 		prefix := "let "
+		if s.Mutable {
+			prefix = "var "
+		}
 		if s.Unwrap {
 			prefix = "let? "
 		}
@@ -107,6 +110,8 @@ func formatStmt(stmt Stmt) string {
 			return prefix + s.Name + " " + s.Type + " = " + formatExpr(s.Expr, 0)
 		}
 		return prefix + s.Name + " = " + formatExpr(s.Expr, 0)
+	case assignStmt:
+		return s.Name + " = " + formatExpr(s.Expr, 0)
 	case emitStmt:
 		return "emit " + formatEmitExpr(s.Expr)
 	case macroStmt:

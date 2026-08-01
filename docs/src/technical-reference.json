@@ -27,7 +27,7 @@
           "rows": [
             [
               "Reserved keywords",
-              "`let emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
+              "`let var emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
               "These always lex as keyword tokens."
             ],
             [
@@ -85,9 +85,9 @@
     {
       "id": "declarations",
       "title": "Declarations and Bindings",
-      "summary": "Declarations introduce immutable lexical names, module metadata, imports/exports, functions, macros, and nominal enums.",
+      "summary": "Declarations introduce immutable lexical names, explicit mutable locals, module metadata, imports/exports, functions, macros, and nominal enums.",
       "paragraphs": [
-        "`let` binds the value of its initializer. `let?` first unwraps a `Result` or `Option`. A typed binding checks a canonical runtime kind; it is not an implicit conversion.",
+        "`let` binds the value of its initializer. `let?` first unwraps a `Result` or `Option`. `var` installs a mutable local cell, and `name = expression` replaces it only after the right-hand side succeeds. A typed binding checks a canonical runtime kind; it is not an implicit conversion.",
         "Functions close over lexical scope and may annotate parameters and results without a colon. The checker declares signatures before checking bodies, so recursive groups do not require execution. Macros are compile-time AST substitutions with named parameters. Export declarations name the public bindings of a file module."
       ],
       "syntax": [
@@ -156,7 +156,7 @@
     {
       "id": "initialization",
       "title": "Initialization and Conversion",
-      "summary": "Every `let` initializer is evaluated before the binding is installed. An annotation validates that value; an explicit constructor performs a conversion.",
+      "summary": "Every `let` or `var` initializer is evaluated before the binding is installed. A `var` assignment evaluates and validates its right-hand side before committing the replacement.",
       "paragraphs": [
         "`let size u32 = 3` is accepted because the initializer is a default unsuffixed integer literal that fits `u32`. `let size u32 = 3u64` and binding an existing `u64` to `u32` are type errors.",
         "Write `let size u32 = u32(existing)` to request an explicit conversion. Conversion behavior, range checks, wrapping, and precision follow the named constructor's documented numeric family."
@@ -288,6 +288,10 @@
             [
               "`let` / `let?`",
               "Install an immutable lexical binding, optionally after fallibility propagation."
+            ],
+            [
+              "`var name = expression` / `name = expression`",
+              "Install a mutable local cell or atomically replace it in source order. Only local `var` cells are assignable; aggregate values remain immutable."
             ],
             [
               "`emit expression {, expression}`",
@@ -790,6 +794,7 @@
             "import",
             "in",
             "let",
+            "var",
             "macro",
             "match",
             "newtype",

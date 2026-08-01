@@ -31,6 +31,8 @@ func validateConcurrentEmitStmt(stmt Stmt, concurrent bool, functions map[string
 		return validateConcurrentEmitExpr(st.Expr, concurrent, functions, active, source)
 	case letStmt:
 		return validateConcurrentEmitExpr(st.Expr, concurrent, functions, active, source)
+	case assignStmt:
+		return validateConcurrentEmitExpr(st.Expr, concurrent, functions, active, source)
 	case funcStmt:
 		if concurrent {
 			return nil

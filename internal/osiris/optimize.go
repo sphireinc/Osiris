@@ -127,7 +127,14 @@ func optimizeStmtWithEnv(stmt Stmt, env optimizeEnv) (Stmt, optimizeEnv) {
 		} else {
 			delete(env, s.Name)
 		}
-		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Span: s.Span, NameSpan: s.NameSpan}, env
+		return letStmt{Name: s.Name, Names: append([]string(nil), s.Names...), Type: s.Type, Expr: expr, Unwrap: s.Unwrap, Mutable: s.Mutable, Span: s.Span, NameSpan: s.NameSpan}, env
+	case assignStmt:
+		expr := optimizeExprWithEnv(s.Expr, env)
+		if env == nil {
+			env = make(optimizeEnv)
+		}
+		delete(env, s.Name)
+		return assignStmt{Name: s.Name, Expr: expr, Span: s.Span, NameSpan: s.NameSpan}, env
 	case emitStmt:
 		return emitStmt{Expr: optimizeExprWithEnv(s.Expr, env), Span: s.Span}, env
 	case macroStmt:
@@ -418,6 +425,10 @@ func sweepDeadStatements(stmts []Stmt, tail Expr, pureNames map[string]struct{})
 			delete(live, st.Name)
 			addNames(live, refs)
 			out = append(out, stmt)
+		case assignStmt:
+			delete(live, st.Name)
+			addNames(live, refs)
+			out = append(out, stmt)
 		case funcStmt:
 			if !containsName(live, st.Name) {
 				continue
@@ -537,6 +548,9 @@ func collectRawRefsStmtInto(stmt Stmt, out map[string]struct{}) {
 	switch st := stmt.(type) {
 	case letStmt:
 		collectRawRefsExprInto(st.Expr, out)
+	case assignStmt:
+		collectRawRefsExprInto(st.Expr, out)
+		out[st.Name] = struct{}{}
 	case emitStmt:
 		collectRawRefsExprInto(st.Expr, out)
 	case macroStmt:
@@ -684,6 +698,9 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 		for _, stmt := range n.stmts {
 			switch st := stmt.(type) {
 			case letStmt:
+				if st.Mutable {
+					return false
+				}
 				if !isPureExprSeen(st.Expr, shadow, pureNames, nil) {
 					return false
 				}
@@ -691,7 +708,7 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 					shadow = make(optimizeEnv)
 				}
 				shadow[st.Name] = st.Expr
-			case funcStmt, importStmt, emitStmt, returnStmt, whileStmt, forStmt, breakStmt, continueStmt, packageStmt, exportStmt, macroStmt:
+			case assignStmt, funcStmt, importStmt, emitStmt, returnStmt, whileStmt, forStmt, breakStmt, continueStmt, packageStmt, exportStmt, macroStmt:
 				return false
 			}
 		}

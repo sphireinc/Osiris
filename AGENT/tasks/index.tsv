@@ -61,8 +61,8 @@
 110|tasks/completed/110-add-typed-functions-and-static-checking.md|complete|unassigned|006,013,018,025,038,109|Go-style typed functions, exact callable metadata, shared pre-execution checking, backend guards, LSP/inference/IR integration, and canonical docs complete
 111|tasks/completed/111-add-structs-tuples-aliases-and-newtypes.md|complete|codex|018,028,036,110|Add immutable structs with Go-style field tags, tuples, aliases, and nominal newtypes on the completed static checker
 112|tasks/completed/112-add-generics-and-typed-collections.md|complete|codex|110,111|Bounded generic inference, invariant typed collections, ordered map/set runtime values, codec parity, shared native tagged-ABI strategy, and full validation
-113|tasks/113-add-traits-interfaces-methods-and-iterators.md|blocked|unassigned|110,111,112|Wait for the static and generic type foundations; then add behavioral abstraction and iteration
-114|tasks/114-define-deterministic-state-and-mutation.md|blocked|unassigned|045,110,111|Wait for typed functions and structs; then define deterministic mutable state across tasks and backends
+113|tasks/completed/113-add-traits-interfaces-methods-and-iterators.md|complete|codex|110,111,112|Trait/interface/impl method dispatch, lazy iteration, LSP tooling, parity tests, and documentation complete
+114|tasks/completed/114-define-deterministic-state-and-mutation.md|complete|codex|045,110,111|Deterministic var cells and assignment barriers across interpreter, VM, SSA/native, analysis passes, task snapshots, tests, and docs complete
 115|tasks/115-close-general-purpose-backend-parity-gaps.md|ready|unassigned|025,026,028,034,109|Audit and close stable VM and native C gaps without interpreter delegation or compile-time execution
 116|tasks/116-add-deterministic-scope-bound-cleanup.md|ready|unassigned|013,045,102,109|Add reliable scope-bound cleanup across returns, failures, cancellation, resources, and native execution
 117|tasks/117-implement-capability-gated-c-ffi.md|blocked|unassigned|036,041,046,047,109,116|Wait for cleanup semantics; then implement the approved capability-gated C interoperability boundary

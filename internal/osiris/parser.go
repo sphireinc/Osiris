@@ -21,6 +21,7 @@ type letStmt struct {
 	Type     string
 	Expr     Expr
 	Unwrap   bool
+	Mutable  bool
 	Span     sourceSpan
 	NameSpan sourceSpan
 }
@@ -32,6 +33,15 @@ type letStmt struct {
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func (letStmt) stmtNode() {}
+
+type assignStmt struct {
+	Name     string
+	Expr     Expr
+	Span     sourceSpan
+	NameSpan sourceSpan
+}
+
+func (assignStmt) stmtNode() {}
 
 type emitStmt struct {
 	Expr Expr
@@ -643,6 +653,8 @@ type parser struct {
 	knownStructs map[string]struct{}
 	cur          token
 	peeked       bool
+	lookahead    token
+	hasLookahead bool
 	lexErr       error
 }
 
@@ -686,14 +698,24 @@ func (p *parser) parse() (*Program, error) {
 // error is nil.
 func (p *parser) parseStmt() (Stmt, error) {
 	if tok := p.peek(); tok.kind == tokenIdent {
+		if p.peekSecond().kind == tokenEqual {
+			name := p.next()
+			p.next()
+			expr, err := p.parseExpr(0)
+			if err != nil {
+				return nil, err
+			}
+			return assignStmt{Name: name.text, Expr: expr, Span: spanFromToken(name), NameSpan: spanFromToken(name)}, nil
+		}
 		switch tok.text {
 		case "trait", "interface", "impl":
 			return p.parseBehaviorStmt()
 		}
 	}
 	switch p.peek().kind {
-	case tokenLet:
+	case tokenLet, tokenVar:
 		start := p.next()
+		mutable := start.kind == tokenVar
 		unwrap := p.match(tokenQuestion)
 		if p.match(tokenLParen) {
 			names, err := p.parseNameListAllowEmpty()
@@ -706,6 +728,9 @@ func (p *parser) parseStmt() (Stmt, error) {
 			expr, err := p.parseExpr(0)
 			if err != nil {
 				return nil, err
+			}
+			if mutable {
+				return nil, p.errorf(start, "var does not support tuple destructuring")
 			}
 			return letStmt{Names: names, Expr: expr, Unwrap: unwrap, Span: spanFromToken(start)}, nil
 		}
@@ -744,7 +769,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 				literal.defaultInteger = false
 			}
 		}
-		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Mutable: mutable, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
 	case tokenEmit:
 		start := p.next()
 		expr, err := p.parseExpr(0)
@@ -1002,7 +1027,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
 	default:
-		return nil, p.errorf(p.peek(), "expected statement starting with let, emit, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
+		return nil, p.errorf(p.peek(), "expected statement starting with let, var, emit, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
 	}
 }
 
@@ -1823,7 +1848,7 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			return &blockExpr{stmts: stmts, tail: tail}, nil
 		}
 		switch p.peek().kind {
-		case tokenLet, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
+		case tokenLet, tokenVar, tokenImport, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit:
 			stmt, err := p.parseStmt()
 			if err != nil {
 				return nil, err
@@ -1831,6 +1856,18 @@ func (p *parser) parseBlockExpr() (Expr, error) {
 			stmts = append(stmts, stmt)
 			for p.match(tokenSemicolon) {
 			}
+		case tokenIdent:
+			if p.peekSecond().kind == tokenEqual {
+				stmt, err := p.parseStmt()
+				if err != nil {
+					return nil, err
+				}
+				stmts = append(stmts, stmt)
+				for p.match(tokenSemicolon) {
+				}
+				continue
+			}
+			fallthrough
 		default:
 			expr, err := p.parseExpr(0)
 			if err != nil {
@@ -2193,6 +2230,23 @@ func (p *parser) peek() token {
 	return tok
 }
 
+func (p *parser) peekSecond() token {
+	if !p.peeked {
+		p.peek()
+	}
+	if p.hasLookahead {
+		return p.lookahead
+	}
+	tok, err := p.lexer.nextToken()
+	if err != nil {
+		p.lexErr = err
+		tok = token{kind: tokenEOF, text: err.Error()}
+	}
+	p.lookahead = tok
+	p.hasLookahead = true
+	return tok
+}
+
 // next operates on parser values and keeps the parser-specific behavior
 // attached to the receiver so callers can use the method as the natural entry
 // point for that data structure.
@@ -2201,7 +2255,13 @@ func (p *parser) peek() token {
 // without re-deriving the same information.
 func (p *parser) next() token {
 	tok := p.peek()
-	p.peeked = false
+	if p.hasLookahead {
+		p.cur = p.lookahead
+		p.hasLookahead = false
+		p.peeked = true
+	} else {
+		p.peeked = false
+	}
 	return tok
 }
 

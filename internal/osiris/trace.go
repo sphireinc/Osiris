@@ -84,6 +84,8 @@ func statementKind(stmt Stmt) string {
 		return "export"
 	case letStmt:
 		return "let"
+	case assignStmt:
+		return "assignment"
 	case structStmt:
 		return "struct"
 	case typeDeclStmt:

@@ -459,12 +459,47 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			s.scope = cur
 			return nil, false, nil
 		}
+		if st.Mutable {
+			value, err := s.ev.eval(expr, s.scope)
+			if err != nil {
+				return nil, false, err
+			}
+			s.scope = &scope{
+				parent: s.scope,
+				items: map[string]binding{st.Name: {
+					expr: &literalExpr{value: value}, env: s.scope,
+					cell: &bindingCell{value: value}, mutable: true,
+				}},
+			}
+			return nil, false, nil
+		}
 		s.scope = &scope{
 			parent: s.scope,
 			items: map[string]binding{
 				st.Name: {expr: expr, env: s.scope},
 			},
 		}
+		return nil, false, nil
+	case assignStmt:
+		b, ok := s.scope.lookup(st.Name)
+		if !ok || b.cell == nil || !b.mutable {
+			return nil, false, fmt.Errorf("cannot assign to immutable or undefined name %q", st.Name)
+		}
+		if err := s.checkContext(); err != nil {
+			return nil, false, err
+		}
+		expr, err := s.expandExpr(st.Expr, s.scope)
+		if err != nil {
+			return nil, false, err
+		}
+		value, err := s.ev.eval(expr, s.scope)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := s.checkContext(); err != nil {
+			return nil, false, err
+		}
+		b.cell.value = value
 		return nil, false, nil
 	case importStmt:
 		mod, err := s.rt.loadModule(s.ctx, st.Path, baseSource, stack)
@@ -772,6 +807,27 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 						st.Name: {expr: expr, env: cur},
 					},
 				}
+				if st.Mutable {
+					value, err := s.ev.eval(expr, cur.parent)
+					if err != nil {
+						return nullValue(), cur, err
+					}
+					cur.items[st.Name] = binding{expr: &literalExpr{value: value}, env: cur.parent, cell: &bindingCell{value: value}, mutable: true}
+				}
+			case assignStmt:
+				b, ok := cur.lookup(st.Name)
+				if !ok || b.cell == nil || !b.mutable {
+					return nullValue(), cur, fmt.Errorf("cannot assign to immutable or undefined name %q", st.Name)
+				}
+				expr, err := s.expandExpr(st.Expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				value, err := s.ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				b.cell.value = value
 			case importStmt:
 				mod, err := s.rt.loadModule(s.ctx, st.Path, baseSource, stack)
 				if err != nil {
@@ -820,7 +876,7 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 			case packageStmt, exportStmt:
 				return nullValue(), cur, fmt.Errorf("%s is not allowed in block expressions", statementKind(st))
 			default:
-				return nullValue(), cur, fmt.Errorf("block expressions only support let, import, macro, func, while, for, return, break, continue, and emit statements")
+				return nullValue(), cur, fmt.Errorf("block expressions only support let, var, assignment, import, macro, func, while, for, return, break, continue, and emit statements")
 			}
 		}
 		if n.tail == nil {
@@ -866,11 +922,11 @@ func (s *Session) spawnTask(expr Expr, scope *scope) Value {
 	return s.spawnValueTask(func(ctx context.Context) (Value, error, []Value) {
 		child := NewSession(s.rt, ctx, s.sourceName)
 		child.emitAllowed = false
-		child.scope = scope
+		child.scope = cloneScope(scope)
 		child.packageName = s.packageName
 		child.packageVersion = s.packageVersion
 		child.macros = cloneMacroDefs(s.macros)
-		v, err := child.eval(expr, scope)
+		v, err := child.eval(expr, child.scope)
 		if sig, ok := asFlow(err); ok {
 			if sig.kind == flowReturn {
 				return sig.value, nil, nil

@@ -15,7 +15,7 @@
       "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"]},
-      "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions. Native C covers tested scalar control flow, loops, and direct/closure calls; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation."
+      "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions, including deterministic `var` assignment barriers. Native C covers tested scalar control flow, loops, direct/closure calls, and mutable-local replacement; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation."
     },
     {
       "id": "typed-functions-and-static-checking",

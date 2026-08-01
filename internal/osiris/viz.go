@@ -130,6 +130,10 @@ func (g *dotGraph) walkStmt(stmt Stmt) string {
 		id := g.node("let "+s.Name, "fillcolor", "lavender")
 		g.edge(id, g.walkExpr(s.Expr))
 		return id
+	case assignStmt:
+		id := g.node("assign "+s.Name, "fillcolor", "lavender")
+		g.edge(id, g.walkExpr(s.Expr))
+		return id
 	case emitStmt:
 		id := g.node("emit", "fillcolor", "mistyrose")
 		g.edge(id, g.walkExpr(s.Expr))

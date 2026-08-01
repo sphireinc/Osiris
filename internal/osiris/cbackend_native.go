@@ -576,7 +576,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			return fmt.Errorf("native C backend: named constant %q: %w", in.Text, err)
 		}
 		fmt.Fprintf(b, "  %s = %s; /* global %s */\n", vars[in.Dest], v, in.Text)
-	case "copy":
+	case "copy", "assign":
 		if len(in.Args) != 1 {
 			return fmt.Errorf("native C backend: copy expects one argument")
 		}

@@ -88,6 +88,8 @@ func (p *gpuPlan) walkStmt(stmt Stmt) {
 	switch st := stmt.(type) {
 	case letStmt:
 		p.walkExpr(st.Expr)
+	case assignStmt:
+		p.walkExpr(st.Expr)
 	case emitStmt:
 		p.walkExpr(st.Expr)
 	case macroStmt:

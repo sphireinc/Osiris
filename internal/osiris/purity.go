@@ -225,6 +225,9 @@ func analyzePurityStmt(stmt Stmt, scope *purityScope, out *PurityProgram) purity
 		info := analyzePurityExpr(st.Expr, scope, out)
 		scope.bindLocal(st.Name, info, out, true)
 		return info
+	case assignStmt:
+		info := analyzePurityExpr(st.Expr, scope, out)
+		return purityInfo{known: info.known, pure: false, kind: info.kind, reason: "mutates local state"}
 	case importStmt:
 		info := purityInfo{known: true, pure: true, kind: "module", reason: "imported value"}
 		scope.bindImport(st.Alias, st.Path, info, out, true)

@@ -280,11 +280,25 @@ func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
 	if _, emits := firstEmitSpan(ev, expr, scope, nil); emits {
 		return computeExpr(ev, expr, scope, "")
 	}
+	if scopeHasMutableCell(scope) {
+		return computeExpr(ev, expr, scope, "")
+	}
 	key, err := ev.fingerprint(expr, scope)
 	if err != nil {
 		return nullValue(), err
 	}
 	return ev.evalWithKey(expr, scope, key)
+}
+
+func scopeHasMutableCell(s *scope) bool {
+	for cur := s; cur != nil; cur = cur.parent {
+		for _, b := range cur.items {
+			if b.cell != nil && b.mutable {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // evalWithKey operates on evaluator values and keeps the evaluator-specific
@@ -541,6 +555,12 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 						st.Name: {expr: st.Expr, env: cur},
 					},
 				}
+			case assignStmt:
+				fp, err := ev.fingerprint(st.Expr, cur)
+				if err != nil {
+					return "", err
+				}
+				parts = append(parts, hashParts("assign", st.Name, fp))
 			case importStmt:
 				mod, err := ev.rt.loadModule(ev.ctx, st.Path, ev.session.sourceName, nil)
 				if err != nil {
@@ -680,6 +700,9 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 				return functionValueOf(n.name, fn), nil
 			}
 			return nullValue(), fmt.Errorf("undefined name %q", n.name)
+		}
+		if b.cell != nil {
+			return b.cell.value, nil
 		}
 		return computeExpr(ev, b.expr, b.env, key)
 	case *memberExpr:
@@ -846,6 +869,16 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 					st.Name: {expr: expr, env: cur},
 				},
 			}
+		case assignStmt:
+			b, ok := cur.lookup(st.Name)
+			if !ok || b.cell == nil || !b.mutable {
+				return nullValue(), fmt.Errorf("cannot assign to immutable or undefined name %q", st.Name)
+			}
+			value, err := ev.eval(st.Expr, cur)
+			if err != nil {
+				return nullValue(), err
+			}
+			b.cell.value = value
 		case importStmt:
 			mod, err := ev.rt.loadModule(ev.ctx, st.Path, ev.session.sourceName, nil)
 			if err != nil {
@@ -886,6 +919,12 @@ func fingerprintStmt(ev *evaluator, stmt Stmt, scope *scope) string {
 			return hashParts("let", st.Name, "<err>")
 		}
 		return hashParts("let", st.Name, fp)
+	case assignStmt:
+		fp, err := ev.fingerprint(st.Expr, scope)
+		if err != nil {
+			return hashParts("assign", st.Name, "<err>")
+		}
+		return hashParts("assign", st.Name, fp)
 	case emitStmt:
 		fp, err := ev.fingerprint(st.Expr, scope)
 		if err != nil {
@@ -1701,7 +1740,7 @@ func evalParallel(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 				defer branchCancel()
 				child := NewSession(ev.rt, childCtx, ev.session.sourceName)
 				child.emitAllowed = false
-				child.scope = scope
+				child.scope = cloneScope(scope)
 				child.packageName = ev.session.packageName
 				child.packageVersion = ev.session.packageVersion
 				child.exportOrder = append([]string(nil), ev.session.exportOrder...)
@@ -1714,7 +1753,7 @@ func evalParallel(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 				child.macros = cloneMacroDefs(ev.session.macros)
 				var outputs []Value
 				child.outputs = &outputs
-				v, err := child.eval(expr, scope)
+				v, err := child.eval(expr, child.scope)
 				if sig, ok := asFlow(err); ok {
 					if sig.kind == flowReturn {
 						v = sig.value
@@ -1775,7 +1814,7 @@ func evalTimeout(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 	defer cancel()
 	child := NewSession(ev.rt, childCtx, ev.session.sourceName)
 	child.emitAllowed = false
-	child.scope = scope
+	child.scope = cloneScope(scope)
 	child.packageName = ev.session.packageName
 	child.packageVersion = ev.session.packageVersion
 	child.exportOrder = append([]string(nil), ev.session.exportOrder...)
@@ -1788,7 +1827,7 @@ func evalTimeout(ev *evaluator, args []Expr, scope *scope) (Value, error) {
 	child.macros = cloneMacroDefs(ev.session.macros)
 	var outputs []Value
 	child.outputs = &outputs
-	v, err := child.eval(args[1], scope)
+	v, err := child.eval(args[1], child.scope)
 	if sig, ok := asFlow(err); ok {
 		if sig.kind == flowReturn {
 			return sig.value, nil
@@ -1877,7 +1916,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 		for i, arg := range args {
 			child := NewSession(ev.rt, ev.ctx, ev.session.sourceName)
 			child.emitAllowed = false
-			child.scope = scope
+			child.scope = cloneScope(scope)
 			child.packageName = ev.session.packageName
 			child.packageVersion = ev.session.packageVersion
 			child.exportOrder = append([]string(nil), ev.session.exportOrder...)
@@ -1890,7 +1929,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 			child.macros = cloneMacroDefs(ev.session.macros)
 			var outputs []Value
 			child.outputs = &outputs
-			v, err := child.eval(arg, scope)
+			v, err := child.eval(arg, child.scope)
 			if sig, ok := asFlow(err); ok {
 				if sig.kind == flowReturn {
 					v = sig.value
@@ -1930,7 +1969,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 			defer branchCancel()
 			child := NewSession(ev.rt, childCtx, ev.session.sourceName)
 			child.emitAllowed = false
-			child.scope = scope
+			child.scope = cloneScope(scope)
 			child.packageName = ev.session.packageName
 			child.packageVersion = ev.session.packageVersion
 			child.exportOrder = append([]string(nil), ev.session.exportOrder...)
@@ -1943,7 +1982,7 @@ func evalRace(ev *evaluator, args []Expr, scope *scope, selectMode bool) (Value,
 			child.macros = cloneMacroDefs(ev.session.macros)
 			var outputs []Value
 			child.outputs = &outputs
-			v, err := child.eval(expr, scope)
+			v, err := child.eval(expr, child.scope)
 			if sig, ok := asFlow(err); ok {
 				if sig.kind == flowReturn {
 					v = sig.value
@@ -2061,6 +2100,10 @@ func firstEmitSpan(ev *evaluator, expr Expr, scope *scope, seen map[*functionVal
 			case emitStmt:
 				return st.Span, true
 			case letStmt:
+				if span, ok := firstEmitSpan(ev, st.Expr, scope, seen); ok {
+					return span, true
+				}
+			case assignStmt:
 				if span, ok := firstEmitSpan(ev, st.Expr, scope, seen); ok {
 					return span, true
 				}
@@ -2230,6 +2273,8 @@ func exprHasTaskEffect(ev *evaluator, expr Expr, scope *scope, seen map[*functio
 func stmtHasTaskEffect(ev *evaluator, stmt Stmt, scope *scope, seen map[*functionValue]struct{}) bool {
 	switch st := stmt.(type) {
 	case letStmt:
+		return exprHasTaskEffect(ev, st.Expr, scope, seen)
+	case assignStmt:
 		return exprHasTaskEffect(ev, st.Expr, scope, seen)
 	case emitStmt:
 		return exprHasTaskEffect(ev, st.Expr, scope, seen)

@@ -15,6 +15,7 @@ const (
 	tokenNumber
 	tokenString
 	tokenLet
+	tokenVar
 	tokenEmit
 	tokenMacro
 	tokenFunc
@@ -111,6 +112,8 @@ func (k tokenKind) String() string {
 		return "string"
 	case tokenLet:
 		return "let"
+	case tokenVar:
+		return "var"
 	case tokenEmit:
 		return "emit"
 	case tokenMacro:
@@ -429,6 +432,8 @@ func (l *lexer) scanIdent() (token, error) {
 	switch text {
 	case "let":
 		return token{kind: tokenLet, text: text, line: startLine, col: startCol}, nil
+	case "var":
+		return token{kind: tokenVar, text: text, line: startLine, col: startCol}, nil
 	case "emit":
 		return token{kind: tokenEmit, text: text, line: startLine, col: startCol}, nil
 	case "macro":

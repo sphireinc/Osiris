@@ -16,10 +16,11 @@ type CheckedProgram struct {
 }
 
 type CheckedBinding struct {
-	Name  string
-	Scope string
-	Type  string
-	Span  sourceSpan
+	Name    string
+	Scope   string
+	Type    string
+	Mutable bool
+	Span    sourceSpan
 }
 
 type CheckedFunction struct {
@@ -182,13 +183,14 @@ func splitStaticTypeList(text string) ([]string, error) {
 }
 
 type typeScope struct {
-	parent *typeScope
-	name   string
-	items  map[string]staticType
+	parent  *typeScope
+	name    string
+	items   map[string]staticType
+	mutable map[string]bool
 }
 
 func newTypeScope(parent *typeScope, name string) *typeScope {
-	return &typeScope{parent: parent, name: name, items: make(map[string]staticType)}
+	return &typeScope{parent: parent, name: name, items: make(map[string]staticType), mutable: make(map[string]bool)}
 }
 
 func (s *typeScope) lookup(name string) (staticType, bool) {
@@ -198,6 +200,15 @@ func (s *typeScope) lookup(name string) (staticType, bool) {
 		}
 	}
 	return staticType{}, false
+}
+
+func (s *typeScope) lookupMutable(name string) (bool, bool) {
+	for cur := s; cur != nil; cur = cur.parent {
+		if _, ok := cur.items[name]; ok {
+			return cur.mutable[name], true
+		}
+	}
+	return false, false
 }
 
 type typeChecker struct {
@@ -421,7 +432,24 @@ func (c *typeChecker) checkStmt(stmt Stmt, scope *typeScope) error {
 			bindingType = expected
 		}
 		scope.items[st.Name] = bindingType
-		c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: st.Name, Scope: scope.name, Type: bindingType.String(), Span: st.NameSpan})
+		scope.mutable[st.Name] = st.Mutable
+		c.out.Bindings = append(c.out.Bindings, CheckedBinding{Name: st.Name, Scope: scope.name, Type: bindingType.String(), Mutable: st.Mutable, Span: st.NameSpan})
+	case assignStmt:
+		mutable, exists := scope.lookupMutable(st.Name)
+		if !exists {
+			return c.errorAt(st.NameSpan, "cannot assign to undefined name %q", st.Name)
+		}
+		if !mutable {
+			return c.errorAt(st.NameSpan, "cannot assign to immutable name %q", st.Name)
+		}
+		value, err := c.checkExpr(st.Expr, scope)
+		if err != nil {
+			return err
+		}
+		want, _ := scope.lookup(st.Name)
+		if _, err := c.requireAssignable(want, value.typ, st.Expr); err != nil {
+			return c.errorAt(st.Span, "assignment to %s requires %s", st.Name, want.String())
+		}
 	case funcStmt:
 		return c.checkFunction(st, scope)
 	case traitStmt, implStmt:

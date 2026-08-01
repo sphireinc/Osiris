@@ -253,6 +253,8 @@ func formatIRInstr(instr IRInstr) string {
 		return instr.Dest + " = " + op + " " + instr.Text
 	case "copy":
 		return instr.Dest + " = copy " + strings.Join(instr.Args, ", ")
+	case "assign":
+		return instr.Dest + " = assign " + instr.Text + " " + strings.Join(instr.Args, ", ")
 	case "asserttype":
 		return instr.Dest + " = asserttype " + instr.Text + " " + strings.Join(instr.Args, ", ")
 	case "unary":
@@ -763,6 +765,20 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		b.emitInstr(IRInstr{Dest: dest, Op: "copy", Args: []string{value}})
 		b.env[st.Name] = dest
 		b.locals[st.Name] = struct{}{}
+		return false, nil
+	case assignStmt:
+		child := b.fork()
+		value, err := child.evalExpr(st.Expr)
+		if err != nil {
+			return false, err
+		}
+		b.block = child.block
+		if b.terminated() {
+			return true, nil
+		}
+		dest := b.newTemp()
+		b.emitInstr(IRInstr{Dest: dest, Op: "assign", Args: []string{value}, Text: st.Name, Span: st.Span})
+		b.env[st.Name] = dest
 		return false, nil
 	case importStmt:
 		dest := b.newBindName(st.Alias)
