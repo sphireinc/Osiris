@@ -384,7 +384,7 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 		return nil, fmt.Errorf("identify C compiler %s: %w", compilerPath, err)
 	}
 	sanitizerFlags := nativeSanitizerFlags()
-	flags := []string{"-std=c11", "-O3", "-DNDEBUG"}
+	flags := []string{"-std=c11", "-O3", "-DNDEBUG", "-ffp-contract=fast"}
 	if len(sanitizerFlags) > 0 {
 		flags = append(flags, "-O1", "-g", "-fno-omit-frame-pointer")
 		flags = append(flags, sanitizerFlags...)
@@ -503,7 +503,7 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 		return err
 	}
 
-	args := []string{"-std=c11", "-O3", "-DNDEBUG"}
+	args := []string{"-std=c11", "-O3", "-DNDEBUG", "-ffp-contract=fast"}
 	sanitizerFlags := nativeSanitizerFlags()
 	if len(sanitizerFlags) > 0 {
 		args = append(args, "-O1", "-g", "-fno-omit-frame-pointer")

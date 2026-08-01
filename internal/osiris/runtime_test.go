@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -2122,7 +2123,8 @@ func TestTCPNetworkLoopbackResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	line, err := server.readLine()
-	if err != nil || line.String() != "ping" {
+	lineText, textErr := line.AsString()
+	if err != nil || textErr != nil || lineText != "ping" {
 		t.Fatalf("server read = %s, %v", line.String(), err)
 	}
 	if _, err := server.writeChunk(stringValue("pong\n")); err != nil {
@@ -2132,7 +2134,8 @@ func TestTCPNetworkLoopbackResources(t *testing.T) {
 		t.Fatal(err)
 	}
 	line, err = client.readLine()
-	if err != nil || line.String() != "pong" {
+	lineText, textErr = line.AsString()
+	if err != nil || textErr != nil || lineText != "pong" {
 		t.Fatalf("client read = %s, %v", line.String(), err)
 	}
 }
@@ -7530,6 +7533,9 @@ emit magnitude(minus0 - minus * minus1)
 }
 
 func TestCBackendAccelerateProviderResiduals(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Apple Accelerate provider is only available on macOS")
+	}
 	providerPath := filepath.Join("providers", "accelerate_lapack_provider.c")
 	if _, err := os.Stat(providerPath); err != nil {
 		t.Skipf("Apple Accelerate provider is unavailable: %v", err)

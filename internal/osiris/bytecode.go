@@ -2111,6 +2111,9 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 	if err := validateTensorShapes(expanded); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
+	if err := validateConcurrentEmits(expanded); err != nil {
+		return nil, normalizeError(err, prog.SourceName)
+	}
 	if _, err := r.CheckProgram(ctx, expanded); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}

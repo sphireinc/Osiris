@@ -3,6 +3,7 @@ package osiris
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -367,10 +368,27 @@ func acceptWithCancellation(ctx context.Context, listener *net.TCPListener, conf
 	close(done)
 	<-stopped
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		if contextErr := socketContextError(ctx, err); contextErr != nil {
+			return nil, contextErr
 		}
 		return nil, err
 	}
 	return tcpStreamWithConfig(connection, config)
+}
+
+func socketContextError(ctx context.Context, err error) error {
+	if ctx == nil {
+		return nil
+	}
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	var networkErr net.Error
+	if !errors.As(err, &networkErr) || !networkErr.Timeout() {
+		return nil
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }

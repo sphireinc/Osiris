@@ -147,6 +147,10 @@ func TestHTTPRequestStreamPreservesBodyOwnershipAndLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bodyValue, err = unwrapOption(bodyValue)
+	if err != nil {
+		t.Fatal(err)
+	}
 	body, err := bodyValue.AsStream()
 	if err != nil {
 		t.Fatal(err)

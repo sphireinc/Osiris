@@ -82,6 +82,18 @@ func TestCBackendPortableCompilationFlags(t *testing.T) {
 			t.Fatalf("native cache manifest contains host-specific flag %q: %#v", flag, manifest.Flags)
 		}
 	}
+	if !containsBackendFlag(manifest.Flags, "-ffp-contract=fast") {
+		t.Fatalf("native cache manifest does not specify floating-point contraction: %#v", manifest.Flags)
+	}
+}
+
+func containsBackendFlag(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCBackendSanitizerFlagsAreCacheKeyed(t *testing.T) {

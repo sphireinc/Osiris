@@ -589,8 +589,8 @@ func readTCPContext[T any](ctx context.Context, conn net.Conn, read func() (T, e
 	value, err := read()
 	close(done)
 	<-stopped
-	if ctx.Err() != nil {
-		return zero, ctx.Err()
+	if contextErr := socketContextError(ctx, err); contextErr != nil {
+		return zero, contextErr
 	}
 	return value, err
 }

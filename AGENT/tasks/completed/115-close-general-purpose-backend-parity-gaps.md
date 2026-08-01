@@ -2,7 +2,7 @@
 
 **Priority:** P1
 **Dependencies:** 025, 026, 028, 034, 109
-**Status:** Ready
+**Status:** Complete
 
 ## Current implementation evidence
 
@@ -17,15 +17,19 @@ flags are portable (no `-march=native`), and sanitizer cache keys include the
 active sanitizer configuration. VM task and concurrent-expression snapshots
 also clone captured VM function closures through a cycle-safe frame map, so
 spawned work cannot mutate or race the parent runner's mutable frame maps.
+Native floating-point contraction is explicit (`-ffp-contract=fast`) so the
+mission-control production fingerprint is stable across the validated macOS
+and Linux/arm64 toolchains. Sanitizer builds retain practical O1
+instrumentation without LTO. VM concurrent-emission validation now rejects
+statically visible effects before scheduling, and TCP deadline errors normalize
+to context cancellation semantics across operating systems.
 
-This task is not complete yet: the machine-checked inventory is now present, and
-the maintained macOS corpus has differential, conformance, ownership/error,
-task, cancellation, and race-detector evidence, but portable Linux/macOS
-execution and sanitizer evidence required by this task are not complete. UBSan
-passes on the maintained macOS toolchain. The available Apple clang ASan
-runtime aborts before generated `main` during process initialization with
-`sanitizer_malloc_mac.inc:189`; Linux ASan evidence remains required before
-completion. Do not move this record until those claims are closed.
+The targeted stable surface is now covered by the machine-checked inventory,
+differential/conformance corpus, native fallback assertions, portable
+macOS/Linux execution, race detection, UBSan, and ASan. The macOS ASan run
+uses the Homebrew LLVM compiler/runtime because the older Apple clang runtime
+aborted before generated `main`; that toolchain limitation is no longer a
+blocking validation gap.
 
 ## Objective
 
@@ -68,29 +72,35 @@ compile-time evaluation fallback.
 
 ## Validation evidence
 
-The following checks pass on the maintained macOS toolchain:
+The following checks pass on the maintained macOS toolchain and in the local
+Linux/arm64 Colima container:
 
 ```text
-GOCACHE=/tmp/osiris-go-cache CGO_ENABLED=1 go test ./... -count=1 -timeout=600s
+CC=/opt/homebrew/opt/llvm/bin/clang GOCACHE=/tmp/osiris-final-mac-cache CGO_ENABLED=1 go test ./... -count=1 -timeout=600s
 GOCACHE=/tmp/osiris-go-cache go vet ./...
 GOCACHE=/tmp/osiris-go-cache go build ./...
 GOCACHE=/tmp/osiris-race-cache CGO_ENABLED=1 go test -race ./internal/osiris -run 'TestCBackendMissionControlShowcaseParity|TestCBackendRequiredNativeSurfaceParity|TestConformanceCorpus|TestDifferentialHarness|TestBackendCapabilityInventoryIsCompleteAndUnique|TestRunVMPublicPathHasNoInterpreterDelegation|TestNativeCompilerHasNoEvaluatorFallback|TestCBackendPortableCompilationFlags|TestCBackendSanitizerFlagsAreCacheKeyed' -count=1 -timeout=600s
 OSIRIS_C_SANITIZERS=undefined GOCACHE=/tmp/osiris-ubsan-cache CGO_ENABLED=1 go test ./internal/osiris -run 'Test(CBackendMissionControlShowcaseParity|CBackendCodecCrossDirectionParity|CBackendDeferredTaskAndFailureParity|CBackendStructuredResultFailureParity|CBackendRequiredTextUnicodeParity|CBackendRequiredTimeBoundaryParity|CBackendRequiredModuleErrorParity|CBackendCryptoVectorsParity|CBackendRequiredNativeSurfaceParity|ConformanceCorpus|CBackendPortableCompilationFlags|CBackendSanitizerFlagsAreCacheKeyed)' -count=1 -timeout=600s
+CC=/opt/homebrew/opt/llvm/bin/clang OSIRIS_C_SANITIZERS=address GOCACHE=/tmp/osiris-final-asan-mac-cache CGO_ENABLED=1 go test ./internal/osiris -run 'Test(CBackendMissionControlShowcaseParity|CBackendCodecCrossDirectionParity|CBackendDeferredTaskAndFailureParity|CBackendStructuredResultFailureParity|CBackendRequiredTextUnicodeParity|CBackendRequiredTimeBoundaryParity|CBackendRequiredModuleErrorParity|CBackendCryptoVectorsParity|CBackendRequiredNativeSurfaceParity|ConformanceCorpus|CBackendPortableCompilationFlags|CBackendSanitizerFlagsAreCacheKeyed)' -count=1 -timeout=600s
+docker run --rm --platform linux/arm64 -v /Users/JuanSanchez/SphireProjects/Osiris:/src:ro -w / -e GOCACHE=/tmp/osiris-linux-full-cache-3 -e CGO_ENABLED=1 golang:1.26-bookworm sh -c 'cp -a /src /work && cd /work && go test ./... -count=1 -timeout=600s'
+docker run --rm --platform linux/arm64 -v /Users/JuanSanchez/SphireProjects/Osiris:/src:ro -w /src -e GOCACHE=/tmp/osiris-linux-asan-cache -e CGO_ENABLED=1 -e OSIRIS_C_SANITIZERS=address golang:1.26-bookworm go test ./internal/osiris -run 'Test(CBackendMissionControlShowcaseParity|CBackendCodecCrossDirectionParity|CBackendDeferredTaskAndFailureParity|CBackendStructuredResultFailureParity|CBackendRequiredTextUnicodeParity|CBackendRequiredTimeBoundaryParity|CBackendRequiredModuleErrorParity|CBackendCryptoVectorsParity|CBackendRequiredNativeSurfaceParity|ConformanceCorpus|CBackendPortableCompilationFlags|CBackendSanitizerFlagsAreCacheKeyed)' -count=1 -timeout=600s
 git diff --check
 ```
 
-The corresponding `OSIRIS_C_SANITIZERS=address` run remains blocked by the
-Apple runtime initialization failure described above; this is not counted as
-native sanitizer coverage. A Linux ASan run is still required for closure.
+Normal native builds enforce the characterized mission-control SHA-256 on both
+validated platforms. Instrumented builds enforce successful execution,
+repeated deterministic output, and sanitizer cleanliness; they do not enforce
+the production SHA-256 because O1 instrumentation can change the final
+rounding digit of platform floating-point calculations.
 
 ## Acceptance criteria
 
-- [ ] Every targeted stable feature has interpreter/VM/native evidence or an
+- [x] Every targeted stable feature has interpreter/VM/native evidence or an
       explicit scoped unsupported contract.
 - [x] The VM contains no hidden interpreter delegation for its stable claims.
 - [x] Native compilation contains no evaluator, subprocess, or snapshot
       fallback.
-- [ ] Differential, conformance, sanitizer, docs, and full validation pass.
+- [x] Differential, conformance, sanitizer, docs, and full validation pass.
 
 ## Non-goals
 
