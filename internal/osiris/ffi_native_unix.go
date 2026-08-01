@@ -69,10 +69,19 @@ import "C"
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 )
 
-type ffiNativeLibrary struct{ handle unsafe.Pointer }
+type ffiSymbolCache struct {
+	mu      sync.RWMutex
+	symbols map[string]unsafe.Pointer
+}
+
+type ffiNativeLibrary struct {
+	handle unsafe.Pointer
+	cache  *ffiSymbolCache
+}
 
 func openFFINativeLibrary(path string) (ffiNativeLibrary, error) {
 	cpath := C.CString(path)
@@ -87,25 +96,23 @@ func openFFINativeLibrary(path string) (ffiNativeLibrary, error) {
 		}
 		return ffiNativeLibrary{}, fmt.Errorf("%s", message)
 	}
-	return ffiNativeLibrary{handle: handle}, nil
+	return ffiNativeLibrary{handle: handle, cache: &ffiSymbolCache{symbols: make(map[string]unsafe.Pointer)}}, nil
 }
 
 func (library ffiNativeLibrary) lookup(name string) error {
-	cname := C.CString(name)
-	defer C.free(unsafe.Pointer(cname))
-	var cerr *C.char
-	if C.osiris_ffi_symbol(library.handle, cname, &cerr) == nil {
-		message := "symbol not found"
-		if cerr != nil {
-			message = C.GoString(cerr)
-			C.free(unsafe.Pointer(cerr))
-		}
-		return fmt.Errorf("%s", message)
-	}
-	return nil
+	_, err := library.symbol(name)
+	return err
 }
 
 func (library ffiNativeLibrary) symbol(name string) (unsafe.Pointer, error) {
+	if library.cache != nil {
+		library.cache.mu.RLock()
+		symbol, ok := library.cache.symbols[name]
+		library.cache.mu.RUnlock()
+		if ok {
+			return symbol, nil
+		}
+	}
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
 	var cerr *C.char
@@ -117,6 +124,15 @@ func (library ffiNativeLibrary) symbol(name string) (unsafe.Pointer, error) {
 			C.free(unsafe.Pointer(cerr))
 		}
 		return nil, fmt.Errorf("%s", message)
+	}
+	if library.cache != nil {
+		library.cache.mu.Lock()
+		if existing, ok := library.cache.symbols[name]; ok {
+			symbol = existing
+		} else {
+			library.cache.symbols[name] = symbol
+		}
+		library.cache.mu.Unlock()
 	}
 	return symbol, nil
 }
