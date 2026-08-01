@@ -15,7 +15,7 @@
       "documentation": ["https://sphireinc.github.io/Osiris/#core", "https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/runtime_test.go#TestLanguageSyntaxLoopsAndBlocks", "internal/osiris/runtime_test.go#TestBytecodeVMParity", "internal/osiris/runtime_test.go#TestCBackendControlFlowParity"]},
-      "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions, including deterministic `var` assignment barriers. Native C covers tested scalar control flow, loops, direct/closure calls, and mutable-local replacement; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation."
+      "notes": "Interpreter, VM, and supported native C paths preserve ordered `emit` statements throughout synchronous blocks and functions, including deterministic `var` assignment barriers. Native C covers tested scalar control flow, loops, direct/closure calls, mutable-local replacement, and cleanup edges; concurrent task bodies reject `emit`, and unsupported IR is rejected during compilation. The machine-checked backend inventory records each public construct and standard-library member rather than treating partial module support as module-wide parity."
     },
     {
       "id": "typed-functions-and-static-checking",
@@ -213,9 +213,9 @@
       "id": "scope-bound-cleanup",
       "label": "Lexical scope-bound cleanup",
       "documentation": ["https://sphireinc.github.io/Osiris/#language", "https://sphireinc.github.io/Osiris/#io"],
-      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "unsupported", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
+      "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/scope_cleanup_test.go#TestDeferRunsInLIFOOrderAtScopeExit", "internal/osiris/scope_cleanup_test.go#TestDeferRunsWhenTheBodyIsCancelled", "internal/osiris/scope_cleanup_test.go#TestDeferPreservesBodyErrorWhenCleanupAlsoFails", "internal/osiris/scope_cleanup_test.go#TestNativeDeferLowersCleanupEdge"]},
-      "notes": "`defer { ... }` registers a lexical cleanup and executes actions exactly once in LIFO order across normal, failure, and cancellation exits in the interpreter and VM. Native C lowers the cleanup thunk on normal and return edges; exceptional host-resource cleanup remains separately audited."
+      "notes": "`defer { ... }` registers a lexical cleanup and executes actions exactly once in LIFO order across normal, failure, and cancellation exits in the interpreter and VM. Native C lowers cleanup thunks on normal, return, loop-break, and loop-continue edges; complete task/resource protocol and sanitizer evidence remain separately audited."
     },
     {
       "id": "std-networking-expanded",

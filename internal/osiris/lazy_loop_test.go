@@ -35,10 +35,7 @@ func TestLazyLoopBindingBoundedStackSubprocess(t *testing.T) {
 		switch mode {
 		case "interpreter":
 			out, err = NewRuntime().Run(context.Background(), prog)
-		case "vm-fallback":
-			// RunVM intentionally delegates control-flow programs to the
-			// interpreter session. This protects that public path until VM
-			// control-flow bytecode is implemented independently.
+		case "vm":
 			out, err = NewRuntime().RunVM(context.Background(), prog)
 		default:
 			t.Fatalf("unknown helper mode %q", mode)
@@ -52,7 +49,7 @@ func TestLazyLoopBindingBoundedStackSubprocess(t *testing.T) {
 		return
 	}
 
-	for _, mode := range []string{"interpreter", "vm-fallback"} {
+	for _, mode := range []string{"interpreter", "vm"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=^TestLazyLoopBindingBoundedStackSubprocess$")
 			cmd.Env = append(os.Environ(), "OSIRIS_LAZY_STACK_HELPER="+mode)
@@ -157,7 +154,7 @@ emit total
 				run  func(context.Context, *Program) ([]Value, error)
 			}{
 				{name: "interpreter", run: NewRuntime().Run},
-				{name: "vm-control-flow-fallback", run: NewRuntime().RunVM},
+				{name: "vm", run: NewRuntime().RunVM},
 			} {
 				t.Run(runner.name, func(t *testing.T) {
 					out, err := runner.run(context.Background(), prog)
@@ -369,7 +366,7 @@ emit fail_after(total)
 		{name: "interpreter", run: func(rt *Runtime, ctx context.Context, prog *Program) ([]Value, error) {
 			return rt.Run(ctx, prog)
 		}},
-		{name: "vm-control-flow-fallback", run: func(rt *Runtime, ctx context.Context, prog *Program) ([]Value, error) {
+		{name: "vm", run: func(rt *Runtime, ctx context.Context, prog *Program) ([]Value, error) {
 			return rt.RunVM(ctx, prog)
 		}},
 	} {

@@ -62,10 +62,33 @@ func BackendCapabilityInventory() []BackendCapability {
 			ID:       "module/" + module,
 			Surface:  "stdlib module",
 			VM:       BackendImplemented,
-			Native:   nativeModuleStatus(module),
+			Native:   BackendUnsupported,
 			Evidence: "internal/osiris/module.go; internal/osiris/bytecode.go",
-			Note:     nativeModuleNote(module),
+			Note:     "module availability is implemented; native support is recorded per exported member below",
 		})
+		mod, err := stdlibModule(NewRuntime(), module, "")
+		if err != nil {
+			continue
+		}
+		moduleValue, err := mod.AsModule()
+		if err != nil {
+			continue
+		}
+		members := make([]string, 0, len(moduleValue.members))
+		for member := range moduleValue.members {
+			members = append(members, member)
+		}
+		sort.Strings(members)
+		for _, member := range members {
+			entries = append(entries, BackendCapability{
+				ID:       "module/" + module + "/" + member,
+				Surface:  "stdlib module member",
+				VM:       BackendImplemented,
+				Native:   nativeModuleMemberStatus(module, member),
+				Evidence: "internal/osiris/module.go; internal/osiris/cbackend_native.go",
+				Note:     nativeModuleMemberNote(module, member),
+			})
+		}
 	}
 	for _, construct := range []string{
 		"functions", "closures", "typed-returns", "recursion", "traits", "impl-methods",
@@ -103,24 +126,55 @@ func nativeBuiltinNote(name string) string {
 	return "native C rejects this builtin unless its direct lowering is added"
 }
 
-func nativeModuleStatus(name string) BackendStatus {
-	if name == "std/net" {
+func nativeModuleMemberStatus(module, member string) BackendStatus {
+	if module == "std/math" {
+		if member == "pi" || member == "tau" || nativeBuiltinStatus(member) == BackendImplemented {
+			return BackendImplemented
+		}
+		switch member {
+		case "zeros", "ones", "full", "arange", "linspace", "logspace", "outer", "trace", "det", "solve", "inv", "cholesky", "qr", "reshape":
+			return BackendImplemented
+		}
 		return BackendUnsupported
 	}
-	return BackendImplemented
+	switch module {
+	case "std/crypto":
+		if member == "random" || member == "hash" {
+			return BackendImplemented
+		}
+	case "std/list":
+		if member == "range" {
+			return BackendImplemented
+		}
+	case "std/signal":
+		if member == "hann" || member == "convolve" {
+			return BackendImplemented
+		}
+	case "std/text":
+		switch member {
+		case "fields", "join", "slug", "upper":
+			return BackendImplemented
+		}
+	case "std/time":
+		switch member {
+		case "add", "add_date", "date", "duration_string", "format", "parse_duration", "rfc3339", "sub", "utc_location":
+			return BackendImplemented
+		}
+	}
+	return BackendUnsupported
 }
 
-func nativeModuleNote(name string) string {
-	if nativeModuleStatus(name) == BackendImplemented {
-		return "module members are lowered only where the native emitter has a direct case"
+func nativeModuleMemberNote(module, member string) string {
+	if nativeModuleMemberStatus(module, member) == BackendImplemented {
+		return "direct C lowering is covered for the documented argument and value subset; unsupported shapes fail at compile time"
 	}
-	return "networking is hosted-only until a native provider is added"
+	if module == "std/net" {
+		return "host capability; native C reports a source-spanned unsupported diagnostic"
+	}
+	return "native C rejects this module member with a source-spanned diagnostic"
 }
 
 func nativeConstructStatus(name string) BackendStatus {
-	if name == "defer" {
-		return BackendUnsupported
-	}
 	return BackendImplemented
 }
 
@@ -128,5 +182,5 @@ func nativeConstructNote(name string) string {
 	if nativeConstructStatus(name) == BackendImplemented {
 		return "direct IR/C lowering or explicit backend validation"
 	}
-	return "native C emits a source-spanned diagnostic; cleanup-edge lowering remains scoped to task 116"
+	return "direct IR/C lowering or explicit backend validation"
 }

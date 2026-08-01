@@ -1,0 +1,7 @@
+let offset = 21
+
+func fib(n) => if(n < 2, n, fib(n - 1) + fib(n - 2))
+func add_offset(value) => value + offset
+
+emit fib(8)
+emit add_offset(21)

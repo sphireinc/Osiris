@@ -208,7 +208,7 @@
       "title": "Native interop and build flow",
       "summary": "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; hosted FFI has a capability-gated, digest-pinned v1 subset.",
       "paragraphs": [
-        "The native build path lowers a tested `AST`/`IR` subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback.",
+        "The native build path lowers a tested `AST`/`IR` subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback. The machine-checked backend inventory records every registered builtin, context builtin, language construct, and exported standard-library member with its VM/native status and evidence.",
         "Build a standalone executable with `osiris build -o output program.osr`.",
         "C is the first backend because it is inspectable, portable, and lets mature toolchains handle instruction selection, register allocation, linking, and target-specific optimization. The backend support matrix names the supported subset and its evidence; native parity and measured performance are required before claims of C-level speed.",
         "C libraries are the first native interop target. Hosted FFI manifests can load a digest-pinned library after a host capability grant and call the tested scalar, borrowed-string, and const-buffer subset. Generated-C FFI and richer ownership/callback shapes remain explicitly unsupported.",

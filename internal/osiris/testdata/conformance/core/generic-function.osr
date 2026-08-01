@@ -1,0 +1,5 @@
+func identity<T>(value T) T => value
+func pair<T, U>(left T, right U) => [left, right]
+
+emit identity(7)
+emit pair("x", 2u8)

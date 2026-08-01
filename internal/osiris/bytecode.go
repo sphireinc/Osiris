@@ -855,14 +855,28 @@ func (f *vmFrame) child(bindings map[string]Value) *vmFrame {
 }
 
 func snapshotVMFrame(frame *vmFrame) *vmFrame {
+	return snapshotVMFrameWithMemo(frame, make(map[*vmFrame]*vmFrame))
+}
+
+// snapshotVMFrameWithMemo copies the mutable frame graph at an ownership
+// boundary. Function values need special handling: their VM closure is a
+// frame pointer, so copying only the Value would leave a spawned task sharing
+// the parent's mutable locals through a captured function. The memo also
+// preserves recursive closures without recursing forever.
+func snapshotVMFrameWithMemo(frame *vmFrame, memo map[*vmFrame]*vmFrame) *vmFrame {
 	if frame == nil {
 		return &vmFrame{}
 	}
-	copyFrame := &vmFrame{parent: snapshotVMFrame(frame.parent)}
+	if copyFrame, ok := memo[frame]; ok {
+		return copyFrame
+	}
+	copyFrame := &vmFrame{}
+	memo[frame] = copyFrame
+	copyFrame.parent = snapshotVMFrameWithMemo(frame.parent, memo)
 	if len(frame.locals) > 0 {
 		copyFrame.locals = make(map[string]Value, len(frame.locals))
 		for name, value := range frame.locals {
-			copyFrame.locals[name] = value
+			copyFrame.locals[name] = snapshotVMValue(value, memo)
 		}
 	}
 	if len(frame.mutable) > 0 {
@@ -872,6 +886,24 @@ func snapshotVMFrame(frame *vmFrame) *vmFrame {
 		}
 	}
 	return copyFrame
+}
+
+func snapshotVMValue(value Value, memo map[*vmFrame]*vmFrame) Value {
+	if value.kind != kindFunction || value.fn == nil || value.fn.vmClosure == nil {
+		return value
+	}
+	copyFunction := *value.fn
+	copyFunction.typeParams = append([]typeParam(nil), value.fn.typeParams...)
+	copyFunction.paramTypes = append([]string(nil), value.fn.paramTypes...)
+	copyFunction.params = append([]string(nil), value.fn.params...)
+	copyFunction.vmClosure = snapshotVMFrameWithMemo(value.fn.vmClosure, memo)
+	if value.fn.boundReceiver != nil {
+		receiver := snapshotVMValue(*value.fn.boundReceiver, memo)
+		copyFunction.boundReceiver = &receiver
+	}
+	copy := value
+	copy.fn = &copyFunction
+	return copy
 }
 
 type vmRunner struct {

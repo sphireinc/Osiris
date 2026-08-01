@@ -383,7 +383,15 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 	if err != nil {
 		return nil, fmt.Errorf("identify C compiler %s: %w", compilerPath, err)
 	}
-	flags := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG", "-flto", "-lm"}
+	sanitizerFlags := nativeSanitizerFlags()
+	flags := []string{"-std=c11", "-O3", "-DNDEBUG"}
+	if len(sanitizerFlags) > 0 {
+		flags = append(flags, "-O1", "-g", "-fno-omit-frame-pointer")
+		flags = append(flags, sanitizerFlags...)
+	} else {
+		flags = append(flags, "-flto")
+	}
+	flags = append(flags, "-lm")
 	flags = append(flags, options.LinalgProviderFlags...)
 	sourceHash := sha256.Sum256([]byte(source))
 	providerHash := ""
@@ -495,14 +503,19 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 		return err
 	}
 
-	args := []string{"-std=c11", "-O3", "-march=native", "-DNDEBUG"}
-	if os.Getenv("OSIRIS_C_SANITIZERS") == "1" {
-		args = append(args, "-O1", "-g", "-fno-omit-frame-pointer", "-fsanitize=address,undefined")
+	args := []string{"-std=c11", "-O3", "-DNDEBUG"}
+	sanitizerFlags := nativeSanitizerFlags()
+	if len(sanitizerFlags) > 0 {
+		args = append(args, "-O1", "-g", "-fno-omit-frame-pointer")
+		args = append(args, sanitizerFlags...)
 	}
 	if object {
 		args = append(args, "-c", srcPath, "-o", outputPath)
 	} else {
-		args = append(args, "-flto", srcPath, "-o", outputPath)
+		if len(sanitizerFlags) == 0 {
+			args = append(args, "-flto")
+		}
+		args = append(args, srcPath, "-o", outputPath)
 		if options.LinalgProviderSource != "" {
 			if _, err := os.Stat(options.LinalgProviderSource); err != nil {
 				return fmt.Errorf("native numerical provider %q: %w", options.LinalgProviderSource, err)
@@ -515,13 +528,23 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 	if !object {
 		cmd.Args = append(cmd.Args, "-lm")
 	}
-	if os.Getenv("OSIRIS_C_SANITIZERS") == "1" {
-		args = append(args, "-fsanitize=address,undefined")
-	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s failed: %w\n%s", compiler, err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func nativeSanitizerFlags() []string {
+	switch os.Getenv("OSIRIS_C_SANITIZERS") {
+	case "", "0":
+		return nil
+	case "address":
+		return []string{"-fsanitize=address"}
+	case "undefined":
+		return []string{"-fsanitize=undefined"}
+	default:
+		return []string{"-fsanitize=address,undefined"}
+	}
 }
 
 // newNativeTempDir creates compiler scratch space with the operating system's

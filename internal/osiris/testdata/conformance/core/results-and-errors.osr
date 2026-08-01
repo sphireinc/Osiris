@@ -1,0 +1,2 @@
+emit try { let? value = ok(41); value + 1 } catch caught { caught.kind }
+emit try { let? value = err(error(InvalidArgument, "bad result")); value } catch caught { cat(caught.kind, "/", caught.message) }
