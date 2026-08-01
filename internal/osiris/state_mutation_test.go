@@ -144,6 +144,13 @@ func TestConstRequiresStaticInitializerAndPreservesVarBuiltin(t *testing.T) {
 	if _, err := NewRuntime().CheckProgram(context.Background(), prog); err == nil || !strings.Contains(err.Error(), "statically evaluable") {
 		t.Fatalf("const call error = %v", err)
 	}
+	immutable, err := Parse("<const-write>", "const value = 1\nvalue = 2\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewRuntime().CheckProgram(context.Background(), immutable); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("const assignment error = %v", err)
+	}
 	values, err := NewSession(NewRuntime(), context.Background(), "<var-builtin>").ExecSource("emit var([1, 2, 3])\n")
 	if err != nil {
 		t.Fatal(err)
