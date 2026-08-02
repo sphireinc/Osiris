@@ -5,6 +5,7 @@ import timeReference from './time-reference.json' with { type: 'json' };
 import technicalReference from './technical-reference.json' with { type: 'json' };
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
+import stdOSReference from './std-os-reference.js';
 import { orderReferenceSections } from './reference-order.js';
 
 export const languageSections = orderReferenceSections(
@@ -72,7 +73,7 @@ function entryFromReference(groupID, item) {
         : `Arguments and their order are defined by \`${item.syntax}\`.`
     ),
     returns: item.returns,
-    returnValue: item.details?.[0],
+    returnValue: item.returnValue || item.details?.[0],
     details: item.details,
     errors: item.errors,
     native: item.native,
@@ -86,7 +87,7 @@ function entryFromReference(groupID, item) {
 const supplementalGroups = new Map(supplemental.groups.filter((group) => group.id !== 'constants').map((group) => [group.id, group]));
 const combinedGroups = manual.groups.map((group) => ({
   ...group,
-  items: [...group.items, ...(supplementalGroups.get(group.id)?.items || [])],
+  items: [...(group.items || []), ...(supplementalGroups.get(group.id)?.items || [])],
 }));
 for (const group of supplemental.groups.filter((candidate) => candidate.id !== 'constants')) {
   if (!combinedGroups.some((candidate) => candidate.id === group.id)) combinedGroups.push(group);
@@ -99,7 +100,7 @@ const apiModules = combinedGroups.map((group) => ({
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
   sections: orderReferenceSections(
-    [{ title: group.title, entries: group.items.map((item) => entryFromReference(group.id, item)) }],
+    [{ title: group.title, entries: (group.id === 'os' ? stdOSReference : group.items).map((item) => entryFromReference(group.id, item)) }],
     group.id,
   ),
 }));

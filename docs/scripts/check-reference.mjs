@@ -12,6 +12,7 @@ import constants from '../src/constant-reference.json' with { type: 'json' };
 const here = dirname(fileURLToPath(import.meta.url));
 const support = JSON.parse(await readFile(resolve(here, '..', 'src', 'support-matrix.json'), 'utf8'));
 const moduleSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'module.go'), 'utf8');
+const osSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'os_std.go'), 'utf8');
 const timeSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'time_value.go'), 'utf8');
 const runtimeSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'runtime.go'), 'utf8');
 const namedSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'named.go'), 'utf8');
@@ -158,6 +159,16 @@ function assertExactIndex(label, documented, implemented) {
 	}
 }
 
+const osModuleBlock = osSource.slice(osSource.indexOf('func stdOSModule'), osSource.indexOf('// Keep these imports'));
+const implementedStdOSExports = sortedUnique([
+	...osModuleBlock.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"\s*:\s*(?=(?:fn|functionValueOf|contextFunctionValueOf|intValue|stringValue|uintValue))/g),
+	...osModuleBlock.matchAll(/mod\["([A-Za-z][A-Za-z0-9_]*)"\]\s*=/g),
+].map((match) => match[1] || match[2]));
+if (!implementedStdOSExports.length) throw new Error('Cannot locate std/os export table for reference coverage.');
+const documentedStdOSExports = modules.find((module) => module.id === 'os')?.sections
+	.flatMap((section) => section.entries.map((entry) => entry.name)) || [];
+assertExactIndex('std/os per-symbol reference', documentedStdOSExports, implementedStdOSExports);
+
 const runtimeBuiltins = [...runtimeSource.matchAll(/dst\["([^"]+)"\]\s*=/g)].map((match) => match[1]);
 const undocumentedBuiltins = sortedUnique(runtimeBuiltins).filter((name) => !documentedNames.has(name));
 if (undocumentedBuiltins.length) throw new Error(`Canonical reference is missing runtime built-ins: ${undocumentedBuiltins.join(', ')}.`);
@@ -190,10 +201,11 @@ for (const section of constants.global.sections) {
 const specialFormBlock = runtimeSource.slice(runtimeSource.indexOf('func specialFormName'), runtimeSource.indexOf('func builtinHasTaskEffect'));
 const specialForms = [...specialFormBlock.matchAll(/case ([^:]+):/g)].flatMap((line) => [...line[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
 const technicalIndexes = technical.sections.find((section) => section.id === 'surface-indexes')?.indexes || [];
-for (const moduleName of ['std/math', 'std/text', 'std/time']) {
+for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os']) {
 	const index = technicalIndexes.find((candidate) => candidate.title === `${moduleName} exports`);
 	const documented = index?.source ? technical[index.source] : index?.items || [];
-	assertExactIndex(`Technical ${moduleName} export index`, documented, implementedStdlibExports.get(moduleName) || []);
+	const implemented = moduleName === 'std/os' ? implementedStdOSExports : implementedStdlibExports.get(moduleName) || [];
+	assertExactIndex(`Technical ${moduleName} export index`, documented, implemented);
 }
 const documentedSpecialForms = technicalIndexes.find((index) => index.title === 'Evaluator special forms')?.items || [];
 assertExactIndex('Technical special-form index', documentedSpecialForms, specialForms);

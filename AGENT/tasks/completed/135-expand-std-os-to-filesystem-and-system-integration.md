@@ -425,6 +425,16 @@ Validation evidence:
 - The CLI test runner and language test runner passed with both interpreter
   and VM backends; each ordinary test received fresh deterministic providers.
 
+Documentation correction after completion:
+
+- The public `std/os` reference now contains 159 individual export entries;
+  no category entry such as `filesystem` is used as a substitute for
+  signatures and behavior.
+- The technical reference indexes the same 159 names, and the reference
+  checker extracts `stdOSModule` to reject missing, stale, or undocumented
+  exports and to require per-entry syntax, parameters, returns, values,
+  details, and examples.
+
 ## Non-goals and safety boundaries
 
 - No implicit shell, unrestricted raw syscall API, or unbounded file/tree read.

@@ -2792,7 +2792,7 @@
       "id": "os",
       "title": "std/os",
       "summary": "Capability-gated command-line, environment, process, signal, and filesystem-watch integration.",
-      "items": [
+      "legacyItems": [
         {
           "name": "args",
           "syntax": "args()",

@@ -4,6 +4,15 @@ This table records the task-135 decision for every symbol in the Go 1.26
 `os` package inventory. Names are Osiris snake_case exports unless the entry
 is explicitly marked as an intentional boundary.
 
+This compatibility table groups related Go methods only to explain mapping
+decisions; it is not the Osiris API reference. The complete Osiris export
+surface is documented one symbol at a time in the generated `std/os` section
+and in the technical-reference `std/os exports` index. Every symbol entry
+contains its own syntax, parameters, return type, returned value, errors,
+capabilities, ownership/cancellation behavior, backend status, and example.
+The documentation checker extracts the implementation's `stdOSModule` table
+and fails on either a missing or stale per-symbol entry.
+
 | Go symbol family | Osiris result | Decision |
 | --- | --- | --- |
 | `Args` | `std/os.args()`, `args_all()` | Implemented as owned deterministic lists; tests can inject arguments and `args_all` includes the program slot. |
