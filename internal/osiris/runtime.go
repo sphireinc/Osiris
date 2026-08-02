@@ -17,28 +17,34 @@ import (
 type Builtin func(args []Value) (Value, error)
 
 type Runtime struct {
-	Builtins        map[string]Builtin
-	ContextBuiltins map[string]contextCallable
-	Constants       map[string]Value
-	methodMu        sync.RWMutex
-	methods         map[string]map[string]Value
-	moduleMu        sync.Mutex
-	modules         map[string]Value
-	registryMu      sync.Mutex
-	registries      map[string]*moduleRegistry
-	taskMu          sync.Mutex
-	taskSeq         uint64
-	traceMu         sync.Mutex
-	traceSeq        uint64
-	taskTrace       []TaskTraceEvent
-	taskTraceOn     bool
-	taskDebug       bool
-	clockMu         sync.RWMutex
-	clock           func() time.Time
-	locationMu      sync.RWMutex
-	locationLoader  func(string) (*time.Location, error)
-	capabilityMu    sync.RWMutex
-	capabilities    map[string]bool
+	Builtins         map[string]Builtin
+	ContextBuiltins  map[string]contextCallable
+	Constants        map[string]Value
+	methodMu         sync.RWMutex
+	methods          map[string]map[string]Value
+	moduleMu         sync.Mutex
+	modules          map[string]Value
+	registryMu       sync.Mutex
+	registries       map[string]*moduleRegistry
+	taskMu           sync.Mutex
+	taskSeq          uint64
+	traceMu          sync.Mutex
+	traceSeq         uint64
+	taskTrace        []TaskTraceEvent
+	taskTraceOn      bool
+	taskDebug        bool
+	clockMu          sync.RWMutex
+	clock            func() time.Time
+	locationMu       sync.RWMutex
+	locationLoader   func(string) (*time.Location, error)
+	capabilityMu     sync.RWMutex
+	capabilities     map[string]bool
+	osMu             sync.RWMutex
+	injectedArgs     []string
+	injectedEnv      map[string]string
+	environmentSet   bool
+	processProvider  osProcessProvider
+	snapshotProvider osSnapshotProvider
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -3254,6 +3260,12 @@ func closeBuiltinValue(args []Value) (Value, error) {
 	if len(args) == 1 && args[0].kind == kindUDPSocket {
 		return closeUDPSocketValue(args)
 	}
+	if len(args) == 1 && args[0].kind == kindOSProcess && args[0].process != nil {
+		if err := args[0].process.close(); err != nil {
+			return nullValue(), err
+		}
+		return boolValue(true), nil
+	}
 	return closeStreamValue(args)
 }
 
@@ -3263,7 +3275,7 @@ func closeResourceValue(ev *evaluator, args []Value, scope *scope) (Value, error
 	}
 	value := args[0]
 	switch value.kind {
-	case kindStream, kindTCPListener, kindUDPSocket:
+	case kindStream, kindTCPListener, kindUDPSocket, kindOSProcess:
 		return closeBuiltinValue(args)
 	}
 	if ev == nil {

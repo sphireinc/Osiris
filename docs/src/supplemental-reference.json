@@ -1280,6 +1280,10 @@
     {
       "name": "location",
       "summary": "An immutable UTC, fixed-offset, or IANA timezone rule set used to interpret and display datetimes."
+    },
+    {
+      "name": "os_process",
+      "summary": "An owned capability-gated child-process handle with explicit stdin, stdout, stderr, wait, kill, and cleanup semantics."
     }
   ],
   "languageSections": [

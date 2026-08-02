@@ -532,7 +532,7 @@
               "absent only"
             ],
             [
-              "`stream`, `task`, `tcp_listener`",
+              "`stream`, `task`, `tcp_listener`, `udp_socket`, `os_process`",
               "host/resource handles",
               "missing/invalid internal handle"
             ],
@@ -591,6 +591,10 @@
             [
               "`std/net`",
               "Context-aware TCP listen, accept, and dial."
+            ],
+            [
+              "`std/os`",
+              "Capability-gated command-line/environment access, shell-free child processes, OS signal streams, and portable filesystem-watch events."
             ],
             [
               "`std/signal`",
@@ -1240,7 +1244,8 @@
     "udp_socket",
     "duration",
     "datetime",
-    "location"
+    "location",
+    "os_process"
   ],
   "runtimeBuiltins": [
     "abs",

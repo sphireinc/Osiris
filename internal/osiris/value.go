@@ -51,6 +51,7 @@ const (
 	kindDuration
 	kindDateTime
 	kindTimeLocation
+	kindOSProcess
 )
 
 type callable = Builtin
@@ -206,6 +207,7 @@ type Value struct {
 	duration    int64
 	datetime    *dateTimeValue
 	location    *timeLocationValue
+	process     *osProcess
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -333,6 +335,10 @@ func tcpListenerValueOf(listener *tcpListener) Value {
 
 func udpSocketValueOf(socket *udpSocket) Value {
 	return Value{kind: kindUDPSocket, udp: socket}
+}
+
+func osProcessValueOf(process *osProcess) Value {
+	return Value{kind: kindOSProcess, process: process}
 }
 
 func ffiLibraryValueOf(library *FFILibrary) Value {
@@ -720,6 +726,9 @@ func (v Value) Kind() string {
 		}
 		return "handle:" + strings.TrimPrefix(v.ffiHandle.typeID, "handle:")
 	}
+	if v.kind == kindOSProcess {
+		return "os_process"
+	}
 	if v.kind == kindFixed && v.fx != nil {
 		return fmt.Sprintf("fixed[%d,%d]", v.fx.width, v.fx.frac)
 	}
@@ -818,6 +827,8 @@ func (k valueKind) String() string {
 		return "datetime"
 	case kindTimeLocation:
 		return "location"
+	case kindOSProcess:
+		return "os_process"
 	default:
 		return "<?>"
 	}
@@ -857,6 +868,8 @@ func (v Value) Truthy() bool {
 		return v.ffi != nil
 	case kindFFIHandle:
 		return v.ffiHandle != nil && !v.ffiHandle.IsClosed()
+	case kindOSProcess:
+		return v.process != nil && !v.process.isClosed()
 	case kindDuration:
 		return v.duration != 0
 	case kindDateTime, kindTimeLocation:
@@ -1700,6 +1713,8 @@ func (v Value) Equal(other Value) bool {
 		return other.kind == kindFFILibrary && v.ffi != nil && v.ffi == other.ffi
 	case kindFFIHandle:
 		return other.kind == kindFFIHandle && v.ffiHandle != nil && v.ffiHandle == other.ffiHandle
+	case kindOSProcess:
+		return other.kind == kindOSProcess && v.process != nil && v.process == other.process
 	case kindTask:
 		return other.kind == kindTask && v.task != nil && other.task != nil && v.task == other.task
 	case kindFunction:
@@ -2058,6 +2073,11 @@ func (v Value) String() string {
 			return "<ffi-handle>"
 		}
 		return "<ffi-handle " + strings.TrimPrefix(v.ffiHandle.typeID, "handle:") + ">"
+	case kindOSProcess:
+		if v.process == nil {
+			return "<os-process>"
+		}
+		return "<os-process " + strconv.Itoa(v.process.pid()) + ">"
 	case kindDuration:
 		return `duration(` + strconv.Quote(formatDuration(v.duration)) + `)`
 	case kindDateTime:
@@ -2294,6 +2314,11 @@ func (v Value) toInterface() any {
 			return nil
 		}
 		return map[string]any{"ffi_handle": strings.TrimPrefix(v.ffiHandle.typeID, "handle:"), "closed": v.ffiHandle.IsClosed()}
+	case kindOSProcess:
+		if v.process == nil {
+			return nil
+		}
+		return map[string]any{"os_process": v.process.pid(), "closed": v.process.isClosed()}
 	case kindError:
 		if rec := v.errorRecord(); rec != nil {
 			return rec.publicInterface()

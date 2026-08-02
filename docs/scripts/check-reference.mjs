@@ -19,7 +19,7 @@ const lexerSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris
 const valueSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'value.go'), 'utf8');
 const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'main.go'), 'utf8');
 
-if (modules.length !== 17 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
+if (modules.length !== 18 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 if (!support.features?.length || !support.backends?.length) throw new Error('Migrated support matrix is incomplete.');
 const referenceModules = [...modules, { id: 'language', sections: languageSections }];
 for (const module of referenceModules) for (const section of module.sections) {

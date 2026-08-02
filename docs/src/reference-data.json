@@ -2789,6 +2789,77 @@
       ]
     },
     {
+      "id": "os",
+      "title": "std/os",
+      "summary": "Capability-gated command-line, environment, process, signal, and filesystem-watch integration.",
+      "items": [
+        {
+          "name": "args",
+          "syntax": "args()",
+          "returns": "list of argument strings",
+          "summary": "Return deterministic command-line arguments after the executable name.",
+          "details": ["Hosts and tests may inject the argument vector with `Runtime.SetCommandLineArgs`; the returned list is owned and cannot mutate host process state."],
+          "example": "import \"std/os\" as os; emit os.args()"
+        },
+        {
+          "name": "env",
+          "syntax": "env(name)",
+          "returns": "`Option<string>`",
+          "summary": "Read one selected environment variable under the environment capability.",
+          "details": ["The caller must grant `os.environment`. Missing variables return `none()`; values are never included in permission or process diagnostics. Tests can inject an isolated environment."],
+          "example": "import \"std/os\" as os; emit os.env(\"APP_MODE\")"
+        },
+        {
+          "name": "env_names",
+          "syntax": "env_names()",
+          "returns": "sorted list of variable names",
+          "summary": "List selected environment names without exposing their values.",
+          "details": ["Requires `os.environment`; injected environments are sorted lexically for deterministic tests and diagnostics."],
+          "example": "import \"std/os\" as os; emit os.env_names()"
+        },
+        {
+          "name": "process_spawn",
+          "syntax": "process_spawn(command, arguments[, options])",
+          "returns": "map containing an `os_process` and stdin/stdout/stderr streams",
+          "summary": "Start one child process without invoking a shell.",
+          "details": ["Requires `os.process`. `command` and `arguments` are separate NUL-free strings; the runtime never joins or shell-parses them. Options support `cwd`, an explicit `env` map, and `inherit_env` (false by default).", "The returned pipes are owned streams. Child output remains streaming rather than being captured into an unbounded runtime buffer; callers must close every stream and the process, preferably with `defer`."],
+          "example": "import \"std/os\" as os; emit os.process_spawn(\"/bin/echo\", [\"hello\"], { env: { \"PATH\": \"/usr/bin\" } })"
+        },
+        {
+          "name": "process_wait",
+          "syntax": "process_wait(process[, timeout_ms])",
+          "returns": "map with status, success, and signal",
+          "summary": "Wait for a child process with an optional timeout.",
+          "details": ["A timeout or task cancellation kills the process group through the platform adapter before returning a structured error. Normal exits return a deterministic status map; non-zero exit status is data rather than an unstructured host error."],
+          "example": "import \"std/os\" as os\n# after granting os.process and spawning child:\n# emit os.process_wait(child.process, 5000)"
+        },
+        {
+          "name": "process_kill",
+          "syntax": "process_kill(process)",
+          "returns": "bool",
+          "summary": "Terminate a child process and its supported process group.",
+          "details": ["Requires `os.process`. Unix adapters use a dedicated process group; Windows and other platforms use their documented direct-process fallback. The operation is idempotent at the language resource boundary."],
+          "example": "import \"std/os\" as os\n# after granting os.process and spawning child:\n# emit os.process_kill(child.process)"
+        },
+        {
+          "name": "signal_subscribe",
+          "syntax": "signal_subscribe(name)",
+          "returns": "owned event stream",
+          "summary": "Subscribe to a supported OS signal as stream notifications.",
+          "details": ["Requires `os.signal`. Names are explicit (`SIGINT`, `SIGTERM`, `SIGHUP`, `SIGUSR1`, and `SIGUSR2` where the platform provides them). Close the stream to unregister; notifications are bounded and dropped rather than allowing unbounded memory growth."],
+          "example": "import \"std/os\" as os\n# after granting os.signal:\n# emit os.signal_subscribe(\"SIGTERM\")"
+        },
+        {
+          "name": "watch",
+          "syntax": "watch(path[, recursive])",
+          "returns": "owned event stream",
+          "summary": "Watch a path through the portable snapshot adapter.",
+          "details": ["Requires `os.watch`. Events are JSON lines with `kind` (`create`, `modify`, `remove`, or `overflow`), normalized slash-separated `path`, and `is_dir` when known. Queue overflow is explicit and requires the caller to rescan. Cancellation and close stop the watcher."],
+          "example": "import \"std/os\" as os\n# after granting os.watch:\n# emit os.watch(\"./config\", true)"
+        }
+      ]
+    },
+    {
       "id": "signal",
       "title": "std/signal",
       "summary": "Deterministic reference signal-processing primitives.",

@@ -31,7 +31,7 @@ func TestBackendCapabilityInventoryIsCompleteAndUnique(t *testing.T) {
 		}
 		seen[entry.ID] = struct{}{}
 	}
-	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/list"} {
+	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/os", "std/list"} {
 		value, err := stdlibModule(NewRuntime(), module, "")
 		if err != nil {
 			t.Fatalf("stdlib module %s: %v", module, err)

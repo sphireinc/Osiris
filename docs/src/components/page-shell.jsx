@@ -4,7 +4,7 @@ export function PageShell({ children, selected, onSelect, modules, chapters, que
     { label: 'LANGUAGE', ids: ['core', 'types', 'global-constants', 'error-constants'], language: true },
     { label: 'DATA & NUMERICS', ids: ['arrays', 'tensor', 'stats', 'data'] },
     { label: 'I/O & CONCURRENCY', ids: ['io'] },
-    { label: 'STANDARD LIBRARY', ids: ['crypto', 'list', 'math', 'net', 'signal', 'text', 'time'] },
+    { label: 'STANDARD LIBRARY', ids: ['crypto', 'list', 'math', 'net', 'os', 'signal', 'text', 'time'] },
     { label: 'TOOLING', ids: ['tooling'] },
     { label: 'TECHNICAL', ids: [], technical: true },
   ];

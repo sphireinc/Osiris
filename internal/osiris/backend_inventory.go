@@ -57,7 +57,7 @@ func BackendCapabilityInventory() []BackendCapability {
 			Note:     "host capability; native C reports a source-spanned unsupported diagnostic",
 		})
 	}
-	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/list"} {
+	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/os", "std/list"} {
 		entries = append(entries, BackendCapability{
 			ID:       "module/" + module,
 			Surface:  "stdlib module",
@@ -169,6 +169,9 @@ func nativeModuleMemberNote(module, member string) string {
 		return "direct C lowering is covered for the documented argument and value subset; unsupported shapes fail at compile time"
 	}
 	if module == "std/net" {
+		return "host capability; native C reports a source-spanned unsupported diagnostic"
+	}
+	if module == "std/os" {
 		return "host capability; native C reports a source-spanned unsupported diagnostic"
 	}
 	return "native C rejects this module member with a source-spanned diagnostic"
