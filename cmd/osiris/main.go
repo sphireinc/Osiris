@@ -234,21 +234,67 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 }
 
 type testEvent struct {
-	SchemaVersion int    `json:"schema_version"`
-	Name          string `json:"name"`
-	Status        string `json:"status"`
-	DurationNS    int64  `json:"duration_ns"`
-	Error         string `json:"error,omitempty"`
+	SchemaVersion   int                                  `json:"schema_version"`
+	Event           string                               `json:"event"`
+	Name            string                               `json:"name"`
+	File            string                               `json:"file"`
+	Backend         string                               `json:"backend"`
+	Status          string                               `json:"status"`
+	Passed          bool                                 `json:"passed"`
+	Skipped         bool                                 `json:"skipped,omitempty"`
+	ExpectedFailure bool                                 `json:"expected_failure,omitempty"`
+	UnexpectedPass  bool                                 `json:"unexpected_pass,omitempty"`
+	DurationNS      int64                                `json:"duration_ns"`
+	Outputs         []string                             `json:"outputs,omitempty"`
+	Assertions      []osiris.LanguageTestAssertionResult `json:"assertions,omitempty"`
+	Location        osiris.LanguageTestLocation          `json:"location"`
+	Error           string                               `json:"error,omitempty"`
+	Coverage        *osiris.LanguageCoverageReport       `json:"coverage,omitempty"`
+	Benchmark       *osiris.LanguageBenchmarkReport      `json:"benchmark,omitempty"`
+	Artifacts       []osiris.LanguageTestArtifact        `json:"artifacts,omitempty"`
+}
+
+type filterValue struct{ value *string }
+
+func (f filterValue) String() string {
+	if f.value == nil {
+		return ""
+	}
+	return *f.value
+}
+
+func (f filterValue) Set(value string) error {
+	if f.value != nil {
+		*f.value = value
+	}
+	return nil
 }
 
 func runTests(ctx context.Context, args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	backend := fs.String("backend", "interpreter", "interpreter or vm")
+	backend := fs.String("backend", "interpreter", "interpreter, vm, or native")
 	jsonOut := fs.Bool("json", false, "write one stable JSON event per test")
 	integration := fs.Bool("integration", false, "opt into host providers instead of deterministic fakes")
 	capabilityText := fs.String("capabilities", "", "comma-separated host capabilities for integration tests")
 	timeout := fs.Duration("timeout", 0, "per-test timeout")
+	filter := fs.String("run", "", "run names matching a glob or substring")
+	fs.Var(filterValue{value: filter}, "filter", "alias for -run")
+	parallel := fs.Int("parallel", 1, "maximum concurrent test cases")
+	deterministic := fs.Bool("deterministic", true, "retain discovery and output order")
+	race := fs.Bool("race", false, "enable bounded concurrent execution checks for interpreter or VM")
+	list := fs.Bool("list", false, "list the stable test inventory without executing cases")
+	coverage := fs.String("coverage", "", "write statement/branch/function coverage JSON")
+	artifacts := fs.String("artifacts", ".osiris/test-artifacts", "directory for fuzz and replay artifacts")
+	bench := fs.Bool("bench", false, "run benchmark declarations")
+	benchJSON := fs.String("bench-json", "", "write benchmark JSON to this path")
+	fuzz := fs.Bool("fuzz", false, "run bounded fuzz declarations")
+	fuzzRuns := fs.Int("fuzz-runs", 32, "maximum fuzz inputs per declaration")
+	fuzzSeed := fs.Int64("fuzz-seed", 1, "default reproducible fuzz seed")
+	fuzzCorpus := fs.String("fuzz-corpus", "", "default fuzz corpus file or directory")
+	update := fs.Bool("update", false, "update golden files")
+	cacheDir := fs.String("cache-dir", ".osiris/test-cache", "inventory cache directory")
+	noCache := fs.Bool("no-cache", false, "disable inventory cache writes")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -261,25 +307,44 @@ func runTests(ctx context.Context, args []string, stdout io.Writer) error {
 			}
 		}
 	}
-	results, err := osiris.RunLanguageTests(ctx, fs.Args(), osiris.LanguageTestOptions{Backend: *backend, Integration: *integration, Capabilities: capabilities, Timeout: *timeout})
+	options := osiris.LanguageTestOptions{Backend: *backend, Integration: *integration, Capabilities: capabilities, Timeout: *timeout, Filter: *filter, Parallel: *parallel, Deterministic: *deterministic, Race: *race, CoveragePath: *coverage, ArtifactsDir: *artifacts, Benchmark: *bench, BenchmarkJSON: *benchJSON, Fuzz: *fuzz, FuzzRuns: *fuzzRuns, FuzzSeed: *fuzzSeed, FuzzCorpus: *fuzzCorpus, UpdateGolden: *update, CacheDir: *cacheDir, NoCache: *noCache}
+	if *list {
+		inventory, err := osiris.DiscoverLanguageTestInventory(fs.Args(), *filter)
+		if err != nil {
+			return err
+		}
+		if *jsonOut {
+			return json.NewEncoder(stdout).Encode(inventory)
+		}
+		for _, entry := range inventory.Tests {
+			fmt.Fprintf(stdout, "%s %s:%d:%d\n", entry.Name, entry.File, entry.Location.Start.Line, entry.Location.Start.Column)
+		}
+		return nil
+	}
+	results, err := osiris.RunLanguageTests(ctx, fs.Args(), options)
 	if err != nil {
 		return err
 	}
 	failed := 0
+	compileFailed := false
 	for _, result := range results {
 		if !result.Passed {
 			failed++
 		}
+		if result.Status == "compile_error" {
+			compileFailed = true
+		}
 		status := "ok"
-		if !result.Passed {
+		if result.Status == "skip" {
+			status = "SKIP"
+		} else if result.Status == "expected_failure" {
+			status = "XFAIL"
+		} else if !result.Passed {
 			status = "FAIL"
 		}
-		message := ""
-		if result.Error != nil {
-			message = result.Error.Error()
-		}
+		message := result.ErrorText
 		if *jsonOut {
-			_ = json.NewEncoder(stdout).Encode(testEvent{SchemaVersion: 1, Name: result.Name, Status: status, DurationNS: result.Duration.Nanoseconds(), Error: message})
+			_ = json.NewEncoder(stdout).Encode(testEvent{SchemaVersion: 1, Event: "test", Name: result.Name, File: result.File, Backend: result.Backend, Status: status, Passed: result.Passed, Skipped: result.Skipped, ExpectedFailure: result.ExpectedFailure, UnexpectedPass: result.UnexpectedPass, DurationNS: result.DurationNS, Outputs: result.OutputStrings, Assertions: result.Assertions, Location: result.Location, Error: message, Coverage: result.Coverage, Benchmark: result.Benchmark, Artifacts: result.Artifacts})
 		} else if message == "" {
 			fmt.Fprintf(stdout, "%s %s\n", status, result.Name)
 		} else {
@@ -288,6 +353,9 @@ func runTests(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	if len(results) == 0 {
 		return fmt.Errorf("no Osiris tests found")
+	}
+	if compileFailed {
+		return cliCompileError(fmt.Errorf("one or more Osiris test files failed to compile"))
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d Osiris test(s) failed", failed)
@@ -1719,7 +1787,7 @@ func commandHelpRows() []commandHelpRow {
 	return []commandHelpRow{
 		{"osiris version", "print release version, commit, build date, Go toolchain, and target"},
 		{"osiris run [-f file] [file]", "run source in the interpreter"},
-		{"osiris test [-backend interpreter|vm] [-json] [path...]", "run deterministic source tests with fake std/os providers"},
+		{"osiris test [flags] [path...]", "discover and run source tests, benchmarks, coverage, fuzz targets, and goldens"},
 		{"osiris vm [-f file] [file]", "run source through the bytecode VM"},
 		{"osiris eval <expression>", "evaluate a single expression and emit the result"},
 		{"osiris demo", "run the built-in demo program"},

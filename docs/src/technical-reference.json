@@ -937,6 +937,30 @@
           "source": "stdMathExports"
         },
         {
+          "title": "std/regex exports",
+          "source": "stdRegexExports"
+        },
+        {
+          "title": "std/compress exports",
+          "source": "stdCompressExports"
+        },
+        {
+          "title": "std/config exports",
+          "source": "stdConfigExports"
+        },
+        {
+          "title": "std/i18n exports",
+          "source": "stdI18nExports"
+        },
+        {
+          "title": "std/db exports",
+          "source": "stdDBExports"
+        },
+        {
+          "title": "std/telemetry exports",
+          "source": "stdTelemetryExports"
+        },
+        {
           "title": "Global built-in functions",
           "source": "runtimeBuiltins"
         },
@@ -1412,6 +1436,24 @@
     "datetime",
     "location",
     "os_process"
+  ],
+  "stdRegexExports": [
+    "compile", "engine_version", "find", "is_match", "match", "replace", "split", "version"
+  ],
+  "stdCompressExports": [
+    "archive_create", "archive_extract", "compress", "decompress", "gunzip", "gzip", "unzlib", "version", "zlib"
+  ],
+  "stdConfigExports": [
+    "parse_json", "parse_properties", "schema_property_names", "validate", "version"
+  ],
+  "stdI18nExports": [
+    "data_version", "format_date", "format_message", "format_number", "locale"
+  ],
+  "stdDBExports": [
+    "api_version", "begin", "close", "columns", "commit", "exec", "next", "open", "prepare", "provider", "query", "rollback", "row_error", "statement_exec", "statement_query", "stats", "values"
+  ],
+  "stdTelemetryExports": [
+    "close", "correlation_id", "counter_add", "debug", "dropped", "error", "flush", "gauge_set", "histogram_observe", "info", "metrics", "new", "snapshot", "span_attribute", "span_context", "span_end", "span_event", "start_span", "task_id", "version", "warn"
   ],
   "runtimeBuiltins": [
     "abs",

@@ -2,7 +2,7 @@
 
 **Priority:** P2
 **Dependencies:** 014, 035, 045, 046, 116, 119
-**Status:** Blocked
+**Status:** Complete
 
 ## Objective
 
@@ -39,12 +39,29 @@ context propagation, redaction, and pluggable exporters.
 
 ## Acceptance criteria
 
-- [ ] Logs, metrics, and traces have bounded deterministic contracts.
-- [ ] Secrets remain redacted across error, task, and exporter boundaries.
-- [ ] Test capture is deterministic and ordinary program output is unchanged.
-- [ ] Race, performance, docs, and full validation pass.
+- [x] Logs, metrics, and traces have bounded deterministic contracts.
+- [x] Secrets remain redacted across error, task, and exporter boundaries.
+- [x] Test capture is deterministic and ordinary program output is unchanged.
+- [x] Race, performance, docs, and full validation pass.
 
 ## Non-goals
 
 - No mandatory vendor backend, ambient network exporter, or unbounded
   high-cardinality labels.
+
+## Completion record — 2026-08-02
+
+`internal/osiris/task122_telemetry.go`, `task122_metrics.go`, and
+`task122_trace.go` implement bounded structured logs, counters/gauges/
+histograms, parent-aware spans, deterministic memory/JSON exporters, injected
+clocks, runtime/task context propagation, redaction, queue backpressure, and
+exporter failure policy. `std/telemetry` and `std/log` are registered in the
+language module loader. Public module calls are covered for interpreter and VM
+in `task120_123_stdlib_test.go`; concurrency, redaction, failure policy,
+ordering, cancellation, exporter, and race tests are in
+`task122_telemetry_test.go`.
+
+The complete symbol contract is documented in
+`AGENT/docs/design/TASK-122-STRUCTURED-LOGGING-TELEMETRY.md` and granular
+public entries in `docs/src/std-task-reference.js`. Full Go, race-focused,
+vet/build, documentation, and checked-example validation passed on 2026-08-02.

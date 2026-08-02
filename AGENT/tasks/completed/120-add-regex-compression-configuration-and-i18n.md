@@ -2,7 +2,7 @@
 
 **Priority:** P2
 **Dependencies:** 036, 040, 046, 103, 116, 117
-**Status:** Blocked
+**Status:** Complete
 
 ## Objective
 
@@ -41,12 +41,29 @@ deterministic locale-aware formatting.
 
 ## Acceptance criteria
 
-- [ ] Each slice has a precise versioned, bounded, deterministic contract.
-- [ ] Malicious regex/archive/config inputs are covered by fuzz/security tests.
-- [ ] Locale output does not depend on ambient host configuration.
-- [ ] Resource, backend, documentation, and full validation pass.
+- [x] Each slice has a precise versioned, bounded, deterministic contract.
+- [x] Malicious regex/archive/config inputs are covered by fuzz/security tests.
+- [x] Locale output does not depend on ambient host configuration.
+- [x] Resource, backend, documentation, and full validation pass.
 
 ## Non-goals
 
 - No promise to implement every PCRE feature, every archive/config format, or
   the host platform's complete locale database.
+
+## Completion record — 2026-08-02
+
+- Host contracts are implemented in `internal/osiris/task120_*.go`, including
+  bounded RE2 regex, deterministic gzip/zlib, safe USTAR archives, ordered
+  JSON/properties parsing, path-aware schema validation, and embedded locale
+  formatting.
+- `std/regex`, `std/compress`, `std/config`, and `std/i18n` are registered in
+  `internal/osiris/module.go`; interpreter and VM coverage is in
+  `internal/osiris/task120_123_stdlib_test.go`.
+- Granular API documentation is in
+  `AGENT/docs/design/TASK-120-REGEX-COMPRESSION-CONFIG-I18N.md` and
+  `docs/src/std-task-reference.js`. The documentation checker verifies every
+  module export and technical index.
+- Focused task tests, full `go test ./...`, `go vet ./...`, `go build ./...`,
+  focused race tests, documentation checks, and checked examples passed with
+  Go 1.26.1.

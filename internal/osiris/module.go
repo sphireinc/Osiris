@@ -496,6 +496,46 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			"sum":     functionValueOf("std/list.sum", func(args []Value) (Value, error) { return builtinSum(args) }),
 			"product": functionValueOf("std/list.product", func(args []Value) (Value, error) { return builtinProduct(args) }),
 		}), nil
+	case "std/regex":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task120RegexModule()), nil
+	case "std/compress":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		mod := task120CompressionModule()
+		for key, value := range task120ArchiveModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
+	case "std/config":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task120ConfigModule()), nil
+	case "std/i18n":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task120I18nModule()), nil
+	case "std/db", "std/database":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task121DatabaseModule()), nil
+	case "std/telemetry", "std/log":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task122TelemetryModule(rt)), nil
 	default:
 		return nullValue(), fmt.Errorf("unknown stdlib module %s", name)
 	}

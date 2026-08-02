@@ -1,0 +1,11 @@
+// osiris:test name="fixture-lifecycle"
+// osiris:fixture setup
+let setup_value = 1
+// osiris:fixture body
+import "std/os" as os
+let wrote = os.write_file("/fixture.txt", "ready", 420)
+// osiris:expect "[114u8, 101u8, 97u8, 100u8, 121u8]"
+emit os.read_file("/fixture.txt")
+// osiris:fixture cleanup
+import "std/os" as os
+let removed = os.remove_file("/fixture.txt")

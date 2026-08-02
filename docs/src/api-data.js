@@ -6,6 +6,7 @@ import technicalReference from './technical-reference.json' with { type: 'json' 
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
 import stdOSReference from './std-os-reference.js';
+import { task120References, task121Reference, task122Reference, task123Reference } from './std-task-reference.js';
 import { orderReferenceSections } from './reference-order.js';
 
 export const languageSections = orderReferenceSections(
@@ -94,13 +95,20 @@ for (const group of supplemental.groups.filter((candidate) => candidate.id !== '
 }
 combinedGroups.push(timeReference);
 
+const generatedModuleReferences = new Map([
+  ...task120References.map((reference) => [reference.id, reference.items]),
+  [task121Reference.id, task121Reference.items],
+  [task122Reference.id, task122Reference.items],
+  [task123Reference.id, task123Reference.items],
+]);
+
 const apiModules = combinedGroups.map((group) => ({
   id: group.id,
   label: group.title,
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
   sections: orderReferenceSections(
-    [{ title: group.title, entries: (group.id === 'os' ? stdOSReference : group.items).map((item) => entryFromReference(group.id, item)) }],
+    [{ title: group.title, entries: (group.id === 'os' ? stdOSReference : generatedModuleReferences.get(group.id) || group.items).map((item) => entryFromReference(group.id, item)) }],
     group.id,
   ),
 }));

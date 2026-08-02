@@ -1,0 +1,16 @@
+// osiris:test name="addition"
+// osiris:expect "7u64"
+// osiris:assert output_count == 1
+emit 1 + 2 * 3
+
+// osiris:test name="parameterized"
+// osiris:case name="one" value=1
+// osiris:case name="two" value=2
+// osiris:assert output contains "{{value}}u64"
+emit {{value}}
+
+// osiris:test name="skipped" skip="fixture is illustrative"
+emit missing_name
+
+// osiris:test name="known-failure" xfail="tracked parser issue"
+emit missing_name

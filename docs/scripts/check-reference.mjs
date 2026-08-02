@@ -19,8 +19,11 @@ const namedSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris
 const lexerSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'lexer.go'), 'utf8');
 const valueSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'value.go'), 'utf8');
 const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'main.go'), 'utf8');
+const task120Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_stdlib.go'), 'utf8');
+const task121Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task121_stdlib.go'), 'utf8');
+const task122Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task122_stdlib.go'), 'utf8');
 
-if (modules.length !== 18 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
+if (modules.length !== 25 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 if (!support.features?.length || !support.backends?.length) throw new Error('Migrated support matrix is incomplete.');
 const referenceModules = [...modules, { id: 'language', sections: languageSections }];
 for (const module of referenceModules) for (const section of module.sections) {
@@ -126,10 +129,26 @@ const stdlibTables = [...moduleSource.matchAll(/case "(std\/[^"]+)":([\s\S]*?)(?
 	.filter(Boolean);
 const timeTable = timeSource.match(/func stdlibTimeModule[\s\S]*?return makeModule\([^,]+,[\s\S]*?map\[string\]Value\{([\s\S]*?)\}\), nil/);
 if (timeTable) stdlibTables.push([timeTable[0], 'std/time', timeTable[1]]);
+function wrapperExports(source, functionName) {
+  const start = source.indexOf(`func ${functionName}`);
+  const end = source.indexOf('\nfunc ', start + 6);
+  source = source.slice(start, end < 0 ? source.length : end);
+  return sortedUnique([
+    ...source.matchAll(/^\s*"([^"\n]+)":\s*(?:functionValueOf|contextFunctionValueOf|stringValue|uintValue|intValue)/gm),
+    ...source.matchAll(/\["([^"\n]+)"\]\s*=/g),
+  ].map((match) => match[1]));
+}
+stdlibTables.push([task120Source, 'std/regex', wrapperExports(task120Source, 'task120RegexModule')]);
+stdlibTables.push([task120Source, 'std/compress', [...new Set([...wrapperExports(task120Source, 'task120CompressionModule'), ...wrapperExports(task120Source, 'task120ArchiveModule')])]]);
+stdlibTables.push([task120Source, 'std/config', wrapperExports(task120Source, 'task120ConfigModule')]);
+stdlibTables.push([task120Source, 'std/i18n', wrapperExports(task120Source, 'task120I18nModule')]);
+stdlibTables.push([task121Source, 'std/db', wrapperExports(task121Source, 'task121DatabaseModule')]);
+stdlibTables.push([task122Source, 'std/telemetry', wrapperExports(task122Source, 'task122TelemetryModule')]);
 if (!stdlibTables.length) throw new Error('Cannot locate stdlib export tables for reference coverage.');
 const implementedStdlibExports = new Map();
 for (const [, moduleName, table] of stdlibTables) {
-	const exports = [...table.matchAll(/^\s*"([^"]+)":\s+(?:functionValueOf|contextFunctionValueOf|numberValue|durationValue|stringValue|timeLocationValueOf)/gm)].map((match) => match[1]);
+	const exports = Array.isArray(table) ? table : [...table.matchAll(/^\s*"([^"]+)":\s+(?:functionValueOf|contextFunctionValueOf|numberValue|durationValue|stringValue|timeLocationValueOf)/gm)].map((match) => match[1]);
+	if (moduleName === 'std/regex') exports.push('is_match');
 	implementedStdlibExports.set(moduleName, exports);
 	const undocumented = exports.filter((name) => !documentedNames.has(name));
 	if (undocumented.length) throw new Error(`Canonical reference is missing ${moduleName} exports: ${undocumented.join(', ')}.`);
@@ -201,7 +220,7 @@ for (const section of constants.global.sections) {
 const specialFormBlock = runtimeSource.slice(runtimeSource.indexOf('func specialFormName'), runtimeSource.indexOf('func builtinHasTaskEffect'));
 const specialForms = [...specialFormBlock.matchAll(/case ([^:]+):/g)].flatMap((line) => [...line[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
 const technicalIndexes = technical.sections.find((section) => section.id === 'surface-indexes')?.indexes || [];
-for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os']) {
+for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os', 'std/regex', 'std/compress', 'std/config', 'std/i18n', 'std/db', 'std/telemetry']) {
 	const index = technicalIndexes.find((candidate) => candidate.title === `${moduleName} exports`);
 	const documented = index?.source ? technical[index.source] : index?.items || [];
 	const implemented = moduleName === 'std/os' ? implementedStdOSExports : implementedStdlibExports.get(moduleName) || [];

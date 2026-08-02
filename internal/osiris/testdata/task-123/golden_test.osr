@@ -1,0 +1,3 @@
+// osiris:test name="golden-value"
+// osiris:golden path="golden-value.json"
+emit [1, "stable"]

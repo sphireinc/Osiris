@@ -3020,6 +3020,41 @@
           "example": "emit product([1, 2, 3, 4])"
         }
       ]
+    },
+    {
+      "id": "regex",
+      "title": "std/regex",
+      "summary": "Bounded deterministic RE2 regular expressions."
+    },
+    {
+      "id": "compress",
+      "title": "std/compress",
+      "summary": "Bounded deterministic compression and safe archive operations."
+    },
+    {
+      "id": "config",
+      "title": "std/config",
+      "summary": "Ordered bounded configuration parsing and validation."
+    },
+    {
+      "id": "i18n",
+      "title": "std/i18n",
+      "summary": "Embedded versioned locale formatting."
+    },
+    {
+      "id": "db",
+      "title": "std/db",
+      "summary": "Capability-gated parameterized database access with deterministic embedded fixtures."
+    },
+    {
+      "id": "telemetry",
+      "title": "std/telemetry",
+      "summary": "Bounded structured logs, metrics, traces, and deterministic capture."
+    },
+    {
+      "id": "testing",
+      "title": "osiris test",
+      "summary": "Language-native discovery, assertions, fixtures, benchmarks, coverage, fuzzing, and goldens."
     }
   ]
 }
