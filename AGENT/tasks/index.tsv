@@ -67,7 +67,7 @@
 116|tasks/116-add-deterministic-scope-bound-cleanup.md|ready|unassigned|013,045,102,109|Add reliable scope-bound cleanup across returns, failures, cancellation, resources, and native execution
 117|tasks/117-implement-capability-gated-c-ffi.md|blocked|unassigned|036,041,046,047,109,116|Wait for cleanup semantics; then implement the approved capability-gated C interoperability boundary
 118|tasks/completed/118-expand-networking-with-http-tls-udp-and-dns.md|complete|codex|011,012,035,045,046,116,117|Bounded UDP/DNS/TLS/HTTP 1.1 client-server networking, dynamic handlers, cancellation, security limits, structured errors, backend policy, tests, and documentation complete
-119|tasks/119-add-process-environment-and-os-integration.md|blocked|unassigned|014,035,045,046,102,116,117|Wait for cleanup and FFI; then add processes, environment access, signals, and filesystem watching
+119|tasks/completed/119-add-process-environment-and-os-integration.md|complete|codex|014,035,045,046,102,116,117|Capability-gated process, environment, signal, and filesystem-watch integration with cancellation, cleanup, backend policy, tests, and documentation complete
 120|tasks/120-add-regex-compression-configuration-and-i18n.md|blocked|unassigned|036,040,046,103,116,117|Wait for cleanup and FFI; then add bounded text, compression, configuration, and locale facilities
 121|tasks/121-add-database-access.md|blocked|unassigned|013,045,046,111,116,117|Wait for structs, cleanup, and FFI; then add a typed cancellable database layer
 122|tasks/122-add-structured-logging-and-telemetry.md|blocked|unassigned|014,035,045,046,116,119|Wait for cleanup and OS context; then add structured logs, metrics, traces, and exporters
