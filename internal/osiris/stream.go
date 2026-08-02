@@ -23,6 +23,7 @@ type streamValue struct {
 	reader  *bufio.Reader
 	writer  *bufio.Writer
 	closer  io.Closer
+	stdFile *stdOSFileHandle
 	closed  bool
 }
 

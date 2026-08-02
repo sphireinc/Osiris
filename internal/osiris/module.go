@@ -483,16 +483,7 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, map[string]Value{
-			"args":             contextFunctionValueOf("std/os.args", func(ctx context.Context, args []Value) (Value, error) { return osArgsValue(rt, ctx, args) }),
-			"env":              contextFunctionValueOf("std/os.env", func(ctx context.Context, args []Value) (Value, error) { return osEnvValue(rt, ctx, args) }),
-			"env_names":        contextFunctionValueOf("std/os.env_names", func(ctx context.Context, args []Value) (Value, error) { return osEnvNamesValue(rt, ctx, args) }),
-			"process_spawn":    contextFunctionValueOf("std/os.process_spawn", func(ctx context.Context, args []Value) (Value, error) { return processSpawnContextValue(rt, ctx, args) }),
-			"process_wait":     contextFunctionValueOf("std/os.process_wait", func(ctx context.Context, args []Value) (Value, error) { return processWaitContextValue(rt, ctx, args) }),
-			"process_kill":     contextFunctionValueOf("std/os.process_kill", func(ctx context.Context, args []Value) (Value, error) { return processKillContextValue(rt, ctx, args) }),
-			"signal_subscribe": contextFunctionValueOf("std/os.signal_subscribe", func(ctx context.Context, args []Value) (Value, error) { return osSignalContextValue(rt, ctx, args) }),
-			"watch":            contextFunctionValueOf("std/os.watch", func(ctx context.Context, args []Value) (Value, error) { return osWatchContextValue(rt, ctx, args) }),
-		}), nil
+		return makeModule(name, version, stdOSModule(rt)), nil
 	case "std/list":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {

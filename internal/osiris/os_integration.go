@@ -160,6 +160,11 @@ func (r *Runtime) SetCommandLineArgs(args []string) {
 	r.injectedArgs = make([]string, len(args))
 	copy(r.injectedArgs, args)
 	r.osMu.Unlock()
+	if r.stdOSTest != nil {
+		r.stdOSTest.mu.Lock()
+		r.stdOSTest.args = append([]string(nil), args...)
+		r.stdOSTest.mu.Unlock()
+	}
 }
 
 func (r *Runtime) SetEnvironment(values map[string]string) {
@@ -173,6 +178,14 @@ func (r *Runtime) SetEnvironment(values map[string]string) {
 	}
 	r.environmentSet = true
 	r.osMu.Unlock()
+	if r.stdOSTest != nil {
+		r.stdOSTest.mu.Lock()
+		r.stdOSTest.env = make(map[string]string, len(values))
+		for key, value := range values {
+			r.stdOSTest.env[key] = value
+		}
+		r.stdOSTest.mu.Unlock()
+	}
 }
 
 // setOSProcessProvider and setOSSnapshotProvider are deterministic host-test
@@ -224,6 +237,12 @@ func osArgsValue(rt *Runtime, _ context.Context, args []Value) (Value, error) {
 	if rt == nil {
 		return stringListValue(os.Args[1:]), nil
 	}
+	if rt.stdOSTest != nil {
+		rt.osMu.RLock()
+		values := append([]string(nil), rt.injectedArgs...)
+		rt.osMu.RUnlock()
+		return stringListValue(values), nil
+	}
 	rt.osMu.RLock()
 	values := append([]string(nil), rt.injectedArgs...)
 	injected := rt.injectedArgs != nil
@@ -250,6 +269,15 @@ func osEnvValue(rt *Runtime, _ context.Context, args []Value) (Value, error) {
 		return nullValue(), err
 	}
 	name := args[0].str
+	if rt != nil && rt.stdOSTest != nil {
+		rt.stdOSTest.mu.RLock()
+		value, ok := rt.stdOSTest.env[name]
+		rt.stdOSTest.mu.RUnlock()
+		if !ok {
+			return noneBuiltin(nil)
+		}
+		return someBuiltin([]Value{stringValue(value)})
+	}
 	var value string
 	var ok bool
 	injected := false
@@ -278,6 +306,19 @@ func osEnvNamesValue(rt *Runtime, _ context.Context, args []Value) (Value, error
 		return nullValue(), err
 	}
 	values := map[string]string{}
+	if rt != nil && rt.stdOSTest != nil {
+		rt.stdOSTest.mu.RLock()
+		for key := range rt.stdOSTest.env {
+			values[key] = ""
+		}
+		rt.stdOSTest.mu.RUnlock()
+		names := make([]string, 0, len(values))
+		for key := range values {
+			names = append(names, key)
+		}
+		sort.Strings(names)
+		return stringListValue(names), nil
+	}
 	if rt != nil {
 		rt.osMu.RLock()
 		if rt.environmentSet {

@@ -2818,6 +2818,54 @@
           "example": "import \"std/os\" as os; emit os.env_names()"
         },
         {
+          "name": "filesystem",
+          "syntax": "open/create/open_file/create_temp/pipe/read/write/read_at/write_at/seek_file/sync/close/read_file/write_file/read_dir/stat/lstat",
+          "returns": "owned file streams, bounded byte lists, metadata maps, or operation status",
+          "summary": "Open and manipulate files through explicit owned handles and bounded convenience operations.",
+          "details": ["File APIs require the corresponding `os.file_read`, `os.file_write`, `os.file_metadata`, or directory capability. `read_file` is capped at 1 MiB; directory names are sorted; file handles are closed with `close` and compose with `defer`.", "`read` and `write` operate on handles, while `read_at`, `write_at`, `seek_file`, `sync`, and `write_string` expose the common Go `File` operations without leaking host descriptors."],
+          "example": "import \"std/os\" as os\nlet file = os.create(\"todo.txt\")\ndefer { os.close(file) }\nos.write_string(file, \"buy milk\\n\")\nemit os.stat(\"todo.txt\")"
+        },
+        {
+          "name": "filesystem_mutation",
+          "syntax": "mkdir/mkdir_all/remove/remove_all/rename/truncate/chmod/chown/lchown/chtimes/link/symlink/readlink",
+          "returns": "bool or a target string",
+          "summary": "Mutate paths and inspect links under explicit filesystem capabilities.",
+          "details": ["Mutation is never inferred from an import. `os.file_mutate`, `os.directory_mutate`, and `os.symlink` are separate grants, and fake test runtimes apply the same calls to their in-memory tree."],
+          "example": "import \"std/os\" as os\nos.mkdir_all(\"cache/items\", 493)\nemit os.read_dir(\"cache\")"
+        },
+        {
+          "name": "rooted_filesystem",
+          "syntax": "open_root(path)",
+          "returns": "root handle map",
+          "summary": "Create a path-confined root for explicit rooted filesystem operations.",
+          "details": ["Root paths reject lexical traversal outside the selected root. The portable API does not claim resistance to a concurrent symlink swap; deployments requiring that guarantee must use an OS-specific descriptor-relative boundary."],
+          "example": "import \"std/os\" as os\nlet root = os.open_root(\"./workspace\")\nemit root"
+        },
+        {
+          "name": "environment",
+          "syntax": "getenv/lookup_env/environ/setenv/unsetenv/expand_env",
+          "returns": "Option<string>, sorted list<string>, bool, or string",
+          "summary": "Read and explicitly mutate the selected process environment.",
+          "details": ["Reads require `os.environment`; mutation requires `os.environment_mutate`. `NewTestRuntime` uses an isolated environment overlay, and host mutation is never performed by import or by ordinary read calls."],
+          "example": "import \"std/os\" as os\nemit os.expand_env(\"$HOME/cache\")"
+        },
+        {
+          "name": "identity",
+          "syntax": "hostname/getpid/getppid/getuid/geteuid/getgid/getegid/getpagesize/getwd/chdir/user_home_dir/user_config_dir/user_cache_dir",
+          "returns": "string or integer",
+          "summary": "Read capability-gated host identity and platform-directory information.",
+          "details": ["Identity access requires `os.system_identity`. Test runtimes return deterministic values and do not expose the host account or current directory."],
+          "example": "import \"std/os\" as os\nemit os.hostname()"
+        },
+        {
+          "name": "process_handles",
+          "syntax": "find_process/start_process/process_signal/process_release/process_state",
+          "returns": "owned process handle, state map, or bool",
+          "summary": "Inspect and control process handles with separate capabilities.",
+          "details": ["Process arguments remain shell-free. `process_release` and `close` relinquish owned state; test runtimes use deterministic simulated processes, while real process creation and signaling require explicit grants."],
+          "example": "import \"std/os\" as os\nlet child = os.start_process(\"tool\", [], null)\nemit os.process_state(child.process)"
+        },
+        {
           "name": "process_spawn",
           "syntax": "process_spawn(command, arguments[, options])",
           "returns": "map containing an `os_process` and stdin/stdout/stderr streams",

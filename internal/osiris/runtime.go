@@ -45,6 +45,7 @@ type Runtime struct {
 	environmentSet   bool
 	processProvider  osProcessProvider
 	snapshotProvider osSnapshotProvider
+	stdOSTest        *stdOSTestState
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,
@@ -72,6 +73,21 @@ func NewRuntime() *Runtime {
 	r.ContextBuiltins["ffi_const"] = ffiConstantContextValue
 	r.ContextBuiltins["ffi_close"] = ffiCloseContextValue
 	registerConstants(r.Constants)
+	return r
+}
+
+// NewTestRuntime constructs an isolated runtime for language-level tests.
+// std/os uses deterministic in-memory providers in this mode; application
+// code continues to call the ordinary std/os API and does not need to supply
+// Go-side mocks. Host access is never enabled implicitly by this constructor.
+func NewTestRuntime() *Runtime {
+	r := NewRuntime()
+	r.stdOSTest = newStdOSTestState()
+	r.SetClock(func() time.Time { return time.Unix(0, 0).UTC() })
+	r.setOSProcessProvider(stdOSFakeProcessProvider(r))
+	for _, capability := range stdOSCapabilities() {
+		r.GrantCapability(capability)
+	}
 	return r
 }
 
