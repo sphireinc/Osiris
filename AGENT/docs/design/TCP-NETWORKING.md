@@ -59,21 +59,35 @@ must choose a sufficient maximum to distinguish an exactly full datagram.
 operation context.
 
 `tls_dial` uses certificate and hostname verification, TLS 1.2 minimum, and
-ALPN `http/1.1`; `tls_dial_config` accepts an explicit PEM root set. Neither
-form accepts an insecure-skip-verify option. `tls_listen` requires absolute
-certificate/key paths, TLS 1.2 minimum, and advertises HTTP/1.1. `http_get`
-and `http_request` use HTTP/1.1, cap redirects at five, headers at 256 entries,
-and request/response bodies at 8 MiB. Response headers are returned as sorted
-`[name, value]` pairs. `http_request_stream` exposes a bounded `body_stream`
-whose ownership lasts until `close`; the same stream API can supply a request
-body. `http_serve` is a cancellable static responder intended for local
-fixtures and health endpoints; dynamic Osiris callbacks are not allowed to
-outlive their task and remain a separate API.
+ALPN `http/1.1`; `tls_dial_config` accepts an explicit PEM root set and
+requires a non-empty server name. Neither form accepts an insecure-skip-verify
+option. `tls_listen` requires absolute certificate/key paths, TLS 1.2 minimum,
+and advertises HTTP/1.1. `http_get` and `http_request` use HTTP/1.1, cap
+redirects at five, headers at 256 entries, and request/response bodies at 8
+MiB. Response headers are returned as sorted `[name, value]` pairs.
+`http_request_stream` exposes a bounded `body_stream` whose ownership lasts
+until `close`; a request stream body is bounded by the same 8 MiB limit.
+
+`http_serve(listener, body[, status])` remains the static responder form.
+`http_serve(listener, handler)` is the dynamic form: each handler receives a
+request map with `method`, `url`, sorted `[name, value]` header pairs, bounded
+`body`, and `remote_addr`; it must return a response map containing optional
+`status`, `headers`, and bounded `body`. Handler failures become an HTTP 500
+response and oversized request bodies are rejected with HTTP 413. Handler
+calls are serialized per Osiris session, cannot emit output from a background
+request, and are cancelled with the serving context. Server shutdown waits
+for `http.Server.Shutdown` and returns the serving context's structured
+cancellation error.
 
 ## Validation and native boundary
 
-Loopback-only integration tests must cover listen/dial/accept, bidirectional
-line/chunk transfer, close/unblock behavior, deadline, and cancellation.
+Loopback-only integration tests cover listen/dial/accept, bidirectional
+line/chunk transfer, close/unblock behavior, deadline, cancellation, UDP
+truncation/cancellation, DNS policy and ordering, explicit-root TLS
+verification, dynamic HTTP responses, redirect/body/header limits, and
+graceful shutdown. Go's HTTP parser rejects malformed request framing before
+an Osiris handler runs; the runtime additionally rejects invalid header names,
+control characters, ambiguous oversized bodies, and unsafe TLS configuration.
 The deterministic task-debug scheduler must retain observable ordering and
 termination. Networking is interpreter/VM host I/O only; native lowering must
 reject it with a source-spanned capability diagnostic until a separate native

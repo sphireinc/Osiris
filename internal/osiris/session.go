@@ -18,6 +18,7 @@ type Session struct {
 	ev             *evaluator
 	outputs        *[]Value
 	outputsMu      sync.Mutex
+	networkMu      sync.Mutex
 	emitAllowed    bool
 	moduleStack    []string
 	packageName    string

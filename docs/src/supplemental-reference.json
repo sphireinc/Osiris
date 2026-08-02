@@ -1254,8 +1254,20 @@
       "summary": "A nominal closed case value with optional payload fields."
     },
     {
+      "name": "ffi_handle",
+      "summary": "An opaque capability-scoped native handle declared by an FFI manifest."
+    },
+    {
+      "name": "ffi_library",
+      "summary": "An owned, digest-verified native library loaded through a capability-gated FFI manifest."
+    },
+    {
       "name": "tcp_listener",
       "summary": "An owned host TCP listening resource."
+    },
+    {
+      "name": "udp_socket",
+      "summary": "An owned bounded UDP packet endpoint."
     },
     {
       "name": "duration",
@@ -1530,6 +1542,7 @@
         },
         {
           "name": "map",
+          "anchor": "map-result",
           "aliases": [
             "map_error",
             "flat_map"
@@ -1769,6 +1782,7 @@
         {
           "kind": "type",
           "name": "map",
+          "anchor": "map-type",
           "signature": "map<K, V>",
           "description": "An ordered collection of key/value entries.",
           "parameters": "Keys and values may use the existing runtime value families.",

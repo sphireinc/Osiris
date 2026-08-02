@@ -381,6 +381,9 @@ func tlsDialConfigContextValue(ctx context.Context, args []Value) (Value, error)
 	if err != nil {
 		return nullValue(), err
 	}
+	if strings.TrimSpace(serverName) == "" {
+		return nullValue(), networkFailure("tls_dial_config", address, fmt.Errorf("server name must not be empty"))
+	}
 	rootsPEM, err := args[2].AsString()
 	if err != nil {
 		return nullValue(), err
@@ -468,16 +471,63 @@ func headerMap(args Value) (http.Header, error) {
 	}
 	for _, entry := range args.mapValue.entries {
 		name, err := entry.key.AsString()
-		if err != nil || strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\r\n") {
+		if err != nil || !validHTTPHeaderName(name) {
 			return nil, fmt.Errorf("invalid HTTP header name")
 		}
 		value, err := entry.value.AsString()
-		if err != nil || strings.ContainsAny(value, "\r\n") {
+		if err != nil || !validHTTPHeaderValue(value) {
 			return nil, fmt.Errorf("invalid HTTP header value")
 		}
 		header.Set(name, value)
 	}
 	return header, nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	if name == "" || strings.TrimSpace(name) != name {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			continue
+		}
+		switch c {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validHTTPHeaderValue(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\r' || value[i] == '\n' || value[i] == 0 || (value[i] < 0x20 && value[i] != '\t') || value[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validateHTTPResponseHeaders(response *http.Response) error {
+	if response == nil {
+		return fmt.Errorf("missing HTTP response")
+	}
+	if len(response.Header) > maxHTTPHeaders {
+		return fmt.Errorf("HTTP response has more than %d headers", maxHTTPHeaders)
+	}
+	for name, values := range response.Header {
+		if !validHTTPHeaderName(name) || len(values) > maxHTTPHeaders {
+			return fmt.Errorf("invalid or excessive HTTP response headers")
+		}
+		for _, value := range values {
+			if !validHTTPHeaderValue(value) {
+				return fmt.Errorf("invalid HTTP response header value")
+			}
+		}
+	}
+	return nil
 }
 
 func httpResponseValue(response *http.Response, body []byte) Value {
@@ -524,25 +574,60 @@ func (reader streamBodyReader) Read(buffer []byte) (int, error) {
 	return underlying.Read(buffer)
 }
 
-type boundedResponseBody struct {
-	reader io.Reader
-	closer io.Closer
-	read   int64
+type boundedRequestBody struct {
+	reader   io.Reader
+	read     int64
+	tooLarge bool
 }
 
-func (body *boundedResponseBody) Read(buffer []byte) (int, error) {
-	if body.read >= maxHTTPBodyBytes {
-		return 0, fmt.Errorf("HTTP response body exceeds %d bytes", maxHTTPBodyBytes)
+func (body *boundedRequestBody) Read(buffer []byte) (int, error) {
+	if body.tooLarge {
+		return 0, fmt.Errorf("HTTP request body exceeds %d bytes", maxHTTPBodyBytes)
+	}
+	if body.read == maxHTTPBodyBytes {
+		var probe [1]byte
+		n, err := body.reader.Read(probe[:])
+		if n > 0 {
+			body.tooLarge = true
+			return 0, fmt.Errorf("HTTP request body exceeds %d bytes", maxHTTPBodyBytes)
+		}
+		return 0, err
 	}
 	remaining := maxHTTPBodyBytes - body.read
-	if int64(len(buffer)) > remaining+1 {
-		buffer = buffer[:remaining+1]
+	if int64(len(buffer)) > remaining {
+		buffer = buffer[:remaining]
 	}
 	n, err := body.reader.Read(buffer)
 	body.read += int64(n)
-	if body.read > maxHTTPBodyBytes {
-		return n, fmt.Errorf("HTTP response body exceeds %d bytes", maxHTTPBodyBytes)
+	return n, err
+}
+
+type boundedResponseBody struct {
+	reader   io.Reader
+	closer   io.Closer
+	read     int64
+	tooLarge bool
+}
+
+func (body *boundedResponseBody) Read(buffer []byte) (int, error) {
+	if body.tooLarge {
+		return 0, fmt.Errorf("HTTP response body exceeds %d bytes", maxHTTPBodyBytes)
 	}
+	if body.read == maxHTTPBodyBytes {
+		var probe [1]byte
+		n, err := body.reader.Read(probe[:])
+		if n > 0 {
+			body.tooLarge = true
+			return 0, fmt.Errorf("HTTP response body exceeds %d bytes", maxHTTPBodyBytes)
+		}
+		return 0, err
+	}
+	remaining := maxHTTPBodyBytes - body.read
+	if int64(len(buffer)) > remaining {
+		buffer = buffer[:remaining]
+	}
+	n, err := body.reader.Read(buffer)
+	body.read += int64(n)
 	return n, err
 }
 
@@ -573,7 +658,7 @@ func httpRequestStreamContextValue(ctx context.Context, args []Value) (Value, er
 	var requestBody io.Reader
 	if len(args) >= 4 && args[3].kind != kindNull {
 		if args[3].kind == kindStream {
-			requestBody = streamBodyReader{stream: args[3].stream}
+			requestBody = &boundedRequestBody{reader: streamBodyReader{stream: args[3].stream}}
 		} else {
 			data, dataErr := bytesFromValue(args[3])
 			if dataErr != nil {
@@ -612,6 +697,10 @@ func httpRequestStreamContextValue(ctx context.Context, args []Value) (Value, er
 	}}
 	response, err := client.Do(request)
 	if err != nil {
+		return nullValue(), networkFailure("http_request_stream", url, err)
+	}
+	if err := validateHTTPResponseHeaders(response); err != nil {
+		_ = response.Body.Close()
 		return nullValue(), networkFailure("http_request_stream", url, err)
 	}
 	body := &boundedResponseBody{reader: response.Body, closer: response.Body}
@@ -690,6 +779,9 @@ func httpRequestContextValue(ctx context.Context, args []Value) (Value, error) {
 		return nullValue(), networkFailure("http_request", url, err)
 	}
 	defer response.Body.Close()
+	if err := validateHTTPResponseHeaders(response); err != nil {
+		return nullValue(), networkFailure("http_request", url, err)
+	}
 	reader := io.LimitReader(response.Body, maxHTTPBodyBytes+1)
 	data, err := io.ReadAll(reader)
 	if err != nil {
@@ -712,28 +804,157 @@ func httpGetContextValue(ctx context.Context, args []Value) (Value, error) {
 	return httpRequestContextValue(ctx, requestArgs)
 }
 
-// httpServeContextValue is intentionally a bounded static responder. Dynamic
-// handler callbacks require task/closure lifetime rules and remain a separate
-// API; this primitive is enough for local health endpoints and fixtures while
-// retaining cancellation and graceful listener shutdown.
+func httpMapField(value Value, name string) (Value, bool) {
+	if value.kind != kindMap || value.mapValue == nil {
+		return nullValue(), false
+	}
+	for _, entry := range value.mapValue.entries {
+		if entry.key.kind == kindString && entry.key.str == name {
+			return entry.value, true
+		}
+	}
+	return nullValue(), false
+}
+
+func httpRequestValue(request *http.Request) (Value, error) {
+	if request == nil {
+		return nullValue(), fmt.Errorf("missing HTTP request")
+	}
+	var body []byte
+	var err error
+	if request.Body != nil {
+		body, err = io.ReadAll(io.LimitReader(request.Body, maxHTTPBodyBytes+1))
+		if closeErr := request.Body.Close(); err == nil {
+			err = closeErr
+		}
+	}
+	if err != nil {
+		return nullValue(), err
+	}
+	if len(body) > maxHTTPBodyBytes {
+		return nullValue(), fmt.Errorf("HTTP request body exceeds %d bytes", maxHTTPBodyBytes)
+	}
+	keys := make([]string, 0, len(request.Header))
+	for key := range request.Header {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	entries := make([]Value, 0, len(keys))
+	for _, key := range keys {
+		values := append([]string(nil), request.Header.Values(key)...)
+		sort.Strings(values)
+		for _, value := range values {
+			entries = append(entries, tupleValue([]Value{stringValue(key), stringValue(value)}))
+		}
+	}
+	return mapValueOf([]mapEntry{
+		{key: stringValue("method"), value: stringValue(request.Method)},
+		{key: stringValue("url"), value: stringValue(request.URL.String())},
+		{key: stringValue("headers"), value: listValue(entries)},
+		{key: stringValue("body"), value: stringValue(string(body))},
+		{key: stringValue("remote_addr"), value: stringValue(request.RemoteAddr)},
+	}), nil
+}
+
+func invokeHTTPHandler(ctx context.Context, handler, request Value) (Value, error) {
+	if handler.kind != kindFunction || handler.fn == nil {
+		return nullValue(), fmt.Errorf("HTTP handler must be a function")
+	}
+	if err := contextError(ctx); err != nil {
+		return nullValue(), err
+	}
+	if handler.fn.builtin != nil {
+		return handler.fn.builtin([]Value{request})
+	}
+	if handler.fn.contextBuiltin != nil {
+		return handler.fn.contextBuiltin(ctx, []Value{request})
+	}
+	session := handler.fn.session
+	if session == nil {
+		return nullValue(), fmt.Errorf("HTTP handler has no execution session")
+	}
+	// A user closure retains its lexical environment. Serialize requests and
+	// temporarily bind the request context so captured state cannot be mutated
+	// concurrently by multiple net/http handler goroutines.
+	session.networkMu.Lock()
+	defer session.networkMu.Unlock()
+	previousContext, previousEvaluatorContext := session.ctx, session.ev.ctx
+	previousEmitAllowed := session.emitAllowed
+	session.ctx, session.ev.ctx = ctx, ctx
+	session.emitAllowed = false
+	defer func() {
+		session.ctx, session.ev.ctx = previousContext, previousEvaluatorContext
+		session.emitAllowed = previousEmitAllowed
+	}()
+	return session.eval(&callExpr{
+		callee: &literalExpr{value: handler},
+		args:   []Expr{&literalExpr{value: request}},
+	}, session.scope)
+}
+
+func httpHandlerResponse(value Value) (int, http.Header, []byte, error) {
+	if value.kind != kindMap || value.mapValue == nil {
+		return 0, nil, nil, fmt.Errorf("HTTP handler must return a response map")
+	}
+	status := 200
+	if field, ok := httpMapField(value, "status"); ok {
+		parsed, err := field.Int()
+		if err != nil || parsed < 100 || parsed > 599 {
+			return 0, nil, nil, fmt.Errorf("HTTP response status must be between 100 and 599")
+		}
+		status = parsed
+	}
+	header := make(http.Header)
+	if field, ok := httpMapField(value, "headers"); ok {
+		var err error
+		header, err = headerMap(field)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+	}
+	body := []byte{}
+	if field, ok := httpMapField(value, "body"); ok && field.kind != kindNull {
+		var err error
+		body, err = bytesFromValue(field)
+		if err != nil {
+			return 0, nil, nil, fmt.Errorf("HTTP response body: %w", err)
+		}
+		if len(body) > maxHTTPBodyBytes {
+			return 0, nil, nil, fmt.Errorf("HTTP response body exceeds %d bytes", maxHTTPBodyBytes)
+		}
+	}
+	return status, header, body, nil
+}
+
+// httpServeContextValue supports both the backwards-compatible static form
+// `http_serve(listener, body[, status])` and a bounded dynamic form whose
+// handler receives a request map and returns a response map. Handler calls are
+// serialized per Osiris session, cancellation closes the server, and emits are
+// forbidden from background request goroutines.
 func httpServeContextValue(ctx context.Context, args []Value) (Value, error) {
 	if len(args) < 2 || len(args) > 3 {
-		return nullValue(), fmt.Errorf("http_serve expects listener, response body, and optional status")
+		return nullValue(), fmt.Errorf("http_serve expects listener, handler/body, and optional status")
 	}
 	listener, err := args[0].AsTCPListener()
 	if err != nil {
 		return nullValue(), err
 	}
-	body, err := args[1].AsString()
-	if err != nil {
-		return nullValue(), err
-	}
+	dynamic := args[1].kind == kindFunction
+	body := ""
 	status := 200
-	if len(args) == 3 {
-		status, err = args[2].Int()
-		if err != nil || status < 100 || status > 599 {
-			return nullValue(), fmt.Errorf("http_serve status must be between 100 and 599")
+	if !dynamic {
+		body, err = args[1].AsString()
+		if err != nil {
+			return nullValue(), err
 		}
+		if len(args) == 3 {
+			status, err = args[2].Int()
+			if err != nil || status < 100 || status > 599 {
+				return nullValue(), fmt.Errorf("http_serve status must be between 100 and 599")
+			}
+		}
+	} else if len(args) == 3 {
+		return nullValue(), fmt.Errorf("dynamic http_serve accepts only listener and handler")
 	}
 	listener.mu.Lock()
 	netListener := listener.listener
@@ -741,10 +962,36 @@ func httpServeContextValue(ctx context.Context, args []Value) (Value, error) {
 	if netListener == nil {
 		return nullValue(), fmt.Errorf("tcp listener is closed")
 	}
-	server := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.WriteHeader(status)
-		_, _ = io.WriteString(writer, body)
-	})}
+	server := &http.Server{MaxHeaderBytes: 1 << 20}
+	server.Handler = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !dynamic {
+			writer.WriteHeader(status)
+			_, _ = io.WriteString(writer, body)
+			return
+		}
+		requestValue, requestErr := httpRequestValue(request)
+		if requestErr != nil {
+			http.Error(writer, "request rejected", http.StatusRequestEntityTooLarge)
+			return
+		}
+		responseValue, handlerErr := invokeHTTPHandler(request.Context(), args[1], requestValue)
+		if handlerErr != nil {
+			http.Error(writer, "handler failed", http.StatusInternalServerError)
+			return
+		}
+		responseStatus, responseHeaders, responseBody, responseErr := httpHandlerResponse(responseValue)
+		if responseErr != nil {
+			http.Error(writer, "invalid handler response", http.StatusInternalServerError)
+			return
+		}
+		for name, values := range responseHeaders {
+			for _, value := range values {
+				writer.Header().Add(name, value)
+			}
+		}
+		writer.WriteHeader(responseStatus)
+		_, _ = writer.Write(responseBody)
+	})
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(netListener) }()
 	select {

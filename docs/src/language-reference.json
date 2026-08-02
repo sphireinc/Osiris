@@ -83,6 +83,22 @@
         "errors": "Cleanup control-flow signals become cleanup failures; cleanup failures never silently erase the original body error.",
         "example": "defer { emit \"outer\" }\ndefer { emit \"inner\" }\nemit \"body\"\n# \"body\"\n# \"inner\"\n# \"outer\"",
         "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "ffi",
+        "signature": "ffi \"manifest-path\" as name",
+        "description": "Load a capability-gated, digest-pinned native FFI manifest into a lexical binding.",
+        "parameters": "The manifest path must be explicit and resolve to a validated declaration. The manifest grants only declared symbols, exact ABI types, ownership, thread affinity, and capabilities.",
+        "returns": "No standalone value; the named binding contains an owned FFI library handle.",
+        "returnValue": "`ffi \"./math.json\" as math` binds `math` after manifest and capability validation.",
+        "details": [
+          "Use `ffi_call`, `ffi_const`, and `close` with the resulting library handle. Absolute library paths, SHA-256 identity, platform/architecture, capability grants, and declaration-driven ABI validation are checked before a library opens.",
+          "The runtime denies undeclared symbols, arbitrary loader search, retained callbacks, background threads, and insecure fallback behavior. Native C uses the same source-spanned capability policy rather than proxying through another runtime."
+        ],
+        "errors": "Malformed manifests, missing grants, digest or platform mismatches, unsupported ABI declarations, and active calls or handles during close are structured FFI errors.",
+        "example": "ffi \"./math.ffi.json\" as native_math\n# use ffi_call(native_math, \"add_f64\", 1.5, 2.5) and close(native_math) after granting the manifest",
+        "exampleStatus": "illustrative"
       }
     ]
   },

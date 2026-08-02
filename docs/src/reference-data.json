@@ -2656,7 +2656,7 @@
     {
       "id": "net",
       "title": "std/net",
-      "summary": "Explicit TCP listener and connection resources.",
+      "summary": "Bounded TCP, UDP, DNS, TLS, and HTTP/1.1 host-network resources.",
       "items": [
         {
           "name": "tcp_listen",
@@ -2693,6 +2693,98 @@
             "Use `close` to release the connection. Connection refusal is `unavailable`, timeout is `timeout`, malformed addresses are `invalid_argument`, and closed local resources are I/O errors; all remain explicit structured errors rather than status values."
           ],
           "example": "let peer = net.tcp_dial(\"127.0.0.1:9000\", 1000)\nwritechunk(peer, \"ping\\n\")\nflush(peer)\nemit readline(peer)\nclose(peer)"
+        },
+        {
+          "name": "udp_bind",
+          "members": ["udp_connect"],
+          "syntax": "udp_bind(address) / udp_connect(address)",
+          "returns": "owned `udp_socket`",
+          "summary": "Create a bounded packet endpoint.",
+          "details": [
+            "`udp_bind` listens at an address and `udp_connect` selects a default peer. `udp_send` accepts byte-compatible data and an optional peer; every packet is bounded to 1 MiB.",
+            "The socket is an owned resource. Register `defer { close(socket) }` after acquisition; close is idempotent and interrupts a pending receive. Networking is hosted interpreter/VM I/O and native C reports a source-spanned unsupported diagnostic."
+          ],
+          "example": "let socket = net.udp_bind(\"127.0.0.1:0\")\ndefer { close(socket) }\nlet sent = net.udp_send(socket, \"hello\")"
+        },
+        {
+          "name": "udp_send",
+          "members": ["udp_receive"],
+          "syntax": "udp_send(socket, data[, peer]) / udp_receive(socket[, max_bytes[, timeout_ms]])",
+          "returns": "bytes written / `(bytes, peer, truncated)`",
+          "summary": "Send or receive one bounded UDP datagram.",
+          "details": [
+            "`udp_receive` returns the packet bytes, the sender address, and a truncation flag. A caller should choose a bound larger than the largest expected datagram when an exactly-full packet must be distinguishable from truncation.",
+            "Timeouts and task cancellation interrupt the operation and become structured `timeout` or `cancelled` errors. Invalid limits, closed sockets, malformed peers, and packets over the 1 MiB cap fail explicitly."
+          ],
+          "example": "let packet = net.udp_receive(socket, 65536, 1000)\nemit packet"
+        },
+        {
+          "name": "dns_lookup",
+          "syntax": "dns_lookup(host[, policy])",
+          "returns": "sorted `list` of address strings",
+          "summary": "Resolve a host under an explicit resolver policy.",
+          "details": [
+            "The optional policy is `system` or `go`; the default is `system`. Results are sorted and duplicate-free so resolver ordering is not observable language state.",
+            "The current task context cancels the lookup. Invalid policies and host errors use structured network diagnostics."
+          ],
+          "example": "let addresses = net.dns_lookup(\"localhost\", \"go\")"
+        },
+        {
+          "name": "tls_dial",
+          "members": ["tls_dial_config"],
+          "syntax": "tls_dial(address[, server_name[, timeout_ms]]) / tls_dial_config(address, server_name, roots_pem[, timeout_ms])",
+          "returns": "verified TLS stream",
+          "summary": "Open a TLS 1.2-or-newer stream with HTTP/1.1 ALPN.",
+          "details": [
+            "Certificate and hostname verification are always enabled. `tls_dial` uses the platform trust roots; `tls_dial_config` requires a non-empty server name and a caller-supplied PEM root set. There is no insecure-skip-verify option.",
+            "The stream uses the normal read/write/flush/close ownership contract. Failed verification, invalid roots, deadlines, cancellation, and connection errors remain structured network errors."
+          ],
+          "example": "let secure = net.tls_dial(\"example.com:443\", \"example.com\", 5000)\ndefer { close(secure) }"
+        },
+        {
+          "name": "tls_listen",
+          "syntax": "tls_listen(address, certificate_path, key_path)",
+          "returns": "TLS-wrapped `tcp_listener`",
+          "summary": "Create a TLS server listener with secure protocol defaults.",
+          "details": [
+            "Certificate and key paths must be absolute. The listener requires TLS 1.2 or newer and advertises only HTTP/1.1 through ALPN.",
+            "The returned listener follows the TCP accept and close lifecycle. Native C does not claim host networking support."
+          ],
+          "example": "let listener = net.tls_listen(\"127.0.0.1:8443\", \"/srv/cert.pem\", \"/srv/key.pem\")"
+        },
+        {
+          "name": "http_get",
+          "members": ["http_request"],
+          "syntax": "http_get(url[, timeout_ms]) / http_request(method, url[, headers[, body[, timeout_ms]]])",
+          "returns": "response map",
+          "summary": "Make a bounded HTTP/1.1 request.",
+          "details": [
+            "Response maps contain `status`, sorted `[name, value]` `headers`, bounded string `body`, and the final `url`. Redirects are limited to five hops; headers are limited to 256 entries and bodies to 8 MiB.",
+            "Header names must be valid HTTP token names and values cannot contain control characters or line breaks. Request cancellation and timeout are propagated through the host client. HTTP/2, QUIC, proxy discovery, and decompression are outside this contract."
+          ],
+          "example": "let response = net.http_get(\"https://example.com\", 5000)\nemit response.body"
+        },
+        {
+          "name": "http_request_stream",
+          "syntax": "http_request_stream(method, url[, headers[, body[, timeout_ms]]])",
+          "returns": "response map with owned `body_stream`",
+          "summary": "Make a bounded request while retaining a streaming response body.",
+          "details": [
+            "The returned `body_stream` remains owned by the caller until `close`; reads are capped at 8 MiB and expose an overflow error rather than silently accepting extra bytes. A stream body supplied as the request is bounded by the same limit.",
+            "Close the body stream on every path. The response status, final URL, and deterministic headers are available before the body is consumed."
+          ],
+          "example": "let response = net.http_request_stream(\"GET\", \"https://example.com\")\nlet body = response.body_stream\ndefer { close(body) }\nemit readchunk(body, 4096)"
+        },
+        {
+          "name": "http_serve",
+          "syntax": "http_serve(listener, body[, status]) / http_serve(listener, handler)",
+          "returns": "never until cancellation, shutdown, or listener failure",
+          "summary": "Run a cancellable HTTP/1.1 static or dynamic server.",
+          "details": [
+            "The static form serves a bounded body and status. The dynamic form calls `handler(request)` with `method`, `url`, sorted header pairs, bounded `body`, and `remote_addr`; it expects a response map with optional `status`, `headers`, and bounded `body`.",
+            "Handlers are serialized per Osiris session so captured state is not concurrently mutated, and background handlers cannot emit. Invalid requests produce 413, handler or response errors produce 500, and cancellation performs graceful shutdown."
+          ],
+          "example": "func handler(request) => { status: 200, headers: {\"Content-Type\": \"text/plain\"}, body: \"ok\" }\nhttp_serve(listener, handler)"
         }
       ]
     },
