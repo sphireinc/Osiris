@@ -1258,6 +1258,18 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if name, ok := specialFormName(n.callee); ok {
 		return evalSpecialForm(ev, name, n.args, curScope, n.Span)
 	}
+	if ident, ok := n.callee.(*identExpr); ok && ident.name == "close" {
+		args, err := evalMany(ev, n.args, curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		value, err := closeResourceValue(ev, args, curScope)
+		sourceName := ""
+		if ev.session != nil {
+			sourceName = ev.session.sourceName
+		}
+		return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
+	}
 
 	callee, err := ev.eval(n.callee, curScope)
 	if err != nil {
@@ -2380,17 +2392,117 @@ func evalMany(ev *evaluator, exprs []Expr, scope *scope) ([]Value, error) {
 	if len(exprs) == 0 {
 		return nil, nil
 	}
+	if ev == nil {
+		return nil, fmt.Errorf("expression evaluation requires an evaluator")
+	}
+	// Preserve the caller's lexical session for the single-expression case.
+	// Besides avoiding scheduler overhead, this keeps ordinary calls that
+	// emit from being mistaken for concurrent execution.
+	if len(exprs) == 1 {
+		value, err := ev.eval(exprs[0], scope)
+		if err != nil {
+			return nil, err
+		}
+		return []Value{value}, nil
+	}
+	if ev.session == nil {
+		values := make([]Value, len(exprs))
+		for i, expr := range exprs {
+			value, err := ev.eval(expr, scope)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = value
+		}
+		return values, nil
+	}
+	if !canScheduleEvalMany(ev, exprs) {
+		values := make([]Value, len(exprs))
+		for i, expr := range exprs {
+			value, err := ev.eval(expr, scope)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = value
+		}
+		return values, nil
+	}
+	// Keep the scheduler's established concurrent evaluation for list,
+	// tuple, and argument expressions, but give every branch its own Session.
+	// A shared Session would let function-body cleanup frames interleave and
+	// would make one branch pop another branch's active scope. Results and
+	// emitted values are merged in source order after all branches complete.
+	groupCtx, cancel := context.WithCancel(ev.ctx)
+	defer cancel()
+	values := make([]Value, len(exprs))
+	outputs := make([][]Value, len(exprs))
 	tasks := make([]evalTask, len(exprs))
 	for i, expr := range exprs {
 		i, expr := i, expr
 		tasks[i] = evalTask{
 			key: fmt.Sprintf("%08d", i),
 			run: func() (Value, error) {
-				return ev.eval(expr, scope)
+				childCtx, branchCancel := context.WithCancel(groupCtx)
+				defer branchCancel()
+				child := NewSession(ev.rt, childCtx, ev.session.sourceName)
+				child.emitAllowed = ev.session.emitAllowed
+				// The parent scheduler already owns the parallelism for this
+				// expression group. Keep nested binary/list evaluation local so
+				// recursive schedulers cannot exhaust all workers.
+				child.ev.sched.debug = true
+				child.scope = cloneScope(scope)
+				child.packageName = ev.session.packageName
+				child.packageVersion = ev.session.packageVersion
+				child.exportOrder = append([]string(nil), ev.session.exportOrder...)
+				if len(ev.session.exportSet) > 0 {
+					child.exportSet = make(map[string]struct{}, len(ev.session.exportSet))
+					for name := range ev.session.exportSet {
+						child.exportSet[name] = struct{}{}
+					}
+				}
+				child.macros = cloneMacroDefs(ev.session.macros)
+				var branchOutputs []Value
+				child.outputs = &branchOutputs
+				value, err := child.eval(expr, child.scope)
+				if err != nil {
+					return nullValue(), err
+				}
+				values[i] = value
+				outputs[i] = append([]Value(nil), branchOutputs...)
+				return value, nil
 			},
 		}
 	}
-	return ev.sched.run(ev.ctx, tasks)
+	result, err := ev.sched.run(groupCtx, tasks)
+	if err != nil {
+		return nil, err
+	}
+	if ev.session.outputs != nil {
+		for i := range outputs {
+			*ev.session.outputs = append(*ev.session.outputs, outputs[i]...)
+		}
+	}
+	return result, nil
+}
+
+func canScheduleEvalMany(ev *evaluator, exprs []Expr) bool {
+	if ev == nil || len(exprs) < 2 {
+		return false
+	}
+	for _, expr := range exprs {
+		call, ok := expr.(*callExpr)
+		if !ok {
+			return false
+		}
+		ident, ok := call.callee.(*identExpr)
+		if !ok {
+			return false
+		}
+		if _, ok := ev.builtin[ident.name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // applyUnary handles the apply unary step in the surrounding package and
@@ -3087,15 +3199,7 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["readchunk"] = func(args []Value) (Value, error) { return readChunkValue(args) }
 	dst["writechunk"] = func(args []Value) (Value, error) { return writeChunkValue(args) }
 	dst["flush"] = func(args []Value) (Value, error) { return flushStreamValue(args) }
-	dst["close"] = func(args []Value) (Value, error) {
-		if len(args) == 1 && args[0].kind == kindTCPListener {
-			return closeTCPListenerValue(args)
-		}
-		if len(args) == 1 && args[0].kind == kindUDPSocket {
-			return closeUDPSocketValue(args)
-		}
-		return closeStreamValue(args)
-	}
+	dst["close"] = closeBuiltinValue
 	dst["error"] = func(args []Value) (Value, error) { return errorBuiltin(args) }
 	dst["wrap"] = func(args []Value) (Value, error) { return wrapErrorBuiltin(args) }
 	dst["cause"] = func(args []Value) (Value, error) { return causeErrorBuiltin(args) }
@@ -3125,6 +3229,43 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["assert"] = func(args []Value) (Value, error) { return assertBuiltin(args) }
 	dst["matches"] = func(args []Value) (Value, error) { return matchesErrorBuiltin(args) }
 	dst["is"] = func(args []Value) (Value, error) { return isErrorBuiltin(args) }
+}
+
+// closeBuiltinValue closes the built-in owned handles. User-defined
+// resources are dispatched by closeResourceValue so their zero-argument
+// `close` method can participate in the same defer contract.
+func closeBuiltinValue(args []Value) (Value, error) {
+	if len(args) == 1 && args[0].kind == kindTCPListener {
+		return closeTCPListenerValue(args)
+	}
+	if len(args) == 1 && args[0].kind == kindUDPSocket {
+		return closeUDPSocketValue(args)
+	}
+	return closeStreamValue(args)
+}
+
+func closeResourceValue(ev *evaluator, args []Value, scope *scope) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("close expects 1 argument")
+	}
+	value := args[0]
+	switch value.kind {
+	case kindStream, kindTCPListener, kindUDPSocket:
+		return closeBuiltinValue(args)
+	}
+	if ev == nil {
+		return nullValue(), fmt.Errorf("close expects a closable resource")
+	}
+	method, err := resolveMember(ev.ctx, value, "close", ev.rt)
+	if err != nil {
+		return nullValue(), fmt.Errorf("close expects a stream or closable resource: %w", err)
+	}
+	if method.kind != kindFunction || method.fn == nil {
+		return nullValue(), fmt.Errorf("closable resource close member is not callable")
+	}
+	// The member is already receiver-bound by resolveMember. Calling the
+	// literal avoids re-entering the built-in `close` dispatch above.
+	return ev.eval(&callExpr{callee: &literalExpr{value: method}}, scope)
 }
 
 func registerContextBuiltins(dst map[string]contextCallable) {

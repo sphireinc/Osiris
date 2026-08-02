@@ -578,6 +578,8 @@ func collectRawRefsStmtInto(stmt Stmt, out map[string]struct{}) {
 	case returnStmt:
 		collectRawRefsExprInto(st.Expr, out)
 	case importStmt, packageStmt, exportStmt, breakStmt, continueStmt:
+	case deferStmt:
+		collectRawRefsExprInto(st.Body, out)
 	}
 }
 
@@ -722,7 +724,7 @@ func isPureExprSeen(expr Expr, env optimizeEnv, pureNames map[string]struct{}, s
 					shadow = make(optimizeEnv)
 				}
 				shadow[st.Name] = st.Expr
-			case assignStmt, funcStmt, importStmt, emitStmt, returnStmt, whileStmt, forStmt, breakStmt, continueStmt, packageStmt, exportStmt, macroStmt:
+			case assignStmt, funcStmt, importStmt, emitStmt, returnStmt, whileStmt, forStmt, breakStmt, continueStmt, packageStmt, exportStmt, macroStmt, deferStmt:
 				return false
 			}
 		}

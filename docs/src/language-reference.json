@@ -66,6 +66,23 @@
         "errors": "Concurrent execution reports a structured error at the direct `emit` or statically known emitting call. Module initialization reports a source-spanned error.",
         "example": "func announce(value) { emit value; return value + 1 }\nlet result = announce(4)\nemit result\n# 4u64\n# 5u64",
         "exampleStatus": "checked"
+      },
+      {
+        "kind": "construct",
+        "name": "defer",
+        "signature": "defer { cleanup-statements }",
+        "description": "Register one deterministic lexical cleanup action.",
+        "parameters": "The cleanup body is registered when execution reaches the statement. It may use values from the current lexical environment and may call `close` on an owned resource.",
+        "returns": "No standalone value. The action runs once when the containing scope exits.",
+        "returnValue": "Two registrations execute in reverse order, so the last registered action runs first.",
+        "details": [
+          "Cleanup actions are LIFO and run on normal fallthrough, `return`, `break`, `continue`, propagated failure, cancellation, and task termination.",
+          "Cancellation is deferred while cleanup runs. If the body and cleanup both fail, the body error remains primary and cleanup failures remain structured causes in cleanup order.",
+          "The construct is deterministic scope cleanup, not a finalizer. Existing explicit `close` calls remain supported, and closable user resources provide a zero-argument `close` method through the same protocol."
+        ],
+        "errors": "Cleanup control-flow signals become cleanup failures; cleanup failures never silently erase the original body error.",
+        "example": "defer { emit \"outer\" }\ndefer { emit \"inner\" }\nemit \"body\"\n# \"body\"\n# \"inner\"\n# \"outer\"",
+        "exampleStatus": "checked"
       }
     ]
   },

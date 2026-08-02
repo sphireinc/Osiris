@@ -68,6 +68,10 @@
           "text": "Use `try`/`catch` for explicit handling and the postfix `?` operator for early propagation from fallible expressions when you want the current function to return the failure directly."
         },
         {
+          "title": "Scope-bound cleanup",
+          "text": "Use `defer { ... }` immediately after acquiring an owned resource. Actions execute once in LIFO order on every synchronous or task exit, and `close` also dispatches to a user-defined zero-argument closable method."
+        },
+        {
           "title": "Blocking I/O",
           "text": "I/O is host-backed and explicit. Use `read`, `write`, `readbytes`, `csv`, `jsonparse`, `lines`, and stream handles for visible file/data flow; task-aware behavior is documented with each API."
         },
@@ -81,7 +85,7 @@
         },
         {
           "title": "Hosted runtime and native boundary",
-          "text": "The interpreter and VM are Go-hosted: streams, task state, and temporary buffers use host-managed memory. `close` releases an OS listener or connection explicitly, but it is not a general RAII or no-GC allocation guarantee. The ahead-of-time C backend includes a cooperative subset for `spawn`, `await`, and ordered `parallel`; networking, streams, host-backed asynchronous I/O, and the broader cancellation surface still reject at compile time."
+          "text": "The interpreter and VM are Go-hosted: streams, task state, and temporary buffers use host-managed memory. `defer` supplies deterministic lexical cleanup and `close` is idempotent for built-in handles; neither is a garbage-collector finalizer. The ahead-of-time C backend has explicit cleanup edges for its supported executable subset, while host-backed streams, networking, and asynchronous I/O remain compile-time native boundaries."
         }
       ]
     },
@@ -163,7 +167,7 @@
       "paragraphs": [
         "Task behavior is explicit. `spawn` starts a task from one expression, `await` waits for its result, `cancel` requests cooperative cancellation, `parallel` evaluates a fixed ordered group, `race`/`select` choose the first completed branch, and `timeout` evaluates one expression under an integer-millisecond deadline.",
         "Ordinary `run` uses goroutines for task and `parallel` work. The runtime's task-debug mode executes scheduler work deterministically for inspection and tests; programs must not depend on wall-clock completion order in either mode.",
-        "Stream handles are explicit blocking file operations. `openread`/`openwrite` create handles; `readline`/`readchunk` and `writechunk` perform the visible I/O; `flush` and `close` complete it. Use the `*_async` wrappers only when a task value is required."
+        "Stream handles are explicit blocking file operations. `openread`/`openwrite` create handles; `readline`/`readchunk` and `writechunk` perform the visible I/O; `flush` and `close` complete it. Register `defer { close(handle) }` immediately after acquisition when the handle belongs to the current scope. Use the `*_async` wrappers only when a task value is required."
       ],
       "cards": [
         {
@@ -2233,9 +2237,10 @@
           "summary": "Flush and release the file or TCP descriptor owned by a stream handle.",
           "details": [
             "The first successful `close` returns `true`. A later `close` of the same handle returns `false` without reopening or re-closing it.",
-            "The handle remains printable after `close`, but later reads, writes, and flushes fail. `close` flushes a writable buffer before releasing the descriptor."
+            "The handle remains printable after `close`, but later reads, writes, and flushes fail. `close` flushes a writable buffer before releasing the descriptor.",
+            "For user-defined resources, `close` dispatches to a zero-argument method, including a method supplied by a trait or interface implementation. Such methods must be idempotent when used with `defer`."
           ],
-          "errors": "The argument must be a stream. A host flush or descriptor-close failure is returned as an error.",
+          "errors": "The argument must be a built-in handle or a value with a callable zero-argument `close` method. A host flush or descriptor-close failure is returned as an error.",
           "example": "let out = openwrite(\"__OSIRIS_DOC_TMP__/out.txt\")\nemit writechunk(out, \"OSR\\n\") # 4u64\nemit close(out) # true\nemit close(out) # false"
         },
         {

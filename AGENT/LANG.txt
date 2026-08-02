@@ -306,8 +306,11 @@ fatal structured error and bypass ordinary try/catch handling. Osiris treats
 recoverable failures as structured values, but fatal faults as process-level
 stop conditions.
 
-There is no separate finally/defer system, and there are no language-level
-destructors or finalizers. Fatal faults are not recoverable across normal
+`defer { ... }` is the language's lexical cleanup construct. It registers a
+block at the point of execution and runs it once at scope exit in LIFO order,
+including normal fallthrough, return, loop exits, failure, cancellation, and
+task termination. It is deterministic scope cleanup, not a destructor or
+garbage-collector finalizer. Fatal faults are not recoverable across normal
 function boundaries, task boundaries, or native boundaries.
 
 Use errors for expected failure, Option for absence, Result for explicit

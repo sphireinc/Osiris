@@ -282,8 +282,13 @@ func (s *Session) registerCleanup(body Expr, env *scope, sourceName string, stac
 	}
 	frame := s.cleanupFrames[len(s.cleanupFrames)-1]
 	frame.actions = append(frame.actions, cleanupAction{
-		body:       body,
-		env:        env,
+		body: body,
+		// A cleanup is a registration-time closure. Clone the lexical
+		// environment so later writes to a mutable cell cannot change which
+		// resource or value this action releases. The clone preserves the
+		// existing lazy binding representation while snapshotting mutable
+		// cells and their parent chain.
+		env:        cloneScope(env),
 		sourceName: sourceName,
 		stack:      append([]string(nil), stack...),
 	})
@@ -294,7 +299,7 @@ func (s *Session) runCleanupFrame(frame *cleanupFrame) error {
 		return nil
 	}
 	if len(s.cleanupFrames) == 0 {
-		return nil
+		return fmt.Errorf("internal error: cleanup frame is not active")
 	}
 	index := len(s.cleanupFrames) - 1
 	if s.cleanupFrames[index] != frame {
@@ -310,6 +315,9 @@ func (s *Session) runCleanupFrame(frame *cleanupFrame) error {
 	for i := len(actions) - 1; i >= 0; i-- {
 		action := actions[i]
 		if _, _, err := s.evalBlockExpr(action.body, action.env, action.sourceName, action.stack); err != nil {
+			if sig, ok := asFlow(err); ok {
+				err = flowError(sig.kind, "cleanup")
+			}
 			cleanupErr = combineCleanupErrors(cleanupErr, normalizeError(err, action.sourceName))
 		}
 	}

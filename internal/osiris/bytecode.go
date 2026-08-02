@@ -259,7 +259,12 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			params: append([]string(nil), st.Params...), paramTypes: append([]string(nil), st.ParamTypes...),
 			typeParams: append([]typeParam(nil), st.TypeParams...), returnType: st.ReturnType,
 			receiver: st.Receiver, receiverType: st.ReceiverType})
-		c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		// Receiver methods live in the nominal method registry. Binding the
+		// unqualified method name would shadow a builtin such as `close` in
+		// the lexical frame and bypass dynamic receiver dispatch.
+		if st.ReceiverType == "" {
+			c.emit(vmInstr{op: vmOpBind, a: reg, name: st.Name})
+		}
 		return nil
 	case implStmt:
 		for _, method := range st.Methods {
@@ -914,9 +919,17 @@ type vmRunner struct {
 	frame         *vmFrame
 	outputs       []Value
 	constRegs     []Value
-	cleanups      []*vmChunk
+	cleanups      []vmCleanup
 	cleanupActive bool
 	emitAllowed   bool
+}
+
+// vmCleanup retains both the cleanup code and the lexical frame that existed
+// when the defer statement executed. Keeping the frame with the thunk makes
+// VM capture semantics match the interpreter and native closure lowering.
+type vmCleanup struct {
+	chunk *vmChunk
+	frame *vmFrame
 }
 
 type vmReturnSignal struct{ value Value }
@@ -1071,7 +1084,13 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				args = append([]Value{*callee.fn.boundReceiver}, args...)
 			}
 			if callee.fn.builtin != nil {
-				out, err := callee.fn.builtin(args)
+				var out Value
+				var err error
+				if callee.fn.name == "close" {
+					out, err = r.closeResource(args)
+				} else {
+					out, err = callee.fn.builtin(args)
+				}
 				if err != nil {
 					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
@@ -1195,7 +1214,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			if instr.body == nil {
 				return nullValue(), fmt.Errorf("defer has no cleanup body")
 			}
-			r.cleanups = append(r.cleanups, instr.body)
+			r.cleanups = append(r.cleanups, vmCleanup{chunk: instr.body, frame: snapshotVMFrame(r.frame)})
 		case vmOpFunc:
 			function := typedGenericUserFunctionValue(instr.name, instr.typeParams, instr.params, instr.paramTypes, instr.returnType, nil, nil, nil)
 			function.fn.vmBody = instr.body
@@ -1487,6 +1506,25 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 		return regs[chunk.result], nil
 	}
 	return nullValue(), nil
+}
+
+func (r *vmRunner) closeResource(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("close expects 1 argument")
+	}
+	value := args[0]
+	switch value.kind {
+	case kindStream, kindTCPListener, kindUDPSocket:
+		return closeBuiltinValue(args)
+	}
+	method, err := resolveMember(r.ctx, value, "close", r.rt)
+	if err != nil {
+		return nullValue(), fmt.Errorf("close expects a stream or closable resource: %w", err)
+	}
+	if method.kind != kindFunction || method.fn == nil {
+		return nullValue(), fmt.Errorf("closable resource close member is not callable")
+	}
+	return r.runVMCallable(method, nil)
 }
 
 func vmLoopCarryNames(frame *vmFrame) map[string]struct{} {
@@ -1833,8 +1871,16 @@ func (r *vmRunner) runCleanups() error {
 	defer func() { r.cleanupActive = previousCleanup }()
 	var cleanupErr error
 	for i := len(r.cleanups) - 1; i >= 0; i-- {
-		_, err := r.runChild(r.cleanups[i])
+		_, err := r.runChildWithFrame(r.cleanups[i].chunk, r.cleanups[i].frame)
 		if err != nil {
+			switch err.(type) {
+			case *vmReturnSignal:
+				err = flowError(flowReturn, "cleanup")
+			case *vmBreakSignal:
+				err = flowError(flowBreak, "cleanup")
+			case *vmContinueSignal:
+				err = flowError(flowContinue, "cleanup")
+			}
 			cleanupErr = combineCleanupErrors(cleanupErr, err)
 		}
 	}
@@ -1858,15 +1904,22 @@ func vmMatchArmsToMatchArms(arms []vmMatchArm) []matchArm {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func (r *vmRunner) runChild(chunk *vmChunk) (Value, error) {
+	return r.runChildWithFrame(chunk, r.frame)
+}
+
+func (r *vmRunner) runChildWithFrame(chunk *vmChunk, parent *vmFrame) (Value, error) {
 	if chunk == nil {
 		return nullValue(), nil
+	}
+	if parent == nil {
+		parent = r.frame
 	}
 	child := &vmRunner{
 		rt:            r.rt,
 		ctx:           r.ctx,
 		source:        r.source,
 		stack:         r.stack,
-		frame:         r.frame.child(nil),
+		frame:         parent.child(nil),
 		cleanupActive: r.cleanupActive,
 		emitAllowed:   r.emitAllowed,
 	}

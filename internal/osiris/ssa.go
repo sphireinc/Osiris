@@ -250,6 +250,9 @@ func verifySSAFunction(fn *IRFunction) (SSAFunctionReport, error) {
 //
 // It returns an error when the operation cannot complete cleanly.
 func verifySSAInstr(fnName, blockName string, instr IRInstr, available map[string]struct{}, defs map[string]struct{}, blockMap map[string]*IRBlock, report *SSAFunctionReport) error {
+	if instr.Op == "cleanup" && len(instr.Args) != 1 {
+		return fmt.Errorf("ssa verification: function %s block %s cleanup must have exactly one thunk", fnName, blockName)
+	}
 	for _, ref := range operandRefsForInstr(instr) {
 		if ref == "" {
 			return fmt.Errorf("ssa verification: function %s block %s has empty operand in %q", fnName, blockName, instr.Op)
@@ -347,7 +350,7 @@ func verifySSATerminator(fnName, blockName string, term IRTerminator, available 
 // pipeline without re-deriving the same information.
 func operandRefsForInstr(instr IRInstr) []string {
 	switch instr.Op {
-	case "copy", "assign", "unary", "binary", "emit", "phi", "list", "makefunc", "async", "try", "resultbind":
+	case "copy", "assign", "unary", "binary", "emit", "phi", "list", "makefunc", "async", "try", "resultbind", "cleanup":
 		return append([]string(nil), instr.Args...)
 	case "member":
 		if len(instr.Args) == 0 {
