@@ -152,20 +152,49 @@ func stdOSGroups(rt *Runtime, args []Value) (Value, error) {
 	return listValue(out), nil
 }
 
+func stdOSArgsAll(rt *Runtime, args []Value) (Value, error) {
+	if len(args) != 0 {
+		return nullValue(), fmt.Errorf("args_all expects no arguments")
+	}
+	if rt != nil && rt.stdOSTest != nil {
+		rt.osMu.RLock()
+		values := append([]string(nil), rt.injectedArgs...)
+		rt.osMu.RUnlock()
+		return stringListValue(append([]string{"osiris"}, values...)), nil
+	}
+	if rt != nil {
+		rt.osMu.RLock()
+		injected, values := rt.injectedArgs != nil, append([]string(nil), rt.injectedArgs...)
+		rt.osMu.RUnlock()
+		if injected {
+			return stringListValue(append([]string{"osiris"}, values...)), nil
+		}
+	}
+	return stringListValue(os.Args), nil
+}
+
+func stdOSErrorPredicate(args []Value, kind ErrorKind) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("error predicate expects one error")
+	}
+	if args[0].kind != kindError {
+		return boolValue(false), nil
+	}
+	record := args[0].errorRecord()
+	return boolValue(record != nil && record.kind == kind), nil
+}
+
 func stdOSCapabilities() []string {
 	return []string{
 		"os.file_read", "os.file_write", "os.file_metadata", "os.file_mutate",
 		"os.directory_read", "os.directory_mutate", "os.symlink", "os.root",
 		"os.environment", "os.environment_mutate", "os.system_identity",
 		"os.process_inspect", "os.process_spawn", "os.process_signal",
-		"os.process_kill", "os.process_raw_handle", "os.process", "os.signal", "os.watch",
+		"os.process_kill", "os.process_raw_handle", "os.process", "os.signal", "os.watch", "os.exit",
 	}
 }
 
 func requireStdOSCapability(rt *Runtime, capability, operation string) error {
-	if rt != nil && rt.stdOSTest != nil {
-		return nil
-	}
 	if rt != nil && rt.hasCapability(capability) {
 		return nil
 	}
@@ -212,15 +241,18 @@ func stdOSFakeParent(path string) string {
 }
 
 type stdOSFileHandle struct {
-	mu       sync.Mutex
-	file     *os.File
-	test     *stdOSTestState
-	path     string
-	offset   int64
-	writable bool
-	append   bool
-	borrowed bool
-	closed   bool
+	mu         sync.Mutex
+	file       *os.File
+	test       *stdOSTestState
+	path       string
+	offset     int64
+	writable   bool
+	append     bool
+	borrowed   bool
+	runtime    *Runtime
+	capability string
+	root       *stdOSRootHandle
+	closed     bool
 }
 
 func (h *stdOSFileHandle) Close() error {
@@ -254,6 +286,12 @@ func (h *stdOSFileHandle) check(wantWrite bool) error {
 		return os.ErrInvalid
 	}
 	if h.closed {
+		return os.ErrClosed
+	}
+	if h.runtime != nil && h.capability != "" && !h.runtime.hasCapability(h.capability) {
+		return os.ErrPermission
+	}
+	if h.root != nil && h.root.isClosed() {
 		return os.ErrClosed
 	}
 	if wantWrite && !h.writable {
@@ -504,7 +542,11 @@ func stdOSOpenContext(rt *Runtime, ctx context.Context, args []Value) (Value, er
 	if err != nil {
 		return nullValue(), err
 	}
-	return stdOSCallContext(ctx, "os.open", func() (Value, error) { return stdOSOpen(rt, path, os.O_RDONLY, 0) })
+	return stdOSCallContext(ctx, "os.open", func() (Value, error) {
+		value, err := stdOSOpen(rt, path, os.O_RDONLY, 0)
+		stdOSSetHandlePolicy(value, rt, "os.file_read")
+		return value, err
+	})
 }
 
 func stdOSOpen(rt *Runtime, path string, flag int, perm os.FileMode) (Value, error) {
@@ -530,15 +572,16 @@ func stdOSCreateContext(rt *Runtime, ctx context.Context, args []Value) (Value, 
 	if err != nil {
 		return nullValue(), err
 	}
-	return stdOSCallContext(ctx, "os.create", func() (Value, error) { return stdOSOpen(rt, path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644) })
+	return stdOSCallContext(ctx, "os.create", func() (Value, error) {
+		value, err := stdOSOpen(rt, path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644)
+		stdOSSetHandlePolicy(value, rt, "os.file_write")
+		return value, err
+	})
 }
 
 func stdOSOpenFileContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), filesystemFailure(ErrorKindInvalidArgument, "os.open_file", "", "open_file expects path, flags, and mode", nil)
-	}
-	if err := requireStdOSCapability(rt, "os.file_read", "os.open_file"); err != nil {
-		return nullValue(), err
 	}
 	path, err := stdOSPath(args[0], "os.open_file")
 	if err != nil {
@@ -548,11 +591,43 @@ func stdOSOpenFileContext(rt *Runtime, ctx context.Context, args []Value) (Value
 	if err != nil {
 		return nullValue(), err
 	}
+	if err := stdOSValidateFlags(flags); err != nil {
+		return nullValue(), err
+	}
+	capability := "os.file_read"
+	if flags&(int64(os.O_WRONLY)|int64(os.O_RDWR)) != 0 {
+		capability = "os.file_write"
+	}
+	if err := requireStdOSCapability(rt, capability, "os.open_file"); err != nil {
+		return nullValue(), err
+	}
 	mode, err := filesystemIntegerArgument(args[2], "os.open_file", "mode")
 	if err != nil {
 		return nullValue(), err
 	}
-	return stdOSCallContext(ctx, "os.open_file", func() (Value, error) { return stdOSOpen(rt, path, int(flags), os.FileMode(mode)) })
+	return stdOSCallContext(ctx, "os.open_file", func() (Value, error) {
+		value, err := stdOSOpen(rt, path, int(flags), os.FileMode(mode))
+		if err == nil && value.stream != nil && value.stream.stdFile != nil {
+			value.stream.stdFile.runtime = rt
+			value.stream.stdFile.capability = capability
+		}
+		return value, err
+	})
+}
+
+func stdOSValidateFlags(flags int64) error {
+	allowed := int64(os.O_WRONLY | os.O_RDWR | os.O_APPEND | os.O_CREATE | os.O_EXCL | os.O_SYNC | os.O_TRUNC)
+	if flags < 0 || flags&^allowed != 0 || flags&3 == 3 {
+		return filesystemFailure(ErrorKindInvalidArgument, "os.open_file", "", "unsupported or contradictory open flags", nil)
+	}
+	return nil
+}
+
+func stdOSSetHandlePolicy(value Value, rt *Runtime, capability string) {
+	if value.kind == kindStream && value.stream != nil && value.stream.stdFile != nil {
+		value.stream.stdFile.runtime = rt
+		value.stream.stdFile.capability = capability
+	}
 }
 
 func stdOSFakeOpen(state *stdOSTestState, raw string, flag int, perm os.FileMode) (Value, error) {
@@ -719,6 +794,9 @@ func stdOSFileReadAtContext(rt *Runtime, ctx context.Context, args []Value) (Val
 	if err != nil {
 		return nullValue(), err
 	}
+	if err := requireStdOSCapability(rt, "os.file_read", "os.read_at"); err != nil {
+		return nullValue(), err
+	}
 	n, err := filesystemNonnegativeArgument(args[1], "os.read_at", "size", stdOSMaxRead)
 	if err != nil {
 		return nullValue(), err
@@ -744,6 +822,9 @@ func stdOSFileWriteAtContext(rt *Runtime, ctx context.Context, args []Value) (Va
 	if err != nil {
 		return nullValue(), err
 	}
+	if err := requireStdOSCapability(rt, "os.file_write", "os.write_at"); err != nil {
+		return nullValue(), err
+	}
 	data, err := bytesFromValue(args[1])
 	if err != nil {
 		return nullValue(), err
@@ -760,12 +841,15 @@ func stdOSFileWriteAtContext(rt *Runtime, ctx context.Context, args []Value) (Va
 		return uintValue(uint64(n), 64), nil
 	})
 }
-func stdOSSeekContext(_ *Runtime, ctx context.Context, args []Value) (Value, error) {
+func stdOSSeekContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("seek expects handle, offset, and whence")
 	}
 	h, err := stdOSHandle(args, "os.seek")
 	if err != nil {
+		return nullValue(), err
+	}
+	if err := requireStdOSCapability(rt, "os.file_read", "os.seek"); err != nil {
 		return nullValue(), err
 	}
 	off, err := filesystemIntegerArgument(args[1], "os.seek", "offset")
@@ -1173,6 +1257,30 @@ func stdOSModule(rt *Runtime) map[string]Value {
 	for name, value := range map[string]Value{"O_RDONLY": intValue(bigIntFromInt64(int64(os.O_RDONLY)), 32), "O_WRONLY": intValue(bigIntFromInt64(int64(os.O_WRONLY)), 32), "O_RDWR": intValue(bigIntFromInt64(int64(os.O_RDWR)), 32), "O_APPEND": intValue(bigIntFromInt64(int64(os.O_APPEND)), 32), "O_CREATE": intValue(bigIntFromInt64(int64(os.O_CREATE)), 32), "O_EXCL": intValue(bigIntFromInt64(int64(os.O_EXCL)), 32), "O_SYNC": intValue(bigIntFromInt64(int64(os.O_SYNC)), 32), "O_TRUNC": intValue(bigIntFromInt64(int64(os.O_TRUNC)), 32), "dev_null": stringValue(os.DevNull), "err_invalid": stringValue("invalid argument"), "err_permission": stringValue("permission denied"), "err_exist": stringValue("file already exists"), "err_not_exist": stringValue("file does not exist"), "err_closed": stringValue("file already closed"), "err_process_done": stringValue("process already finished"), "err_no_handle": stringValue("process handle unavailable")} {
 		mod[name] = value
 	}
+	for name, value := range map[string]Value{"SEEK_SET": intValue(bigIntFromInt64(0), 32), "SEEK_CUR": intValue(bigIntFromInt64(1), 32), "SEEK_END": intValue(bigIntFromInt64(2), 32), "err_no_deadline": stringValue("file type does not support deadline"), "err_deadline_exceeded": stringValue("i/o timeout"), "interrupt": intValue(bigIntFromInt64(2), 32), "kill": intValue(bigIntFromInt64(9), 32)} {
+		mod[name] = value
+	}
+	for name, value := range map[string]Value{
+		"path_separator":      uintValue(uint64(os.PathSeparator), 8),
+		"path_list_separator": uintValue(uint64(os.PathListSeparator), 8),
+		"mode_dir":            uintValue(uint64(os.ModeDir), 32),
+		"mode_append":         uintValue(uint64(os.ModeAppend), 32),
+		"mode_exclusive":      uintValue(uint64(os.ModeExclusive), 32),
+		"mode_temporary":      uintValue(uint64(os.ModeTemporary), 32),
+		"mode_symlink":        uintValue(uint64(os.ModeSymlink), 32),
+		"mode_device":         uintValue(uint64(os.ModeDevice), 32),
+		"mode_named_pipe":     uintValue(uint64(os.ModeNamedPipe), 32),
+		"mode_socket":         uintValue(uint64(os.ModeSocket), 32),
+		"mode_setuid":         uintValue(uint64(os.ModeSetuid), 32),
+		"mode_setgid":         uintValue(uint64(os.ModeSetgid), 32),
+		"mode_char_device":    uintValue(uint64(os.ModeCharDevice), 32),
+		"mode_sticky":         uintValue(uint64(os.ModeSticky), 32),
+		"mode_irregular":      uintValue(uint64(os.ModeIrregular), 32),
+		"mode_type":           uintValue(uint64(os.ModeType), 32),
+		"mode_perm":           uintValue(uint64(os.ModePerm), 32),
+	} {
+		mod[name] = value
+	}
 	mod["read_dir_entries"] = fn("read_dir_entries", func(c context.Context, a []Value) (Value, error) { return stdOSReadDirEntriesContext(rt, c, a) })
 	mod["mkdir_temp"] = fn("mkdir_temp", func(c context.Context, a []Value) (Value, error) { return stdOSMkdirTempContext(rt, c, a) })
 	mod["clearenv"] = fn("clearenv", func(c context.Context, a []Value) (Value, error) { return stdOSClearenv(rt, c, a) })
@@ -1191,8 +1299,73 @@ func stdOSModule(rt *Runtime) map[string]Value {
 	mod["stdout"] = stdOSStandardStream(rt, "stdout")
 	mod["stderr"] = stdOSStandardStream(rt, "stderr")
 	mod["fd"] = functionValueOf("std/os.fd", func(a []Value) (Value, error) { return stdOSFd(rt, a) })
+	mod["name"] = functionValueOf("std/os.name", func(a []Value) (Value, error) { return stdOSFileName(rt, a) })
 	mod["read_from"] = contextFunctionValueOf("std/os.read_from", func(c context.Context, a []Value) (Value, error) { return stdOSTransferFileContext(rt, c, a, false) })
 	mod["write_to"] = contextFunctionValueOf("std/os.write_to", func(c context.Context, a []Value) (Value, error) { return stdOSTransferFileContext(rt, c, a, true) })
+	mod["dir_fs"] = functionValueOf("std/os.dir_fs", func(a []Value) (Value, error) { return stdOSDirFS(rt, a) })
+	mod["is_path_separator"] = functionValueOf("std/os.is_path_separator", stdOSIsPathSeparator)
+	mod["expand"] = functionValueOf("std/os.expand", func(a []Value) (Value, error) { return stdOSUnsupportedOperation(rt, "os.expand", "os.environment", a) })
+	mod["new_file"] = functionValueOf("std/os.new_file", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.new_file", "os.process_raw_handle", a)
+	})
+	mod["new_syscall_error"] = functionValueOf("std/os.new_syscall_error", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.new_syscall_error", "os.file_metadata", a)
+	})
+	mod["syscall_conn"] = functionValueOf("std/os.syscall_conn", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.syscall_conn", "os.process_raw_handle", a)
+	})
+	mod["with_handle"] = functionValueOf("std/os.with_handle", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.with_handle", "os.process_raw_handle", a)
+	})
+	mod["set_deadline"] = functionValueOf("std/os.set_deadline", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.set_deadline", "os.file_metadata", a)
+	})
+	mod["set_read_deadline"] = functionValueOf("std/os.set_read_deadline", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.set_read_deadline", "os.file_metadata", a)
+	})
+	mod["set_write_deadline"] = functionValueOf("std/os.set_write_deadline", func(a []Value) (Value, error) {
+		return stdOSUnsupportedOperation(rt, "os.set_write_deadline", "os.file_metadata", a)
+	})
+	mod["exit"] = functionValueOf("std/os.exit", func(a []Value) (Value, error) { return stdOSUnsupportedOperation(rt, "os.exit", "os.exit", a) })
+	mod["root_open"] = contextFunctionValueOf("std/os.root_open", func(c context.Context, a []Value) (Value, error) { return stdOSRootOpenContext(rt, c, a, false) })
+	mod["root_create"] = contextFunctionValueOf("std/os.root_create", func(c context.Context, a []Value) (Value, error) { return stdOSRootOpenContext(rt, c, a, true) })
+	mod["root_open_file"] = contextFunctionValueOf("std/os.root_open_file", func(c context.Context, a []Value) (Value, error) { return stdOSRootOpenFileContext(rt, c, a) })
+	mod["root_read_file"] = contextFunctionValueOf("std/os.root_read_file", func(c context.Context, a []Value) (Value, error) { return stdOSRootReadFileContext(rt, c, a) })
+	mod["root_write_file"] = contextFunctionValueOf("std/os.root_write_file", func(c context.Context, a []Value) (Value, error) { return stdOSRootWriteFileContext(rt, c, a) })
+	mod["root_stat"] = contextFunctionValueOf("std/os.root_stat", func(c context.Context, a []Value) (Value, error) { return stdOSRootStatContext(rt, c, a, true) })
+	mod["root_lstat"] = contextFunctionValueOf("std/os.root_lstat", func(c context.Context, a []Value) (Value, error) { return stdOSRootStatContext(rt, c, a, false) })
+	mod["root_readlink"] = contextFunctionValueOf("std/os.root_readlink", func(c context.Context, a []Value) (Value, error) { return stdOSRootReadlinkContext(rt, c, a) })
+	mod["root_mkdir"] = contextFunctionValueOf("std/os.root_mkdir", func(c context.Context, a []Value) (Value, error) { return stdOSRootMkdirContext(rt, c, a, false) })
+	mod["root_mkdir_all"] = contextFunctionValueOf("std/os.root_mkdir_all", func(c context.Context, a []Value) (Value, error) { return stdOSRootMkdirContext(rt, c, a, true) })
+	mod["root_remove"] = contextFunctionValueOf("std/os.root_remove", func(c context.Context, a []Value) (Value, error) { return stdOSRootRemoveContext(rt, c, a, false) })
+	mod["root_remove_all"] = contextFunctionValueOf("std/os.root_remove_all", func(c context.Context, a []Value) (Value, error) { return stdOSRootRemoveContext(rt, c, a, true) })
+	mod["root_rename"] = contextFunctionValueOf("std/os.root_rename", func(c context.Context, a []Value) (Value, error) { return stdOSRootRenameContext(rt, c, a) })
+	mod["root_link"] = contextFunctionValueOf("std/os.root_link", func(c context.Context, a []Value) (Value, error) {
+		return stdOSRootTwoPathContext(rt, c, a, "os.root_link", false)
+	})
+	mod["root_symlink"] = contextFunctionValueOf("std/os.root_symlink", func(c context.Context, a []Value) (Value, error) {
+		return stdOSRootTwoPathContext(rt, c, a, "os.root_symlink", true)
+	})
+	mod["root_chmod"] = contextFunctionValueOf("std/os.root_chmod", func(c context.Context, a []Value) (Value, error) { return stdOSRootChmodContext(rt, c, a) })
+	mod["root_chown"] = contextFunctionValueOf("std/os.root_chown", func(c context.Context, a []Value) (Value, error) { return stdOSRootChownContext(rt, c, a, false) })
+	mod["root_lchown"] = contextFunctionValueOf("std/os.root_lchown", func(c context.Context, a []Value) (Value, error) { return stdOSRootChownContext(rt, c, a, true) })
+	mod["root_chtimes"] = contextFunctionValueOf("std/os.root_chtimes", func(c context.Context, a []Value) (Value, error) { return stdOSRootChtimesContext(rt, c, a) })
+	mod["root_close"] = functionValueOf("std/os.root_close", func(a []Value) (Value, error) { return stdOSRootClose(rt, context.Background(), a) })
+	mod["root_fs"] = functionValueOf("std/os.root_fs", func(a []Value) (Value, error) {
+		if len(a) != 1 {
+			return nullValue(), fmt.Errorf("root_fs expects root")
+		}
+		return stdOSRootFS(a[0])
+	})
+	mod["args_all"] = functionValueOf("std/os.args_all", func(a []Value) (Value, error) { return stdOSArgsAll(rt, a) })
+	mod["is_exist"] = functionValueOf("std/os.is_exist", func(a []Value) (Value, error) { return stdOSErrorPredicate(a, ErrorKindAlreadyExists) })
+	mod["is_not_exist"] = functionValueOf("std/os.is_not_exist", func(a []Value) (Value, error) { return stdOSErrorPredicate(a, ErrorKindNotFound) })
+	mod["is_permission"] = functionValueOf("std/os.is_permission", func(a []Value) (Value, error) { return stdOSErrorPredicate(a, ErrorKindPermissionDenied) })
+	mod["is_timeout"] = functionValueOf("std/os.is_timeout", func(a []Value) (Value, error) { return stdOSErrorPredicate(a, ErrorKindTimeout) })
+	mod["path_exists"] = functionValueOf("std/os.path_exists", func(a []Value) (Value, error) {
+		return stdOSPathPredicate(rt, a, func(os.FileInfo) bool { return true })
+	})
+	mod["path_not_exists"] = functionValueOf("std/os.path_not_exists", func(a []Value) (Value, error) { return stdOSMissingPath(rt, a) })
 	return mod
 }
 

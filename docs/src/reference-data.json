@@ -2802,6 +2802,14 @@
           "example": "import \"std/os\" as os; emit os.args()"
         },
         {
+          "name": "constants_and_streams",
+          "syntax": "O_RDONLY/O_WRONLY/O_RDWR/O_APPEND/O_CREATE/O_EXCL/O_SYNC/O_TRUNC, SEEK_SET/SEEK_CUR/SEEK_END, stdin/stdout/stderr",
+          "returns": "integer constants or owned/borrowed stream values",
+          "summary": "Expose portable open/seek values, stable error names, the null device, and explicit standard streams.",
+          "details": ["Standard streams are capability-granted borrowed resources; closing them does not close the host descriptor. Raw descriptor access through `fd` requires `os.process_raw_handle`. Unknown or contradictory open flags fail before a host syscall."],
+          "example": "import \"std/os\" as os\nemit [os.O_RDONLY, os.SEEK_SET, os.dev_null]"
+        },
+        {
           "name": "env",
           "syntax": "env(name)",
           "returns": "`Option<string>`",
@@ -2835,11 +2843,19 @@
         },
         {
           "name": "rooted_filesystem",
-          "syntax": "open_root(path)",
+          "syntax": "open_root(path); root_open/root_create/root_open_file/root_read_file/root_write_file/root_stat/root_lstat/root_readlink/root_mkdir/root_mkdir_all/root_remove/root_remove_all/root_rename/root_link/root_symlink/root_chmod/root_chown/root_lchown/root_chtimes/root_close/root_fs",
           "returns": "root handle map",
           "summary": "Create a path-confined root for explicit rooted filesystem operations.",
-          "details": ["Root paths reject lexical traversal outside the selected root. The portable API does not claim resistance to a concurrent symlink swap; deployments requiring that guarantee must use an OS-specific descriptor-relative boundary."],
+          "details": ["Root paths reject lexical traversal outside the selected root, absolute names, NUL bytes, and closed-root access. Derived file handles are invalidated when the root closes. The portable API does not claim resistance to a concurrent symlink swap; deployments requiring that guarantee must use an OS-specific descriptor-relative boundary."],
           "example": "import \"std/os\" as os\nlet root = os.open_root(\"./workspace\")\nemit root"
+        },
+        {
+          "name": "test_providers",
+          "syntax": "osiris test [-backend interpreter|vm] [-json] [-integration] [path...]",
+          "returns": "test status and optional JSON events",
+          "summary": "Run language source tests with deterministic fake OS providers by default.",
+          "details": ["Each test receives a fresh in-memory filesystem, file-handle, environment, identity, clock, process, and platform provider. Ordinary `std/os` calls use those providers without Go-side registration. Real host access is opt-in through `-integration` and explicit capabilities."],
+          "example": "osiris test ./app\nosiris test -backend vm -json ./app"
         },
         {
           "name": "environment",

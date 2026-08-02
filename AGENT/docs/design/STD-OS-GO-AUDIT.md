@@ -6,22 +6,25 @@ is explicitly marked as an intentional boundary.
 
 | Go symbol family | Osiris result | Decision |
 | --- | --- | --- |
-| `Args` | `std/os.args()` | Implemented as an owned deterministic list; tests can inject arguments. |
+| `Args` | `std/os.args()`, `args_all()` | Implemented as owned deterministic lists; tests can inject arguments and `args_all` includes the program slot. |
 | `Stdin`, `Stdout`, `Stderr` | `std/os.stdin`, `stdout`, `stderr` | Implemented as borrowed stream values whose close does not close the host descriptor. |
 | `O_*`, `DevNull` | `O_*`, `dev_null` | Implemented as module constants. |
+| `PathSeparator`, `PathListSeparator`, `FileMode` mode constants | `path_separator`, `path_list_separator`, `mode_*` | Implemented as target-portable numeric constants; permission and type bits are serialized as numbers. |
 | `ErrInvalid`, `ErrPermission`, `ErrExist`, `ErrNotExist`, `ErrClosed` | `err_*` constants and structured filesystem errors | Implemented with stable language-facing names; host error text is debug metadata. |
 | `ErrNoDeadline`, `ErrDeadlineExceeded` | structured `unsupported`/`timeout` errors | Intentionally represented by Osiris error kinds because a portable file deadline is not available for every backend. |
 | `ErrProcessDone`, `ErrNoHandle` | `err_process_done`, `err_no_handle` | Implemented as stable process lifecycle values. |
 | `Interrupt`, `Kill` | `std/os.process_signal` | Capability-gated signal values are passed explicitly; platform signal names remain adapter-defined. |
+| `IsExist`, `IsNotExist`, `IsPermission`, `IsTimeout` | `is_exist`, `is_not_exist`, `is_permission`, `is_timeout` | Implemented over structured Osiris errors, including wrapped host causes. Path presence uses the separate `path_exists`/`path_not_exists` predicates. |
+| `IsPathSeparator` | `is_path_separator` | Implemented with the host's separator plus `/` and `\\` portability rules. |
 | `Chdir`, `Getwd` | `chdir`, `getwd` | Implemented; test runtimes keep the fake working directory isolated. |
 | `Chmod`, `Chown`, `Lchown`, `Chtimes` | same snake_case names | Implemented where the target supports the operation; fake providers model metadata changes. |
 | `Clearenv`, `Environ`, `Getenv`, `LookupEnv`, `Setenv`, `Unsetenv`, `Expand`, `ExpandEnv` | same snake_case names | Implemented except callback-based `expand`, which is an explicit unsupported boundary until callable-to-host callback invocation is exposed safely; `expand_env` is implemented. |
-| `ReadFile`, `WriteFile`, `CopyFS` | `read_file`, `write_file`, `copy_fs` | Implemented with bounded reads and explicit capability checks. |
-| `DirFS`, `OpenRoot`, `Root.FS` | `open_root`, root map, rooted path boundary | Root creation and lexical confinement are implemented; an `fs.FS` interface is not exposed as a raw language value. |
+| `ReadFile`, `WriteFile`, `CopyFS` | `read_file`, `write_file`, `copy_fs` | Implemented with bounded reads/copies, fake-provider support, and explicit capability checks. |
+| `DirFS`, `OpenRoot`, `Root.FS` | `dir_fs`, `open_root`, `root_*`, `root_fs` | Implemented as owned root maps with lexical confinement and derived-handle invalidation; an `fs.FS` interface is not exposed as a raw language value. |
 | `Open`, `Create`, `OpenFile`, `CreateTemp`, `Pipe`, `NewFile` | `open`, `create`, `open_file`, `create_temp`, `pipe` | Implemented; `NewFile` is intentionally not exposed because raw descriptor ownership is not a safe default. |
 | `File.Read`, `Write`, `ReadAt`, `WriteAt`, `ReadFrom`, `WriteTo`, `WriteString`, `Seek`, `Sync`, `Truncate`, `Close`, `Fd` | `read`, `write`, `read_at`, `write_at`, `read_from`, `write_to`, `write_string`, `seek_file`, `sync`, `truncate`, `close`, `fd` | Implemented with bounded transfer; `fd` requires `os.process_raw_handle`. |
 | `File.ReadDir`, `Readdir`, `Readdirnames` | `read_dir`, `read_dir_entries` | Implemented as sorted bounded lists/maps rather than host interface objects. |
-| `File.SetDeadline`, `SetReadDeadline`, `SetWriteDeadline` | structured unsupported boundary | Not all regular-file and fake providers can provide portable deadlines; network streams retain their own deadline contracts. |
+| `File.SetDeadline`, `SetReadDeadline`, `SetWriteDeadline` | `set_deadline`, `set_read_deadline`, `set_write_deadline` | Exported stable unsupported boundaries for regular files and fake providers; network streams retain their own deadline contracts. |
 | `File.Stat`, `File.Chmod`, `File.Chown` | `stat`, `lstat`, `chmod`, `chown` | Implemented as path/handle-safe maps and capability-gated mutations. |
 | `File.SyscallConn`, `File.WithHandle` | unsupported | Raw syscall callbacks and unbounded handle escape violate the ownership boundary. |
 | `Stat`, `Lstat`, `SameFile` | `stat`, `lstat`, metadata identity | Implemented metadata; same-file identity is represented by stable metadata rather than host pointers. |
@@ -31,7 +34,10 @@ is explicitly marked as an intentional boundary.
 | `Hostname`, `Getpid`, `Getppid`, `Getuid`, `Geteuid`, `Getgid`, `Getegid`, `Getgroups`, `Getpagesize` | identity exports | Implemented for the portable scalar identity subset; unsupported platform fields return stable errors rather than guessed values. |
 | `FindProcess`, `StartProcess`, `Process.Kill`, `Signal`, `Release`, `Wait`, process state | `find_process`, `start_process`, `process_kill`, `process_signal`, `process_release`, `process_wait`, `process_state` | Implemented with shell-free argv, owned pipes, cancellation, and separate capabilities. |
 | `ProcAttr` | process options map | Relocated to explicit `cwd`, `env`, `inherit_env`, and stream options; credentials and raw handles are intentionally excluded. |
-| `Exit` | unsupported | A library call cannot silently terminate an Osiris host; process exit remains a CLI/runtime policy. |
+| `OpenInRoot`, `Root.OpenRoot`, all `Root` mutators and `Root.FS` | `root_open`, `root_open_file`, `root_*`, `root_fs` | Implemented by the owned rooted resource; close invalidates derived handles and lexical escapes are denied. |
+| `ProcessState` methods (`ExitCode`, `Exited`, `Pid`, `String`, `Success`, `Sys`, `SysUsage`, `SystemTime`, `UserTime`) | `process_state` map | Implemented as a redacted portable state record; raw host usage and platform-only fields are omitted. |
+| `Signal`, `SyscallError` | signal constants and structured errors | Relocated to explicit signal values and the Osiris error taxonomy; Go interface identity is not serialized. |
+| `Exit` | `exit` | Capability-gated export that returns a stable unsupported error; a library call cannot silently terminate an Osiris host, so process exit remains a CLI/runtime policy. |
 
 The audit is deliberately explicit where Go's ambient or pointer-oriented API
 does not map safely to Osiris. “Unsupported” means a stable structured error

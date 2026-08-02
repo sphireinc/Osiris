@@ -119,7 +119,7 @@ func classifyCLIExit(command string, err error) int {
 		return cliExitCompile
 	}
 	switch command {
-	case "run", "vm", "eval", "demo", "repl", "debug", "trace":
+	case "run", "vm", "test", "eval", "demo", "repl", "debug", "trace":
 		return cliExitRuntime
 	case "fmt", "opt", "ir", "ssa", "cfg", "dom", "loop", "c", "obj", "build", "compile", "infer", "alias", "pure", "closure", "viz", "wasm", "gpu", "map", "deps", "heap", "lsp":
 		return cliExitCompile
@@ -159,6 +159,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runVersion(stdout)
 	case "run":
 		return runProgram(ctx, args[1:], stdout)
+	case "test":
+		return runTests(ctx, args[1:], stdout)
 	case "vm":
 		return runProgramVM(ctx, args[1:], stdout)
 	case "eval":
@@ -229,6 +231,68 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+type testEvent struct {
+	SchemaVersion int    `json:"schema_version"`
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	DurationNS    int64  `json:"duration_ns"`
+	Error         string `json:"error,omitempty"`
+}
+
+func runTests(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	backend := fs.String("backend", "interpreter", "interpreter or vm")
+	jsonOut := fs.Bool("json", false, "write one stable JSON event per test")
+	integration := fs.Bool("integration", false, "opt into host providers instead of deterministic fakes")
+	capabilityText := fs.String("capabilities", "", "comma-separated host capabilities for integration tests")
+	timeout := fs.Duration("timeout", 0, "per-test timeout")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	capabilities := []string{}
+	if *capabilityText != "" {
+		for _, capability := range strings.Split(*capabilityText, ",") {
+			capability = strings.TrimSpace(capability)
+			if capability != "" {
+				capabilities = append(capabilities, capability)
+			}
+		}
+	}
+	results, err := osiris.RunLanguageTests(ctx, fs.Args(), osiris.LanguageTestOptions{Backend: *backend, Integration: *integration, Capabilities: capabilities, Timeout: *timeout})
+	if err != nil {
+		return err
+	}
+	failed := 0
+	for _, result := range results {
+		if !result.Passed {
+			failed++
+		}
+		status := "ok"
+		if !result.Passed {
+			status = "FAIL"
+		}
+		message := ""
+		if result.Error != nil {
+			message = result.Error.Error()
+		}
+		if *jsonOut {
+			_ = json.NewEncoder(stdout).Encode(testEvent{SchemaVersion: 1, Name: result.Name, Status: status, DurationNS: result.Duration.Nanoseconds(), Error: message})
+		} else if message == "" {
+			fmt.Fprintf(stdout, "%s %s\n", status, result.Name)
+		} else {
+			fmt.Fprintf(stdout, "%s %s: %s\n", status, result.Name, message)
+		}
+	}
+	if len(results) == 0 {
+		return fmt.Errorf("no Osiris tests found")
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d Osiris test(s) failed", failed)
+	}
+	return nil
 }
 
 func runVersion(stdout io.Writer) error {
@@ -1655,6 +1719,7 @@ func commandHelpRows() []commandHelpRow {
 	return []commandHelpRow{
 		{"osiris version", "print release version, commit, build date, Go toolchain, and target"},
 		{"osiris run [-f file] [file]", "run source in the interpreter"},
+		{"osiris test [-backend interpreter|vm] [-json] [path...]", "run deterministic source tests with fake std/os providers"},
 		{"osiris vm [-f file] [file]", "run source through the bytecode VM"},
 		{"osiris eval <expression>", "evaluate a single expression and emit the result"},
 		{"osiris demo", "run the built-in demo program"},

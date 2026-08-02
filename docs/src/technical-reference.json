@@ -594,7 +594,7 @@
             ],
             [
               "`std/os`",
-              "Capability-gated command-line/environment access, shell-free child processes, OS signal streams, and portable filesystem-watch events."
+              "Capability-gated command-line/environment access, bounded owned files and rooted filesystem operations, deterministic test providers, shell-free child processes, OS signal streams, and portable filesystem-watch events."
             ],
             [
               "`std/signal`",
@@ -946,6 +946,7 @@
             "version",
             "run",
             "vm",
+            "test",
             "eval",
             "demo",
             "fmt",

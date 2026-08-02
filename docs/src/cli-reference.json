@@ -29,6 +29,18 @@
         },
         {
           "kind": "command",
+          "name": "osiris test",
+          "aliases": ["test"],
+          "signature": "osiris test [-backend interpreter|vm] [-json] [-integration] [-capabilities names] [path...]",
+          "description": "Discovers and runs language source tests with deterministic fake operating-system providers by default.",
+          "parameters": "Pass files or directories containing `*_test.osr` or `.test.osr` files. Use `-backend vm` for VM execution, `-json` for one stable event per test, and `-integration` with a comma-separated capability list for explicit host access.",
+          "returns": "process exit status and test results",
+          "returnValue": "Successful tests write `ok` status lines or JSON events and exit with status `0`; any failed test produces a nonzero status.",
+          "details": ["Every ordinary test receives a fresh in-memory filesystem, environment, identity, clock, platform, and simulated process provider. Host access is never selected implicitly."],
+          "example": "osiris test ./app\nosiris test -backend vm -json ./app"
+        },
+        {
+          "kind": "command",
           "name": "osiris eval",
           "aliases": ["eval"],
           "signature": "osiris eval <expression>",

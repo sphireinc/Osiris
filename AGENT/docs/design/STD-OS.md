@@ -17,12 +17,16 @@ and watch operations plus:
 - bounded `read_file` and `write_file`, `read_dir`, `stat`, and `lstat`;
 - `mkdir`, `mkdir_all`, `remove`, `remove_all`, `rename`, `truncate`,
   `chmod`, `chown`, `lchown`, `chtimes`, `link`, `symlink`, and `readlink`;
-- `getwd`, `chdir`, `copy_fs`, `open_root`, and the user-directory helpers;
+- `getwd`, `chdir`, `copy_fs`, `dir_fs`, `open_root`, the rooted method family,
+  and the user-directory helpers;
 - `getenv`, `lookup_env`, `environ`, `setenv`, `unsetenv`, and `expand_env`;
 - host identity (`hostname`, `getpid`, `getppid`, `getuid`, `geteuid`, `getgid`,
   `getegid`, and `getpagesize`); and
 - `find_process`, `start_process`, `process_signal`, `process_release`, and
   `process_state`, alongside the original safe pipe-oriented process API.
+- `args_all`, error predicates, `name`, `fd`, `same_file`, `getgroups`,
+  `stdin`, `stdout`, `stderr`, and explicit structured unsupported boundaries
+  for callback expansion, deadlines, raw descriptor callbacks, and `exit`.
 
 Osiris deliberately returns bounded lists/maps instead of exposing Go
 interfaces. File handles are owned `stream` values and participate in the
@@ -54,16 +58,19 @@ symlink-swap resistance.
 ## Deterministic test providers
 
 `NewTestRuntime()` installs an in-memory filesystem and file handles, isolated
-environment overlay, deterministic identity and platform values, and a
-simulated child-process provider. `SetEnvironment` and `SetCommandLineArgs`
-configure those fixtures. Application code continues to call ordinary
-`std/os` functions, so test authors do not implement a Go fake provider and a
-test cannot accidentally read or mutate the developer's host filesystem.
+environment overlay, deterministic identity, fixed clock, platform values,
+and a simulated child-process provider. `SetEnvironment` and
+`SetCommandLineArgs` configure those fixtures. Application code continues to
+call ordinary `std/os` functions, so test authors do not implement a Go fake
+provider and a test cannot accidentally read or mutate the developer's host
+filesystem.
 
-The full `osiris test` declaration, discovery, JSON events, coverage, fuzzing,
-and golden-file workflow remains task 123. Its public runner should construct
-this test runtime for each isolated test case and use explicit integration
-mode when a test intentionally needs real host behavior.
+`osiris test` discovers `*_test.osr` and `.test.osr` files, creates a fresh
+test runtime for every case, and emits stable text or JSON events. `-backend
+vm` checks the same source through the VM; `-integration` is explicit and
+requires requested capabilities. Task 123 may add declaration syntax,
+coverage, fuzzing, and golden-file features, but it must retain this provider
+and capability contract.
 
 ## Intentional differences from Go `os`
 

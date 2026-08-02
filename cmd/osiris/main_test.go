@@ -28,6 +28,32 @@ func TestVersionReportsActionableProvenance(t *testing.T) {
 	}
 }
 
+func TestRunTestsUsesDeterministicStdOSProvidersByDefault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "todo_test.osr")
+	source := "import \"std/os\" as os\nlet wrote = os.write_file(\"/todo.txt\", \"buy milk\", 420)\nemit [wrote, os.read_file(\"/todo.txt\")]\n"
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := execute(context.Background(), []string{"test", path}, &stdout, &stderr); code != cliExitSuccess {
+		t.Fatalf("test exit = %d, stdout=%q, stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.HasPrefix(stdout.String(), "ok ") || stderr.Len() != 0 {
+		t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	var jsonOutput bytes.Buffer
+	if err := run(context.Background(), []string{"test", "-json", path}, &jsonOutput, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	var event testEvent
+	if err := json.Unmarshal(jsonOutput.Bytes(), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.SchemaVersion != 1 || event.Status != "ok" || event.Name == "" {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
 func TestRunOptJSONReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.osr")
 	if err := os.WriteFile(path, []byte("let dead = 1 + 2\nemit 2 * (3 + 4)\n"), 0o644); err != nil {

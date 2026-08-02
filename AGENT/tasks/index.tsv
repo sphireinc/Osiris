@@ -75,3 +75,4 @@
 124|tasks/124-build-repository-modules-workspaces-and-supply-chain.md|ready|unassigned|036,037,041,046|Add Go-style repository modules with GitHub as the first provider, workspaces, discovery, and supply-chain audits
 125|tasks/125-complete-lsp-and-ide-experience.md|blocked|unassigned|038,110,111,112,113,123|Wait for the type and testing surfaces; then add workspace-aware navigation, refactoring, and editor tooling
 126|tasks/126-add-bounded-memory-views-and-an-explicit-unsafe-boundary.md|blocked|unassigned|036,046,110,111,114,115,116,117|Wait for the safe type, ownership, cleanup, parity, and FFI foundations; then add an explicit auditable unsafe boundary
+135|tasks/completed/135-expand-std-os-to-filesystem-and-system-integration.md|complete|codex|102,116,119,123|Expand std/os to bounded filesystem, file-handle, metadata, rooted-access, environment, system-identity, process-state, capability, and platform integration complete

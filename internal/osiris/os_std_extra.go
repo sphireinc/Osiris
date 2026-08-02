@@ -10,9 +10,52 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
+
+type stdOSRootHandle struct {
+	mu     sync.Mutex
+	closed bool
+}
+
+func (r *stdOSRootHandle) Close() error {
+	if r == nil {
+		return os.ErrInvalid
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return os.ErrClosed
+	}
+	r.closed = true
+	return nil
+}
+func (r *stdOSRootHandle) isClosed() bool {
+	if r == nil {
+		return true
+	}
+	r.mu.Lock()
+	closed := r.closed
+	r.mu.Unlock()
+	return closed
+}
+
+func stdOSRootHandleFromValue(value Value) (*stdOSRootHandle, error) {
+	handle, ok := mapFieldValue(value, "__root_handle")
+	if !ok || handle.kind != kindStream || handle.stream == nil || handle.stream.closer == nil {
+		return nil, fmt.Errorf("value is not an open root")
+	}
+	root, ok := handle.stream.closer.(*stdOSRootHandle)
+	if !ok {
+		return nil, fmt.Errorf("value is not an open root")
+	}
+	if root.isClosed() {
+		return nil, os.ErrClosed
+	}
+	return root, nil
+}
 
 func stdOSCreateTempContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
 	if len(args) < 1 || len(args) > 2 {
@@ -41,13 +84,17 @@ func stdOSCreateTempContext(rt *Runtime, ctx context.Context, args []Value) (Val
 			}
 			rt.stdOSTest.files[name] = &stdOSFileEntry{mode: 0o600, modTime: time.Unix(0, 0).UTC()}
 			rt.stdOSTest.mu.Unlock()
-			return stdOSOpen(rt, name, os.O_RDWR, 0o600)
+			value, err := stdOSOpen(rt, name, os.O_RDWR, 0o600)
+			stdOSSetHandlePolicy(value, rt, "os.file_write")
+			return value, err
 		}
 		f, err := os.CreateTemp(dir, pattern)
 		if err != nil {
 			return nullValue(), filesystemHostFailure("os.create_temp", dir, err)
 		}
-		return stdOSHandleValue(&stdOSFileHandle{file: f, path: f.Name(), writable: true}, "os_file"), nil
+		value := stdOSHandleValue(&stdOSFileHandle{file: f, path: f.Name(), writable: true}, "os_file")
+		stdOSSetHandlePolicy(value, rt, "os.file_write")
+		return value, nil
 	})
 }
 
@@ -63,16 +110,21 @@ func stdOSPipeContext(rt *Runtime, ctx context.Context, _ []Value) (Value, error
 			rt.stdOSTest.mu.Unlock()
 			r := &stdOSFileHandle{test: rt.stdOSTest, path: path}
 			w := &stdOSFileHandle{test: rt.stdOSTest, path: path, writable: true}
-			return tupleValue([]Value{stdOSHandleValue(r, "os_pipe_read"), stdOSHandleValue(w, "os_pipe_write")}), nil
+			readValue := stdOSHandleValue(r, "os_pipe_read")
+			writeValue := stdOSHandleValue(w, "os_pipe_write")
+			stdOSSetHandlePolicy(readValue, rt, "os.file_read")
+			stdOSSetHandlePolicy(writeValue, rt, "os.file_write")
+			return tupleValue([]Value{readValue, writeValue}), nil
 		}
 		r, w, err := os.Pipe()
 		if err != nil {
 			return nullValue(), filesystemHostFailure("os.pipe", "", err)
 		}
-		return tupleValue([]Value{
-			stdOSHandleValue(&stdOSFileHandle{file: r, path: "pipe:read"}, "os_pipe_read"),
-			stdOSHandleValue(&stdOSFileHandle{file: w, path: "pipe:write", writable: true}, "os_pipe_write"),
-		}), nil
+		readValue := stdOSHandleValue(&stdOSFileHandle{file: r, path: "pipe:read"}, "os_pipe_read")
+		writeValue := stdOSHandleValue(&stdOSFileHandle{file: w, path: "pipe:write", writable: true}, "os_pipe_write")
+		stdOSSetHandlePolicy(readValue, rt, "os.file_read")
+		stdOSSetHandlePolicy(writeValue, rt, "os.file_write")
+		return tupleValue([]Value{readValue, writeValue}), nil
 	})
 }
 
@@ -278,16 +330,60 @@ func stdOSCopyFSContext(rt *Runtime, ctx context.Context, args []Value) (Value, 
 	if err := requireStdOSCapability(rt, "os.file_read", "os.copy_fs"); err != nil {
 		return nullValue(), err
 	}
+	if err := requireStdOSCapability(rt, "os.directory_mutate", "os.copy_fs"); err != nil {
+		return nullValue(), err
+	}
 	return stdOSCallContext(ctx, "os.copy_fs", func() (Value, error) {
 		if rt != nil && rt.stdOSTest != nil {
-			return nullValue(), filesystemFailure(ErrorKindUnsupported, "os.copy_fs", source, "copy_fs for fake roots requires an fs fixture", nil)
+			state := rt.stdOSTest
+			sourcePath := stdOSFakePath(source)
+			destinationPath := stdOSFakePath(destination)
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			sourceEntry := state.files[sourcePath]
+			if sourceEntry == nil || !sourceEntry.isDir {
+				return nullValue(), filesystemHostFailure("os.copy_fs", source, os.ErrNotExist)
+			}
+			state.files[destinationPath] = &stdOSFileEntry{mode: os.ModeDir | 0o755, isDir: true, modTime: time.Unix(0, 0).UTC()}
+			paths := make([]string, 0)
+			for path := range state.files {
+				if path != sourcePath && strings.HasPrefix(path, strings.TrimSuffix(sourcePath, "/")+"/") {
+					paths = append(paths, path)
+				}
+			}
+			if len(paths) > 4096 {
+				return nullValue(), filesystemFailure(ErrorKindResourceExhausted, "os.copy_fs", source, "copy exceeds the entry bound", nil)
+			}
+			sort.Strings(paths)
+			var total int64
+			for _, path := range paths {
+				rel, _ := filepath.Rel(sourcePath, path)
+				target := filepath.Join(destinationPath, rel)
+				entry := state.files[path]
+				if entry.isDir {
+					state.files[target] = &stdOSFileEntry{mode: entry.mode, isDir: true, modTime: time.Unix(0, 0).UTC()}
+					continue
+				}
+				total += int64(len(entry.data))
+				if total > 64<<20 {
+					return nullValue(), filesystemFailure(ErrorKindResourceExhausted, "os.copy_fs", source, "copy exceeds the byte bound", nil)
+				}
+				state.files[target] = &stdOSFileEntry{data: append([]byte(nil), entry.data...), mode: entry.mode, modTime: time.Unix(0, 0).UTC(), target: entry.target}
+			}
+			return boolValue(true), nil
 		}
 		if err := os.MkdirAll(destination, 0o755); err != nil {
 			return nullValue(), filesystemHostFailure("os.copy_fs", destination, err)
 		}
+		var total int64
+		var entries int
 		err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			entries++
+			if entries > 4096 {
+				return fmt.Errorf("copy exceeds the entry bound")
 			}
 			rel, err := filepath.Rel(source, path)
 			if err != nil {
@@ -297,10 +393,14 @@ func stdOSCopyFSContext(rt *Runtime, ctx context.Context, args []Value) (Value, 
 			if info.IsDir() {
 				return os.MkdirAll(target, info.Mode().Perm())
 			}
+			if info.Size() > stdOSMaxRead || total+info.Size() > 64<<20 {
+				return fmt.Errorf("copy exceeds the byte bound")
+			}
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
+			total += int64(len(data))
 			return os.WriteFile(target, data, info.Mode().Perm())
 		})
 		if err != nil {
@@ -321,14 +421,29 @@ func stdOSOpenRoot(rt *Runtime, args []Value) (Value, error) {
 	if err := requireStdOSCapability(rt, "os.root", "os.open_root"); err != nil {
 		return nullValue(), err
 	}
+	rootHandle := &stdOSRootHandle{}
 	if rt != nil && rt.stdOSTest != nil {
-		return mapValueOf([]mapEntry{{stringValue("root"), stringValue(stdOSFakePath(path))}}), nil
+		rootPath := stdOSFakePath(path)
+		rt.stdOSTest.mu.RLock()
+		entry := rt.stdOSTest.files[rootPath]
+		rt.stdOSTest.mu.RUnlock()
+		if entry == nil || !entry.isDir {
+			return nullValue(), filesystemHostFailure("os.open_root", path, os.ErrNotExist)
+		}
+		return mapValueOf([]mapEntry{{stringValue("root"), stringValue(rootPath)}, {stringValue("__root_handle"), streamValueOf(&streamValue{id: "root:" + rootPath, path: rootPath, mode: "os_root", closer: rootHandle})}}), nil
 	}
 	path, err = filepath.Abs(path)
 	if err != nil {
 		return nullValue(), filesystemHostFailure("os.open_root", path, err)
 	}
-	return mapValueOf([]mapEntry{{stringValue("root"), stringValue(filepath.Clean(path))}}), nil
+	info, err := os.Stat(path)
+	if err != nil {
+		return nullValue(), filesystemHostFailure("os.open_root", path, err)
+	}
+	if !info.IsDir() {
+		return nullValue(), filesystemFailure(ErrorKindInvalidArgument, "os.open_root", path, "root must be a directory", nil)
+	}
+	return mapValueOf([]mapEntry{{stringValue("root"), stringValue(filepath.Clean(path))}, {stringValue("__root_handle"), streamValueOf(&streamValue{id: "root:" + path, path: path, mode: "os_root", closer: rootHandle})}}), nil
 }
 
 func stdOSReadDirEntriesContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
@@ -543,7 +658,11 @@ func stdOSStandardStream(rt *Runtime, name string) Value {
 			rt.stdOSTest.files[path] = &stdOSFileEntry{mode: 0o600, modTime: time.Unix(0, 0).UTC()}
 		}
 		rt.stdOSTest.mu.Unlock()
-		return stdOSHandleValue(&stdOSFileHandle{test: rt.stdOSTest, path: path, writable: name != "stdin", borrowed: true}, "os_standard")
+		capability := "os.file_write"
+		if name == "stdin" {
+			capability = "os.file_read"
+		}
+		return stdOSHandleValue(&stdOSFileHandle{test: rt.stdOSTest, path: path, writable: name != "stdin", borrowed: true, runtime: rt, capability: capability}, "os_standard")
 	}
 	file := os.Stdin
 	if name == "stdout" {
@@ -552,7 +671,11 @@ func stdOSStandardStream(rt *Runtime, name string) Value {
 	if name == "stderr" {
 		file = os.Stderr
 	}
-	return stdOSHandleValue(&stdOSFileHandle{file: file, path: "/dev/" + name, writable: name != "stdin", borrowed: true}, "os_standard")
+	capability := "os.file_write"
+	if name == "stdin" {
+		capability = "os.file_read"
+	}
+	return stdOSHandleValue(&stdOSFileHandle{file: file, path: "/dev/" + name, writable: name != "stdin", borrowed: true, runtime: rt, capability: capability}, "os_standard")
 }
 
 func stdOSFd(rt *Runtime, args []Value) (Value, error) {
@@ -572,11 +695,57 @@ func stdOSFd(rt *Runtime, args []Value) (Value, error) {
 	return uintValue(uint64(h.file.Fd()), 64), nil
 }
 
+func stdOSFileName(rt *Runtime, args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("name expects a file handle")
+	}
+	h, err := stdOSHandle(args, "os.name")
+	if err != nil {
+		return nullValue(), err
+	}
+	if err := h.check(false); err != nil {
+		return nullValue(), filesystemHostFailure("os.name", h.path, err)
+	}
+	return stringValue(h.path), nil
+}
+
+// stdOSUnsupportedOperation is used for Go os interfaces that cannot be
+// represented safely as Osiris values. It still performs the capability check
+// first, so a denied operation never reveals whether the host supports it.
+func stdOSUnsupportedOperation(rt *Runtime, operation, capability string, args []Value) (Value, error) {
+	if err := requireStdOSCapability(rt, capability, operation); err != nil {
+		return nullValue(), err
+	}
+	return nullValue(), osFailure(ErrorKindUnsupported, operation, fmt.Errorf("%s is intentionally unavailable in the portable std/os boundary", operation))
+}
+
+func stdOSDirFS(rt *Runtime, args []Value) (Value, error) {
+	return stdOSOpenRoot(rt, args)
+}
+
+func stdOSIsPathSeparator(args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("is_path_separator expects one byte value")
+	}
+	value, err := filesystemIntegerArgument(args[0], "os.is_path_separator", "value")
+	if err != nil {
+		return nullValue(), err
+	}
+	return boolValue(value == int64(filepath.Separator) || value == '/' || value == '\\'), nil
+}
+
 func stdOSTransferFileContext(rt *Runtime, ctx context.Context, args []Value, writeTo bool) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("file transfer expects two handles")
 	}
 	if err := requireStdOSCapability(rt, "os.file_read", "os.file_transfer"); err != nil {
+		return nullValue(), err
+	}
+	if writeTo {
+		if err := requireStdOSCapability(rt, "os.file_write", "os.write_to"); err != nil {
+			return nullValue(), err
+		}
+	} else if err := requireStdOSCapability(rt, "os.file_write", "os.read_from"); err != nil {
 		return nullValue(), err
 	}
 	return stdOSCallContext(ctx, "os.file_transfer", func() (Value, error) {
@@ -780,6 +949,9 @@ func stdOSSignalProcessContext(rt *Runtime, _ context.Context, args []Value) (Va
 }
 
 func stdOSRootPath(root Value, name Value, operation string) (string, error) {
+	if _, err := stdOSRootHandleFromValue(root); err != nil {
+		return "", filesystemFailure(ErrorKindIO, operation, "", "root is closed", err)
+	}
 	base, ok := mapFieldValue(root, "root")
 	if !ok || base.kind != kindString {
 		return "", fmt.Errorf("%s expects a root handle", operation)
@@ -789,8 +961,8 @@ func stdOSRootPath(root Value, name Value, operation string) (string, error) {
 		return "", err
 	}
 	rel = filepath.Clean(rel)
-	if filepath.IsAbs(rel) {
-		rel = strings.TrimPrefix(rel, string(filepath.Separator))
+	if filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." {
+		return "", filesystemFailure(ErrorKindPermissionDenied, operation, rel, "root path must be relative and confined", nil)
 	}
 	path := filepath.Join(base.str, rel)
 	cleanBase := filepath.Clean(base.str)
@@ -799,6 +971,240 @@ func stdOSRootPath(root Value, name Value, operation string) (string, error) {
 		return "", filesystemFailure(ErrorKindPermissionDenied, operation, rel, "root path escapes its root", nil)
 	}
 	return cleanPath, nil
+}
+
+func stdOSRootOpenContext(rt *Runtime, ctx context.Context, args []Value, create bool) (Value, error) {
+	if len(args) != 2 {
+		if create {
+			return nullValue(), fmt.Errorf("root_create expects root and path")
+		}
+		return nullValue(), fmt.Errorf("root_open expects root and path")
+	}
+	root, err := stdOSRootHandleFromValue(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_open")
+	if err != nil {
+		return nullValue(), err
+	}
+	capability := "os.file_read"
+	flags := os.O_RDONLY
+	perm := os.FileMode(0)
+	if create {
+		capability = "os.file_write"
+		flags = os.O_CREATE | os.O_RDWR | os.O_TRUNC
+		perm = 0o644
+	}
+	if err := requireStdOSCapability(rt, capability, "os.root_open"); err != nil {
+		return nullValue(), err
+	}
+	return stdOSCallContext(ctx, "os.root_open", func() (Value, error) {
+		value, e := stdOSOpen(rt, path, flags, perm)
+		if e == nil && value.stream != nil && value.stream.stdFile != nil {
+			value.stream.stdFile.root = root
+			value.stream.stdFile.runtime = rt
+			value.stream.stdFile.capability = capability
+		}
+		return value, e
+	})
+}
+
+func stdOSRootOpenFileContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 4 {
+		return nullValue(), fmt.Errorf("root_open_file expects root, path, flags, and mode")
+	}
+	flags, err := filesystemIntegerArgument(args[2], "os.root_open_file", "flags")
+	if err != nil {
+		return nullValue(), err
+	}
+	if err := stdOSValidateFlags(flags); err != nil {
+		return nullValue(), err
+	}
+	mode, err := filesystemIntegerArgument(args[3], "os.root_open_file", "mode")
+	if err != nil {
+		return nullValue(), err
+	}
+	root, err := stdOSRootHandleFromValue(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_open_file")
+	if err != nil {
+		return nullValue(), err
+	}
+	capability := "os.file_read"
+	if flags&(int64(os.O_WRONLY)|int64(os.O_RDWR)) != 0 {
+		capability = "os.file_write"
+	}
+	if err := requireStdOSCapability(rt, capability, "os.root_open_file"); err != nil {
+		return nullValue(), err
+	}
+	return stdOSCallContext(ctx, "os.root_open_file", func() (Value, error) {
+		value, e := stdOSOpen(rt, path, int(flags), os.FileMode(mode))
+		if e == nil && value.stream != nil && value.stream.stdFile != nil {
+			value.stream.stdFile.root = root
+			value.stream.stdFile.runtime = rt
+			value.stream.stdFile.capability = capability
+		}
+		return value, e
+	})
+}
+
+func stdOSRootReadFileContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("root_read_file expects root and path")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_read_file")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSReadFileContext(rt, ctx, []Value{stringValue(path)})
+}
+func stdOSRootWriteFileContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 4 {
+		return nullValue(), fmt.Errorf("root_write_file expects root, path, data, and mode")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_write_file")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSWriteFileContext(rt, ctx, []Value{stringValue(path), args[2], args[3]})
+}
+func stdOSRootStatContext(rt *Runtime, ctx context.Context, args []Value, follow bool) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("root_stat expects root and path")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_stat")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSStatContext(rt, ctx, []Value{stringValue(path)}, follow)
+}
+func stdOSRootReadlinkContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("root_readlink expects root and path")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_readlink")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSReadlinkContext(rt, ctx, []Value{stringValue(path)})
+}
+func stdOSRootMkdirContext(rt *Runtime, ctx context.Context, args []Value, all bool) (Value, error) {
+	if len(args) != 3 {
+		return nullValue(), fmt.Errorf("root_mkdir expects root, path, and mode")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_mkdir")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSMkdirContext(rt, ctx, []Value{stringValue(path), args[2]}, all)
+}
+func stdOSRootRemoveContext(rt *Runtime, ctx context.Context, args []Value, all bool) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("root_remove expects root and path")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_remove")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSRemoveContext(rt, ctx, []Value{stringValue(path)}, all)
+}
+func stdOSRootClose(_ *Runtime, _ context.Context, args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("root_close expects root")
+	}
+	root, err := stdOSRootHandleFromValue(args[0])
+	if err != nil {
+		return nullValue(), err
+	}
+	if err := root.Close(); err != nil {
+		return boolValue(false), nil
+	}
+	return boolValue(true), nil
+}
+func stdOSRootFS(root Value) (Value, error) {
+	base, ok := mapFieldValue(root, "root")
+	if !ok {
+		return nullValue(), fmt.Errorf("root_fs expects a root")
+	}
+	if _, err := stdOSRootHandleFromValue(root); err != nil {
+		return nullValue(), err
+	}
+	return mapValueOf([]mapEntry{{key: stringValue("root"), value: base}}), nil
+}
+
+func stdOSRootTwoPathContext(rt *Runtime, ctx context.Context, args []Value, operation string, symbolic bool) (Value, error) {
+	if len(args) != 3 {
+		return nullValue(), fmt.Errorf("%s expects root, old path, and new path", operation)
+	}
+	old, err := stdOSRootPath(args[0], args[1], operation)
+	if err != nil {
+		return nullValue(), err
+	}
+	next, err := stdOSRootPath(args[0], args[2], operation)
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSLinkContext(rt, ctx, []Value{stringValue(old), stringValue(next)}, symbolic)
+}
+func stdOSRootRenameContext(rt *Runtime, _ context.Context, args []Value) (Value, error) {
+	if len(args) != 3 {
+		return nullValue(), fmt.Errorf("root_rename expects root, old path, and new path")
+	}
+	old, err := stdOSRootPath(args[0], args[1], "os.root_rename")
+	if err != nil {
+		return nullValue(), err
+	}
+	next, err := stdOSRootPath(args[0], args[2], "os.root_rename")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSMutatePath(rt, "os.root_rename", old, func() error {
+		if rt != nil && rt.stdOSTest != nil {
+			rt.stdOSTest.mu.Lock()
+			defer rt.stdOSTest.mu.Unlock()
+			entry := rt.stdOSTest.files[stdOSFakePath(old)]
+			if entry == nil {
+				return os.ErrNotExist
+			}
+			rt.stdOSTest.files[stdOSFakePath(next)] = entry
+			delete(rt.stdOSTest.files, stdOSFakePath(old))
+			return nil
+		}
+		return os.Rename(old, next)
+	})
+}
+func stdOSRootChmodContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 3 {
+		return nullValue(), fmt.Errorf("root_chmod expects root, path, and mode")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_chmod")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSChmodContext(rt, ctx, []Value{stringValue(path), args[2]})
+}
+func stdOSRootChownContext(rt *Runtime, ctx context.Context, args []Value, link bool) (Value, error) {
+	if len(args) != 4 {
+		return nullValue(), fmt.Errorf("root_chown expects root, path, uid, and gid")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_chown")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSChownContext(rt, ctx, []Value{stringValue(path), args[2], args[3]}, link)
+}
+func stdOSRootChtimesContext(rt *Runtime, ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 4 {
+		return nullValue(), fmt.Errorf("root_chtimes expects root, path, access time, and modification time")
+	}
+	path, err := stdOSRootPath(args[0], args[1], "os.root_chtimes")
+	if err != nil {
+		return nullValue(), err
+	}
+	return stdOSChtimesContext(rt, ctx, []Value{stringValue(path), args[2], args[3]})
 }
 
 // Keep the imported package visible on platforms where the host adapter is
