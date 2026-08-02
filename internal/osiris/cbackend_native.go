@@ -7,12 +7,54 @@ import (
 	"strings"
 )
 
+func writeCValueArray(b *strings.Builder, args []string, vars map[string]string) {
+	if len(args) == 0 {
+		b.WriteString("NULL")
+		return
+	}
+	b.WriteString("(OValue[]){")
+	for i, arg := range args {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(vars[arg])
+	}
+	b.WriteByte('}')
+}
+
+func cFFIConstantLiteral(constant FFIConstant) (string, error) {
+	value, err := parseFFIConstant(constant.Type, constant.Value)
+	if err != nil {
+		return "", fmt.Errorf("native C backend: ffi constant %q: %w", constant.Name, err)
+	}
+	return cLiteral(value)
+}
+
+func cFFIIntegerResultSpec(result string) (kind, bits int, err error) {
+	switch result {
+	case "void":
+		return 0, 0, nil
+	case "bool":
+		return 1, 1, nil
+	case "u8", "u16", "u32", "u64":
+		return 2, int(uintWidth(result)), nil
+	case "i8", "i16", "i32", "i64":
+		return 3, int(intWidth(result)), nil
+	default:
+		return 0, 0, fmt.Errorf("native C backend: unsupported ffi integer result type %q", result)
+	}
+}
+
 // emitCIR emits the initial executable subset of the native backend. It uses a
 // small tagged runtime so control flow can be lowered before scalar
 // specialization replaces values in hot paths.
 func emitCIR(prog *IRProgram) (string, error) { return emitCIRWithOptions(prog, CCompileOptions{}) }
 
 func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error) {
+	return emitCIRWithOptionsAndFFI(prog, options, &nativeFFIPlan{calls: make(map[string]FFIFunction), constants: make(map[string]FFIConstant), loads: make(map[string]string)})
+}
+
+func emitCIRWithOptionsAndFFI(prog *IRProgram, options CCompileOptions, ffiPlan *nativeFFIPlan) (string, error) {
 	if prog == nil || len(prog.Functions) == 0 || prog.Functions[0].Name != "main" {
 		return "", fmt.Errorf("native C backend requires a top-level main function")
 	}
@@ -53,6 +95,9 @@ func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error
 	if options.PublicEmitSpacing {
 		b.WriteString("#define OSIRIS_PUBLIC_EMIT_SPACING 1\n")
 	}
+	if ffiPlan == nil {
+		ffiPlan = &nativeFFIPlan{calls: make(map[string]FFIFunction), constants: make(map[string]FFIConstant), loads: make(map[string]string)}
+	}
 	b.WriteString(cRuntimePrelude())
 	for _, fn := range prog.Functions[1:] {
 		fmt.Fprintf(&b, "\nstatic OValue %s(", functionNames[fn.Name])
@@ -81,7 +126,7 @@ func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error
 		fmt.Fprintf(&b, "// generic %s<%s> uses the shared tagged ABI\n", fn.SourceName, strings.Join(fn.TypeParams, ", "))
 	}
 	for _, fn := range prog.Functions[1:] {
-		if err := emitCFunction(&b, fn, false, functions, functionNames, moduleIdentities[fn.Name], complexValues, options.LinalgProviderSource != "", prog.SourceName); err != nil {
+		if err := emitCFunction(&b, fn, false, functions, functionNames, moduleIdentities[fn.Name], complexValues, options.LinalgProviderSource != "", prog.SourceName, ffiPlan); err != nil {
 			return "", err
 		}
 	}
@@ -106,7 +151,7 @@ func emitCIRWithOptions(prog *IRProgram, options CCompileOptions) (string, error
 		return "", err
 	} else if !specialized {
 		fmt.Fprintf(&b, "  // Osiris native fallback: %s\n", nativeScalarFallbackReason(prog.Functions[0]))
-		if err := emitCFunctionBody(&b, prog.Functions[0], true, functions, functionNames, moduleIdentities[prog.Functions[0].Name], complexValues, options.LinalgProviderSource != "", prog.SourceName); err != nil {
+		if err := emitCFunctionBody(&b, prog.Functions[0], true, functions, functionNames, moduleIdentities[prog.Functions[0].Name], complexValues, options.LinalgProviderSource != "", prog.SourceName, ffiPlan); err != nil {
 			return "", err
 		}
 	}
@@ -170,7 +215,7 @@ func nativeScalarFallbackReason(fn *IRFunction) string {
 	return "dynamic scalar types require the tagged ABI"
 }
 
-func emitCFunction(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string, moduleSeeds map[string]string, complexValues map[string]bool, hasProvider bool, programSource string) error {
+func emitCFunction(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string, moduleSeeds map[string]string, complexValues map[string]bool, hasProvider bool, programSource string, ffiPlan *nativeFFIPlan) error {
 	fmt.Fprintf(b, "\nstatic OValue %s(", functionNames[fn.Name])
 	for i := range fn.Params {
 		if i > 0 {
@@ -185,14 +230,14 @@ func emitCFunction(b *strings.Builder, fn *IRFunction, main bool, functions map[
 		fmt.Fprintf(b, "OValue c%d", i)
 	}
 	b.WriteString(") {\n")
-	if err := emitCFunctionBody(b, fn, main, functions, functionNames, moduleSeeds, complexValues, hasProvider, programSource); err != nil {
+	if err := emitCFunctionBody(b, fn, main, functions, functionNames, moduleSeeds, complexValues, hasProvider, programSource, ffiPlan); err != nil {
 		return err
 	}
 	b.WriteString("}\n")
 	return nil
 }
 
-func emitCFunctionBody(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string, moduleSeeds map[string]string, complexValues map[string]bool, hasProvider bool, programSource string) error {
+func emitCFunctionBody(b *strings.Builder, fn *IRFunction, main bool, functions map[string]*IRFunction, functionNames map[string]string, moduleSeeds map[string]string, complexValues map[string]bool, hasProvider bool, programSource string, ffiPlan *nativeFFIPlan) error {
 	reachable := nativeReachableBlocks(fn)
 	vars := map[string]string{}
 	names := make([]string, 0)
@@ -296,7 +341,7 @@ func emitCFunctionBody(b *strings.Builder, fn *IRFunction, main bool, functions 
 		}
 		fmt.Fprintf(b, "%s:\n", cLabel(block.Name))
 		for _, in := range block.Instrs {
-			if err := emitCInstr(b, in, vars, bindings, closureArgs, builtins, complexValues, functionNames, hasProvider); err != nil {
+			if err := emitCInstr(b, in, vars, bindings, closureArgs, builtins, complexValues, functionNames, hasProvider, fn.Name, ffiPlan); err != nil {
 				return err
 			}
 			if main {
@@ -552,7 +597,7 @@ func propagateNativeComplexBlockArgs(fn *IRFunction, target string, args []strin
 	}
 }
 
-func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings map[string]*IRFunction, closureArgs map[string][]string, builtins map[string]string, complexValues map[string]bool, functionNames map[string]string, hasProvider bool) error {
+func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings map[string]*IRFunction, closureArgs map[string][]string, builtins map[string]string, complexValues map[string]bool, functionNames map[string]string, hasProvider bool, currentFunction string, ffiPlan *nativeFFIPlan) error {
 	name := func(v string) (string, error) {
 		n, ok := vars[v]
 		if !ok {
@@ -853,6 +898,108 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		builtin := builtins[in.Text]
 		if builtin == "" {
 			builtin = in.Text
+		}
+		if builtin == "ffi_load" {
+			if len(in.Args) != 1 {
+				return fmt.Errorf("native C backend: ffi_load expects one manifest path")
+			}
+			if libraryPath := ffiPlan.loads[ffiPlan.loadKey(currentFunction, in.Dest)]; libraryPath != "" {
+				fmt.Fprintf(b, "  %s = offi_load(ostring(\"%s\"));\n", vars[in.Dest], cEscapeString(libraryPath))
+			} else {
+				return fmt.Errorf("native C backend: ffi_load manifest was not resolved at compile time")
+			}
+			return nil
+		}
+		if builtin == "ffi_close" {
+			if len(in.Args) != 1 {
+				return fmt.Errorf("native C backend: ffi_close expects one library")
+			}
+			fmt.Fprintf(b, "  %s = offi_close(&%s);\n", vars[in.Dest], vars[in.Args[0]])
+			return nil
+		}
+		if builtin == "ffi_const" {
+			if len(in.Args) != 2 {
+				return fmt.Errorf("native C backend: ffi_const expects a library and constant name")
+			}
+			constant, ok := ffiPlan.constants[ffiPlan.callKey(currentFunction, in.Args[0], in.Args[1])]
+			if !ok {
+				return fmt.Errorf("native C backend: ffi_const member is not a declared manifest constant")
+			}
+			literal, err := cFFIConstantLiteral(constant)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], literal)
+			return nil
+		}
+		if builtin == "ffi_call" {
+			if len(in.Args) < 2 {
+				return fmt.Errorf("native C backend: ffi_call expects a library and declared function name")
+			}
+			declaration, ok := ffiPlan.calls[ffiPlan.callKey(currentFunction, in.Args[0], in.Args[1])]
+			if !ok {
+				return fmt.Errorf("native C backend: ffi_call member is not a declared manifest function")
+			}
+			args := in.Args[2:]
+			if len(args) != len(declaration.Args) {
+				return fmt.Errorf("native C backend: ffi %s expects %d argument(s), got %d", declaration.Name, len(declaration.Args), len(args))
+			}
+			if declaration.CallingConvention != "c" {
+				return fmt.Errorf("native C backend: ffi %s requires the C calling convention", declaration.Name)
+			}
+			if ffiScalarSignature(&declaration) {
+				if declaration.Result == "f32" || declaration.Result == "f64" {
+					fmt.Fprintf(b, "  %s = offi_f64(%s, \"%s\", ", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol))
+				} else {
+					if declaration.Result == "void" {
+						fmt.Fprintf(b, "  %s = offi_void(%s, \"%s\", %d, ", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol), len(args))
+						writeCValueArray(b, args, vars)
+						b.WriteString(");\n")
+						return nil
+					}
+					kind, bits, err := cFFIIntegerResultSpec(declaration.Result)
+					if err != nil {
+						return err
+					}
+					fmt.Fprintf(b, "  %s = offi_i64(%s, \"%s\", %d, %d, %d, ", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol), kind, bits, len(args))
+				}
+				writeCValueArray(b, args, vars)
+				if declaration.Result == "f32" || declaration.Result == "f64" {
+					bits := 64
+					if declaration.Result == "f32" {
+						bits = 32
+					}
+					fmt.Fprintf(b, ", %d);\n", bits)
+				} else {
+					b.WriteString(");\n")
+				}
+				return nil
+			}
+			if ffiStringSignature(&declaration) {
+				fmt.Fprintf(b, "  %s = offi_string(%s, \"%s\", ", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol))
+				writeCValueArray(b, args, vars)
+				fmt.Fprintf(b, ", %d);\n", len(args))
+				return nil
+			}
+			if ffiConstBufferSignature(&declaration) {
+				kind, bits, err := cFFIIntegerResultSpec(declaration.Result)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(b, "  %s = offi_const_buffer(%s, \"%s\", %d, %d, ", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol), kind, bits)
+				writeCValueArray(b, args, vars)
+				fmt.Fprintf(b, ", %d);\n", len(args))
+				return nil
+			}
+			if ffiMutableBufferSignature(&declaration) {
+				kind, bits, err := cFFIIntegerResultSpec(declaration.Result)
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(b, "  %s = offi_mutable_buffer(%s, \"%s\", %d, %d, %s);\n", vars[in.Dest], vars[in.Args[0]], cEscapeString(declaration.Symbol), kind, bits, vars[args[0]])
+				return nil
+			}
+			return fmt.Errorf("native C backend: ffi %s uses an ABI shape not supported by the generated-C adapter", declaration.Name)
 		}
 		if nativeComplexMathBuiltin(builtin) {
 			for _, arg := range in.Args {
@@ -2949,8 +3096,11 @@ func cRuntimePrelude() string {
 #include <stdlib.h>
 #include <math.h>
 #include <limits.h>
+#if defined(__unix__) || defined(__APPLE__)
+#include <dlfcn.h>
+#endif
 
-typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_TASK, O_BYTES } OKind;
+typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_TASK, O_BYTES, O_FFI } OKind;
 typedef struct OValue OValue;
 typedef struct OTask OTask;
 typedef OValue (*OCall)(const OValue *args, size_t argc, const OValue *captures, size_t capture_count);
@@ -2979,12 +3129,13 @@ typedef struct { OComplex *data; size_t len; size_t *shape; size_t rank; } OComp
 typedef struct { OCall call; OValue *captures; size_t capture_count; const char *signature; } OClosure;
 typedef struct { double magnitude; OString unit; } OQuantity;
 typedef struct { OValue *value; } OBox;
+typedef struct { void *handle; } OFFILibrary;
 typedef struct OAlloc { void *ptr; struct OAlloc *next; } OAlloc;
 typedef enum { O_LINALG_OK = 0, O_LINALG_INVALID_ARGUMENT, O_LINALG_NOT_CONVERGED, O_LINALG_NO_MEMORY, O_LINALG_UNAVAILABLE } OLinalgStatus;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); } OLinalgProviderV1;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); OLinalgStatus (*eig_f64)(size_t, double *, OComplex *, OComplex *); } OLinalgProviderV2;
 extern const OLinalgProviderV1 *osiris_linalg_provider_v1(void);
-struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OEnum en; OError error; OQuantity quantity; OBox box; OTask *task; } as; };
+struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OEnum en; OError error; OQuantity quantity; OBox box; OTask *task; OFFILibrary ffi; } as; };
 struct OTask { OValue thunk; OValue result; OValue error; int state; int failed; };
 static OValue ofail(const char *message);
 static OValue obin(const char *op, OValue a, OValue b);
@@ -3191,5 +3342,73 @@ if(oprinted) putchar('\n');
 #endif
 oprintvalue(x); putchar('\n'); oprinted=1;
 }
-`, "static OValue oat(", "static OValue oat_real(", 1), "static OValue oreshape(", "static OValue oreshape_real(", 1), "static OValue osetat(", "static OValue osetat_real(", 1), "static OValue obin(const char *op, OValue a, OValue b) {", "static OValue obin_real(const char *op, OValue a, OValue b) {", 1), "static OValue otake(", "static OValue otake_real(", 1), "static OValue oslice(", "static OValue oslice_real(", 1), "static OValue osliceaxis(", "static OValue osliceaxis_real(", 1), "static OValue otranspose(", "static OValue otranspose_real(", 1), "static OValue omatmul(", "static OValue omatmul_real(", 1), "static OValue otrace(", "static OValue otrace_real(", 1), "static OValue odet(", "static OValue odet_real(", 1), "static OValue osolve(", "static OValue osolve_real(", 1), "static OValue oinv(", "static OValue oinv_real(", 1), "static OValue ocholesky(", "static OValue ocholesky_real(", 1), "static OValue oqr(", "static OValue oqr_real(", 1), "provider&&provider->abi_version==1&&provider->eigh_f64", "provider&&provider->abi_version>=1&&provider->eigh_f64", 1), "provider&&provider->abi_version==1&&provider->svd_f64", "provider&&provider->abi_version>=1&&provider->svd_f64", 1) + cRuntimeComplexTensorComponent + cRuntimePortableComponent
+`, "static OValue oat(", "static OValue oat_real(", 1), "static OValue oreshape(", "static OValue oreshape_real(", 1), "static OValue osetat(", "static OValue osetat_real(", 1), "static OValue obin(const char *op, OValue a, OValue b) {", "static OValue obin_real(const char *op, OValue a, OValue b) {", 1), "static OValue otake(", "static OValue otake_real(", 1), "static OValue oslice(", "static OValue oslice_real(", 1), "static OValue osliceaxis(", "static OValue osliceaxis_real(", 1), "static OValue otranspose(", "static OValue otranspose_real(", 1), "static OValue omatmul(", "static OValue omatmul_real(", 1), "static OValue otrace(", "static OValue otrace_real(", 1), "static OValue odet(", "static OValue odet_real(", 1), "static OValue osolve(", "static OValue osolve_real(", 1), "static OValue oinv(", "static OValue oinv_real(", 1), "static OValue ocholesky(", "static OValue ocholesky_real(", 1), "static OValue oqr(", "static OValue oqr_real(", 1), "provider&&provider->abi_version==1&&provider->eigh_f64", "provider&&provider->abi_version>=1&&provider->eigh_f64", 1), "provider&&provider->abi_version==1&&provider->svd_f64", "provider&&provider->abi_version>=1&&provider->svd_f64", 1) + cRuntimeComplexTensorComponent + cRuntimePortableComponent + cRuntimeFFIComponent
 }
+
+const cRuntimeFFIComponent = `
+static OValue offi_load(OValue path) {
+#if defined(__unix__) || defined(__APPLE__)
+  if(path.kind!=O_STRING || memchr(path.as.s.data, 0, path.as.s.len)) return ofail("ffi_load expects a NUL-free manifest path");
+  char *copy=(char *)malloc(path.as.s.len+1); if(!copy) return ofail("out of memory");
+  memcpy(copy,path.as.s.data,path.as.s.len); copy[path.as.s.len]=0;
+  void *handle=dlopen(copy, RTLD_NOW|RTLD_LOCAL); free(copy);
+  if(!handle) { const char *detail=dlerror(); return ofail(detail?detail:"unable to open foreign library"); }
+  return (OValue){O_FFI,0,{.ffi={handle}}};
+#else
+  (void)path; return ofail("native C FFI is unavailable on this platform");
+#endif
+}
+static void *offi_symbol(OValue library, const char *name) {
+#if defined(__unix__) || defined(__APPLE__)
+  if(library.kind!=O_FFI || !library.as.ffi.handle) { ofail("ffi call expects an open library"); return NULL; }
+  dlerror(); void *symbol=dlsym(library.as.ffi.handle,name); const char *detail=dlerror();
+  if(detail || !symbol) { ofail(detail?detail:"foreign symbol is unavailable"); return NULL; }
+  return symbol;
+#else
+  (void)library; (void)name; ofail("native C FFI is unavailable on this platform"); return NULL;
+#endif
+}
+static OValue offi_close(OValue *library) {
+#if defined(__unix__) || defined(__APPLE__)
+  if(!library || library->kind!=O_FFI || !library->as.ffi.handle) return ofail("ffi_close expects an open library");
+  if(dlclose(library->as.ffi.handle)!=0) { const char *detail=dlerror(); return ofail(detail?detail:"unable to close foreign library"); }
+  library->as.ffi.handle=NULL;
+  return obool(1);
+#else
+  (void)library; return ofail("native C FFI is unavailable on this platform");
+#endif
+}
+static OValue offi_i64(OValue library, const char *name, int result_kind, int result_bits, size_t count, const OValue *values) {
+  void *symbol=offi_symbol(library,name); if(!symbol) return onull(); if(count>4) return ofail("ffi integer ABI arity exceeds four");
+  int64_t a[4]={0,0,0,0}; for(size_t i=0;i<count;i++) { double number; if(!onum(values[i],&number)) return ofail("ffi integer call expects integer arguments"); a[i]=(int64_t)number; }
+  int64_t result=0; switch(count) {
+  case 0: result=((int64_t (*)(void))symbol)(); break;
+  case 1: result=((int64_t (*)(int64_t))symbol)(a[0]); break;
+  case 2: result=((int64_t (*)(int64_t,int64_t))symbol)(a[0],a[1]); break;
+  case 3: result=((int64_t (*)(int64_t,int64_t,int64_t))symbol)(a[0],a[1],a[2]); break;
+  case 4: result=((int64_t (*)(int64_t,int64_t,int64_t,int64_t))symbol)(a[0],a[1],a[2],a[3]); break;
+  }
+  if(result_kind==0) return onull(); if(result_kind==1) return obool(result!=0); if(result_kind==2) return ouintbits((uint64_t)result,(uint16_t)result_bits); return ointbits(result,(uint16_t)result_bits);
+}
+static OValue offi_void(OValue library, const char *name, size_t count, const OValue *values) {
+  void *symbol=offi_symbol(library,name); if(!symbol) return onull(); if(count>4) return ofail("ffi void ABI arity exceeds four");
+  int64_t a[4]={0,0,0,0}; for(size_t i=0;i<count;i++) { double number; if(!onum(values[i],&number)) return ofail("ffi void call expects integer arguments"); a[i]=(int64_t)number; }
+  switch(count) { case 0: ((void (*)(void))symbol)(); break; case 1: ((void (*)(int64_t))symbol)(a[0]); break; case 2: ((void (*)(int64_t,int64_t))symbol)(a[0],a[1]); break; case 3: ((void (*)(int64_t,int64_t,int64_t))symbol)(a[0],a[1],a[2]); break; case 4: ((void (*)(int64_t,int64_t,int64_t,int64_t))symbol)(a[0],a[1],a[2],a[3]); break; }
+  return onull();
+}
+static OValue offi_f64(OValue library, const char *name, const OValue *values, size_t count, int bits) {
+  void *symbol=offi_symbol(library,name); if(!symbol) return onull(); if(count>4) return ofail("ffi float ABI arity exceeds four");
+  double a[4]={0,0,0,0}; for(size_t i=0;i<count;i++) { if(!onum(values[i],&a[i])) return ofail("ffi float call expects numeric arguments"); }
+  double result=0; switch(count) { case 0: result=((double (*)(void))symbol)(); break; case 1: result=((double (*)(double))symbol)(a[0]); break; case 2: result=((double (*)(double,double))symbol)(a[0],a[1]); break; case 3: result=((double (*)(double,double,double))symbol)(a[0],a[1],a[2]); break; case 4: result=((double (*)(double,double,double,double))symbol)(a[0],a[1],a[2],a[3]); break; }
+  return ofloatbits(result,(uint16_t)bits);
+}
+static OValue offi_string(OValue library, const char *name, const OValue *values, size_t count) {
+  void *symbol=offi_symbol(library,name); if(!symbol) return onull(); if(count>4) return ofail("ffi string ABI arity exceeds four");
+  char *a[4]={NULL,NULL,NULL,NULL}; for(size_t i=0;i<count;i++) { if(values[i].kind!=O_STRING || memchr(values[i].as.s.data,0,values[i].as.s.len)) return ofail("ffi string call expects NUL-free strings"); a[i]=(char *)malloc(values[i].as.s.len+1); if(!a[i]) { for(size_t j=0;j<i;j++) free(a[j]); return ofail("out of memory"); } memcpy(a[i],values[i].as.s.data,values[i].as.s.len); a[i][values[i].as.s.len]=0; }
+  const char *result=NULL; switch(count) { case 0: result=((const char *(*)(void))symbol)(); break; case 1: result=((const char *(*)(const char *))symbol)(a[0]); break; case 2: result=((const char *(*)(const char *,const char *))symbol)(a[0],a[1]); break; case 3: result=((const char *(*)(const char *,const char *,const char *))symbol)(a[0],a[1],a[2]); break; case 4: result=((const char *(*)(const char *,const char *,const char *,const char *))symbol)(a[0],a[1],a[2],a[3]); break; }
+  for(size_t i=0;i<count;i++) free(a[i]); if(!result) return ofail("foreign string call returned null"); size_t len=strlen(result); char *copy=(char *)malloc(len+1); if(!copy) return ofail("out of memory"); memcpy(copy,result,len+1); if(!otrack(copy)) { free(copy); return ofail("out of memory"); } return ostringview(copy,len);
+}
+static int offi_bytes(OValue value, unsigned char **out, size_t *length) { if(value.kind!=O_LIST) return 0; *length=value.as.list.len; *out=*length?(unsigned char *)malloc(*length):NULL; if(*length&&!*out) return 0; for(size_t i=0;i<*length;i++) { OValue item=value.as.list.items[i]; if(item.kind!=O_UINT || item.as.u>255) { free(*out); *out=NULL; return 0; } (*out)[i]=(unsigned char)item.as.u; } return 1; }
+static OValue offi_const_buffer(OValue library, const char *name, int result_kind, int result_bits, const OValue *values, size_t count) { void *symbol=offi_symbol(library,name); if(!symbol) return onull(); if(count<1||count>2) return ofail("ffi const_buffer ABI supports one or two buffers"); unsigned char *data[2]={NULL,NULL}; size_t length[2]={0,0}; for(size_t i=0;i<count;i++) if(!offi_bytes(values[i],&data[i],&length[i])) { free(data[0]); free(data[1]); return ofail("ffi const_buffer expects byte lists"); } int64_t result=0; if(count==1) result=((int64_t (*)(const unsigned char *,uintptr_t))symbol)(data[0],length[0]); else result=((int64_t (*)(const unsigned char *,uintptr_t,const unsigned char *,uintptr_t))symbol)(data[0],length[0],data[1],length[1]); free(data[0]); free(data[1]); if(result_kind==0) return onull(); if(result_kind==1) return obool(result!=0); if(result_kind==2) return ouintbits((uint64_t)result,(uint16_t)result_bits); return ointbits(result,(uint16_t)result_bits); }
+static OValue offi_mutable_buffer(OValue library, const char *name, int result_kind, int result_bits, OValue value) { void *symbol=offi_symbol(library,name); if(!symbol) return onull(); unsigned char *data=NULL; size_t length=0; if(!offi_bytes(value,&data,&length)) return ofail("ffi buffer expects a byte list"); int64_t result=((int64_t (*)(unsigned char *,uintptr_t))symbol)(data,length); for(size_t i=0;i<length;i++) value.as.list.items[i]=ouintbits(data[i],8); free(data); if(result_kind==0) return onull(); if(result_kind==1) return obool(result!=0); if(result_kind==2) return ouintbits((uint64_t)result,(uint16_t)result_bits); return ointbits(result,(uint16_t)result_bits); }
+`

@@ -207,7 +207,7 @@
       "documentation": ["https://sphireinc.github.io/Osiris/#chapter-native"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
       "evidence": {"tests": ["internal/osiris/runtime_test.go#TestCBackendObjectAndExecutable", "internal/osiris/runtime_test.go#TestCBackendReportsTaggedFallbackReason"]},
-      "notes": "Osiris can lower a tested subset through C and invoke the system C compiler. The hosted FFI boundary validates capability-gated, digest-pinned manifests and executes tested scalar, borrowed-string, and const_buffer calls through the platform loader. Generated-C FFI, callbacks, mutable or owned buffers, opaque call values, packaging, and cross-platform parity remain unsupported."
+      "notes": "Osiris can lower a tested subset through C and invoke the system C compiler. The FFI boundary validates capability-gated, digest-pinned manifests and has generated-C parity for declared scalar, float, string, constant, immutable-buffer, and mutable-buffer calls. Hosted and VM additionally cover fixed-layout records, opaque handles, and scoped synchronous callbacks; unsupported ABI shapes are rejected rather than coerced."
     },
     {
       "id": "scope-bound-cleanup",

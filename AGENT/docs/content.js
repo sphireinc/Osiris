@@ -171,11 +171,11 @@ window.OSIRIS_MANUAL = {
       id: "native",
       eyebrow: "Chapter",
       title: "Native interop and build flow",
-      summary: "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; FFI remains future work.",
+      summary: "Osiris is becoming a general ahead-of-time compiler with portable C as its first native backend; FFI uses explicit, capability-gated ABI-v1 manifests.",
       paragraphs: [
         "The native build path lowers a tested AST/IR subset into readable C whose executable evaluates program logic at runtime, then uses the system C compiler for native code generation. Unsupported operations are rejected during compilation; there is no compile-time execution fallback.",
         "C is the first backend because it is inspectable, portable, and lets mature toolchains handle instruction selection, register allocation, linking, and target-specific optimization. The backend support matrix names the supported subset and its evidence; native parity and measured performance are required before claims of C-level speed.",
-        "C libraries are the proposed first native interop target because their ABI model can support explicit wrappers and build-time linking. No public FFI exists yet.",
+        "C libraries are the first native interop target. ABI-v1 manifests pin the library bytes, target, symbols, capabilities, ownership, and value widths. Hosted, VM, and generated-C paths share the declared scalar/string/buffer parity slice; richer hosted forms remain explicitly diagnosed when a backend has no safe lowering.",
         "Go-backed std modules already use a host-wrapper pattern: Osiris imports a named module supplied by the Go runtime, not arbitrary Go source at runtime."
       ],
       cards: [

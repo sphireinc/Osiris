@@ -24,4 +24,16 @@ func (ffiNativeLibrary) callString(string, []string) (string, error) {
 func (ffiNativeLibrary) callConstBufferInteger(string, [][]byte) (int64, error) {
 	return 0, fmt.Errorf("direct C FFI is unavailable on this platform")
 }
+func (ffiNativeLibrary) callMutableBufferInteger(string, []byte) (int64, error) {
+	return 0, fmt.Errorf("direct C FFI is unavailable on this platform")
+}
+func (ffiNativeLibrary) callHandle(string, any) (any, error) {
+	return nil, fmt.Errorf("direct C FFI is unavailable on this platform")
+}
+func (ffiNativeLibrary) releaseHandle(string, any) error {
+	return fmt.Errorf("direct C FFI is unavailable on this platform")
+}
+func (ffiNativeLibrary) callCallbackInteger(string, uintptr) (int64, error) {
+	return 0, fmt.Errorf("direct C FFI is unavailable on this platform")
+}
 func (ffiNativeLibrary) close() error { return nil }

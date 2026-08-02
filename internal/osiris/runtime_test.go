@@ -3623,7 +3623,7 @@ emit transpose(values)
 		t.Fatal("runtime components were not emitted in the required base-then-complex order")
 	}
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
-	const want = "6f954682900e4b490d905fb600b34532cbcefc25807fb7808128314751632225"
+	const want = "66900d76f21cc3ffd63826118d3fc34ec21a62874f4f0e5e5ab83b2605a73b54"
 	if got != want {
 		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
 	}

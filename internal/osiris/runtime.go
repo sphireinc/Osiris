@@ -63,6 +63,7 @@ func NewRuntime() *Runtime {
 	registerContextBuiltins(r.ContextBuiltins)
 	r.ContextBuiltins["ffi_load"] = r.ffiLoadContextValue
 	r.ContextBuiltins["ffi_call"] = ffiCallContextValue
+	r.ContextBuiltins["ffi_const"] = ffiConstantContextValue
 	r.ContextBuiltins["ffi_close"] = ffiCloseContextValue
 	registerConstants(r.Constants)
 	return r
@@ -3235,6 +3236,18 @@ func registerBuiltins(dst map[string]Builtin) {
 // resources are dispatched by closeResourceValue so their zero-argument
 // `close` method can participate in the same defer contract.
 func closeBuiltinValue(args []Value) (Value, error) {
+	if len(args) == 1 && args[0].kind == kindFFIHandle && args[0].ffiHandle != nil {
+		if err := args[0].ffiHandle.Close(nil); err != nil {
+			return nullValue(), err
+		}
+		return boolValue(true), nil
+	}
+	if len(args) == 1 && args[0].kind == kindFFILibrary && args[0].ffi != nil {
+		if err := args[0].ffi.Close(); err != nil {
+			return nullValue(), err
+		}
+		return boolValue(true), nil
+	}
 	if len(args) == 1 && args[0].kind == kindTCPListener {
 		return closeTCPListenerValue(args)
 	}

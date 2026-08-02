@@ -83,16 +83,14 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 			name,
 		)
 	}
-	if name, span, ok := nativeUnsupportedFFIBuiltin(ir); ok {
-		return nil, fmt.Errorf(
-			"%s:%d:%d: native C backend: FFI builtin %q requires the hosted capability loader",
-			prog.SourceName, span.start.line, span.start.col, name,
-		)
+	ffiPlan, err := buildNativeFFIPlan(rt, ir)
+	if err != nil {
+		return nil, err
 	}
 	if !nativeProgramHasExceptionalAsync(ir) {
 		optimizeNativeLoops(ir)
 	}
-	source, err := emitCIRWithOptions(ir, options)
+	source, err := emitCIRWithOptionsAndFFI(ir, options, ffiPlan)
 	if err != nil {
 		return nil, err
 	}
@@ -308,6 +306,126 @@ func nativeUnsupportedFFIBuiltin(program *IRProgram) (string, sourceSpan, bool) 
 	return "", sourceSpan{}, false
 }
 
+type nativeFFIPlan struct {
+	calls     map[string]FFIFunction
+	constants map[string]FFIConstant
+	loads     map[string]string
+}
+
+func (p *nativeFFIPlan) callKey(functionName, libraryValue, memberValue string) string {
+	return functionName + "\x00" + libraryValue + "\x00" + memberValue
+}
+
+func (p *nativeFFIPlan) loadKey(functionName, libraryValue string) string {
+	return functionName + "\x00" + libraryValue
+}
+
+func buildNativeFFIPlan(rt *Runtime, program *IRProgram) (*nativeFFIPlan, error) {
+	plan := &nativeFFIPlan{calls: make(map[string]FFIFunction), constants: make(map[string]FFIConstant), loads: make(map[string]string)}
+	if program == nil {
+		return plan, nil
+	}
+	granted := map[string]bool{}
+	if rt != nil {
+		granted = rt.Capabilities()
+	}
+	for _, fn := range program.Functions {
+		if fn == nil {
+			continue
+		}
+		stringsByValue := make(map[string]string)
+		librariesByValue := make(map[string]FFIManifest)
+		builtinsByValue := make(map[string]string)
+		for _, block := range fn.Blocks {
+			for _, instruction := range block.Instrs {
+				switch instruction.Op {
+				case "builtin":
+					builtinsByValue[instruction.Dest] = instruction.Text
+				case "const":
+					if instruction.Value.kind == kindString {
+						stringsByValue[instruction.Dest] = instruction.Value.str
+					}
+				case "copy", "assign":
+					if len(instruction.Args) == 1 {
+						if value, ok := stringsByValue[instruction.Args[0]]; ok {
+							stringsByValue[instruction.Dest] = value
+						}
+						if library, ok := librariesByValue[instruction.Args[0]]; ok {
+							librariesByValue[instruction.Dest] = library
+						}
+					}
+				case "call":
+					builtin := builtinsByValue[instruction.Text]
+					switch builtin {
+					case "ffi_load":
+						if len(instruction.Args) != 1 {
+							return nil, nativeCInstrError(program.SourceName, instruction, "ffi_load expects one manifest path")
+						}
+						path, ok := stringsByValue[instruction.Args[0]]
+						if !ok || path == "" {
+							return nil, nativeCInstrError(program.SourceName, instruction, "native FFI requires a literal manifest path")
+						}
+						manifest, err := LoadFFIManifestWithGrants(path, granted)
+						if err != nil {
+							return nil, nativeCInstrError(program.SourceName, instruction, "native FFI manifest %q: %v", path, err)
+						}
+						native, err := openFFINativeLibrary(manifest.Library)
+						if err != nil {
+							return nil, nativeCInstrError(program.SourceName, instruction, "native FFI library %q: %v", manifest.Library, err)
+						}
+						for _, declaration := range manifest.Functions {
+							if err := native.lookup(declaration.Symbol); err != nil {
+								native.close()
+								return nil, nativeCInstrError(program.SourceName, instruction, "native FFI symbol %q: %v", declaration.Symbol, err)
+							}
+						}
+						for _, handle := range manifest.Handles {
+							if err := native.lookup(handle.ReleaseSymbol); err != nil {
+								native.close()
+								return nil, nativeCInstrError(program.SourceName, instruction, "native FFI handle release symbol %q: %v", handle.ReleaseSymbol, err)
+							}
+						}
+						native.close()
+						librariesByValue[instruction.Dest] = manifest
+						plan.loads[plan.loadKey(fn.Name, instruction.Dest)] = manifest.Library
+					case "ffi_call", "ffi_const":
+						if len(instruction.Args) < 2 {
+							return nil, nativeCInstrError(program.SourceName, instruction, "%s expects a library and declared member name", builtin)
+						}
+						manifest, ok := librariesByValue[instruction.Args[0]]
+						if !ok {
+							return nil, nativeCInstrError(program.SourceName, instruction, "%s requires a manifest-loaded library", builtin)
+						}
+						member, ok := stringsByValue[instruction.Args[1]]
+						if !ok || member == "" {
+							return nil, nativeCInstrError(program.SourceName, instruction, "native %s requires a literal declared member name", builtin)
+						}
+						if builtin == "ffi_const" {
+							for _, constant := range manifest.Constants {
+								if constant.Name == member {
+									plan.constants[plan.callKey(fn.Name, instruction.Args[0], instruction.Args[1])] = constant
+									goto constantFound
+								}
+							}
+							return nil, nativeCInstrError(program.SourceName, instruction, "native FFI constant %q is not declared", member)
+						}
+						for _, declaration := range manifest.Functions {
+							if declaration.Name == member {
+								plan.calls[plan.callKey(fn.Name, instruction.Args[0], instruction.Args[1])] = declaration
+								goto functionFound
+							}
+						}
+						return nil, nativeCInstrError(program.SourceName, instruction, "native FFI function %q is not declared", member)
+					}
+				constantFound:
+				functionFound:
+				}
+			}
+		}
+	}
+	return plan, nil
+}
+
 // cEscapeString handles the c escape string step in the surrounding package
 // and returns string.
 //
@@ -392,6 +510,9 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 		flags = append(flags, "-flto")
 	}
 	flags = append(flags, "-lm")
+	if runtime.GOOS == "linux" && strings.Contains(source, "O_FFI") {
+		flags = append(flags, "-ldl")
+	}
 	flags = append(flags, options.LinalgProviderFlags...)
 	sourceHash := sha256.Sum256([]byte(source))
 	providerHash := ""
@@ -527,6 +648,9 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 	cmd := exec.CommandContext(ctx, compiler, args...)
 	if !object {
 		cmd.Args = append(cmd.Args, "-lm")
+		if strings.Contains(source, "O_FFI") && runtime.GOOS == "linux" {
+			cmd.Args = append(cmd.Args, "-ldl")
+		}
 	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%s failed: %w\n%s", compiler, err, strings.TrimSpace(string(output)))

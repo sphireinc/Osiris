@@ -1513,6 +1513,18 @@ func (r *vmRunner) closeResource(args []Value) (Value, error) {
 		return nullValue(), fmt.Errorf("close expects 1 argument")
 	}
 	value := args[0]
+	if value.kind == kindFFIHandle && value.ffiHandle != nil {
+		if err := value.ffiHandle.Close(nil); err != nil {
+			return nullValue(), err
+		}
+		return boolValue(true), nil
+	}
+	if value.kind == kindFFILibrary && value.ffi != nil {
+		if err := value.ffi.Close(); err != nil {
+			return nullValue(), err
+		}
+		return boolValue(true), nil
+	}
 	switch value.kind {
 	case kindStream, kindTCPListener, kindUDPSocket:
 		return closeBuiltinValue(args)
