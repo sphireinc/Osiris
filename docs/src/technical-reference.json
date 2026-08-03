@@ -607,6 +607,30 @@
             [
               "`std/list`",
               "Length, range, take, sum, and product."
+            ],
+            [
+              "`std/regex`",
+              "Bounded RE2 regular-expression compilation, matching, capture extraction, replacement, and splitting."
+            ],
+            [
+              "`std/compress`",
+              "Bounded gzip/zlib compression and decompression plus safe deterministic USTAR archives."
+            ],
+            [
+              "`std/config`",
+              "Ordered bounded JSON and properties parsing plus schema validation."
+            ],
+            [
+              "`std/i18n`",
+              "Versioned embedded locale selection and deterministic date, number, and message formatting."
+            ],
+            [
+              "`std/db`",
+              "Capability-gated parameterized database connections, transactions, statements, rows, and deterministic embedded fixtures."
+            ],
+            [
+              "`std/telemetry`",
+              "Bounded structured logs, metrics, spans, context identifiers, flushing, and deterministic in-memory capture."
             ]
           ]
         }

@@ -72,6 +72,17 @@ program during compilation to manufacture output.
 8. Update the assigned task file with evidence, decisions, and any deliberately
    deferred work. Do not mark acceptance criteria complete without proof.
 
+## Serena
+
+Use Serena's semantic tools for code discovery and symbol-level navigation whenever available.
+- Prefer symbol overviews before reading complete source files.
+- Use `find_symbol` to retrieve only relevant symbol bodies.
+- Use `find_referencing_symbols` before changing public functions, types, or interfaces.
+- Prefer symbolic edits when replacing an entire function, method, class, or type.
+- Use ordinary line-based edits for small localized changes inside a symbol.
+- Do not repeatedly scan or read files that Serena has already summarized.
+- Keep Serena memories concise, factual, and limited to durable project knowledge.
+
 ## Commands
 
 Run from the repository root:
