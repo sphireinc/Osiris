@@ -24,7 +24,12 @@ const task120JSONSource = await readFile(resolve(here, '..', '..', 'internal', '
 const task121Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task121_stdlib.go'), 'utf8');
 const task122Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task122_stdlib.go'), 'utf8');
 
-if (modules.length !== 25 || chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
+if (chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
+const moduleIDs = modules.map((module) => module.id);
+if (new Set(moduleIDs).size !== moduleIDs.length) throw new Error(`Reference modules contain duplicate IDs: ${moduleIDs.join(', ')}.`);
+for (const requiredModule of ['unsafe', 'testing']) {
+  if (!moduleIDs.includes(requiredModule)) throw new Error(`Reference module ${requiredModule} is missing from canonical API data.`);
+}
 if (!support.features?.length || !support.backends?.length) throw new Error('Migrated support matrix is incomplete.');
 const referenceModules = [...modules, { id: 'language', sections: languageSections }];
 for (const module of referenceModules) for (const section of module.sections) {

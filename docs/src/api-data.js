@@ -95,13 +95,19 @@ for (const group of supplemental.groups.filter((candidate) => candidate.id !== '
 }
 combinedGroups.push(timeReference);
 
-const generatedModuleReferences = new Map([
-  ...task120References.map((reference) => [reference.id, reference.items]),
-  [task121Reference.id, task121Reference.items],
-  [task122Reference.id, task122Reference.items],
-  [task123Reference.id, task123Reference.items],
-  [task126Reference.id, task126Reference.items],
-]);
+const generatedModuleReferenceGroups = [
+  ...task120References,
+  task121Reference,
+  task122Reference,
+  task123Reference,
+  task126Reference,
+];
+for (const reference of generatedModuleReferenceGroups) {
+  if (!combinedGroups.some((group) => group.id === reference.id)) {
+    combinedGroups.push({ id: reference.id, title: reference.title, summary: reference.summary, items: [] });
+  }
+}
+const generatedModuleReferences = new Map(generatedModuleReferenceGroups.map((reference) => [reference.id, reference.items]));
 
 const apiModules = combinedGroups.map((group) => ({
   id: group.id,

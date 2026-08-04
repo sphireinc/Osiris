@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { languageSections, modules, searchEntries } from '../src/api-data.js';
+import { buildModuleNavigationGroups, validateModuleNavigationGroups } from '../src/module-navigation.js';
 import {
   entryAnchor,
   focusReferenceEntry,
@@ -50,6 +51,9 @@ for (const [name, expected] of [
 assert.equal(entryAnchor({ name: 'let?', anchor: 'let-result' }), 'let-result');
 
 const pages = [...modules, { id: 'language', label: 'Syntax and Semantics', sections: languageSections }];
+const moduleGroups = buildModuleNavigationGroups(modules);
+assert.equal(validateModuleNavigationGroups(modules, moduleGroups), true);
+assert.ok(moduleGroups.find((group) => group.label === 'STANDARD LIBRARY')?.ids.includes('unsafe'), 'std/unsafe is missing from generated navigation');
 let entryCount = 0;
 for (const page of pages) {
   const targets = validateReferenceAnchors(page.id, page.sections);

@@ -1,14 +1,8 @@
+import { buildModuleNavigationGroups } from '../module-navigation.js';
+
 export function PageShell({ children, selected, onSelect, modules, chapters, query, onQuery }) {
   const moduleByID = new Map(modules.map((module) => [module.id, module]));
-  const moduleGroups = [
-    { label: 'LANGUAGE', ids: ['core', 'types', 'global-constants', 'error-constants'], language: true },
-    { label: 'DATA & NUMERICS', ids: ['arrays', 'tensor', 'stats', 'data'] },
-    { label: 'I/O & CONCURRENCY', ids: ['io'] },
-    { label: 'STANDARD LIBRARY', ids: ['compress', 'json', 'crypto', 'db', 'i18n', 'list', 'math', 'net', 'os', 'regex', 'signal', 'telemetry', 'text', 'time', 'unsafe'] },
-    { label: 'TESTING', ids: ['testing'] },
-    { label: 'TOOLING', ids: ['tooling'] },
-    { label: 'TECHNICAL', ids: [], technical: true },
-  ];
+  const moduleGroups = [...buildModuleNavigationGroups(modules), { label: 'TECHNICAL', ids: [], technical: true }];
   return <>
     <header className="topbar">
       <button className="brand" onClick={() => onSelect('overview')}><img className="brand-logo" src="brand/osiris_simple_logo.png" alt="" /><span>OSIRIS</span><small>Reference</small></button>
