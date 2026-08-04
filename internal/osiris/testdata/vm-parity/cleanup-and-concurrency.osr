@@ -1,0 +1,5 @@
+defer { emit "outer-cleanup" }
+defer { emit "inner-cleanup" }
+let task = spawn({ let value = 5; value + 7 })
+emit await(task)
+emit parallel(1, 2, 3)

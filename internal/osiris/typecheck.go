@@ -96,6 +96,9 @@ func parseStaticType(text string) (staticType, error) {
 				return staticType{}, err
 			}
 		}
+		if err := validateFutureStaticType(base, params); err != nil {
+			return staticType{}, err
+		}
 		return staticType{name: base, params: params}, nil
 	}
 	depth := 0
@@ -908,6 +911,21 @@ func (c *typeChecker) checkCall(call *callExpr, scope *typeScope) (checkedExpr, 
 		return checkedExpr{}, err
 	}
 	if ident, ok := call.callee.(*identExpr); ok {
+		if isFutureConstructorName(ident.name) {
+			actual := make([]staticType, len(call.args))
+			for i, arg := range call.args {
+				checked, checkErr := c.checkExpr(arg, scope)
+				if checkErr != nil {
+					return checkedExpr{}, checkErr
+				}
+				actual[i] = checked.typ
+			}
+			result, typeErr := futureCallStaticType(ident.name, call.typeArgs, call.args, actual)
+			if typeErr != nil {
+				return checkedExpr{}, c.errorAt(call.Span, "%v", typeErr)
+			}
+			return checkedExpr{typ: result}, nil
+		}
 		if fn, exists := c.functions[ident.name]; exists && len(fn.TypeParams) > 0 {
 			return c.checkGenericCall(call, fn, scope)
 		}
@@ -1447,6 +1465,15 @@ func staticTypeFromValue(value Value) staticType {
 			return staticType{name: value.structType.name}
 		}
 		return staticType{name: "struct"}
+	case kindFuture:
+		if value.future == nil {
+			return staticType{name: "future"}
+		}
+		params := make([]staticType, len(value.future.params))
+		for i, param := range value.future.params {
+			params[i] = staticType{name: param}
+		}
+		return staticType{name: value.future.name, params: params}
 	default:
 		return staticType{name: value.Kind()}
 	}

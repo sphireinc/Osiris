@@ -83,6 +83,10 @@ const (
 type token struct {
 	kind tokenKind
 	text string
+	// raw preserves the source spelling when text is normalized for the
+	// parser, such as decoded strings and field tags. It is used only for
+	// source ranges; semantic consumers continue to use text.
+	raw  string
 	line int
 	col  int
 }
@@ -253,6 +257,19 @@ type lexer struct {
 	col  int
 }
 
+// lexerError preserves the source position of a failure that happens while
+// scanning a token. The parser can then report the lexer failure with the
+// same source-qualified diagnostic shape as parser errors.
+type lexerError struct {
+	message string
+	line    int
+	col     int
+}
+
+func (e *lexerError) Error() string {
+	return fmt.Sprintf("%s at %d:%d", e.message, e.line, e.col)
+}
+
 // newLexer handles the new lexer step in the surrounding package and returns
 // *lexer.
 //
@@ -276,6 +293,12 @@ func (l *lexer) nextToken() (token, error) {
 
 	ch, width := utf8.DecodeRuneInString(l.src[l.off:])
 	startLine, startCol := l.line, l.col
+	// A leading dot belongs to a numeric literal when it is followed by a
+	// digit. Keep this check ahead of the punctuation switch so `.5` cannot be
+	// split into a dot token and an incomplete expression.
+	if ch == '.' && l.hasDigitAhead(1) {
+		return l.scanNumber()
+	}
 
 	switch ch {
 	case '(':
@@ -412,13 +435,13 @@ func (l *lexer) nextToken() (token, error) {
 		return l.scanTag()
 	}
 
-	if unicode.IsDigit(ch) || (ch == '.' && l.hasDigitAhead(1)) {
+	if unicode.IsDigit(ch) {
 		return l.scanNumber()
 	}
 	if isIdentStart(ch) {
 		return l.scanIdent()
 	}
-	return token{}, fmt.Errorf("unexpected character %q at %d:%d", ch, startLine, startCol)
+	return token{}, &lexerError{message: fmt.Sprintf("unexpected character %q", ch), line: startLine, col: startCol}
 }
 
 // scanIdent operates on lexer values and keeps the lexer-specific behavior
@@ -553,6 +576,7 @@ func (l *lexer) scanNumber() (token, error) {
 // It returns token and an error. Callers should only trust the value when the
 // error is nil.
 func (l *lexer) scanString() (token, error) {
+	start := l.off
 	startLine, startCol := l.line, l.col
 	l.advance(1)
 	var out strings.Builder
@@ -560,7 +584,7 @@ func (l *lexer) scanString() (token, error) {
 		r, w := utf8.DecodeRuneInString(l.src[l.off:])
 		if r == '"' {
 			l.advance(w)
-			return token{kind: tokenString, text: out.String(), line: startLine, col: startCol}, nil
+			return token{kind: tokenString, text: out.String(), raw: l.src[start:l.off], line: startLine, col: startCol}, nil
 		}
 		if r == '\\' {
 			l.advance(w)
@@ -588,7 +612,7 @@ func (l *lexer) scanString() (token, error) {
 		out.WriteRune(r)
 		l.advance(w)
 	}
-	return token{}, fmt.Errorf("unterminated string at %d:%d", startLine, startCol)
+	return token{}, &lexerError{message: "unterminated string", line: startLine, col: startCol}
 }
 
 // scanTag scans a Go-style raw field tag. The delimiters are not part of the
@@ -603,14 +627,14 @@ func (l *lexer) scanTag() (token, error) {
 		if r == '`' {
 			text := l.src[start:l.off]
 			l.advance(w)
-			return token{kind: tokenTag, text: text, line: startLine, col: startCol}, nil
+			return token{kind: tokenTag, text: text, raw: l.src[start-1 : l.off], line: startLine, col: startCol}, nil
 		}
 		if r == '\n' || r == '\r' {
-			return token{}, fmt.Errorf("unterminated field tag at %d:%d", startLine, startCol)
+			return token{}, &lexerError{message: "unterminated field tag", line: startLine, col: startCol}
 		}
 		l.advance(w)
 	}
-	return token{}, fmt.Errorf("unterminated field tag at %d:%d", startLine, startCol)
+	return token{}, &lexerError{message: "unterminated field tag", line: startLine, col: startCol}
 }
 
 // skipSpace operates on lexer values and keeps the lexer-specific behavior

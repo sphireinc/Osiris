@@ -25,7 +25,14 @@ type IRFunction struct {
 	ResultType    string
 	Captures      []string
 	CaptureValues []string
-	Blocks        []*IRBlock
+	// MutableCaptures is aligned with Captures. Native closures use the
+	// corresponding cell rather than freezing a mutable binding at closure
+	// construction time.
+	MutableCaptures []bool
+	// MutableBindings records source bindings declared with var in this
+	// function. The native emitter allocates one stable cell per binding.
+	MutableBindings []string
+	Blocks          []*IRBlock
 }
 
 type IRBlock struct {
@@ -456,6 +463,7 @@ type irBuilder struct {
 	prefix    string
 	env       map[string]string
 	locals    map[string]struct{}
+	mutable   map[string]bool
 	loopStack []irLoopCtx
 	cleanups  []string
 }
@@ -492,6 +500,7 @@ func newIRBuilder(pb *irProgramBuilder, fn *IRFunction, prefix string) *irBuilde
 		prefix:   prefix,
 		env:      make(map[string]string),
 		locals:   make(map[string]struct{}),
+		mutable:  make(map[string]bool),
 		cleanups: nil,
 	}
 }
@@ -511,9 +520,21 @@ func (b *irBuilder) fork() *irBuilder {
 		prefix:    b.prefix,
 		env:       cloneStringMap(b.env),
 		locals:    cloneNameSet(b.locals),
+		mutable:   cloneBoolMap(b.mutable),
 		loopStack: append([]irLoopCtx(nil), b.loopStack...),
 		cleanups:  append([]string(nil), b.cleanups...),
 	}
+}
+
+func cloneBoolMap(src map[string]bool) map[string]bool {
+	if len(src) == 0 {
+		return make(map[string]bool)
+	}
+	dst := make(map[string]bool, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 // cloneNameSet handles the clone name set step in the surrounding package and
@@ -671,6 +692,7 @@ func (b *irBuilder) recordCapture(name string) {
 		return
 	}
 	b.fn.Captures = append(b.fn.Captures, name)
+	b.fn.MutableCaptures = append(b.fn.MutableCaptures, b.mutable[name])
 }
 
 // captureSeen handles the capture seen step in the surrounding package and
@@ -767,9 +789,22 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			value = checked
 		}
 		dest := b.newBindName(st.Name)
-		b.emitInstr(IRInstr{Dest: dest, Op: "copy", Args: []string{value}})
+		b.emitInstr(IRInstr{Dest: dest, Op: "copy", Text: st.Name, Args: []string{value}})
 		b.env[st.Name] = dest
 		b.locals[st.Name] = struct{}{}
+		b.mutable[st.Name] = st.Mutable
+		if st.Mutable && b.fn != nil {
+			seen := false
+			for _, name := range b.fn.MutableBindings {
+				if name == st.Name {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				b.fn.MutableBindings = append(b.fn.MutableBindings, st.Name)
+			}
+		}
 		return false, nil
 	case assignStmt:
 		child := b.fork()
@@ -935,13 +970,16 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 
 	child := newIRBuilder(b.pb, fn, label)
 	child.env = cloneStringMap(outerEnv)
+	child.mutable = cloneBoolMap(b.mutable)
 	child.locals = make(map[string]struct{}, len(st.Params)+1)
 	child.env[st.Name] = dest
 	child.locals[st.Name] = struct{}{}
+	child.mutable[st.Name] = false
 	for _, param := range st.Params {
 		paramName := fmt.Sprintf("%s.%s.0", label, param)
 		child.env[param] = paramName
 		child.locals[param] = struct{}{}
+		child.mutable[param] = false
 	}
 	for i, param := range st.Params {
 		if i >= len(st.ParamTypes) || st.ParamTypes[i] == "" {
@@ -975,9 +1013,28 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	}
 	fn.Blocks = append(fn.Blocks, child.state.blocks...)
 	if len(child.fn.Captures) > 0 {
+		// A nested function may capture a binding that is itself outside the
+		// current function. Promote that binding to the current function's
+		// environment so the generated closure can pass the same cell through
+		// each lexical level instead of freezing a value or losing ownership.
+		for _, name := range child.fn.Captures {
+			if _, visible := outerEnv[name]; visible {
+				b.recordCapture(name)
+			}
+		}
 		caps := append([]string(nil), child.fn.Captures...)
+		mutable := make(map[string]bool, len(caps))
+		for i, name := range child.fn.Captures {
+			if i < len(child.fn.MutableCaptures) {
+				mutable[name] = child.fn.MutableCaptures[i]
+			}
+		}
 		sort.Strings(caps)
 		fn.Captures = caps
+		fn.MutableCaptures = make([]bool, len(caps))
+		for i, name := range caps {
+			fn.MutableCaptures[i] = mutable[name]
+		}
 		fn.CaptureValues = captureValues(outerEnv, caps)
 	}
 	b.pb.appendFunction(fn)
@@ -1031,11 +1088,13 @@ func (b *irBuilder) lowerDeferredExpr(expr Expr, source string, params []string)
 	fn := b.pb.newFunction(source, label, params)
 	child := newIRBuilder(b.pb, fn, label)
 	child.env = cloneStringMap(b.env)
+	child.mutable = cloneBoolMap(b.mutable)
 	child.locals = make(map[string]struct{}, len(params))
 	for _, param := range params {
 		value := fmt.Sprintf("%s.%s.0", label, param)
 		child.env[param] = value
 		child.locals[param] = struct{}{}
+		child.mutable[param] = false
 	}
 	result, err := child.evalExpr(expr)
 	if err != nil {
@@ -1047,8 +1106,27 @@ func (b *irBuilder) lowerDeferredExpr(expr Expr, source string, params []string)
 	fn.Blocks = append(fn.Blocks, child.state.blocks...)
 	if len(fn.Captures) > 0 {
 		captures := append([]string(nil), fn.Captures...)
+		mutable := make(map[string]bool, len(captures))
+		for i, name := range fn.Captures {
+			if i < len(fn.MutableCaptures) {
+				mutable[name] = fn.MutableCaptures[i]
+			}
+		}
+		// Spawned task thunks capture the lexical values at task creation. A
+		// task may mutate its private copy, but that mutation must not write
+		// through to the parent scope after await. Other deferred boundaries
+		// retain the ordinary shared-cell contract.
+		if source == "spawn.task" {
+			for name := range mutable {
+				mutable[name] = false
+			}
+		}
 		sort.Strings(captures)
 		fn.Captures = captures
+		fn.MutableCaptures = make([]bool, len(captures))
+		for i, name := range captures {
+			fn.MutableCaptures[i] = mutable[name]
+		}
 		fn.CaptureValues = captureValues(b.env, captures)
 	}
 	b.pb.appendFunction(fn)
@@ -1511,7 +1589,18 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		b.emitInstr(IRInstr{Dest: tmp, Op: "try", Args: []string{body, handler}, Span: n.Span})
 		return tmp, nil
 	case *propagateExpr:
-		return b.evalExpr(n.expr)
+		value, err := b.evalExpr(n.expr)
+		if err != nil {
+			return "", err
+		}
+		// Postfix propagation is an actual value-producing operation.  Keeping
+		// it in the IR is important for native backends: resultbind performs the
+		// success unwrap and sets the structured failure state consumed by the
+		// generated control boundary.  Previously the IR silently discarded '?',
+		// making `emit some(1)?` print the Option rather than its payload.
+		unwrapped := b.newTemp()
+		b.emitInstr(IRInstr{Dest: unwrapped, Op: "resultbind", Args: []string{value}, Span: n.Span})
+		return unwrapped, nil
 	case *matchExpr:
 		return b.lowerMatchExpr(n)
 	default:

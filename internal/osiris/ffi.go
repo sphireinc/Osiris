@@ -282,11 +282,14 @@ func LoadFFIManifest(path string, granted map[string]bool) (FFIManifest, error) 
 // FFIHandle is an opaque, idempotently closable ownership token. It does not
 // expose an address or permit conversion to an integer.
 type FFIHandle struct {
-	mu      sync.Mutex
-	typeID  string
-	value   any
-	release func(any) error
-	closed  bool
+	mu       sync.Mutex
+	typeID   string
+	value    any
+	release  func(any) error
+	closed   bool
+	closing  chan struct{}
+	closeErr error
+	borrows  int
 }
 
 // FFILibrary is a manifest-pinned, capability-authorized native library. The
@@ -297,6 +300,8 @@ type FFILibrary struct {
 	manifest        FFIManifest
 	native          ffiNativeLibrary
 	closed          bool
+	closing         chan struct{}
+	closeErr        error
 	activeCalls     int
 	activeHandles   int
 	capabilityCheck func(string) bool
@@ -489,18 +494,37 @@ func (library *FFILibrary) Close() error {
 	}
 	library.mu.Lock()
 	if library.closed {
+		err := library.closeErr
 		library.mu.Unlock()
-		return nil
+		return err
+	}
+	if closing := library.closing; closing != nil {
+		library.mu.Unlock()
+		<-closing
+		library.mu.Lock()
+		err := library.closeErr
+		library.mu.Unlock()
+		return err
 	}
 	if library.activeCalls != 0 || library.activeHandles != 0 {
 		library.mu.Unlock()
 		return fmt.Errorf("ffi: library has active calls or unreleased handles")
 	}
-	library.closed = true
+	library.closing = make(chan struct{})
 	native := library.native
-	library.native = ffiNativeLibrary{}
 	library.mu.Unlock()
-	return native.close()
+	err := native.close()
+	library.mu.Lock()
+	library.closeErr = err
+	if err == nil {
+		library.closed = true
+		library.native = ffiNativeLibrary{}
+	}
+	closing := library.closing
+	library.closing = nil
+	close(closing)
+	library.mu.Unlock()
+	return err
 }
 
 func (library *FFILibrary) Call(name string, args []Value) (Value, error) {
@@ -512,9 +536,9 @@ func (library *FFILibrary) CallContext(ctx context.Context, name string, args []
 		return nullValue(), fmt.Errorf("ffi: nil library")
 	}
 	library.mu.Lock()
-	if library.closed {
+	if library.closed || library.closing != nil {
 		library.mu.Unlock()
-		return nullValue(), fmt.Errorf("ffi: library is closed")
+		return nullValue(), fmt.Errorf("ffi: library is closed or closing")
 	}
 	native := library.native
 	var declaration *FFIFunction
@@ -529,9 +553,9 @@ func (library *FFILibrary) CallContext(ctx context.Context, name string, args []
 		return nullValue(), fmt.Errorf("ffi: function %q is not declared", name)
 	}
 	library.mu.Lock()
-	if library.closed {
+	if library.closed || library.closing != nil {
 		library.mu.Unlock()
-		return nullValue(), fmt.Errorf("ffi: library is closed")
+		return nullValue(), fmt.Errorf("ffi: library is closed or closing")
 	}
 	library.activeCalls++
 	library.mu.Unlock()
@@ -554,11 +578,18 @@ func (library *FFILibrary) CallContext(ctx context.Context, name string, args []
 	}
 	if ffiHandleSignature(declaration) {
 		var input any
+		var borrowed *FFIHandle
 		if len(args) == 1 {
-			if args[0].kind != kindFFIHandle || args[0].ffiHandle == nil || args[0].ffiHandle.IsClosed() {
+			if args[0].kind != kindFFIHandle || args[0].ffiHandle == nil {
 				return nullValue(), fmt.Errorf("ffi: %s expects an open opaque handle", name)
 			}
-			input = args[0].ffiHandle.value
+			borrowed = args[0].ffiHandle
+			var err error
+			input, err = borrowed.acquire()
+			if err != nil {
+				return nullValue(), fmt.Errorf("ffi: %s expects an open opaque handle: %w", name, err)
+			}
+			defer borrowed.releaseBorrow()
 		}
 		output, err := native.callHandle(declaration.Symbol, input)
 		if err != nil {
@@ -584,13 +615,11 @@ func (library *FFILibrary) CallContext(ctx context.Context, name string, args []
 		library.mu.Unlock()
 		handle.release = func(value any) error {
 			err := native.releaseHandle(releaseSymbol, value)
-			if err == nil {
-				library.mu.Lock()
-				if library.activeHandles > 0 {
-					library.activeHandles--
-				}
-				library.mu.Unlock()
+			library.mu.Lock()
+			if library.activeHandles > 0 {
+				library.activeHandles--
 			}
+			library.mu.Unlock()
 			return err
 		}
 		return ffiHandleValueOf(handle), nil
@@ -944,7 +973,7 @@ func (library *FFILibrary) Constant(name string) (Value, error) {
 	}
 	library.mu.Lock()
 	defer library.mu.Unlock()
-	if library.closed {
+	if library.closed || library.closing != nil {
 		return nullValue(), fmt.Errorf("ffi: library is closed")
 	}
 	if err := library.requireCapabilitiesLocked(); err != nil {
@@ -1076,24 +1105,74 @@ func (handle *FFIHandle) IsClosed() bool {
 	return closed
 }
 
+// acquire borrows the native value for one synchronous foreign call. Close
+// cannot mark the handle closed while a borrow exists, and a close that wins
+// the lock prevents later borrows from observing a stale native address.
+func (handle *FFIHandle) acquire() (any, error) {
+	if handle == nil {
+		return nil, fmt.Errorf("ffi: nil handle")
+	}
+	handle.mu.Lock()
+	defer handle.mu.Unlock()
+	if handle.closed {
+		return nil, fmt.Errorf("handle is closed")
+	}
+	handle.borrows++
+	return handle.value, nil
+}
+
+func (handle *FFIHandle) releaseBorrow() {
+	if handle == nil {
+		return
+	}
+	handle.mu.Lock()
+	if handle.borrows > 0 {
+		handle.borrows--
+	}
+	handle.mu.Unlock()
+}
+
 func (handle *FFIHandle) Close(release func(any) error) error {
 	if handle == nil {
 		return nil
 	}
 	handle.mu.Lock()
 	if handle.closed {
+		closing := handle.closing
+		err := handle.closeErr
 		handle.mu.Unlock()
-		return nil
+		if closing != nil {
+			<-closing
+			handle.mu.Lock()
+			err = handle.closeErr
+			handle.mu.Unlock()
+		}
+		return err
+	}
+	if handle.borrows != 0 {
+		handle.mu.Unlock()
+		return fmt.Errorf("ffi: handle is in use")
 	}
 	handle.closed = true
 	value := handle.value
 	handle.value = nil
+	handle.closing = make(chan struct{})
+	ownedRelease := handle.release
 	handle.mu.Unlock()
-	if release == nil {
-		release = handle.release
+	// A library-owned release callback cannot be overridden by a caller. The
+	// argument remains useful for standalone handles created with NewFFIHandle.
+	if ownedRelease != nil {
+		release = ownedRelease
 	}
+	var err error
 	if release == nil {
-		return nil
+		err = nil
+	} else {
+		err = release(value)
 	}
-	return release(value)
+	handle.mu.Lock()
+	handle.closeErr = err
+	close(handle.closing)
+	handle.mu.Unlock()
+	return err
 }

@@ -53,11 +53,11 @@ const typeExamples = {
   module: 'import "std/math" as math\nemit math.pi',
   enum: 'enum Status { Ready, Done }\nlet status enum = Status.Ready\nemit status # Status.Ready',
   tcp_listener: 'import "std/net" as net\nlet listener = net.tcp_listen("127.0.0.1:0")\n# close(listener) after use',
-  simd: '# Reserved for a future SIMD value family; not a current runtime kind.',
-  quat: '# Reserved for a future quaternion value family; not a current runtime kind.',
-  sparse_matrix: '# Reserved for a future sparse-matrix value family; not a current runtime kind.',
-  sparse_tensor: '# Reserved for a future sparse-tensor value family; not a current runtime kind.',
-  poly: '# Reserved for a future polynomial value family; not a current runtime kind.',
+  simd: 'import "std/math" as math\nlet lanes = math.simd<4, number>(4, [1, 2, 3, 4])\nemit lanes # simd<4, number>(1, 2, 3, 4)',
+  quat: 'import "std/math" as math\nlet rotation = math.quat<number>([1, 0, 0, 0])\nemit math.quat_norm(rotation) # 1',
+  sparse_matrix: 'import "std/math" as math\nlet matrix = math.sparse_matrix<number>([2, 2], [[0, 1, 3]], "csr")\nemit at(matrix, [0, 1]) # 3',
+  sparse_tensor: 'import "std/math" as math\nlet tensor = math.sparse_tensor<number>([2, 2, 2], [[0, 1, 1, 7]])\nemit shape(tensor) # [2u64, 2u64, 2u64]',
+  poly: 'import "std/math" as math\nlet polynomial = math.poly<number>([1, 2, 3])\nemit math.poly_eval(polynomial, 2) # 17',
 };
 
 function entryFromReference(groupID, item) {
@@ -135,7 +135,7 @@ const apiModules = combinedGroups.map((group) => ({
   ),
 }));
 
-const plannedTypeNames = new Set(['simd', 'quat', 'sparse_matrix', 'sparse_tensor', 'poly']);
+const plannedTypeNames = new Set();
 const typeDefinitions = [...manual.types, ...supplemental.types];
 const typeEntry = (type, planned = false) => ({
   kind: 'type',

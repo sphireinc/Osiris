@@ -44,6 +44,7 @@ const (
 	kindStruct
 	kindTuple
 	kindDual
+	kindFuture
 	kindTCPListener
 	kindUDPSocket
 	kindFFILibrary
@@ -200,6 +201,7 @@ type Value struct {
 	structValue *structInstanceValue
 	tuple       []Value
 	dual        *dualValue
+	future      *futureValue
 	listener    *tcpListener
 	udp         *udpSocket
 	ffi         *FFILibrary
@@ -711,6 +713,9 @@ func (v Value) Kind() string {
 	if v.kind == kindDual {
 		return "dual"
 	}
+	if v.kind == kindFuture {
+		return futureTypeString(v.future)
+	}
 	if v.kind == kindTCPListener {
 		return "tcp_listener"
 	}
@@ -813,6 +818,8 @@ func (k valueKind) String() string {
 		return "tuple"
 	case kindDual:
 		return "dual"
+	case kindFuture:
+		return "future"
 	case kindTCPListener:
 		return "tcp_listener"
 	case kindUDPSocket:
@@ -913,6 +920,8 @@ func (v Value) Truthy() bool {
 		return true
 	case kindTuple:
 		return len(v.tuple) != 0
+	case kindFuture:
+		return v.future != nil && len(v.future.data) != 0
 	default:
 		return false
 	}
@@ -1489,6 +1498,21 @@ func (v Value) Equal(other Value) bool {
 		}
 	case kindDual:
 		return other.kind == kindDual && v.dual != nil && other.dual != nil && v.dual.primal == other.dual.primal && v.dual.tangent == other.dual.tangent
+	case kindFuture:
+		if other.kind != kindFuture || v.future == nil || other.future == nil || futureTypeString(v.future) != futureTypeString(other.future) || !futureIntSlicesEqual(v.future.shape, other.future.shape) || !equalStringSlices([]string{v.future.format}, []string{other.future.format}) || len(v.future.data) != len(other.future.data) || len(v.future.coords) != len(other.future.coords) {
+			return false
+		}
+		for i := range v.future.data {
+			if !v.future.data[i].Equal(other.future.data[i]) {
+				return false
+			}
+		}
+		for i := range v.future.coords {
+			if !futureIntSlicesEqual(v.future.coords[i], other.future.coords[i]) {
+				return false
+			}
+		}
+		return true
 	case kindDuration:
 		return other.kind == kindDuration && v.duration == other.duration
 	case kindDateTime:
@@ -1881,6 +1905,8 @@ func (v Value) Compare(other Value) (int, error) {
 		}
 	case kindComplex:
 		return 0, fmt.Errorf("ordering is not defined for complex numbers")
+	case kindFuture:
+		return 0, fmt.Errorf("ordering is not defined for future numeric and shape values")
 	case kindError:
 		return 0, fmt.Errorf("ordering is not defined for errors")
 	case kindTensor:
@@ -2056,6 +2082,25 @@ func (v Value) String() string {
 			return "dual(0, 0)"
 		}
 		return "dual(" + formatNumber(v.dual.primal) + ", " + formatNumber(v.dual.tangent) + ")"
+	case kindFuture:
+		if v.future == nil {
+			return "future<?>"
+		}
+		if v.future.name == "poly" && len(v.future.data) == 0 {
+			return futureTypeString(v.future) + "[]"
+		}
+		if v.future.name == "sparse_matrix" || v.future.name == "sparse_tensor" {
+			entries := make([]string, len(v.future.data))
+			for i := range v.future.data {
+				entries[i] = fmt.Sprintf("%s: %s", formatFutureCoord(v.future.coords[i]), v.future.data[i].String())
+			}
+			return futureTypeString(v.future) + "(" + strings.Join(entries, ", ") + ")"
+		}
+		items := make([]string, len(v.future.data))
+		for i := range v.future.data {
+			items[i] = v.future.data[i].String()
+		}
+		return futureTypeString(v.future) + "(" + strings.Join(items, ", ") + ")"
 	case kindTCPListener:
 		if v.listener == nil {
 			return "<tcp-listener>"
@@ -2291,6 +2336,25 @@ func (v Value) toInterface() any {
 			return map[string]any{"dual": []float64{0, 0}}
 		}
 		return map[string]any{"dual": []float64{v.dual.primal, v.dual.tangent}}
+	case kindFuture:
+		if v.future == nil {
+			return map[string]any{"future": nil}
+		}
+		data := make([]any, len(v.future.data))
+		for i := range v.future.data {
+			data[i] = v.future.data[i].toInterface()
+		}
+		out := map[string]any{"type": futureTypeString(v.future), "data": data}
+		if v.future.name == "sparse_matrix" || v.future.name == "sparse_tensor" {
+			coords := make([]any, len(v.future.coords))
+			for i := range v.future.coords {
+				coords[i] = append([]int(nil), v.future.coords[i]...)
+			}
+			out["shape"] = append([]int(nil), v.future.shape...)
+			out["coords"] = coords
+			out["format"] = v.future.format
+		}
+		return map[string]any{"future": out}
 	case kindDuration:
 		return map[string]any{"duration": map[string]any{"nanoseconds": strconv.FormatInt(v.duration, 10)}}
 	case kindDateTime:
@@ -2630,6 +2694,8 @@ func textify(v Value) string {
 		}
 		return strings.Join(parts, " ")
 	case kindTensor:
+		return v.String()
+	case kindFuture:
 		return v.String()
 	case kindFunction, kindModule:
 		return v.String()

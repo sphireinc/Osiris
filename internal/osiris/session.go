@@ -26,6 +26,9 @@ type Session struct {
 	exportOrder    []string
 	exportSet      map[string]struct{}
 	macros         map[string]*macroDef
+	typecheckStmts []Stmt
+	knownTypes     map[string]struct{}
+	knownStructs   map[string]struct{}
 	cleanupFrames  []*cleanupFrame
 	cleanupActive  bool
 }
@@ -94,6 +97,28 @@ func (c *indexedIterationCursor) next(ctx context.Context) (Value, bool, error) 
 			return nullValue(), true, nil
 		}
 		v := c.value.data[c.index]
+		c.index++
+		return v, false, nil
+	case kindFuture:
+		if c.value.future == nil {
+			return nullValue(), false, fmt.Errorf("incomplete future value is not iterable")
+		}
+		if c.value.future.name == "sparse_matrix" || c.value.future.name == "sparse_tensor" {
+			if c.index >= len(c.value.future.data) {
+				return nullValue(), true, nil
+			}
+			coord := listValue(nil)
+			for _, item := range c.value.future.coords[c.index] {
+				coord.list = append(coord.list, uintValue(uint64(item), 64))
+			}
+			v := tupleValue([]Value{coord, c.value.future.data[c.index]})
+			c.index++
+			return v, false, nil
+		}
+		if c.index >= len(c.value.future.data) {
+			return nullValue(), true, nil
+		}
+		v := c.value.future.data[c.index]
 		c.index++
 		return v, false, nil
 	case kindMap:
@@ -211,7 +236,7 @@ func contextError(ctx context.Context) error {
 
 func newIterationCursor(s *Session, value Value) (iterationCursor, error) {
 	switch value.kind {
-	case kindList, kindTuple, kindTensor, kindMap, kindSet:
+	case kindList, kindTuple, kindTensor, kindMap, kindSet, kindFuture:
 		return &indexedIterationCursor{value: value}, nil
 	case kindString:
 		return &stringIterationCursor{value: value.str}, nil
@@ -241,12 +266,14 @@ func newIterationCursor(s *Session, value Value) (iterationCursor, error) {
 // pipeline without re-deriving the same information.
 func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	sess := &Session{
-		rt:          rt,
-		ctx:         ctx,
-		sourceName:  sourceName,
-		emitAllowed: true,
-		exportSet:   make(map[string]struct{}),
-		macros:      make(map[string]*macroDef),
+		rt:           rt,
+		ctx:          ctx,
+		sourceName:   sourceName,
+		emitAllowed:  true,
+		exportSet:    make(map[string]struct{}),
+		macros:       make(map[string]*macroDef),
+		knownTypes:   builtinTypeSet(),
+		knownStructs: make(map[string]struct{}),
 	}
 	ev := &evaluator{
 		ctx:     ctx,
@@ -346,11 +373,16 @@ func combineCleanupErrors(primary, cleanup error) error {
 // It returns []Value and an error. Callers should only trust the value when
 // the error is nil.
 func (s *Session) ExecSource(src string) ([]Value, error) {
-	prog, err := Parse(s.sourceName, src)
+	prog, knownTypes, knownStructs, err := parseWithDeclarationContext(s.sourceName, src, s.knownTypes, s.knownStructs)
 	if err != nil {
 		return nil, err
 	}
-	return s.ExecProgram(prog, false, nil)
+	outputs, err := s.ExecProgram(prog, false, nil)
+	if err == nil {
+		s.knownTypes = knownTypes
+		s.knownStructs = knownStructs
+	}
+	return outputs, err
 }
 
 // ExecProgram operates on Session values and keeps the session-specific
@@ -360,7 +392,7 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 // It returns the values committed before execution stopped and an error. A
 // non-nil error does not discard earlier successful emit statements.
 func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (outputs []Value, execErr error) {
-	if _, err := s.rt.CheckProgram(s.ctx, prog); err != nil {
+	if _, err := s.checkProgram(prog); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
 	previousStack := s.moduleStack
@@ -373,7 +405,7 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (o
 		return nil, normalizeError(err, prog.SourceName)
 	}
 	prog = expanded
-	if _, err := s.rt.CheckProgram(s.ctx, prog); err != nil {
+	if _, err := s.checkProgram(prog); err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
 	s.macros = cloneMacroDefs(expandedMacros)
@@ -400,6 +432,7 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (o
 			}
 			return outputs, normalizeError(err, s.sourceName)
 		}
+		s.typecheckStmts = append(s.typecheckStmts, stmt)
 		if ok {
 			if _, isEmit := stmt.(emitStmt); isEmit {
 				continue
@@ -423,6 +456,20 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (o
 		}
 	}
 	return outputs, nil
+}
+
+// checkProgram type-checks a source fragment in the session's accumulated
+// lexical environment. Runtime scopes persist across ExecSource calls, so the
+// checker must see the same declaration history before validating assignments,
+// calls, traits, and other cross-fragment references.
+func (s *Session) checkProgram(prog *Program) (*CheckedProgram, error) {
+	if len(s.typecheckStmts) == 0 {
+		return s.rt.CheckProgram(s.ctx, prog)
+	}
+	statements := make([]Stmt, 0, len(s.typecheckStmts)+len(prog.Statements))
+	statements = append(statements, s.typecheckStmts...)
+	statements = append(statements, prog.Statements...)
+	return s.rt.CheckProgram(s.ctx, &Program{SourceName: prog.SourceName, Statements: statements})
 }
 
 // execStmt operates on Session values and keeps the session-specific behavior
@@ -905,6 +952,42 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 						return nullValue(), cur, err
 					}
 					expr = &literalExpr{value: value}
+				}
+				if st.Mutable {
+					value, err := s.ev.eval(expr, cur)
+					if err != nil {
+						return nullValue(), cur, err
+					}
+					if st.Type != "" {
+						value, err = checkBindingType(st.Type, value, false)
+						if err != nil {
+							return nullValue(), cur, fmt.Errorf("let %s: %w", st.Name, err)
+						}
+					}
+					cur = &scope{
+						parent: cur,
+						items: map[string]binding{st.Name: {
+							expr: &literalExpr{value: value}, env: cur,
+							cell: &bindingCell{value: value}, mutable: true,
+						}},
+					}
+					continue
+				}
+				if len(st.Names) > 0 {
+					value, err := s.ev.eval(expr, cur)
+					if err != nil {
+						return nullValue(), cur, err
+					}
+					if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
+						return nullValue(), cur, fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
+					}
+					for i, name := range st.Names {
+						cur = &scope{
+							parent: cur,
+							items:  map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}},
+						}
+					}
+					continue
 				}
 				cur = &scope{
 					parent: cur,

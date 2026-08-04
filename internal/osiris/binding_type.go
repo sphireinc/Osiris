@@ -17,6 +17,8 @@ func isBindingTypeName(name string) bool {
 		"decimal", "fixed", "interval", "modint", "complex", "bigint",
 		"bigfloat", "quantity", "dual", "duration", "datetime", "location":
 		return true
+	case "poly", "quat", "simd", "sparse_matrix", "sparse_tensor":
+		return true
 	default:
 		return false
 	}
@@ -167,6 +169,8 @@ func bindingTypeMatches(name string, value Value) bool {
 		return value.kind == kindQuantity
 	case "dual":
 		return value.kind == kindDual
+	case "poly", "quat", "simd", "sparse_matrix", "sparse_tensor":
+		return value.kind == kindFuture && value.future != nil && value.future.name == name
 	default:
 		return false
 	}

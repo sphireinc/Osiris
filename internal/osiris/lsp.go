@@ -53,6 +53,15 @@ type documentAnalysis struct {
 	checked     *CheckedProgram
 }
 
+// lspAnalysisSpanned is an internal escape hatch for AST extensions. Every
+// built-in AST node is covered by lspStmtSpan/lspExprSpan/lspPatternSpan
+// below; an extension node can implement this interface to keep an
+// unsupported-node diagnostic anchored to its source rather than silently
+// disappearing or being reported at the document origin.
+type lspAnalysisSpanned interface {
+	lspAnalysisSpan() sourceSpan
+}
+
 // findAt operates on documentAnalysis values and keeps the
 // documentanalysis-specific behavior attached to the receiver so callers can
 // use the method as the natural entry point for that data structure.
@@ -242,14 +251,32 @@ messageLoop:
 		case "textDocument/didOpen":
 			var params didOpenParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			s.upsertDocumentContext(ctx, params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
 			continue
 		case "textDocument/didChange":
 			var params didChangeParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			s.mu.RLock()
 			state := s.docs[params.TextDocument.URI]
@@ -274,7 +301,16 @@ messageLoop:
 		case "textDocument/didClose":
 			var params didCloseParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			s.mu.Lock()
 			delete(s.docs, params.TextDocument.URI)
@@ -292,7 +328,16 @@ messageLoop:
 		case "textDocument/hover":
 			var params hoverParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			resp, err := s.hover(params.TextDocument.URI, params.Position)
 			if err != nil {
@@ -307,7 +352,16 @@ messageLoop:
 		case "textDocument/definition":
 			var params definitionParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			resp, err := s.definition(params.TextDocument.URI, params.Position)
 			if err != nil {
@@ -322,7 +376,16 @@ messageLoop:
 		case "textDocument/references":
 			var params referencesParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			resp, err := s.references(params.TextDocument.URI, params.Position)
 			if err != nil {
@@ -337,7 +400,16 @@ messageLoop:
 		case "textDocument/completion":
 			var params completionParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			resp, err := s.completion(params.TextDocument.URI, params.Position)
 			if err != nil {
@@ -352,7 +424,16 @@ messageLoop:
 		case "textDocument/signatureHelp":
 			var params signatureHelpParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			resp, err := s.signatureHelp(params.TextDocument.URI, params.Position)
 			if err != nil {
@@ -367,7 +448,16 @@ messageLoop:
 		case "textDocument/rename":
 			var params renameParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" || params.NewName == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri and newName are required")); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			edit, err := s.renameWorkspaceEdit(params.TextDocument.URI, params.Position, params.NewName)
 			if err != nil {
@@ -562,18 +652,24 @@ func (s *languageServer) completion(uri string, pos lspPosition) ([]lspCompletio
 			aliasStart := aliasEnd
 			for aliasStart > 0 {
 				r, size := utf8.DecodeLastRuneInString(prefix[:aliasStart])
-				if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') { break }
+				if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
+					break
+				}
 				aliasStart -= size
 			}
 			alias := prefix[aliasStart:aliasEnd]
 			for _, stmt := range state.prog.Statements {
 				imp, ok := stmt.(importStmt)
-				if !ok || imp.Alias != alias || !strings.HasPrefix(imp.Path, "std/") { continue }
+				if !ok || imp.Alias != alias || !strings.HasPrefix(imp.Path, "std/") {
+					continue
+				}
 				ref, selector := splitModuleRef(imp.Path)
 				if modValue, err := stdlibModule(s.rt, ref, selector); err == nil {
 					if mod, err := modValue.AsModule(); err == nil {
 						items := make([]lspCompletionItem, 0, len(mod.members))
-						for member := range mod.members { items = append(items, lspCompletionItem{Label: member, Kind: 3, Detail: "module member"}) }
+						for member := range mod.members {
+							items = append(items, lspCompletionItem{Label: member, Kind: 3, Detail: "module member"})
+						}
 						sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
 						return items, nil
 					}
@@ -789,6 +885,18 @@ func (s *languageServer) publishDiagnostics(uri string, diags []lspDiagnostic) e
 		"uri":         uri,
 		"diagnostics": diags,
 	})
+}
+
+// reportInvalidParams keeps malformed requests inside the JSON-RPC session.
+// Notifications have no response channel, so they are logged and ignored;
+// requests receive the standard -32602 error and the server continues with
+// the next framed message.
+func (s *languageServer) reportInvalidParams(msg lspMessage, err error) error {
+	if msg.IsRequest() {
+		return s.writeResponse(msg.ID, nil, lspInvalidParams(err))
+	}
+	_, logErr := fmt.Fprintf(s.log, "osiris lsp: ignored malformed %s notification: %v\n", msg.Method, err)
+	return logErr
 }
 
 // writeResponse operates on languageServer values and keeps the
@@ -1100,12 +1208,7 @@ func analyzeStmtSeq(a *documentAnalysis, scope *lspScope, uri string, stmts []St
 	cur := scope
 	functions := &lspScope{parent: cur, defs: make(map[string]*symbolDef)}
 	for _, stmt := range stmts {
-		st, ok := stmt.(funcStmt)
-		if !ok {
-			continue
-		}
-		def := &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
-		functions.defs[st.Name] = def
+		predeclareAnalysisStmt(a, functions, uri, stmt)
 	}
 	if len(functions.defs) > 0 {
 		cur = functions
@@ -1130,33 +1233,36 @@ func analyzeStmtSeq(a *documentAnalysis, scope *lspScope, uri string, stmts []St
 func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, inBlock bool) (*lspScope, error) {
 	switch st := stmt.(type) {
 	case packageStmt:
-		def := &symbolDef{name: st.Name, kind: "package", detail: packageDetail(st), uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "package", packageDetail(st), uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case importStmt:
-		def := &symbolDef{name: st.Alias, kind: "module", detail: importDetail(st), uri: uri, span: st.AliasSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Alias, "module", importDetail(st), uri, st.AliasSpan)
+		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case enumStmt:
-		def := &symbolDef{name: st.Name, kind: "enum", detail: fmt.Sprintf("enum with %d cases", len(st.Cases)), uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "enum", fmt.Sprintf("enum with %d cases", len(st.Cases)), uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		for _, item := range st.Cases {
 			caseDef := &symbolDef{name: st.Name + "." + item.Name, kind: "enum case", detail: "case of " + st.Name, uri: uri, span: item.Span}
-			a.defs = append(a.defs, caseDef)
+			if existing := a.enumCases[caseDef.name]; existing != nil {
+				caseDef = existing
+			}
+			addAnalysisDefinition(a, caseDef)
 			a.enumCases[caseDef.name] = caseDef
 		}
 		return scope.push(def), nil
 	case structStmt:
-		def := &symbolDef{name: st.Name, kind: "struct", detail: fmt.Sprintf("struct with %d fields", len(st.Fields)), uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "struct", fmt.Sprintf("struct with %d fields", len(st.Fields)), uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case typeDeclStmt:
-		def := &symbolDef{name: st.Name, kind: "type alias", detail: "alias of " + st.Target, uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "type alias", "alias of "+st.Target, uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case newtypeStmt:
-		def := &symbolDef{name: st.Name, kind: "newtype", detail: "newtype of " + st.Target, uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "newtype", "newtype of "+st.Target, uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case letStmt:
 		if err := analyzeExpr(a, scope, uri, st.Expr); err != nil {
@@ -1174,12 +1280,17 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		a.defs = append(a.defs, def)
 		return scope.push(def), nil
 	case assignStmt:
+		if def := scope.lookup(st.Name); def != nil {
+			a.refs = append(a.refs, &symbolRef{span: st.NameSpan, target: def, detail: "assignment"})
+		} else {
+			a.diagnostics = append(a.diagnostics, diagnosticAt(st.NameSpan, fmt.Sprintf("undefined assignment target %q", st.Name)))
+		}
 		return scope, analyzeExpr(a, scope, uri, st.Expr)
 	case emitStmt:
 		return scope, analyzeExpr(a, scope, uri, st.Expr)
 	case macroStmt:
 		def := &symbolDef{name: st.Name, kind: "macro", detail: "compile-time macro", uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		addAnalysisDefinition(a, def)
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
 		for _, param := range st.Params {
 			child.defs[param] = &symbolDef{name: param, kind: "param", detail: "macro parameter", uri: uri, span: st.Span}
@@ -1189,13 +1300,15 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		}
 		return scope.push(def), nil
 	case traitStmt:
-		def := &symbolDef{name: st.Name, kind: "trait", detail: fmt.Sprintf("trait with %d methods", len(st.Methods)), uri: uri, span: st.NameSpan}
-		a.defs = append(a.defs, def)
+		def := analysisNamedDefinition(scope, st.Name, "trait", fmt.Sprintf("trait with %d methods", len(st.Methods)), uri, st.NameSpan)
+		addAnalysisDefinition(a, def)
 		for _, method := range st.Methods {
-			a.defs = append(a.defs, &symbolDef{name: st.Name + "." + method.Name, kind: "trait method", detail: functionDetail(method), uri: uri, span: method.NameSpan})
+			addAnalysisDefinition(a, &symbolDef{name: st.Name + "." + method.Name, kind: "trait method", detail: functionDetail(method), uri: uri, span: method.NameSpan})
 		}
 		return scope.push(def), nil
 	case implStmt:
+		analyzeTypeReference(a, scope, uri, st.Trait, st.TraitSpan, "trait")
+		analyzeTypeReference(a, scope, uri, st.Target, st.TargetSpan, "implementation target")
 		for _, method := range st.Methods {
 			if _, err := analyzeStmt(a, scope, uri, method, inBlock); err != nil {
 				return nil, err
@@ -1208,7 +1321,7 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		if !predeclared {
 			def = &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
 		}
-		a.defs = append(a.defs, def)
+		addAnalysisDefinition(a, def)
 		child := &lspScope{parent: scope, defs: map[string]*symbolDef{st.Name: def}}
 		for i, param := range st.Params {
 			detail := "function parameter"
@@ -1258,7 +1371,14 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			a.refs = append(a.refs, &symbolRef{span: st.NameSpans[i], target: def, detail: "export"})
 		}
 		return scope, nil
+	case deferStmt:
+		if st.Body == nil {
+			a.diagnostics = append(a.diagnostics, diagnosticAt(st.Span, "defer statement has no body"))
+			return scope, nil
+		}
+		return scope, analyzeExpr(a, scope, uri, st.Body)
 	default:
+		a.diagnostics = append(a.diagnostics, diagnosticAt(lspStmtSpan(stmt), fmt.Sprintf("LSP analysis does not support statement %T", stmt)))
 		return scope, nil
 	}
 }
@@ -1313,6 +1433,7 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 			}
 		}
 	case *structExpr:
+		analyzeTypeReference(a, scope, uri, n.TypeName, n.Span, "struct")
 		for _, field := range n.Fields {
 			if err := analyzeExpr(a, scope, uri, field.Expr); err != nil {
 				return err
@@ -1360,6 +1481,7 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 			if err := validatePatternBindings(arm.pattern, ""); err != nil {
 				a.diagnostics = append(a.diagnostics, diagnosticAt(patternSpan(arm.pattern), err.Error()))
 			}
+			analyzePattern(a, scope, uri, arm.pattern)
 			child := &lspScope{parent: scope, defs: map[string]*symbolDef{}}
 			for _, def := range patternDefs(uri, arm.pattern) {
 				child.defs[def.name] = def
@@ -1377,9 +1499,195 @@ func analyzeExpr(a *documentAnalysis, scope *lspScope, uri string, expr Expr) er
 	case *literalExpr:
 		return nil
 	default:
+		a.diagnostics = append(a.diagnostics, diagnosticAt(lspExprSpan(expr), fmt.Sprintf("LSP analysis does not support expression %T", expr)))
 		return nil
 	}
 	return nil
+}
+
+func predeclareAnalysisStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt) {
+	switch st := stmt.(type) {
+	case funcStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
+	case enumStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "enum", detail: fmt.Sprintf("enum with %d cases", len(st.Cases)), uri: uri, span: st.NameSpan}
+		for _, item := range st.Cases {
+			def := &symbolDef{name: st.Name + "." + item.Name, kind: "enum case", detail: "case of " + st.Name, uri: uri, span: item.Span}
+			a.enumCases[def.name] = def
+			addAnalysisDefinition(a, def)
+		}
+	case structStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "struct", detail: fmt.Sprintf("struct with %d fields", len(st.Fields)), uri: uri, span: st.NameSpan}
+	case typeDeclStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "type alias", detail: "alias of " + st.Target, uri: uri, span: st.NameSpan}
+	case newtypeStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "newtype", detail: "newtype of " + st.Target, uri: uri, span: st.NameSpan}
+	case traitStmt:
+		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "trait", detail: fmt.Sprintf("trait with %d methods", len(st.Methods)), uri: uri, span: st.NameSpan}
+	}
+}
+
+func analysisNamedDefinition(scope *lspScope, name, kind, detail, uri string, span sourceSpan) *symbolDef {
+	if existing := scope.lookup(name); existing != nil && existing.kind == kind && existing.span == span {
+		return existing
+	}
+	return &symbolDef{name: name, kind: kind, detail: detail, uri: uri, span: span}
+}
+
+func addAnalysisDefinition(a *documentAnalysis, def *symbolDef) {
+	if def == nil {
+		return
+	}
+	for _, existing := range a.defs {
+		if existing == def || (existing.name == def.name && existing.kind == def.kind && existing.uri == def.uri && existing.span == def.span) {
+			return
+		}
+	}
+	a.defs = append(a.defs, def)
+}
+
+func analyzeTypeReference(a *documentAnalysis, scope *lspScope, uri, name string, span sourceSpan, detail string) {
+	if name == "" {
+		return
+	}
+	if def := scope.lookup(name); def != nil {
+		a.refs = append(a.refs, &symbolRef{span: span, target: def, detail: detail})
+		return
+	}
+	if _, builtin := builtinTypeSet()[name]; builtin {
+		return
+	}
+	a.diagnostics = append(a.diagnostics, diagnosticAt(span, fmt.Sprintf("undefined %s type %q", detail, name)))
+}
+
+func analyzePattern(a *documentAnalysis, scope *lspScope, uri string, pattern Pattern) {
+	switch p := pattern.(type) {
+	case wildcardPattern, bindPattern, literalPattern, relationalPattern:
+		return
+	case enumPattern:
+		if def := a.enumCases[p.typeName+"."+p.caseName]; def != nil {
+			a.refs = append(a.refs, &symbolRef{span: p.Span, target: def, detail: "enum pattern"})
+		} else {
+			a.diagnostics = append(a.diagnostics, diagnosticAt(p.Span, fmt.Sprintf("undefined enum case %s.%s", p.typeName, p.caseName)))
+		}
+		for _, item := range p.items {
+			analyzePattern(a, scope, uri, item)
+		}
+	case listPattern:
+		for _, item := range p.items {
+			analyzePattern(a, scope, uri, item)
+		}
+	case orPattern:
+		for _, alternative := range p.alternatives {
+			analyzePattern(a, scope, uri, alternative)
+		}
+	case andPattern:
+		analyzePattern(a, scope, uri, p.left)
+		analyzePattern(a, scope, uri, p.right)
+	case notPattern:
+		analyzePattern(a, scope, uri, p.inner)
+	case typePattern:
+		analyzeTypeReference(a, scope, uri, p.typeName, p.Span, "pattern")
+	default:
+		a.diagnostics = append(a.diagnostics, diagnosticAt(lspPatternSpan(pattern), fmt.Sprintf("LSP analysis does not support pattern %T", pattern)))
+	}
+}
+
+func lspStmtSpan(stmt Stmt) sourceSpan {
+	if node, ok := stmt.(lspAnalysisSpanned); ok {
+		return node.lspAnalysisSpan()
+	}
+	switch st := stmt.(type) {
+	case letStmt:
+		return st.Span
+	case assignStmt:
+		return st.Span
+	case emitStmt:
+		return st.Span
+	case deferStmt:
+		return st.Span
+	case macroStmt:
+		return st.Span
+	case funcStmt:
+		return st.Span
+	case traitStmt:
+		return st.Span
+	case implStmt:
+		return st.Span
+	case returnStmt:
+		return st.Span
+	case whileStmt:
+		return st.Span
+	case forStmt:
+		return st.Span
+	case breakStmt:
+		return st.Span
+	case continueStmt:
+		return st.Span
+	case importStmt:
+		return st.Span
+	case packageStmt:
+		return st.Span
+	case exportStmt:
+		return st.Span
+	case enumStmt:
+		return st.Span
+	case structStmt:
+		return st.Span
+	case typeDeclStmt:
+		return st.Span
+	case newtypeStmt:
+		return st.Span
+	default:
+		return sourceSpan{}
+	}
+}
+
+func lspExprSpan(expr Expr) sourceSpan {
+	if node, ok := expr.(lspAnalysisSpanned); ok {
+		return node.lspAnalysisSpan()
+	}
+	switch n := expr.(type) {
+	case *literalExpr:
+		return n.Span
+	case *identExpr:
+		return n.Span
+	case *unaryExpr:
+		return n.Span
+	case *binaryExpr:
+		return n.Span
+	case *callExpr:
+		return n.Span
+	case *blockExpr:
+		return n.Span
+	case *tryExpr:
+		return n.Span
+	case *propagateExpr:
+		return n.Span
+	case *memberExpr:
+		return n.Span
+	case *listExpr:
+		return n.Span
+	case *tupleExpr:
+		return n.Span
+	case *structExpr:
+		return n.Span
+	case *structUpdateExpr:
+		return n.Span
+	case *indexExpr:
+		return n.Span
+	case *matchExpr:
+		return n.Span
+	default:
+		return sourceSpan{}
+	}
+}
+
+func lspPatternSpan(pattern Pattern) sourceSpan {
+	if node, ok := pattern.(lspAnalysisSpanned); ok {
+		return node.lspAnalysisSpan()
+	}
+	return patternSpan(pattern)
 }
 
 // resolveMemberTarget handles the resolve member target step in the

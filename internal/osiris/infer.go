@@ -526,7 +526,7 @@ func inferExpr(expr Expr, scope *inferScope, out *InferProgram) inferTypeInfo {
 					return inferStdTextCall(name, n.args, scope, out)
 				}
 			}
-			if info, ok := inferBuiltinCall(name, n.args, scope, out); ok {
+			if info, ok := inferBuiltinCall(name, n.typeArgs, n.args, scope, out); ok {
 				return info
 			}
 		}
@@ -849,7 +849,34 @@ func inferStdTextCall(name string, args []Expr, scope *inferScope, out *InferPro
 	}
 }
 
-func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferProgram) (inferTypeInfo, bool) {
+func inferBuiltinCall(name string, typeArgs []string, args []Expr, scope *inferScope, out *InferProgram) (inferTypeInfo, bool) {
+	if isFutureConstructorName(name) {
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		base := futureConstructorName(name)
+		if len(typeArgs) > 0 {
+			return inferTypeInfo{known: true, kind: base + "<" + strings.Join(typeArgs, ", ") + ">"}, true
+		}
+		if element, ok := inferFutureElementName(args); ok {
+			if base == "simd" {
+				lanes := 0
+				if len(args) == 2 {
+					if literal, ok := args[0].(*literalExpr); ok {
+						lanes, _ = literal.value.Int()
+					}
+				} else if len(args) == 1 {
+					lanes = futureInferValueCount(args[0])
+				}
+				if lanes > 0 {
+					return inferTypeInfo{known: true, kind: fmt.Sprintf("simd<%d, %s>", lanes, element)}, true
+				}
+			} else if base == "poly" || base == "quat" {
+				return inferTypeInfo{known: true, kind: base + "<" + element + ">"}, true
+			}
+		}
+		return inferTypeInfo{known: true, kind: base}, true
+	}
 	switch name {
 	case "openappend":
 		for _, arg := range args {
@@ -873,6 +900,21 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 		return inferTypeInfo{known: true, kind: "bool"}, true
 	case "round":
 		return inferUnaryLikeBuiltin(args, scope, out, "number"), true
+	case "nnz":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "uint", bits: 64}, true
+	case "to_dense":
+		if len(args) > 0 {
+			_ = inferExpr(args[0], scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "tensor"}, true
+	case "to_sparse":
+		for _, arg := range args {
+			_ = inferExpr(arg, scope, out)
+		}
+		return inferTypeInfo{known: true, kind: "sparse_tensor"}, true
 	case "format":
 		for _, arg := range args {
 			_ = inferExpr(arg, scope, out)
@@ -1242,6 +1284,46 @@ func inferBuiltinCall(name string, args []Expr, scope *inferScope, out *InferPro
 		return inferTypeInfo{known: true, kind: "bigfloat"}, true
 	default:
 		return inferTypeInfo{}, false
+	}
+}
+
+func inferFutureElementName(args []Expr) (string, bool) {
+	if len(args) == 2 && futureConstructorName("simd") == "simd" {
+		args = args[1:]
+	}
+	if len(args) != 1 {
+		return "", false
+	}
+	valuesExpr := args[0]
+	var items []Expr
+	switch n := valuesExpr.(type) {
+	case *listExpr:
+		items = n.items
+	case *tupleExpr:
+		items = n.items
+	default:
+		return "", false
+	}
+	values := make([]Value, len(items))
+	for i, item := range items {
+		literal, ok := item.(*literalExpr)
+		if !ok {
+			return "", false
+		}
+		values[i] = literal.value
+	}
+	element, err := futureElementType(values)
+	return element, err == nil
+}
+
+func futureInferValueCount(expr Expr) int {
+	switch n := expr.(type) {
+	case *listExpr:
+		return len(n.items)
+	case *tupleExpr:
+		return len(n.items)
+	default:
+		return 0
 	}
 }
 
@@ -1734,6 +1816,17 @@ func inferTypeFromValue(v Value) inferTypeInfo {
 		if v.mod != nil {
 			info.module = v.mod.name
 		}
+	case kindFuture:
+		if v.future != nil {
+			info.kind = futureTypeString(v.future)
+			if v.future.name == "poly" {
+				info.shape = []int{len(v.future.data)}
+			} else {
+				info.shape = append([]int(nil), v.future.shape...)
+			}
+		} else {
+			info.kind = "future"
+		}
 	default:
 		info.kind = "unknown"
 	}
@@ -1765,6 +1858,9 @@ func inferInfoFromStaticType(value staticType) inferTypeInfo {
 		_, _ = fmt.Sscanf(value.name, "f%d", &bits)
 		return inferTypeInfo{known: true, kind: "float", bits: bits}
 	default:
+		if value.name == "poly" || value.name == "quat" || value.name == "simd" || value.name == "sparse_matrix" || value.name == "sparse_tensor" {
+			return inferTypeInfo{known: true, kind: value.String()}
+		}
 		return inferTypeInfo{known: true, kind: value.name}
 	}
 }

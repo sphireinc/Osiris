@@ -2,7 +2,7 @@
 
 **Priority:** P2  
 **Dependencies:** 028, 034, 109, 110, 111, 112, 113, 114  
-**Status:** Ready  
+**Status:** Complete  
 
 ## Objective
 
@@ -178,3 +178,22 @@ promotion, sparse formats, or native ABI requirements expand the surface.
   fallback.
 - Do not silently coerce unsupported element families, shapes, widths, or
   sparse formats.
+
+## Completion evidence (2026-08-04)
+
+- `internal/osiris/future_types.go` implements deterministic `poly`, `quat`,
+  `simd`, `sparse_matrix`, and `sparse_tensor` values with canonical
+  construction, arithmetic, indexing, normalization, bounds, zero-elision,
+  duplicate aggregation, and dense/sparse conversion rules.
+- `internal/osiris/value.go`, `typecheck.go`, `infer.go`, `runtime.go`,
+  `bytecode.go`, `codec.go`, `module.go`, and backend policy hooks carry the
+  future kinds through static checking, interpreter/VM execution, codecs, and
+  explicit native/WASM/GPU rejection where no ABI exists.
+- `internal/osiris/task134_future_types_test.go` and
+  `internal/osiris/reserved_types_contract_test.go` cover syntax, arithmetic,
+  canonical sparse forms, codec round trips, and unsupported-backend
+  diagnostics.
+- `docs/design/RESERVED-TYPES.md` and the canonical `docs/src` reference data
+  document each type and operation individually.
+- `GOCACHE=/tmp/osiris-future-cache5 go test ./internal/osiris -run '^TestTask134' -count=1 -timeout=180s` and the reserved-type contract suite passed;
+  `npm run check-reference` passed with 315 built-ins and 1021 unique routes.

@@ -1,0 +1,19 @@
+func identity<T>(value T) T => value
+func apply<T>(fn func(T) T, value T) T => fn(value)
+
+trait Printable { func render() string; }
+struct Point { value u64 }
+impl Printable for Point { func render() string => "point" }
+
+enum Result { Ok(value), Err(message) }
+let point = Point { value: 3 }
+let result = Result.Ok([2, 3])
+
+emit identity(7)
+emit apply(identity, "typed")
+emit point.render()
+emit match result {
+	Result.Ok([left, right]) => left + right,
+	Result.Err(message) => 0,
+}
+for item in [10, 11] { emit item }

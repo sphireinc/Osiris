@@ -142,6 +142,10 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 		return BackendUnsupported
 	}
 	switch module {
+	case "std/os":
+		if member == "is_path_separator" || member == "read_file" || member == "write_file" || member == "getenv" || member == "env_names" || member == "environ" || member == "setenv" || member == "unsetenv" || member == "hostname" || member == "getpid" || member == "getppid" || member == "getuid" || member == "geteuid" || member == "getgid" || member == "getegid" || member == "getpagesize" {
+			return BackendImplemented
+		}
 	case "std/crypto":
 		if member == "random" || member == "hash" {
 			return BackendImplemented

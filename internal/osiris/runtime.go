@@ -579,11 +579,20 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 			}
 			switch st := stmt.(type) {
 			case letStmt:
-				cur = &scope{
-					parent: cur,
-					items: map[string]binding{
-						st.Name: {expr: st.Expr, env: cur},
-					},
+				if len(st.Names) > 0 {
+					for _, name := range st.Names {
+						cur = &scope{
+							parent: cur,
+							items:  map[string]binding{name: {expr: st.Expr, env: cur}},
+						}
+					}
+				} else {
+					cur = &scope{
+						parent: cur,
+						items: map[string]binding{
+							st.Name: {expr: st.Expr, env: cur},
+						},
+					}
 				}
 			case assignStmt:
 				fp, err := ev.fingerprint(st.Expr, cur)
@@ -902,6 +911,36 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 				}
 				expr = &literalExpr{value: value}
 			}
+			if st.Mutable {
+				value, err := ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), err
+				}
+				cur = &scope{
+					parent: cur,
+					items: map[string]binding{st.Name: {
+						expr: &literalExpr{value: value}, env: cur,
+						cell: &bindingCell{value: value}, mutable: true,
+					}},
+				}
+				continue
+			}
+			if len(st.Names) > 0 {
+				value, err := ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), err
+				}
+				if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
+					return nullValue(), fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
+				}
+				for i, name := range st.Names {
+					cur = &scope{
+						parent: cur,
+						items:  map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}},
+					}
+				}
+				continue
+			}
 			cur = &scope{
 				parent: cur,
 				items: map[string]binding{
@@ -1074,6 +1113,9 @@ func evalBinary(ev *evaluator, n *binaryExpr, scope *scope) (Value, error) {
 	}
 	left, right := values[0], values[1]
 
+	if future, handled, err := futureBinary(n.op, left, right); handled {
+		return future, err
+	}
 	if left.kind == kindTensor || right.kind == kindTensor {
 		return tensorBinaryValue(ev.ctx, ev.sched, n.op, left, right)
 	}
@@ -1326,7 +1368,12 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		ev.pushCall(callee.fn.name)
 		defer ev.popCall()
 		if callee.fn.builtin != nil {
-			value, err := callee.fn.builtin(args)
+			var value Value
+			if isFutureConstructorName(callee.fn.name) {
+				value, err = futureConstructorCall(callee.fn.name, n.typeArgs, args)
+			} else {
+				value, err = callee.fn.builtin(args)
+			}
 			return value, structuredErrorAt(normalizeError(err, sourceName), sourceName, n.Span)
 		}
 		if callee.fn.contextBuiltin != nil {
@@ -2535,6 +2582,9 @@ func canScheduleEvalMany(ev *evaluator, exprs []Expr) bool {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func applyUnary(op tokenKind, v Value) (Value, error) {
+	if v.kind == kindFuture {
+		return futureUnary(op, v)
+	}
 	switch op {
 	case tokenBang:
 		return boolValue(!v.Truthy()), nil
@@ -2816,6 +2866,8 @@ func registerBuiltins(dst map[string]Builtin) {
 			return numberValue(float64(len(args[0].data))), nil
 		case kindString:
 			return numberValue(float64(len([]rune(args[0].str)))), nil
+		case kindFuture:
+			return futureLength(args[0])
 		default:
 			return nullValue(), fmt.Errorf("len expects a string, list, or tensor")
 		}
@@ -3078,6 +3130,21 @@ func registerBuiltins(dst map[string]Builtin) {
 	dst["view"] = func(args []Value) (Value, error) { return tensorViewValue(args) }
 	dst["tensor"] = func(args []Value) (Value, error) { return tensorValueFromArgs(args) }
 	dst["matrix"] = func(args []Value) (Value, error) { return matrixValueFromArgs(args) }
+	dst["poly"] = futurePolyValue
+	dst["quat"] = futureQuatValue
+	dst["simd"] = futureSIMDValue
+	dst["sparse_matrix"] = func(args []Value) (Value, error) { return futureSparseValue("sparse_matrix", args) }
+	dst["sparse_tensor"] = func(args []Value) (Value, error) { return futureSparseValue("sparse_tensor", args) }
+	dst["poly_degree"] = futurePolyDegree
+	dst["poly_eval"] = futurePolyEval
+	dst["quat_conjugate"] = futureConjugate
+	dst["quat_norm"] = futureQuatNorm
+	dst["quat_inverse"] = futureQuatInverse
+	dst["simd_mask"] = futureSIMDMask
+	dst["simd_select"] = futureSIMDSelect
+	dst["nnz"] = futureNNZ
+	dst["to_dense"] = futureToDense
+	dst["to_sparse"] = futureToSparse
 	dst["shape"] = func(args []Value) (Value, error) { return tensorShapeValue(args) }
 	dst["flatten"] = func(args []Value) (Value, error) { return tensorFlattenValue(args) }
 	dst["squeeze"] = func(args []Value) (Value, error) { return tensorSqueezeValue(args) }

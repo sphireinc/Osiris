@@ -3,21 +3,31 @@ package osiris
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
+// GPUKernel is the executable portion of a GPU artifact. Kind is retained as
+// the human-readable category used by the original artifact format; Op is the
+// versioned operation selected by the runtime and never inferred from Source.
 type GPUKernel struct {
-	Name string `json:"name"`
-	Kind string `json:"kind"`
+	Name       string         `json:"name"`
+	Kind       string         `json:"kind"`
+	Op         GPUKernelOp    `json:"op"`
+	ABIVersion int            `json:"abi_version"`
+	Inputs     []GPUValueSpec `json:"inputs"`
+	Output     GPUValueSpec   `json:"output"`
 }
 
 type GPUArtifact struct {
 	SchemaVersion int         `json:"schema_version"`
+	ABI           GPUABI      `json:"abi"`
 	Source        string      `json:"source"`
 	Kernels       []GPUKernel `json:"kernels"`
+	Limits        GPULimits   `json:"limits"`
 }
 
-const gpuArtifactSchemaVersion = 1
+const gpuArtifactSchemaVersion = 2
 
 // CompileGPU compiles the gpu into the requested backend artifact so the
 // caller can execute or inspect the program without keeping the source
@@ -26,15 +36,30 @@ const gpuArtifactSchemaVersion = 1
 // It returns GPUArtifact and an error. Callers should only trust the value
 // when the error is nil.
 func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
-	if _, err := NewRuntime().CheckProgram(ctx, prog); err != nil {
+	if err := rejectTask134FutureBackend(prog, "GPU"); err != nil {
+		return GPUArtifact{}, err
+	}
+	if prog == nil {
+		return GPUArtifact{}, fmt.Errorf("GPU compile: nil program")
+	}
+	if err := ValidateGPUProgram(prog); err != nil {
+		return GPUArtifact{}, err
+	}
+	if _, err := NewRuntime().BuildIR(ctx, prog); err != nil {
 		return GPUArtifact{}, err
 	}
 	plan := collectGPUPlan(prog)
-	return GPUArtifact{
+	artifact := GPUArtifact{
 		SchemaVersion: gpuArtifactSchemaVersion,
+		ABI:           defaultGPUABI(),
 		Source:        renderGPUOpenCL(plan),
 		Kernels:       plan.Kernels,
-	}, nil
+		Limits:        defaultGPULimits(),
+	}
+	if err := ValidateGPUArtifact(artifact); err != nil {
+		return GPUArtifact{}, err
+	}
+	return artifact, nil
 }
 
 type gpuPlan struct {
@@ -75,7 +100,7 @@ func (p *gpuPlan) addKernel(name, kind string) {
 		return
 	}
 	p.seen[key] = struct{}{}
-	p.Kernels = append(p.Kernels, GPUKernel{Name: name, Kind: kind})
+	p.Kernels = append(p.Kernels, newGPUKernel(name, kind))
 }
 
 // walkStmt operates on gpuPlan values and keeps the gpuplan-specific behavior
@@ -141,13 +166,13 @@ func (p *gpuPlan) walkExpr(expr Expr) {
 		for _, arg := range n.args {
 			p.walkExpr(arg)
 		}
-		switch callName(n.callee) {
-		case "dot":
-			p.addKernel("osiris_dot", "dot")
-		case "matmul":
-			p.addKernel("osiris_matmul", "matmul")
-		case "tensor", "matrix", "reshape", "transpose", "vector", "vec":
-			p.addKernel("osiris_shape_transform", "shape")
+		if op, kind, ok := gpuKernelForCall(callName(n.callee)); ok {
+			name := "osiris_" + strings.ReplaceAll(string(op), ".", "_")
+			key := name + "::" + kind
+			if _, exists := p.seen[key]; !exists {
+				p.seen[key] = struct{}{}
+				p.Kernels = append(p.Kernels, newGPUKernelForOp(name, kind, op, len(n.args)))
+			}
 		}
 	case *blockExpr:
 		for _, stmt := range n.stmts {
@@ -174,17 +199,120 @@ func (p *gpuPlan) walkExpr(expr Expr) {
 	}
 }
 
+func gpuKernelForCall(name string) (GPUKernelOp, string, bool) {
+	var op GPUKernelOp
+	switch name {
+	case "dot":
+		op = GPUKernelDot
+	case "matmul":
+		op = GPUKernelMatMul
+	case "vector", "vec":
+		op = GPUKernelVector
+	case "tensor":
+		op = GPUKernelTensor
+	case "matrix":
+		op = GPUKernelMatrix
+	case "zeros":
+		op = GPUKernelZeros
+	case "ones":
+		op = GPUKernelOnes
+	case "full":
+		op = GPUKernelFull
+	case "identity", "eye":
+		op = GPUKernelEye
+	case "arange":
+		op = GPUKernelArange
+	case "linspace":
+		op = GPUKernelLinspace
+	case "logspace":
+		op = GPUKernelLogspace
+	case "range":
+		op = GPUKernelRange
+	case "shape":
+		op = GPUKernelShape
+	case "flatten":
+		op = GPUKernelFlatten
+	case "reshape":
+		op = GPUKernelReshape
+	case "transpose":
+		op = GPUKernelTranspose
+	case "sum":
+		op = GPUKernelSum
+	case "product":
+		op = GPUKernelProduct
+	case "mean":
+		op = GPUKernelMean
+	case "std":
+		op = GPUKernelStd
+	case "norm":
+		op = GPUKernelNorm
+	case "min":
+		op = GPUKernelMin
+	case "max":
+		op = GPUKernelMax
+	case "abs":
+		op = GPUKernelAbs
+	case "sqrt":
+		op = GPUKernelSqrt
+	case "pow", "expt":
+		op = GPUKernelPow
+	case "exp":
+		op = GPUKernelExp
+	case "log":
+		op = GPUKernelLog
+	case "log10":
+		op = GPUKernelLog10
+	case "log2":
+		op = GPUKernelLog2
+	case "sin":
+		op = GPUKernelSin
+	case "cos":
+		op = GPUKernelCos
+	case "tan":
+		op = GPUKernelTan
+	case "asin":
+		op = GPUKernelAsin
+	case "acos":
+		op = GPUKernelAcos
+	case "atan":
+		op = GPUKernelAtan
+	case "floor":
+		op = GPUKernelFloor
+	case "ceil":
+		op = GPUKernelCeil
+	case "round":
+		op = GPUKernelRound
+	case "clamp":
+		op = GPUKernelClamp
+	case "hypot":
+		op = GPUKernelHypot
+	case "hann":
+		op = GPUKernelHann
+	case "convolve":
+		op = GPUKernelConvolve
+	default:
+		return "", "", false
+	}
+	return op, string(op), true
+}
+
 // callName handles the call name step in the surrounding package and returns
 // string.
 //
 // It returns string so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func callName(expr Expr) string {
-	id, ok := expr.(*identExpr)
-	if !ok {
+	switch n := expr.(type) {
+	case *identExpr:
+		return n.name
+	case *memberExpr:
+		// The module path is resolved by the shared checker. GPU lowering only
+		// needs the mapped pure operation at the leaf (for example
+		// std/math.sin and std/signal.hann).
+		return n.name
+	default:
 		return ""
 	}
-	return id.name
 }
 
 // renderGPUOpenCL handles the render gpuopen cl step in the surrounding
@@ -243,4 +371,21 @@ func renderGPUOpenCL(plan gpuPlan) string {
 // error is nil.
 func EncodeGPUArtifactJSON(art GPUArtifact) ([]byte, error) {
 	return json.MarshalIndent(art, "", "  ")
+}
+
+// DecodeGPUArtifactJSON decodes and validates an artifact before it can reach
+// a provider. The decoder deliberately validates the executable ABI separately
+// from Source so OpenCL comments or altered source cannot become a kernel.
+func DecodeGPUArtifactJSON(data []byte) (GPUArtifact, error) {
+	if len(data) > gpuMaxArtifactBytes {
+		return GPUArtifact{}, newGPUError(ErrGPUResourceLimit, "decode", "artifact exceeds byte limit", nil)
+	}
+	var artifact GPUArtifact
+	if err := json.Unmarshal(data, &artifact); err != nil {
+		return GPUArtifact{}, newGPUError(ErrGPUArtifactMalformed, "decode", "invalid JSON", err)
+	}
+	if err := ValidateGPUArtifact(artifact); err != nil {
+		return GPUArtifact{}, err
+	}
+	return artifact, nil
 }

@@ -541,7 +541,9 @@ type Pattern interface {
 	patternNode()
 }
 
-type wildcardPattern struct{}
+type wildcardPattern struct {
+	Span sourceSpan
+}
 
 // patternNode operates on wildcardPattern values and keeps the
 // wildcardpattern-specific behavior attached to the receiver so callers can
@@ -646,12 +648,52 @@ func (listPattern) patternNode() {}
 // It returns *Program and an error. Callers should only trust the value when
 // the error is nil.
 func Parse(sourceName, src string) (*Program, error) {
-	p := &parser{sourceName: sourceName, lexer: newLexer(src), knownTypes: builtinTypeSet(), knownStructs: make(map[string]struct{})}
+	prog, _, _, err := parseWithDeclarationContext(sourceName, src, builtinTypeSet(), nil)
+	return prog, err
+}
+
+// parseWithDeclarationContext parses one source fragment using declaration
+// names accumulated by a long-lived frontend such as the REPL. The returned
+// maps are updated only when parsing succeeds; callers can therefore keep the
+// previous context intact after a malformed submission.
+func parseWithDeclarationContext(sourceName, src string, knownTypes, knownStructs map[string]struct{}) (*Program, map[string]struct{}, map[string]struct{}, error) {
+	types := cloneStringSet(knownTypes)
+	if len(types) == 0 {
+		types = builtinTypeSet()
+	}
+	structs := cloneStringSet(knownStructs)
+	p := &parser{sourceName: sourceName, lexer: newLexer(src), knownTypes: types, knownStructs: structs}
 	prog, err := p.parse()
 	if err != nil {
-		return nil, normalizeError(err, sourceName)
+		return nil, nil, nil, normalizeError(err, sourceName)
 	}
-	return prog, nil
+	return prog, p.knownTypes, p.knownStructs, nil
+}
+
+func cloneStringSet(values map[string]struct{}) map[string]struct{} {
+	clone := make(map[string]struct{}, len(values))
+	for name := range values {
+		clone[name] = struct{}{}
+	}
+	return clone
+}
+
+// parserSpanFromToken returns a byte-column source span for one token. The
+// lexer keeps semantic token text separate from raw source spelling so decoded
+// strings and field tags retain their complete source width.
+func parserSpanFromToken(tok token) sourceSpan {
+	text := tok.raw
+	if text == "" {
+		text = tok.text
+	}
+	return sourceSpan{
+		start: sourcePos{line: tok.line, col: tok.col},
+		end:   sourcePos{line: tok.line, col: tok.col + len(text)},
+	}
+}
+
+func parserSpanFromTokens(start, end token) sourceSpan {
+	return spanCover(parserSpanFromToken(start), parserSpanFromToken(end))
 }
 
 type parser struct {
@@ -664,6 +706,7 @@ type parser struct {
 	lookahead    token
 	hasLookahead bool
 	lexErr       error
+	typeArgDepth int
 }
 
 // parse operates on parser values and keeps the parser-specific behavior
@@ -718,7 +761,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 			if err != nil {
 				return nil, err
 			}
-			return assignStmt{Name: name.text, Expr: expr, Span: spanFromToken(name), NameSpan: spanFromToken(name)}, nil
+			return assignStmt{Name: name.text, Expr: expr, Span: spanCover(parserSpanFromToken(name), exprSpan(expr)), NameSpan: parserSpanFromToken(name)}, nil
 		}
 		switch tok.text {
 		case "trait", "interface", "impl":
@@ -746,7 +789,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 			if mutable || constant {
 				return nil, p.errorf(start, "%s does not support tuple destructuring", start.text)
 			}
-			return letStmt{Names: names, Expr: expr, Unwrap: unwrap, Span: spanFromToken(start)}, nil
+			return letStmt{Names: names, Expr: expr, Unwrap: unwrap, Span: spanCover(parserSpanFromToken(start), exprSpan(expr))}, nil
 		}
 		nameTok, err := p.expect(tokenIdent)
 		if err != nil {
@@ -783,7 +826,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 				literal.defaultInteger = false
 			}
 		}
-		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Mutable: mutable, Const: constant, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		return letStmt{Name: nameTok.text, Type: typeName, Expr: expr, Unwrap: unwrap, Mutable: mutable, Const: constant, Span: spanCover(parserSpanFromToken(start), exprSpan(expr)), NameSpan: parserSpanFromToken(nameTok)}, nil
 	case tokenEmit:
 		start := p.next()
 		expr, err := p.parseExpr(0)
@@ -799,22 +842,22 @@ func (p *parser) parseStmt() (Stmt, error) {
 			exprs = append(exprs, nextExpr)
 		}
 		if len(exprs) == 1 {
-			return emitStmt{Expr: expr, Span: spanFromToken(start)}, nil
+			return emitStmt{Expr: expr, Span: spanCover(parserSpanFromToken(start), exprSpan(expr))}, nil
 		}
 		args := make([]Expr, 0, len(exprs)*2-1)
 		for i, item := range exprs {
 			if i > 0 {
-				args = append(args, &literalExpr{value: stringValue(", "), Span: spanFromToken(start)})
+				args = append(args, &literalExpr{value: stringValue(", "), Span: parserSpanFromToken(start)})
 			}
 			args = append(args, item)
 		}
 		return emitStmt{
 			Expr: &callExpr{
-				callee: &identExpr{name: "cat", Span: spanFromToken(start)},
+				callee: &identExpr{name: "cat", Span: parserSpanFromToken(start)},
 				args:   args,
-				Span:   spanFromToken(start),
+				Span:   spanCover(parserSpanFromToken(start), exprSpan(exprs[len(exprs)-1])),
 			},
-			Span: spanFromToken(start),
+			Span: spanCover(parserSpanFromToken(start), exprSpan(exprs[len(exprs)-1])),
 		}, nil
 	case tokenDefer:
 		start := p.next()
@@ -822,7 +865,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return deferStmt{Body: body, Span: spanCover(spanFromToken(start), exprSpan(body))}, nil
+		return deferStmt{Body: body, Span: spanCover(parserSpanFromToken(start), exprSpan(body))}, nil
 	case tokenMacro:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
@@ -843,19 +886,19 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return macroStmt{Name: nameTok.text, Params: params, Body: body, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}, nil
+		return macroStmt{Name: nameTok.text, Params: params, Body: body, Span: spanCover(parserSpanFromToken(start), exprSpan(body)), NameSpan: parserSpanFromToken(nameTok)}, nil
 	case tokenFunc:
 		return p.parseFunctionStmt("", "", true)
 	case tokenReturn:
 		start := p.next()
 		if p.peek().kind == tokenSemicolon || p.peek().kind == tokenRBrace || p.peek().kind == tokenEOF {
-			return returnStmt{Span: spanFromToken(start)}, nil
+			return returnStmt{Span: parserSpanFromToken(start)}, nil
 		}
 		expr, err := p.parseExpr(0)
 		if err != nil {
 			return nil, err
 		}
-		return returnStmt{Expr: expr, Span: spanFromToken(start)}, nil
+		return returnStmt{Expr: expr, Span: spanCover(parserSpanFromToken(start), exprSpan(expr))}, nil
 	case tokenWhile:
 		start := p.next()
 		cond, err := p.parseExpr(0)
@@ -866,7 +909,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return whileStmt{Cond: cond, Body: body, Span: spanCover(spanFromToken(start), exprSpan(body))}, nil
+		return whileStmt{Cond: cond, Body: body, Span: spanCover(parserSpanFromToken(start), exprSpan(body))}, nil
 	case tokenFor:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
@@ -884,24 +927,24 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return forStmt{Name: nameTok.text, Iter: iter, Body: body, Span: spanCover(spanFromToken(start), exprSpan(body)), NameSpan: spanFromToken(nameTok)}, nil
+		return forStmt{Name: nameTok.text, Iter: iter, Body: body, Span: spanCover(parserSpanFromToken(start), exprSpan(body)), NameSpan: parserSpanFromToken(nameTok)}, nil
 	case tokenBreak:
 		start := p.next()
-		return breakStmt{Span: spanFromToken(start)}, nil
+		return breakStmt{Span: parserSpanFromToken(start)}, nil
 	case tokenContinue:
 		start := p.next()
-		return continueStmt{Span: spanFromToken(start)}, nil
+		return continueStmt{Span: parserSpanFromToken(start)}, nil
 	case tokenPackage:
 		start := p.next()
 		nameTok, err := p.expect(tokenIdent)
 		if err != nil {
 			return nil, err
 		}
-		stmt := packageStmt{Name: nameTok.text, Span: spanFromTokens(start, nameTok), NameSpan: spanFromToken(nameTok)}
+		stmt := packageStmt{Name: nameTok.text, Span: parserSpanFromTokens(start, nameTok), NameSpan: parserSpanFromToken(nameTok)}
 		if p.peek().kind == tokenNumber || p.peek().kind == tokenString {
 			verTok := p.next()
 			stmt.Version = verTok.text
-			stmt.VersionSpan = spanFromToken(verTok)
+			stmt.VersionSpan = parserSpanFromToken(verTok)
 			stmt.Span = spanCover(stmt.Span, stmt.VersionSpan)
 		}
 		return stmt, nil
@@ -912,16 +955,16 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		names := []string{first.text}
-		spans := []sourceSpan{spanFromToken(first)}
+		spans := []sourceSpan{parserSpanFromToken(first)}
 		for p.match(tokenComma) {
 			tok, err := p.expect(tokenIdent)
 			if err != nil {
 				return nil, err
 			}
 			names = append(names, tok.text)
-			spans = append(spans, spanFromToken(tok))
+			spans = append(spans, parserSpanFromToken(tok))
 		}
-		return exportStmt{Names: names, Span: spanCover(spanFromToken(start), spans[len(spans)-1]), NameSpans: spans}, nil
+		return exportStmt{Names: names, Span: spanCover(parserSpanFromToken(start), spans[len(spans)-1]), NameSpans: spans}, nil
 	case tokenEnum:
 		start := p.next()
 		name, err := p.expect(tokenIdent)
@@ -954,7 +997,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 				return nil, p.errorf(caseTok, "enum %q declares case %q more than once", name.text, caseTok.text)
 			}
 			seen[caseTok.text] = struct{}{}
-			item := enumCase{Name: caseTok.text, Span: spanFromToken(caseTok)}
+			item := enumCase{Name: caseTok.text, Span: parserSpanFromToken(caseTok)}
 			if p.match(tokenLParen) && !p.match(tokenRParen) {
 				if backing != "" {
 					return nil, p.errorf(caseTok, "backed enum case %s.%s cannot declare a payload", name.text, caseTok.text)
@@ -1000,7 +1043,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if len(cases) == 0 {
 			return nil, p.errorf(name, "enum %q must declare at least one case", name.text)
 		}
-		return enumStmt{Name: name.text, Backing: backing, Cases: cases, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
+		return enumStmt{Name: name.text, Backing: backing, Cases: cases, NameSpan: parserSpanFromToken(name), Span: parserSpanFromTokens(start, end)}, nil
 	case tokenStruct:
 		return p.parseStructStmt()
 	case tokenType:
@@ -1020,7 +1063,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if _, isStruct := p.knownStructs[target]; isStruct {
 			p.knownStructs[name.text] = struct{}{}
 		}
-		return typeDeclStmt{Name: name.text, Target: target, Alias: true, NameSpan: spanFromToken(name), Span: spanCover(spanFromToken(start), targetSpan)}, nil
+		return typeDeclStmt{Name: name.text, Target: target, Alias: true, NameSpan: parserSpanFromToken(name), Span: spanCover(parserSpanFromToken(start), targetSpan)}, nil
 	case tokenNewtype:
 		start := p.next()
 		name, err := p.expect(tokenIdent)
@@ -1032,7 +1075,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 			return nil, err
 		}
 		p.knownTypes[name.text] = struct{}{}
-		return newtypeStmt{Name: name.text, Target: target, NameSpan: spanFromToken(name), Span: spanCover(spanFromToken(start), targetSpan)}, nil
+		return newtypeStmt{Name: name.text, Target: target, NameSpan: parserSpanFromToken(name), Span: spanCover(parserSpanFromToken(start), targetSpan)}, nil
 	case tokenImport:
 		start := p.next()
 		pathTok, err := p.expect(tokenString)
@@ -1046,7 +1089,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: spanFromTokens(start, aliasTok), PathSpan: spanFromToken(pathTok), AliasSpan: spanFromToken(aliasTok)}, nil
+		return importStmt{Path: pathTok.text, Alias: aliasTok.text, Span: parserSpanFromTokens(start, aliasTok), PathSpan: parserSpanFromToken(pathTok), AliasSpan: parserSpanFromToken(aliasTok)}, nil
 	case tokenFFI:
 		start := p.next()
 		pathTok, err := p.expect(tokenString)
@@ -1062,8 +1105,8 @@ func (p *parser) parseStmt() (Stmt, error) {
 		}
 		return letStmt{
 			Name: aliasTok.text,
-			Expr: &callExpr{callee: &identExpr{name: "ffi_load", Span: spanFromToken(start)}, args: []Expr{&literalExpr{value: stringValue(pathTok.text), Span: spanFromToken(pathTok)}}, Span: spanFromTokens(start, aliasTok)},
-			Span: spanFromTokens(start, aliasTok), NameSpan: spanFromToken(aliasTok),
+			Expr: &callExpr{callee: &identExpr{name: "ffi_load", Span: parserSpanFromToken(start)}, args: []Expr{&literalExpr{value: stringValue(pathTok.text), Span: parserSpanFromToken(pathTok)}}, Span: parserSpanFromTokens(start, aliasTok)},
+			Span: parserSpanFromTokens(start, aliasTok), NameSpan: parserSpanFromToken(aliasTok),
 		}, nil
 	default:
 		return nil, p.errorf(p.peek(), "expected statement starting with let, var, ffi, emit, defer, func, return, while, for, break, continue, package, export, enum, struct, type, newtype, or import")
@@ -1100,7 +1143,7 @@ func (p *parser) parseBehaviorStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		return traitStmt{Name: name.text, TypeParams: params, Methods: methods, Span: spanFromTokens(keyword, end), NameSpan: spanFromToken(name)}, nil
+		return traitStmt{Name: name.text, TypeParams: params, Methods: methods, Span: parserSpanFromTokens(keyword, end), NameSpan: parserSpanFromToken(name)}, nil
 	}
 
 	trait, err := p.expect(tokenIdent)
@@ -1135,7 +1178,7 @@ func (p *parser) parseBehaviorStmt() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return implStmt{Trait: trait.text, Target: target, Methods: methods, Span: spanFromTokens(trait, end), TraitSpan: spanFromToken(trait), TargetSpan: targetSpan}, nil
+	return implStmt{Trait: trait.text, Target: target, Methods: methods, Span: parserSpanFromTokens(trait, end), TraitSpan: parserSpanFromToken(trait), TargetSpan: targetSpan}, nil
 }
 
 func (p *parser) parseFunctionStmt(receiver, receiverType string, bodyRequired bool) (funcStmt, error) {
@@ -1143,7 +1186,7 @@ func (p *parser) parseFunctionStmt(receiver, receiverType string, bodyRequired b
 	if _, err := p.expect(tokenFunc); err != nil {
 		return funcStmt{}, err
 	}
-	if receiver == "" && p.match(tokenLParen) {
+	if p.match(tokenLParen) {
 		receiverTok, err := p.expect(tokenIdent)
 		if err != nil {
 			return funcStmt{}, err
@@ -1154,6 +1197,9 @@ func (p *parser) parseFunctionStmt(receiver, receiverType string, bodyRequired b
 		}
 		if _, err := p.expect(tokenRParen); err != nil {
 			return funcStmt{}, err
+		}
+		if receiver != "" && (receiverTok.text != receiver || typ != receiverType) {
+			return funcStmt{}, p.errorf(receiverTok, "impl receiver must be %s %s", receiver, receiverType)
 		}
 		receiver, receiverType = receiverTok.text, typ
 	}
@@ -1195,7 +1241,7 @@ func (p *parser) parseFunctionStmt(receiver, receiverType string, bodyRequired b
 	}
 	return funcStmt{Name: nameTok.text, Receiver: receiver, ReceiverType: receiverType, TypeParams: typeParams,
 		Params: params, ParamTypes: paramTypes, ParamSpans: paramSpans, ReturnType: returnType,
-		ReturnTypeSpan: returnTypeSpan, Body: body, Span: spanCover(spanFromToken(start), endSpan), NameSpan: spanFromToken(nameTok)}, nil
+		ReturnTypeSpan: returnTypeSpan, Body: body, Span: spanCover(parserSpanFromToken(start), endSpan), NameSpan: parserSpanFromToken(nameTok)}, nil
 }
 
 func (p *parser) parseStructStmt() (Stmt, error) {
@@ -1227,7 +1273,7 @@ func (p *parser) parseStructStmt() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
-		field := structField{Name: fieldName.text, Type: fieldType, NameSpan: spanFromToken(fieldName)}
+		field := structField{Name: fieldName.text, Type: fieldType, NameSpan: parserSpanFromToken(fieldName)}
 		if p.peek().kind == tokenTag {
 			tagTok := p.next()
 			values, tagErr := parseStructTag(tagTok.text)
@@ -1235,7 +1281,7 @@ func (p *parser) parseStructStmt() (Stmt, error) {
 				return nil, p.errorf(tagTok, "%v", tagErr)
 			}
 			field.Tag, field.TagValues = tagTok.text, values
-			field.Span = spanCover(field.NameSpan, spanFromToken(tagTok))
+			field.Span = spanCover(field.NameSpan, parserSpanFromToken(tagTok))
 		} else {
 			field.Span = field.NameSpan
 		}
@@ -1251,7 +1297,7 @@ func (p *parser) parseStructStmt() (Stmt, error) {
 	if len(fields) == 0 {
 		return nil, p.errorf(name, "struct %q must declare at least one field", name.text)
 	}
-	return structStmt{Name: name.text, Fields: fields, NameSpan: spanFromToken(name), Span: spanFromTokens(start, end)}, nil
+	return structStmt{Name: name.text, Fields: fields, NameSpan: parserSpanFromToken(name), Span: parserSpanFromTokens(start, end)}, nil
 }
 
 // parseExpr operates on parser values and keeps the parser-specific behavior
@@ -1281,7 +1327,7 @@ func (p *parser) parseExpr(minPrec int) (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &binaryExpr{op: tok.kind, left: left, right: right}
+		left = &binaryExpr{op: tok.kind, left: left, right: right, Span: spanCover(exprSpan(left), exprSpan(right))}
 	}
 
 	return left, nil
@@ -1303,13 +1349,13 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 			lexerState := *p.lexer
 			cur, peeked, lexErr := p.cur, p.peeked, p.lexErr
 			span := exprSpan(left)
-			typeArgs, end, err := p.parseTypeArgs()
+			typeArgs, _, err := p.parseTypeArgs()
 			if err == nil && p.peek().kind == tokenLParen {
-				args, callErr := p.parseCallArgs()
+				args, callEnd, callErr := p.parseCallArgs()
 				if callErr != nil {
 					return nil, callErr
 				}
-				left = &callExpr{callee: left, args: args, typeArgs: typeArgs, Span: spanCover(span, spanFromToken(end))}
+				left = &callExpr{callee: left, args: args, typeArgs: typeArgs, Span: spanCover(span, parserSpanFromToken(callEnd))}
 				continue
 			}
 			*p.lexer = lexerState
@@ -1317,18 +1363,18 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 			return left, nil
 		case tokenLParen:
 			span := exprSpan(left)
-			args, err := p.parseCallArgs()
+			args, end, err := p.parseCallArgs()
 			if err != nil {
 				return nil, err
 			}
-			left = &callExpr{callee: left, args: args, Span: span}
+			left = &callExpr{callee: left, args: args, Span: spanCover(span, parserSpanFromToken(end))}
 		case tokenDot:
 			p.next()
 			nameTok, err := p.expect(tokenIdent)
 			if err != nil {
 				return nil, err
 			}
-			left = &memberExpr{object: left, name: nameTok.text, Span: spanCover(exprSpan(left), spanFromToken(nameTok)), NameSpan: spanFromToken(nameTok)}
+			left = &memberExpr{object: left, name: nameTok.text, Span: spanCover(exprSpan(left), parserSpanFromToken(nameTok)), NameSpan: parserSpanFromToken(nameTok)}
 		case tokenLBracket:
 			p.next()
 			index, err := p.parseExpr(0)
@@ -1339,17 +1385,17 @@ func (p *parser) parsePostfix(left Expr) (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &indexExpr{Object: left, Index: index, Span: spanCover(exprSpan(left), spanFromToken(end))}
+			left = &indexExpr{Object: left, Index: index, Span: spanCover(exprSpan(left), parserSpanFromToken(end))}
 		case tokenWith:
 			p.next()
 			fields, end, err := p.parseStructFieldExprs()
 			if err != nil {
 				return nil, err
 			}
-			left = &structUpdateExpr{Base: left, Fields: fields, Span: spanCover(exprSpan(left), spanFromToken(end))}
+			left = &structUpdateExpr{Base: left, Fields: fields, Span: spanCover(exprSpan(left), parserSpanFromToken(end))}
 		case tokenQuestion:
 			tok := p.next()
-			left = &propagateExpr{expr: left, Span: spanFromToken(tok)}
+			left = &propagateExpr{expr: left, Span: spanCover(exprSpan(left), parserSpanFromToken(tok))}
 		default:
 			return left, nil
 		}
@@ -1371,50 +1417,51 @@ func (p *parser) parsePrefix() (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &unaryExpr{op: tok.kind, expr: expr}, nil
+		return &unaryExpr{op: tok.kind, expr: expr, Span: spanCover(parserSpanFromToken(tok), exprSpan(expr))}, nil
 	case tokenTilde:
 		p.next()
 		expr, err := p.parseExpr(7)
 		if err != nil {
 			return nil, err
 		}
-		return &unaryExpr{op: tok.kind, expr: expr}, nil
+		return &unaryExpr{op: tok.kind, expr: expr, Span: spanCover(parserSpanFromToken(tok), exprSpan(expr))}, nil
 	case tokenNumber:
 		p.next()
 		v, err := parseNumericLiteral(tok.text)
 		if err != nil {
 			return nil, p.errorf(tok, "%v", err)
 		}
-		return &literalExpr{value: v, defaultInteger: isDefaultIntegerLiteral(tok.text), Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: v, defaultInteger: isDefaultIntegerLiteral(tok.text), Span: parserSpanFromToken(tok)}, nil
 	case tokenString:
 		p.next()
-		return &literalExpr{value: stringValue(tok.text), Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: stringValue(tok.text), Span: parserSpanFromToken(tok)}, nil
 	case tokenTrue:
 		p.next()
-		return &literalExpr{value: boolValue(true), Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: boolValue(true), Span: parserSpanFromToken(tok)}, nil
 	case tokenFalse:
 		p.next()
-		return &literalExpr{value: boolValue(false), Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: boolValue(false), Span: parserSpanFromToken(tok)}, nil
 	case tokenNull:
 		p.next()
-		return &literalExpr{value: nullValue(), Span: spanFromToken(tok)}, nil
+		return &literalExpr{value: nullValue(), Span: parserSpanFromToken(tok)}, nil
 	case tokenIdent:
 		p.next()
 		if p.peek().kind == tokenLBrace {
 			if _, known := p.knownStructs[tok.text]; !known {
-				return &identExpr{name: tok.text, Span: spanFromToken(tok)}, nil
+				return &identExpr{name: tok.text, Span: parserSpanFromToken(tok)}, nil
 			}
 			fields, end, err := p.parseStructFieldExprs()
 			if err != nil {
 				return nil, err
 			}
-			return &structExpr{TypeName: tok.text, Fields: fields, Span: spanCover(spanFromToken(tok), spanFromToken(end))}, nil
+			return &structExpr{TypeName: tok.text, Fields: fields, Span: spanCover(parserSpanFromToken(tok), parserSpanFromToken(end))}, nil
 		}
-		return &identExpr{name: tok.text, Span: spanFromToken(tok)}, nil
+		return &identExpr{name: tok.text, Span: parserSpanFromToken(tok)}, nil
 	case tokenLParen:
 		p.next()
-		if p.match(tokenRParen) {
-			return &tupleExpr{Span: spanFromToken(tok)}, nil
+		if p.peek().kind == tokenRParen {
+			end := p.next()
+			return &tupleExpr{Span: parserSpanFromTokens(tok, end)}, nil
 		}
 		expr, err := p.parseExpr(0)
 		if err != nil {
@@ -1423,8 +1470,9 @@ func (p *parser) parsePrefix() (Expr, error) {
 		if p.match(tokenComma) {
 			items := []Expr{expr}
 			for {
-				if p.match(tokenRParen) {
-					return &tupleExpr{items: items, Span: spanFromToken(tok)}, nil
+				if p.peek().kind == tokenRParen {
+					end := p.next()
+					return &tupleExpr{items: items, Span: parserSpanFromTokens(tok, end)}, nil
 				}
 				item, err := p.parseExpr(0)
 				if err != nil {
@@ -1432,10 +1480,11 @@ func (p *parser) parsePrefix() (Expr, error) {
 				}
 				items = append(items, item)
 				if !p.match(tokenComma) {
-					if _, err := p.expect(tokenRParen); err != nil {
+					end, err := p.expect(tokenRParen)
+					if err != nil {
 						return nil, err
 					}
-					return &tupleExpr{items: items, Span: spanFromToken(tok)}, nil
+					return &tupleExpr{items: items, Span: parserSpanFromTokens(tok, end)}, nil
 				}
 			}
 		}
@@ -1479,36 +1528,37 @@ func (p *parser) parseTryExpr() (Expr, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &tryExpr{body: body, catchName: nameTok.text, handler: handler, Span: spanCover(spanFromToken(start), exprSpan(handler))}, nil
+	return &tryExpr{body: body, catchName: nameTok.text, handler: handler, Span: spanCover(parserSpanFromToken(start), exprSpan(handler))}, nil
 }
 
 // parseCallArgs operates on parser values and keeps the parser-specific
 // behavior attached to the receiver so callers can use the method as the
 // natural entry point for that data structure.
 //
-// It returns []Expr and an error. Callers should only trust the value when the
-// error is nil.
-func (p *parser) parseCallArgs() ([]Expr, error) {
+// It returns []Expr, the closing delimiter, and an error. Callers should only
+// trust the values when the error is nil.
+func (p *parser) parseCallArgs() ([]Expr, token, error) {
 	if _, err := p.expect(tokenLParen); err != nil {
-		return nil, err
+		return nil, token{}, err
 	}
 	if p.match(tokenRParen) {
-		return nil, nil
+		return nil, p.cur, nil
 	}
 	var args []Expr
 	for {
 		arg, err := p.parseExpr(0)
 		if err != nil {
-			return nil, err
+			return nil, token{}, err
 		}
 		args = append(args, arg)
 		if p.match(tokenComma) {
 			continue
 		}
-		if _, err := p.expect(tokenRParen); err != nil {
-			return nil, err
+		end, err := p.expect(tokenRParen)
+		if err != nil {
+			return nil, token{}, err
 		}
-		return args, nil
+		return args, end, nil
 	}
 }
 
@@ -1535,7 +1585,7 @@ func (p *parser) parseStructFieldExprs() ([]structFieldExpr, token, error) {
 		if err != nil {
 			return nil, token{}, err
 		}
-		fields = append(fields, structFieldExpr{Name: name.text, Expr: value, Span: spanCover(spanFromToken(name), exprSpan(value))})
+		fields = append(fields, structFieldExpr{Name: name.text, Expr: value, Span: spanCover(parserSpanFromToken(name), exprSpan(value))})
 		if !p.match(tokenComma) && !p.match(tokenSemicolon) && p.peek().kind != tokenRBrace {
 			return nil, token{}, p.errorf(p.peek(), "expected , ; or } after struct initializer")
 		}
@@ -1622,7 +1672,7 @@ func (p *parser) parseFunctionParams() ([]string, []string, []sourceSpan, error)
 		}
 		names = append(names, name.text)
 		types = append(types, typeName)
-		spans = append(spans, spanCover(spanFromToken(name), typeSpan))
+		spans = append(spans, spanCover(parserSpanFromToken(name), typeSpan))
 		if p.match(tokenComma) {
 			continue
 		}
@@ -1649,7 +1699,7 @@ func (p *parser) parseTypeParams() ([]typeParam, error) {
 		}
 		seen[name.text] = struct{}{}
 		bound := ""
-		endSpan := spanFromToken(name)
+		endSpan := parserSpanFromToken(name)
 		p.knownTypes[name.text] = struct{}{}
 		if p.match(tokenColon) {
 			var boundSpan sourceSpan
@@ -1659,11 +1709,11 @@ func (p *parser) parseTypeParams() ([]typeParam, error) {
 			}
 			endSpan = boundSpan
 		}
-		params = append(params, typeParam{Name: name.text, Bound: bound, Span: spanCover(spanFromToken(name), endSpan)})
+		params = append(params, typeParam{Name: name.text, Bound: bound, Span: spanCover(parserSpanFromToken(name), endSpan)})
 		if p.match(tokenComma) {
 			continue
 		}
-		if _, err := p.expect(tokenGreater); err != nil {
+		if _, err := p.expectTypeCloser(); err != nil {
 			return nil, err
 		}
 		return params, nil
@@ -1674,6 +1724,8 @@ func (p *parser) parseTypeArgs() ([]string, token, error) {
 	if _, err := p.expect(tokenLess); err != nil {
 		return nil, token{}, err
 	}
+	p.typeArgDepth++
+	defer func() { p.typeArgDepth-- }()
 	var args []string
 	for {
 		arg, _, err := p.parseTypeName()
@@ -1684,7 +1736,7 @@ func (p *parser) parseTypeArgs() ([]string, token, error) {
 		if p.match(tokenComma) {
 			continue
 		}
-		end, err := p.expect(tokenGreater)
+		end, err := p.expectTypeCloser()
 		if err != nil {
 			return nil, token{}, err
 		}
@@ -1692,18 +1744,50 @@ func (p *parser) parseTypeArgs() ([]string, token, error) {
 	}
 }
 
+// expectTypeCloser consumes one generic closing delimiter. The lexer emits
+// adjacent greater-than characters as tokenShiftRight for ordinary expressions
+// such as a >> b; nested generic types need the same source spelling to mean
+// two independent closing delimiters. Preserve the second delimiter as parser
+// lookahead so nested type parsing can consume it on the next call.
+func (p *parser) expectTypeCloser() (token, error) {
+	tok := p.peek()
+	if tok.kind == tokenGreater {
+		p.next()
+		return tok, nil
+	}
+	if tok.kind != tokenShiftRight {
+		return token{}, p.errorf(tok, "expected >, found %s", tok.kind)
+	}
+	p.next()
+	first := tok
+	first.kind = tokenGreater
+	first.text = ">"
+	first.raw = ">"
+	second := first
+	second.col++
+	p.cur = second
+	p.peeked = true
+	return first, nil
+}
+
 // parseTypeName parses canonical scalar/runtime type names, parameterized
 // containers, and Go-style function types such as func(u32, string) bool.
 func (p *parser) parseTypeName() (string, sourceSpan, error) {
 	start := p.peek()
+	if start.kind == tokenNumber && p.typeArgDepth > 0 {
+		tok := p.next()
+		return tok.text, parserSpanFromToken(tok), nil
+	}
 	if start.kind == tokenIdent || start.kind == tokenNull || start.kind == tokenEnum {
 		tok := p.next()
 		if _, known := p.knownTypes[tok.text]; !known {
 			return "", sourceSpan{}, p.errorf(tok, "unknown type %q", tok.text)
 		}
 		name := tok.text
-		endSpan := spanFromToken(tok)
+		endSpan := parserSpanFromToken(tok)
 		if p.match(tokenLess) {
+			p.typeArgDepth++
+			defer func() { p.typeArgDepth-- }()
 			var args []string
 			for {
 				arg, argSpan, err := p.parseTypeName()
@@ -1715,16 +1799,16 @@ func (p *parser) parseTypeName() (string, sourceSpan, error) {
 				if p.match(tokenComma) {
 					continue
 				}
-				end, err := p.expect(tokenGreater)
+				end, err := p.expectTypeCloser()
 				if err != nil {
 					return "", sourceSpan{}, err
 				}
-				endSpan = spanFromToken(end)
+				endSpan = parserSpanFromToken(end)
 				break
 			}
 			name += "<" + strings.Join(args, ", ") + ">"
 		}
-		return name, spanCover(spanFromToken(tok), endSpan), nil
+		return name, spanCover(parserSpanFromToken(tok), endSpan), nil
 	}
 	if start.kind != tokenFunc {
 		return "", sourceSpan{}, p.errorf(start, "expected type name")
@@ -1757,16 +1841,17 @@ func (p *parser) parseTypeName() (string, sourceSpan, error) {
 	if err != nil {
 		return "", sourceSpan{}, err
 	}
-	return "func(" + strings.Join(params, ", ") + ") " + result, spanCover(spanFromToken(start), resultSpan), nil
+	return "func(" + strings.Join(params, ", ") + ") " + result, spanCover(parserSpanFromToken(start), resultSpan), nil
 }
 
 func builtinTypeSet() map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, name := range []string{
 		"number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64",
-		"string", "bool", "null", "list", "tensor", "enum", "function", "error", "result", "option",
+		"string", "bool", "null", "list", "tuple", "tensor", "enum", "function", "error", "result", "option",
 		"stream", "task", "map", "set", "module", "decimal", "fixed", "interval", "modint", "complex", "bigint",
 		"bigfloat", "quantity", "dual", "duration", "datetime", "location",
+		"poly", "quat", "simd", "sparse_matrix", "sparse_tensor",
 	} {
 		set[name] = struct{}{}
 	}
@@ -1839,11 +1924,12 @@ func isTypeStart(kind tokenKind) bool {
 // It returns Expr and an error. Callers should only trust the value when the
 // error is nil.
 func (p *parser) parseList() (Expr, error) {
-	if _, err := p.expect(tokenLBracket); err != nil {
+	start, err := p.expect(tokenLBracket)
+	if err != nil {
 		return nil, err
 	}
 	if p.match(tokenRBracket) {
-		return &listExpr{Span: spanFromToken(token{line: 0, col: 0})}, nil
+		return &listExpr{Span: parserSpanFromTokens(start, p.cur)}, nil
 	}
 	var items []Expr
 	for {
@@ -1855,10 +1941,11 @@ func (p *parser) parseList() (Expr, error) {
 		if p.match(tokenComma) {
 			continue
 		}
-		if _, err := p.expect(tokenRBracket); err != nil {
+		end, err := p.expect(tokenRBracket)
+		if err != nil {
 			return nil, err
 		}
-		return &listExpr{items: items}, nil
+		return &listExpr{items: items, Span: parserSpanFromTokens(start, end)}, nil
 	}
 }
 
@@ -1869,22 +1956,24 @@ func (p *parser) parseList() (Expr, error) {
 // It returns Expr and an error. Callers should only trust the value when the
 // error is nil.
 func (p *parser) parseBlockExpr() (Expr, error) {
-	if _, err := p.expect(tokenLBrace); err != nil {
+	start, err := p.expect(tokenLBrace)
+	if err != nil {
 		return nil, err
 	}
 	var stmts []Stmt
 	var tail Expr
 	for {
 		if p.match(tokenRBrace) {
-			return &blockExpr{stmts: stmts, tail: tail}, nil
+			return &blockExpr{stmts: stmts, tail: tail, Span: parserSpanFromTokens(start, p.cur)}, nil
 		}
 		if tail != nil {
 			for p.match(tokenSemicolon) {
 			}
-			if _, err := p.expect(tokenRBrace); err != nil {
+			end, err := p.expect(tokenRBrace)
+			if err != nil {
 				return nil, err
 			}
-			return &blockExpr{stmts: stmts, tail: tail}, nil
+			return &blockExpr{stmts: stmts, tail: tail, Span: parserSpanFromTokens(start, end)}, nil
 		}
 		switch p.peek().kind {
 		case tokenLet, tokenVar, tokenConst, tokenImport, tokenFFI, tokenMacro, tokenFunc, tokenReturn, tokenWhile, tokenFor, tokenBreak, tokenContinue, tokenEmit, tokenDefer:
@@ -1959,8 +2048,8 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 			isDefault bool
 		)
 		if p.peek().kind == tokenIdent && p.peek().text == "default" {
-			p.next()
-			pat = wildcardPattern{}
+			defaultTok := p.next()
+			pat = wildcardPattern{Span: parserSpanFromToken(defaultTok)}
 			isDefault = true
 		} else {
 			var err error
@@ -2004,7 +2093,7 @@ func (p *parser) parseMatchExpr(keyword tokenKind) (Expr, error) {
 	if len(arms) == 0 {
 		return nil, p.errorf(p.peek(), "match requires at least one arm")
 	}
-	return &matchExpr{subject: subject, arms: arms, keyword: keyword, Span: spanFromTokens(start, end)}, nil
+	return &matchExpr{subject: subject, arms: arms, keyword: keyword, Span: parserSpanFromTokens(start, end)}, nil
 }
 
 // exprSpan handles the expr span step in the surrounding package and returns
@@ -2071,7 +2160,7 @@ func (p *parser) parsePattern() (Pattern, error) {
 	if len(alternatives) == 1 {
 		return first, nil
 	}
-	return orPattern{alternatives: alternatives, Span: patternSpan(first)}, nil
+	return orPattern{alternatives: alternatives, Span: spanCover(patternSpan(first), patternSpan(alternatives[len(alternatives)-1]))}, nil
 }
 
 func (p *parser) parsePatternConjunction() (Pattern, error) {
@@ -2085,7 +2174,7 @@ func (p *parser) parsePatternConjunction() (Pattern, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = andPattern{left: left, right: right, Span: patternSpan(left)}
+		left = andPattern{left: left, right: right, Span: spanCover(patternSpan(left), patternSpan(right))}
 	}
 	return left, nil
 }
@@ -2100,18 +2189,22 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 			if err != nil {
 				return nil, err
 			}
-			return notPattern{inner: inner, Span: spanFromToken(tok)}, nil
+			return notPattern{inner: inner, Span: spanCover(parserSpanFromToken(tok), patternSpan(inner))}, nil
 		}
 		if tok.text == "_" {
-			return wildcardPattern{}, nil
+			return wildcardPattern{Span: parserSpanFromToken(tok)}, nil
 		}
 		if p.match(tokenDot) {
 			caseTok, err := p.expect(tokenIdent)
 			if err != nil {
 				return nil, err
 			}
-			item := enumPattern{typeName: tok.text, caseName: caseTok.text, Span: spanFromTokens(tok, caseTok)}
-			if p.match(tokenLParen) && !p.match(tokenRParen) {
+			item := enumPattern{typeName: tok.text, caseName: caseTok.text, Span: parserSpanFromTokens(tok, caseTok)}
+			if p.match(tokenLParen) {
+				if p.peek().kind == tokenRParen {
+					item.Span = parserSpanFromTokens(tok, p.next())
+					return item, nil
+				}
 				for {
 					child, err := p.parsePattern()
 					if err != nil {
@@ -2121,9 +2214,11 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 					if p.match(tokenComma) {
 						continue
 					}
-					if _, err := p.expect(tokenRParen); err != nil {
+					end, err := p.expect(tokenRParen)
+					if err != nil {
 						return nil, err
 					}
+					item.Span = parserSpanFromTokens(tok, end)
 					break
 				}
 			}
@@ -2131,9 +2226,9 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 		}
 		if p.peek().kind == tokenIdent && p.peek().text != "when" && p.peek().text != "and" {
 			binding := p.next()
-			return typePattern{typeName: tok.text, binding: binding.text, Span: spanFromTokens(tok, binding)}, nil
+			return typePattern{typeName: tok.text, binding: binding.text, Span: parserSpanFromTokens(tok, binding)}, nil
 		}
-		return bindPattern{name: tok.text, Span: spanFromToken(tok)}, nil
+		return bindPattern{name: tok.text, Span: parserSpanFromToken(tok)}, nil
 	case tokenLess, tokenLessEqual, tokenGreater, tokenGreaterEqual:
 		op := p.next()
 		literal, err := p.parsePatternAtom()
@@ -2144,30 +2239,30 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 		if !ok {
 			return nil, p.errorf(op, "relational patterns require a literal value")
 		}
-		return relationalPattern{op: op.kind, value: value.value, Span: spanFromToken(op)}, nil
+		return relationalPattern{op: op.kind, value: value.value, Span: spanCover(parserSpanFromToken(op), patternSpan(literal))}, nil
 	case tokenNumber:
 		p.next()
 		v, err := parseNumericLiteral(tok.text)
 		if err != nil {
 			return nil, p.errorf(tok, "%v", err)
 		}
-		return literalPattern{value: v, Span: spanFromToken(tok)}, nil
+		return literalPattern{value: v, Span: parserSpanFromToken(tok)}, nil
 	case tokenString:
 		p.next()
-		return literalPattern{value: stringValue(tok.text), Span: spanFromToken(tok)}, nil
+		return literalPattern{value: stringValue(tok.text), Span: parserSpanFromToken(tok)}, nil
 	case tokenTrue:
 		p.next()
-		return literalPattern{value: boolValue(true), Span: spanFromToken(tok)}, nil
+		return literalPattern{value: boolValue(true), Span: parserSpanFromToken(tok)}, nil
 	case tokenFalse:
 		p.next()
-		return literalPattern{value: boolValue(false), Span: spanFromToken(tok)}, nil
+		return literalPattern{value: boolValue(false), Span: parserSpanFromToken(tok)}, nil
 	case tokenNull:
 		p.next()
-		return literalPattern{value: nullValue(), Span: spanFromToken(tok)}, nil
+		return literalPattern{value: nullValue(), Span: parserSpanFromToken(tok)}, nil
 	case tokenLBracket:
 		p.next()
 		if p.match(tokenRBracket) {
-			return listPattern{Span: spanFromToken(tok)}, nil
+			return listPattern{Span: parserSpanFromTokens(tok, p.cur)}, nil
 		}
 		var items []Pattern
 		for {
@@ -2179,10 +2274,11 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 			if p.match(tokenComma) {
 				continue
 			}
-			if _, err := p.expect(tokenRBracket); err != nil {
+			end, err := p.expect(tokenRBracket)
+			if err != nil {
 				return nil, err
 			}
-			return listPattern{items: items, Span: spanFromToken(tok)}, nil
+			return listPattern{items: items, Span: parserSpanFromTokens(tok, end)}, nil
 		}
 	case tokenLParen:
 		p.next()
@@ -2218,6 +2314,8 @@ func patternSpan(pattern Pattern) sourceSpan {
 	case typePattern:
 		return p.Span
 	case relationalPattern:
+		return p.Span
+	case wildcardPattern:
 		return p.Span
 	default:
 		return sourceSpan{}
@@ -2269,9 +2367,11 @@ func (p *parser) peek() token {
 	tok, err := p.lexer.nextToken()
 	if err != nil {
 		p.lexErr = err
-		p.cur = token{kind: tokenEOF}
+		p.cur = token{kind: tokenEOF, text: err.Error(), line: p.lexer.line, col: p.lexer.col}
+		if scanErr, ok := err.(*lexerError); ok {
+			p.cur.line, p.cur.col = scanErr.line, scanErr.col
+		}
 		p.peeked = true
-		p.cur.text = err.Error()
 		return p.cur
 	}
 	p.cur = tok
@@ -2349,9 +2449,15 @@ func (p *parser) expect(kind tokenKind) (token, error) {
 //
 // It returns an error when the operation cannot complete cleanly.
 func (p *parser) errorf(tok token, format string, args ...any) error {
+	if p.lexErr != nil {
+		if scanErr, ok := p.lexErr.(*lexerError); ok {
+			return fmt.Errorf("%s:%d:%d: %s", p.sourceName, scanErr.line, scanErr.col, scanErr.message)
+		}
+		return p.lexErr
+	}
 	base := fmt.Sprintf(format, args...)
 	if tok.kind == tokenEOF {
-		return fmt.Errorf("%s: %s", p.sourceName, base)
+		return fmt.Errorf("%s:%d:%d: %s", p.sourceName, tok.line, tok.col, base)
 	}
 	return fmt.Errorf("%s:%d:%d: %s", p.sourceName, tok.line, tok.col, base)
 }

@@ -76,6 +76,7 @@ type vmInstr struct {
 	value        Value
 	mutable      bool
 	args         []int
+	typeArgs     []string
 	fieldNames   []string
 	names        []string
 	params       []string
@@ -424,7 +425,7 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 			args[i] = reg
 		}
 		dst := c.alloc()
-		c.emit(vmInstr{op: vmOpCall, dst: dst, a: callee, args: args, span: n.Span})
+		c.emit(vmInstr{op: vmOpCall, dst: dst, a: callee, args: args, typeArgs: append([]string(nil), n.typeArgs...), span: n.Span})
 		return dst, nil
 	case *listExpr:
 		items := make([]int, len(n.items))
@@ -912,16 +913,19 @@ func snapshotVMValue(value Value, memo map[*vmFrame]*vmFrame) Value {
 }
 
 type vmRunner struct {
-	rt            *Runtime
-	ctx           context.Context
-	source        string
-	stack         []string
-	frame         *vmFrame
-	outputs       []Value
-	constRegs     []Value
-	cleanups      []vmCleanup
-	cleanupActive bool
-	emitAllowed   bool
+	rt                 *Runtime
+	ctx                context.Context
+	source             string
+	stack              []string
+	vmModules          map[string]Value
+	vmModuleMu         *sync.Mutex
+	allowCancelledEmit bool
+	frame              *vmFrame
+	outputs            []Value
+	constRegs          []Value
+	cleanups           []vmCleanup
+	cleanupActive      bool
+	emitAllowed        bool
 }
 
 // vmCleanup retains both the cleanup code and the lexical frame that existed
@@ -960,7 +964,17 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 	regs := make([]Value, chunk.maxReg+1)
 	for _, instr := range chunk.code {
 		if err := r.ctx.Err(); err != nil && !r.cleanupActive {
-			return nullValue(), err
+			// A cancellation-triggering call inside `emit expression` must
+			// still commit the expression's value before the VM stops. The
+			// interpreter evaluates the expression and emit as one statement;
+			// bytecode represents them as separate instructions.
+			if r.allowCancelledEmit && instr.op == vmOpEmit {
+				r.allowCancelledEmit = false
+			} else {
+				return nullValue(), err
+			}
+		} else {
+			r.allowCancelledEmit = false
 		}
 		switch instr.op {
 		case vmOpConst:
@@ -1056,6 +1070,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
+				r.allowCancelledEmit = r.ctx.Err() != nil && !r.cleanupActive
 				continue
 			}
 			if callee.kind == kindStruct && callee.structType != nil {
@@ -1068,6 +1083,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					return nullValue(), err
 				}
 				regs[instr.dst] = out
+				r.allowCancelledEmit = r.ctx.Err() != nil && !r.cleanupActive
 				continue
 			}
 			if callee.kind != kindFunction || callee.fn == nil {
@@ -1088,6 +1104,8 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				var err error
 				if callee.fn.name == "close" {
 					out, err = r.closeResource(args)
+				} else if isFutureConstructorName(callee.fn.name) {
+					out, err = futureConstructorCall(callee.fn.name, instr.typeArgs, args)
 				} else {
 					out, err = callee.fn.builtin(args)
 				}
@@ -1095,14 +1113,22 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
+				r.allowCancelledEmit = r.ctx.Err() != nil && !r.cleanupActive
 				continue
 			}
 			if callee.fn.contextBuiltin != nil {
-				out, err := callee.fn.contextBuiltin(r.ctx, args)
+				var out Value
+				var err error
+				if callee.fn.name == "close" {
+					out, err = r.closeResource(args)
+				} else {
+					out, err = callee.fn.contextBuiltin(r.ctx, args)
+				}
 				if err != nil {
 					return nullValue(), structuredErrorAt(normalizeError(err, r.source), r.source, instr.span)
 				}
 				regs[instr.dst] = out
+				r.allowCancelledEmit = r.ctx.Err() != nil && !r.cleanupActive
 				continue
 			}
 			if callee.fn.vmBody != nil {
@@ -1115,7 +1141,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					parent = r.frame
 				}
 				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					frame: &vmFrame{parent: parent}, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: &vmFrame{parent: parent}, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
 				for i, name := range callee.fn.params {
 					child.frame.bind(name, checkedArgs[i], false)
 				}
@@ -1132,6 +1158,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					return nullValue(), structuredErrorAt(newOsirisError(ErrorKindType, err.Error()), r.source, instr.span)
 				}
 				regs[instr.dst] = out
+				r.allowCancelledEmit = r.ctx.Err() != nil && !r.cleanupActive
 				continue
 			}
 			return nullValue(), fmt.Errorf("function %s is not available to the VM", callee.fn.name)
@@ -1200,7 +1227,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			}
 			regs[instr.dst] = v
 		case vmOpImport:
-			mod, err := r.rt.loadModuleVM(r.ctx, instr.text, r.source, r.stack)
+			mod, err := r.loadModuleVM(r.ctx, instr.text, r.source, r.stack)
 			if err != nil {
 				return nullValue(), err
 			}
@@ -1238,7 +1265,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			if instr.body == nil {
 				return nullValue(), fmt.Errorf("spawn has no body")
 			}
-			regs[instr.dst] = r.rt.spawnVMTask(r.ctx, r.source, instr.body, snapshotVMFrame(r.frame))
+			regs[instr.dst] = r.rt.spawnVMTask(r.ctx, r.source, instr.body, snapshotVMFrame(r.frame), r.vmModules, r.vmModuleMu)
 		case vmOpAwait:
 			value, awaitErr := r.runChild(instr.body)
 			if awaitErr != nil {
@@ -1274,7 +1301,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			}
 			childCtx, cancel := context.WithTimeout(r.ctx, time.Duration(ms)*time.Millisecond)
 			child := &vmRunner{rt: r.rt, ctx: childCtx, source: r.source, stack: r.stack,
-				frame: r.frame.child(nil), emitAllowed: false}
+				vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: r.frame.child(nil), emitAllowed: false}
 			out, bodyErr := child.run(instr.alt)
 			cancel()
 			r.outputs = append(r.outputs, child.outputs...)
@@ -1359,7 +1386,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 		whileLoop:
 			for {
 				conditionRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					frame: loopFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: loopFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
 				condition, conditionErr := conditionRunner.run(instr.body)
 				r.outputs = append(r.outputs, conditionRunner.outputs...)
 				if conditionErr != nil {
@@ -1370,7 +1397,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				}
 				iterationFrame := loopFrame.child(nil)
 				bodyRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
 				_, bodyErr := bodyRunner.run(instr.alt)
 				r.outputs = append(r.outputs, bodyRunner.outputs...)
 				loopFrame = bodyRunner.frame
@@ -1407,7 +1434,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				iterationFrame := loopFrame.child(nil)
 				iterationFrame.bind(instr.name, item, false)
 				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
 				_, bodyErr := child.run(instr.body)
 				r.outputs = append(r.outputs, child.outputs...)
 				loopFrame = child.frame
@@ -1536,7 +1563,11 @@ func (r *vmRunner) closeResource(args []Value) (Value, error) {
 	if method.kind != kindFunction || method.fn == nil {
 		return nullValue(), fmt.Errorf("closable resource close member is not callable")
 	}
-	return r.runVMCallable(method, nil)
+	out, err := r.runVMCallable(method, nil)
+	if err != nil {
+		return nullValue(), fmt.Errorf("closable method %q failed: %w", method.fn.name, err)
+	}
+	return out, nil
 }
 
 func vmLoopCarryNames(frame *vmFrame) map[string]struct{} {
@@ -1568,24 +1599,30 @@ func vmPropagateLoopCarries(loopFrame, target *vmFrame, names map[string]struct{
 // runner as the entry program. Stdlib modules remain runtime-provided values;
 // source modules never re-enter Session.eval merely because they were reached
 // through an import.
-func (rt *Runtime) loadModuleVM(ctx context.Context, ref, base string, stack []string) (Value, error) {
+func (r *vmRunner) loadModuleVM(ctx context.Context, ref, base string, stack []string) (Value, error) {
 	ref, selector := splitModuleRef(ref)
 	if strings.HasPrefix(ref, "std/") {
 		if selector != "" {
 			ref += "@" + selector
 		}
-		return rt.loadModule(ctx, ref, base, stack)
+		return r.rt.loadModule(ctx, ref, base, stack)
 	}
 	path, _, err := resolveModulePath(ref, base)
 	if err != nil {
 		return nullValue(), err
 	}
-	rt.moduleMu.Lock()
-	if cached, ok := rt.modules[path]; ok {
-		rt.moduleMu.Unlock()
-		return cached, nil
+	if r.vmModules != nil {
+		if r.vmModuleMu != nil {
+			r.vmModuleMu.Lock()
+		}
+		cached, ok := r.vmModules[path]
+		if r.vmModuleMu != nil {
+			r.vmModuleMu.Unlock()
+		}
+		if ok {
+			return cached, nil
+		}
 	}
-	rt.moduleMu.Unlock()
 	for _, seen := range stack {
 		if seen == path {
 			return nullValue(), importCycleError(stack, path)
@@ -1599,12 +1636,12 @@ func (rt *Runtime) loadModuleVM(ctx context.Context, ref, base string, stack []s
 	if err != nil {
 		return nullValue(), err
 	}
-	session := NewSession(rt, ctx, path)
+	session := NewSession(r.rt, ctx, path)
 	expanded, err := session.ExpandProgram(program)
 	if err != nil {
 		return nullValue(), err
 	}
-	if _, err := rt.CheckProgram(ctx, expanded); err != nil {
+	if _, err := r.rt.CheckProgram(ctx, expanded); err != nil {
 		return nullValue(), err
 	}
 	compiler := newVMCompiler(path)
@@ -1613,7 +1650,7 @@ func (rt *Runtime) loadModuleVM(ctx context.Context, ref, base string, stack []s
 		return nullValue(), err
 	}
 	frame := &vmFrame{}
-	runner := &vmRunner{rt: rt, ctx: ctx, source: path, stack: append(append([]string(nil), stack...), path), frame: frame, emitAllowed: false}
+	runner := &vmRunner{rt: r.rt, ctx: ctx, source: path, stack: append(append([]string(nil), stack...), path), frame: frame, emitAllowed: false, vmModules: r.vmModules, vmModuleMu: r.vmModuleMu}
 	if _, err := runner.run(chunk); err != nil {
 		return nullValue(), err
 	}
@@ -1634,9 +1671,15 @@ func (rt *Runtime) loadModuleVM(ctx context.Context, ref, base string, stack []s
 		}
 		return nullValue(), fmt.Errorf("module %s has no member %q", chunk.packageName, name)
 	}, exports)
-	rt.moduleMu.Lock()
-	rt.modules[path] = module
-	rt.moduleMu.Unlock()
+	if r.vmModules != nil {
+		if r.vmModuleMu != nil {
+			r.vmModuleMu.Lock()
+		}
+		r.vmModules[path] = module
+		if r.vmModuleMu != nil {
+			r.vmModuleMu.Unlock()
+		}
+	}
 	return module, nil
 }
 
@@ -1648,7 +1691,7 @@ func packageVersion(program *Program) string {
 }
 
 func (r *vmRunner) runVMChunk(ctx context.Context, chunk *vmChunk, frame *vmFrame, emitAllowed bool) (Value, error, []Value) {
-	child := &vmRunner{rt: r.rt, ctx: ctx, source: r.source, stack: r.stack, frame: frame, emitAllowed: emitAllowed}
+	child := &vmRunner{rt: r.rt, ctx: ctx, source: r.source, stack: r.stack, vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: frame, emitAllowed: emitAllowed}
 	value, err := child.run(chunk)
 	if signal, ok := err.(*vmReturnSignal); ok {
 		value, err = signal.value, nil
@@ -1759,9 +1802,22 @@ func (r *vmRunner) runVMCallable(function Value, args []Value) (Value, error) {
 		return nullValue(), err
 	}
 	if fn.builtin != nil {
+		// The public close builtin is also invoked indirectly when a closable
+		// value is dispatched through closeResource. Keep that path identical
+		// to vmOpCall: closeResource handles streams, sockets, FFI handles, and
+		// user-defined closable values, while closeBuiltinValue only accepts
+		// concrete runtime resources. Without this guard, a user-defined
+		// close method can be mistaken for the stream builtin and reject its
+		// receiver before the VM reaches the method body.
+		if fn.name == "close" {
+			return r.closeResource(checked)
+		}
 		return fn.builtin(checked)
 	}
 	if fn.contextBuiltin != nil {
+		if fn.name == "close" {
+			return r.closeResource(checked)
+		}
 		return fn.contextBuiltin(r.ctx, checked)
 	}
 	if fn.vmBody == nil {
@@ -1931,6 +1987,8 @@ func (r *vmRunner) runChildWithFrame(chunk *vmChunk, parent *vmFrame) (Value, er
 		ctx:           r.ctx,
 		source:        r.source,
 		stack:         r.stack,
+		vmModules:     r.vmModules,
+		vmModuleMu:    r.vmModuleMu,
 		frame:         parent.child(nil),
 		cleanupActive: r.cleanupActive,
 		emitAllowed:   r.emitAllowed,
@@ -1955,6 +2013,8 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 		ctx:           r.ctx,
 		source:        r.source,
 		stack:         r.stack,
+		vmModules:     r.vmModules,
+		vmModuleMu:    r.vmModuleMu,
 		frame:         r.frame.child(bindings),
 		cleanupActive: r.cleanupActive,
 		emitAllowed:   r.emitAllowed,
@@ -1970,6 +2030,9 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, error) {
+	if future, handled, err := futureBinary(op, left, right); handled {
+		return future, err
+	}
 	if left.kind == kindTensor || right.kind == kindTensor {
 		return tensorBinaryValue(ctx, deterministicScheduler{}, op, left, right)
 	}
@@ -2192,6 +2255,8 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 		ctx:         ctx,
 		source:      prog.SourceName,
 		stack:       nil,
+		vmModules:   make(map[string]Value),
+		vmModuleMu:  &sync.Mutex{},
 		frame:       &vmFrame{},
 		emitAllowed: true,
 	}

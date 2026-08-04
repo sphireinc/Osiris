@@ -23,19 +23,26 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 ## Current selection
 
-- **Active:** none.
-- **Ready:** task 134 is ready after the completed 110–114 type sequence.
-- **Blocked:** none of the indexed implementation tasks are blocked; future
-  work is selected from the ready queue and its recorded dependencies.
-- **Complete:** tasks 001–049, 100–126, 135, and 136 are complete.
+- **Active:** task 148 is the current native host-capability stream. It has
+  explicit native FFI lifecycle, bounded file, environment, identity, and
+  path-helper coverage, but networking, process handles, and remaining owned
+  host resources are not yet complete.
+- **Ready:** tasks 155, 158, and 160 are independently assignable WASM, GPU,
+  and LSP implementation slices.
+- **Blocked:** task 154 remains the serialized final matrix gate. Its current
+  audit records non-stable native, WASM, GPU, and LSP cells, so it cannot be
+  closed from documentation or status prose.
+- **Follow-on blocked tasks:** 156–157, 159, 161–168 wait on their smaller
+  implementation or backend-matrix predecessors.
+- **Complete records:** tasks 001–049, 100–126, 134, and 138–147, 149–153
+  have completion records; task 148 and the final matrix gate remain open.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a
   standalone executable.
-- **Documentation:** tasks 039 and 040 are complete. `newdocs/` is the
-  canonical componentized React reference and owns public API/reference data,
-  examples, and the support matrix. `docs/` retains frozen compatibility and
-  durable design material only.
+- **Documentation:** tasks 039 and 040 are complete. In this checkout `docs/`
+  is the canonical public reference and owns API/reference data, examples,
+  navigation, and the support matrix; `docs/design/` owns durable contracts.
 - **Coordination:** completed task 100 preserves task 104's audited global
   catalog and exact reference indexes. Task 101's duration constants remain qualified
   under `std/time`; task 104's same-spelled globals are quantity values.
@@ -65,6 +72,11 @@ reviewable increments rather than one open-ended language rewrite:
    extending task 123's test discovery and package workflow.
 5. **Explicit low-level boundary:** 126 follows the safe FFI, ownership,
    cleanup, state, and backend foundations.
+6. **REPL and backend parity:** 138–154 established the initial parity
+  streams. Tasks 155–161 now split the remaining WASM, GPU, and LSP
+  implementation work into independently assignable slices. Tasks 162–168
+  close each backend's matrix rows, and task 154 remains the final matrix-wide
+  `stable` gate.
 
 Task 110 now supplies the checker and typed callable foundation. Task 111 is
 the next type/data-model increment. Tasks 115, 116, 123, and 124 remain
@@ -76,7 +88,7 @@ provider rather than requiring a central Osiris package registry.
 
 Tasks 001–049, 100–110 live under `tasks/completed/`. Their
 completion records name commands, tests, and documentation evidence. In
-particular, task 022’s public contract is `newdocs/src/support-matrix.json`,
+particular, task 022’s public contract is `docs/src/support-matrix.json`,
 validated by `internal/osiris/support_matrix_test.go`.
 
 ## Historical material

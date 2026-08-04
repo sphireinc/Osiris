@@ -311,11 +311,20 @@ func (e *macroExpander) expandStmtSeq(stmts []Stmt, env *scope, defs map[string]
 				return nil, nil, nil, err
 			}
 			out = append(out, letStmt{Name: st.Name, Names: append([]string(nil), st.Names...), Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
-			curScope = &scope{
-				parent: curScope,
-				items: map[string]binding{
-					st.Name: {expr: expr, env: curScope},
-				},
+			if len(st.Names) > 0 {
+				for _, name := range st.Names {
+					curScope = &scope{
+						parent: curScope,
+						items:  map[string]binding{name: {expr: expr, env: curScope}},
+					}
+				}
+			} else {
+				curScope = &scope{
+					parent: curScope,
+					items: map[string]binding{
+						st.Name: {expr: expr, env: curScope},
+					},
+				}
 			}
 		case assignStmt:
 			expr, err := e.expandExpr(st.Expr, curScope, curDefs, depth+1)
@@ -1149,14 +1158,28 @@ func (e *macroExpander) expandTemplateBlock(n *blockExpr, env *scope, defs map[s
 			if err != nil {
 				return nil, err
 			}
-			fresh := e.freshName(st.Name)
-			out = append(out, letStmt{Name: fresh, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
-			curRenames[st.Name] = fresh
-			curScope = &scope{
-				parent: curScope,
-				items: map[string]binding{
-					st.Name: {expr: expr, env: curScope},
-				},
+			if len(st.Names) > 0 {
+				names := make([]string, len(st.Names))
+				for i, name := range st.Names {
+					fresh := e.freshName(name)
+					names[i] = fresh
+					curRenames[name] = fresh
+					curScope = &scope{
+						parent: curScope,
+						items:  map[string]binding{name: {expr: expr, env: curScope}},
+					}
+				}
+				out = append(out, letStmt{Names: names, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
+			} else {
+				fresh := e.freshName(st.Name)
+				out = append(out, letStmt{Name: fresh, Type: st.Type, Expr: expr, Unwrap: st.Unwrap, Mutable: st.Mutable, Const: st.Const, Span: st.Span, NameSpan: st.NameSpan})
+				curRenames[st.Name] = fresh
+				curScope = &scope{
+					parent: curScope,
+					items: map[string]binding{
+						st.Name: {expr: expr, env: curScope},
+					},
+				}
 			}
 		case assignStmt:
 			expr, err := e.expandTemplateExpr(st.Expr, curScope, curDefs, params, args, curRenames, depth+1)

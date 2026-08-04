@@ -62,7 +62,7 @@ func formatStmt(stmt Stmt) string {
 				cases[i] += "(" + strings.Join(item.Params, ", ") + ")"
 			}
 			if item.BackingValue != nil {
-				cases[i] += " = " + item.BackingValue.String()
+				cases[i] += " = " + formatValue(*item.BackingValue)
 			}
 		}
 		backing := ""
@@ -86,9 +86,9 @@ func formatStmt(stmt Stmt) string {
 	case traitStmt:
 		methods := make([]string, len(s.Methods))
 		for i, method := range s.Methods {
-			methods[i] = formatFunctionSignature(method)
+			methods[i] = formatFunction(method)
 		}
-		return "trait " + s.Name + " { " + strings.Join(methods, "; ") + " }"
+		return "trait " + s.Name + formatTypeParams(s.TypeParams) + " { " + strings.Join(methods, "; ") + " }"
 	case implStmt:
 		methods := make([]string, len(s.Methods))
 		for i, method := range s.Methods {
@@ -96,16 +96,17 @@ func formatStmt(stmt Stmt) string {
 		}
 		return "impl " + s.Trait + " for " + s.Target + " { " + strings.Join(methods, "; ") + " }"
 	case letStmt:
-		prefix := "let "
+		prefix := "let"
 		if s.Const {
-			prefix = "const "
+			prefix = "const"
 		}
 		if s.Mutable {
-			prefix = "var "
+			prefix = "var"
 		}
 		if s.Unwrap {
-			prefix = "let? "
+			prefix += "?"
 		}
+		prefix += " "
 		if len(s.Names) > 0 {
 			return prefix + "(" + strings.Join(s.Names, ", ") + ") = " + formatExpr(s.Expr, 0)
 		}
@@ -144,47 +145,34 @@ func formatStmt(stmt Stmt) string {
 }
 
 func formatFunctionSignature(s funcStmt) string {
-	params := make([]string, len(s.Params))
-	for i, name := range s.Params {
-		params[i] = name
-		if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
-			params[i] += " " + s.ParamTypes[i]
-		}
-	}
-	returnType := ""
-	if s.ReturnType != "" {
-		returnType = " " + s.ReturnType
-	}
-	return "func " + s.Name + "(" + strings.Join(params, ", ") + ")" + returnType
-}
-
-func formatFunction(s funcStmt) string {
-	params := make([]string, len(s.Params))
-	for i, name := range s.Params {
-		params[i] = name
-		if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
-			params[i] += " " + s.ParamTypes[i]
-		}
-	}
 	signature := "func "
 	if s.ReceiverType != "" {
 		signature += "(" + s.Receiver + " " + s.ReceiverType + ") "
 	}
-	signature += s.Name
-	if len(s.TypeParams) > 0 {
-		typeParams := make([]string, len(s.TypeParams))
-		for i, param := range s.TypeParams {
-			typeParams[i] = param.Name
-			if param.Bound != "" {
-				typeParams[i] += ": " + param.Bound
-			}
-		}
-		signature += "<" + strings.Join(typeParams, ", ") + ">"
-	}
-	signature += "(" + strings.Join(params, ", ") + ")"
+	signature += s.Name + formatTypeParams(s.TypeParams)
+	signature += "(" + formatFunctionParams(s) + ")"
 	if s.ReturnType != "" {
 		signature += " " + s.ReturnType
 	}
+	return signature
+}
+
+func formatTypeParams(params []typeParam) string {
+	if len(params) == 0 {
+		return ""
+	}
+	formatted := make([]string, len(params))
+	for i, param := range params {
+		formatted[i] = param.Name
+		if param.Bound != "" {
+			formatted[i] += ": " + param.Bound
+		}
+	}
+	return "<" + strings.Join(formatted, ", ") + ">"
+}
+
+func formatFunction(s funcStmt) string {
+	signature := formatFunctionSignature(s)
 	if _, ok := s.Body.(*blockExpr); ok {
 		return signature + " " + formatExpr(s.Body, 0)
 	}
@@ -192,6 +180,17 @@ func formatFunction(s funcStmt) string {
 		return signature
 	}
 	return signature + " => " + formatExpr(s.Body, 0)
+}
+
+func formatFunctionParams(s funcStmt) string {
+	params := make([]string, len(s.Params))
+	for i, name := range s.Params {
+		params[i] = name
+		if i < len(s.ParamTypes) && s.ParamTypes[i] != "" {
+			params[i] += " " + s.ParamTypes[i]
+		}
+	}
+	return strings.Join(params, ", ")
 }
 
 // formatExpr handles the format expr step in the surrounding package and
@@ -205,7 +204,7 @@ func formatExpr(expr Expr, parentPrec int) string {
 		if n.value.kind == kindTensor {
 			return formatTensorSource(n.value.shape, n.value.data)
 		}
-		return n.value.String()
+		return formatValue(n.value)
 	case *identExpr:
 		return n.name
 	case *memberExpr:
@@ -426,7 +425,7 @@ func formatTensorSource(shape []int, data []Value) string {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(item.String())
+		b.WriteString(formatValue(item))
 	}
 	b.WriteByte(']')
 	b.WriteByte(')')
@@ -514,40 +513,56 @@ func unarySymbol(op tokenKind) string {
 // It returns string so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func formatPattern(p Pattern) string {
+	return formatPatternAt(p, patternPrecLowest)
+}
+
+const (
+	patternPrecLowest = 0
+	patternPrecOr     = 1
+	patternPrecAnd    = 2
+	patternPrecNot    = 3
+	patternPrecAtom   = 4
+)
+
+func formatPatternAt(p Pattern, parentPrec int) string {
+	prec := patternPrecedence(p)
+	var formatted string
 	switch n := p.(type) {
 	case wildcardPattern:
-		return "_"
+		formatted = "_"
 	case bindPattern:
-		return n.name
+		formatted = n.name
 	case enumPattern:
 		name := n.typeName + "." + n.caseName
 		if len(n.items) == 0 {
-			return name
+			formatted = name
+			break
 		}
 		parts := make([]string, len(n.items))
 		for i, item := range n.items {
-			parts[i] = formatPattern(item)
+			parts[i] = formatPatternAt(item, patternPrecLowest)
 		}
-		return name + "(" + strings.Join(parts, ", ") + ")"
+		formatted = name + "(" + strings.Join(parts, ", ") + ")"
 	case orPattern:
 		parts := make([]string, len(n.alternatives))
 		for i, alternative := range n.alternatives {
-			parts[i] = formatPattern(alternative)
+			parts[i] = formatPatternAt(alternative, patternPrecOr+1)
 		}
-		return strings.Join(parts, " | ")
+		formatted = strings.Join(parts, " | ")
 	case andPattern:
-		return formatPattern(n.left) + " and " + formatPattern(n.right)
+		formatted = formatPatternAt(n.left, patternPrecAnd) + " and " + formatPatternAt(n.right, patternPrecAnd+1)
 	case notPattern:
-		return "not " + formatPattern(n.inner)
+		formatted = "not " + formatPatternAt(n.inner, patternPrecNot+1)
 	case typePattern:
 		if n.binding == "" || n.binding == "_" {
-			return n.typeName
+			formatted = n.typeName
+			break
 		}
-		return n.typeName + " " + n.binding
+		formatted = n.typeName + " " + n.binding
 	case relationalPattern:
-		return n.op.String() + " " + n.value.String()
+		formatted = n.op.String() + " " + formatValue(n.value)
 	case literalPattern:
-		return n.value.String()
+		formatted = formatValue(n.value)
 	case listPattern:
 		var b strings.Builder
 		b.WriteByte('[')
@@ -555,13 +570,37 @@ func formatPattern(p Pattern) string {
 			if i > 0 {
 				b.WriteString(", ")
 			}
-			b.WriteString(formatPattern(item))
+			b.WriteString(formatPatternAt(item, patternPrecLowest))
 		}
 		b.WriteByte(']')
-		return b.String()
+		formatted = b.String()
 	default:
-		return "<pattern>"
+		formatted = "<pattern>"
 	}
+	if prec < parentPrec {
+		return "(" + formatted + ")"
+	}
+	return formatted
+}
+
+func patternPrecedence(p Pattern) int {
+	switch p.(type) {
+	case orPattern:
+		return patternPrecOr
+	case andPattern:
+		return patternPrecAnd
+	case notPattern:
+		return patternPrecNot
+	default:
+		return patternPrecAtom
+	}
+}
+
+func formatValue(value Value) string {
+	if value.kind == kindString {
+		return quoteString(value.str)
+	}
+	return value.String()
 }
 
 // quoteString handles the quote string step in the surrounding package and

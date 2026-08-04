@@ -239,6 +239,50 @@ func encodeInto(buf *bytes.Buffer, v Value) error {
 		}
 		_, err := buf.Write(tmp[:])
 		return err
+	case kindFuture:
+		if v.future == nil {
+			return fmt.Errorf("cannot encode incomplete future value")
+		}
+		tag := byte(0x22)
+		switch v.future.name {
+		case "quat":
+			tag = 0x23
+		case "simd":
+			tag = 0x24
+		case "sparse_matrix":
+			tag = 0x25
+		case "sparse_tensor":
+			tag = 0x26
+		}
+		if err := buf.WriteByte(tag); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.future.params))))
+		for _, param := range v.future.params {
+			if err := encodeCodecString(buf, param); err != nil {
+				return err
+			}
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.future.shape))))
+		for _, dim := range v.future.shape {
+			buf.Write(appendUvarint(nil, uint64(dim)))
+		}
+		if err := encodeCodecString(buf, v.future.format); err != nil {
+			return err
+		}
+		buf.Write(appendUvarint(nil, uint64(len(v.future.data))))
+		for i, item := range v.future.data {
+			if v.future.name == "sparse_matrix" || v.future.name == "sparse_tensor" {
+				buf.Write(appendUvarint(nil, uint64(len(v.future.coords[i]))))
+				for _, coord := range v.future.coords[i] {
+					buf.Write(appendUvarint(nil, uint64(coord)))
+				}
+			}
+			if err := encodeInto(buf, item); err != nil {
+				return err
+			}
+		}
+		return nil
 	case kindBigInt:
 		if err := buf.WriteByte(0x0b); err != nil {
 			return err
@@ -763,6 +807,98 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 			return nullValue(), err
 		}
 		return dualValueOf(math.Float64frombits(binary.BigEndian.Uint64(raw[:8])), math.Float64frombits(binary.BigEndian.Uint64(raw[8:]))), nil
+	case 0x22, 0x23, 0x24, 0x25, 0x26:
+		name := map[byte]string{0x22: "poly", 0x23: "quat", 0x24: "simd", 0x25: "sparse_matrix", 0x26: "sparse_tensor"}[tag]
+		paramCount, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if paramCount > uint64(cur.remaining()) {
+			return nullValue(), fmt.Errorf("future parameter count exceeds encoded input")
+		}
+		params := make([]string, paramCount)
+		for i := range params {
+			params[i], err = decodeCodecString(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+		}
+		shapeCount, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if shapeCount > uint64(cur.remaining()) {
+			return nullValue(), fmt.Errorf("future shape rank exceeds encoded input")
+		}
+		var shape []int
+		if shapeCount != 0 {
+			shape = make([]int, shapeCount)
+		}
+		for i := range shape {
+			dim, e := cur.uvarint()
+			if e != nil {
+				return nullValue(), e
+			}
+			if dim > uint64(^uint(0)>>1) {
+				return nullValue(), fmt.Errorf("future shape dimension overflows int")
+			}
+			shape[i] = int(dim)
+		}
+		format, err := decodeCodecString(cur)
+		if err != nil {
+			return nullValue(), err
+		}
+		count, err := cur.uvarint()
+		if err != nil {
+			return nullValue(), err
+		}
+		if count > uint64(cur.remaining()) {
+			return nullValue(), fmt.Errorf("future entry count exceeds encoded input")
+		}
+		data := make([]Value, count)
+		var coords [][]int
+		if name == "sparse_matrix" || name == "sparse_tensor" {
+			coords = make([][]int, count)
+		}
+		for i := range data {
+			if name == "sparse_matrix" || name == "sparse_tensor" {
+				rank, e := cur.uvarint()
+				if e != nil {
+					return nullValue(), e
+				}
+				if rank != uint64(len(shape)) {
+					return nullValue(), fmt.Errorf("future coordinate rank does not match shape")
+				}
+				coords[i] = make([]int, rank)
+				for j := range coords[i] {
+					coord, e := cur.uvarint()
+					if e != nil {
+						return nullValue(), e
+					}
+					if coord > uint64(^uint(0)>>1) {
+						return nullValue(), fmt.Errorf("future coordinate overflows int")
+					}
+					if coord >= uint64(shape[j]) {
+						return nullValue(), fmt.Errorf("future coordinate is out of range")
+					}
+					coords[i][j] = int(coord)
+				}
+			}
+			data[i], err = decodeFrom(cur)
+			if err != nil {
+				return nullValue(), err
+			}
+		}
+		if _, _, err := futureTypeParts(name, params); err != nil {
+			return nullValue(), fmt.Errorf("invalid future value: %w", err)
+		}
+		if err := validateDecodedFuture(name, params, shape, coords, data, format); err != nil {
+			return nullValue(), err
+		}
+		if name != "sparse_matrix" && name != "sparse_tensor" {
+			coords = nil
+		}
+		return newFutureValue(name, params, data, shape, coords, format), nil
 	case 0x0b:
 		n, err := cur.uvarint()
 		if err != nil {
@@ -1139,6 +1275,64 @@ func decodeFrom(cur *byteCursor) (Value, error) {
 	default:
 		return nullValue(), fmt.Errorf("unknown encoded tag 0x%02x", tag)
 	}
+}
+
+func validateDecodedFuture(name string, params []string, shape []int, coords [][]int, data []Value, format string) error {
+	if name == "poly" {
+		if len(shape) != 0 || format != "" || len(coords) != 0 {
+			return fmt.Errorf("invalid polynomial encoding metadata")
+		}
+		if len(data) > 0 && futureScalarIsZero(data[len(data)-1]) {
+			return fmt.Errorf("polynomial encoding is not normalized")
+		}
+	} else if name == "quat" {
+		if !futureIntSlicesEqual(shape, []int{4}) || format != "" || len(coords) != 0 || len(data) != 4 {
+			return fmt.Errorf("invalid quaternion encoding")
+		}
+	} else if name == "simd" {
+		lanes := atoiOrZero(params[0])
+		if !futureIntSlicesEqual(shape, []int{lanes}) || format != "" || len(coords) != 0 || len(data) != lanes {
+			return fmt.Errorf("invalid SIMD encoding")
+		}
+	} else {
+		if len(shape) == 0 || format == "" || len(coords) != len(data) {
+			return fmt.Errorf("invalid sparse encoding metadata")
+		}
+		if name == "sparse_matrix" && format != "csr" && format != "csc" {
+			return fmt.Errorf("invalid sparse matrix format encoding")
+		}
+		if name == "sparse_tensor" && format != "coo" {
+			return fmt.Errorf("invalid sparse tensor format encoding")
+		}
+		for i, coord := range coords {
+			if len(coord) != len(shape) {
+				return fmt.Errorf("sparse encoding coordinate rank does not match shape")
+			}
+			for j, value := range coord {
+				if value < 0 || value >= shape[j] {
+					return fmt.Errorf("sparse encoding coordinate is out of range")
+				}
+			}
+			if futureScalarIsZero(data[i]) {
+				return fmt.Errorf("sparse encoding contains an explicit zero")
+			}
+			if i > 0 && !futureCoordLess(coords[i-1], coord) {
+				return fmt.Errorf("sparse encoding coordinates are not strictly sorted")
+			}
+		}
+	}
+	for _, item := range data {
+		if params[len(params)-1] == "bool" {
+			if item.kind != kindBool {
+				return fmt.Errorf("boolean SIMD encoding contains a non-boolean lane")
+			}
+			continue
+		}
+		if _, err := futureScalar(item, params[len(params)-1]); err != nil {
+			return fmt.Errorf("future encoding contains an invalid element: %w", err)
+		}
+	}
+	return nil
 }
 
 func encodeCodecString(buf *bytes.Buffer, text string) error {

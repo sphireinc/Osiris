@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -28,6 +29,11 @@ type CCompileOptions struct {
 	// numerical library, such as "-framework", "Accelerate" on macOS or
 	// "-llapack", "-lblas" on systems that provide LAPACK separately.
 	LinalgProviderFlags []string
+	// NativeCapabilities is the explicit host capability set available to the
+	// generated executable. It is copied into the native build contract and is
+	// also used when validating capability-gated FFI manifests. An omitted
+	// capability is never inferred from the build host.
+	NativeCapabilities []string
 }
 
 // CCompileManifest describes an addressable native executable artifact. Cache
@@ -46,6 +52,36 @@ type CCompileManifest struct {
 
 const cCompileManifestVersion = 1
 
+func normalizedNativeCapabilities(capabilities []string) []string {
+	seen := make(map[string]struct{}, len(capabilities))
+	result := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		capability = strings.TrimSpace(capability)
+		if capability == "" {
+			continue
+		}
+		if _, ok := seen[capability]; ok {
+			continue
+		}
+		seen[capability] = struct{}{}
+		result = append(result, capability)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func nativeCapabilityMacro(capability string) string {
+	var b strings.Builder
+	for _, r := range strings.ToUpper(capability) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
+}
+
 // CompileC compiles the c into the requested backend artifact so the caller
 // can execute or inspect the program without keeping the source interpreter in
 // the hot path.
@@ -58,6 +94,9 @@ func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, erro
 
 // CompileCWithOptions lowers a program with explicit native backend options.
 func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, options CCompileOptions) (*CArtifact, error) {
+	if err := rejectTask134FutureBackend(prog, "native C"); err != nil {
+		return nil, err
+	}
 	if rt == nil {
 		rt = NewRuntime()
 	}
@@ -83,7 +122,7 @@ func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, option
 			name,
 		)
 	}
-	ffiPlan, err := buildNativeFFIPlan(rt, ir)
+	ffiPlan, err := buildNativeFFIPlanWithCapabilities(rt, ir, options.NativeCapabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -269,12 +308,7 @@ func nativeUnsupportedNetworkingBuiltin(program *IRProgram) (string, sourceSpan,
 	if program == nil {
 		return "", sourceSpan{}, false
 	}
-	unsupported := map[string]struct{}{
-		"tcp_listen": {}, "tcp_accept": {}, "tcp_dial": {},
-		"udp_bind": {}, "udp_connect": {}, "udp_send": {}, "udp_receive": {},
-		"dns_lookup": {}, "tls_dial": {}, "tls_dial_config": {}, "tls_listen": {},
-		"http_get": {}, "http_request": {}, "http_request_stream": {}, "http_serve": {},
-	}
+	unsupported := map[string]struct{}{}
 	for _, function := range program.Functions {
 		for _, block := range function.Blocks {
 			for _, instruction := range block.Instrs {
@@ -307,9 +341,10 @@ func nativeUnsupportedFFIBuiltin(program *IRProgram) (string, sourceSpan, bool) 
 }
 
 type nativeFFIPlan struct {
-	calls     map[string]FFIFunction
-	constants map[string]FFIConstant
-	loads     map[string]string
+	calls        map[string]FFIFunction
+	constants    map[string]FFIConstant
+	loads        map[string]string
+	capabilities map[string]bool
 }
 
 func (p *nativeFFIPlan) callKey(functionName, libraryValue, memberValue string) string {
@@ -321,13 +356,28 @@ func (p *nativeFFIPlan) loadKey(functionName, libraryValue string) string {
 }
 
 func buildNativeFFIPlan(rt *Runtime, program *IRProgram) (*nativeFFIPlan, error) {
-	plan := &nativeFFIPlan{calls: make(map[string]FFIFunction), constants: make(map[string]FFIConstant), loads: make(map[string]string)}
+	return buildNativeFFIPlanWithCapabilities(rt, program, nil)
+}
+
+func buildNativeFFIPlanWithCapabilities(rt *Runtime, program *IRProgram, nativeCapabilities []string) (*nativeFFIPlan, error) {
+	plan := &nativeFFIPlan{calls: make(map[string]FFIFunction), constants: make(map[string]FFIConstant), loads: make(map[string]string), capabilities: make(map[string]bool)}
 	if program == nil {
 		return plan, nil
 	}
 	granted := map[string]bool{}
 	if rt != nil {
 		granted = rt.Capabilities()
+	}
+	for _, capability := range nativeCapabilities {
+		if capability != "" {
+			granted[capability] = true
+			plan.capabilities[capability] = true
+		}
+	}
+	for capability, granted := range granted {
+		if granted {
+			plan.capabilities[capability] = true
+		}
 	}
 	for _, fn := range program.Functions {
 		if fn == nil {
@@ -426,6 +476,13 @@ func buildNativeFFIPlan(rt *Runtime, program *IRProgram) (*nativeFFIPlan, error)
 	return plan, nil
 }
 
+func nativeCapabilityGranted(plan *nativeFFIPlan, capability string) bool {
+	if capability == "" {
+		return true
+	}
+	return plan != nil && plan.capabilities[capability]
+}
+
 // cEscapeString handles the c escape string step in the surrounding package
 // and returns string.
 //
@@ -514,6 +571,16 @@ func CompileCExecutableCachedWithOptions(ctx context.Context, source, outputPath
 		flags = append(flags, "-ldl")
 	}
 	flags = append(flags, options.LinalgProviderFlags...)
+	if nativeTLSProviderRequested(options.NativeCapabilities) {
+		opensslFlags, err := nativeOpenSSLFlags(ctx)
+		if err != nil {
+			return nil, err
+		}
+		flags = append(flags, opensslFlags...)
+	}
+	for _, capability := range normalizedNativeCapabilities(options.NativeCapabilities) {
+		flags = append(flags, "-DOSIRIS_CAP_"+nativeCapabilityMacro(capability)+"=1")
+	}
 	sourceHash := sha256.Sum256([]byte(source))
 	providerHash := ""
 	if options.LinalgProviderSource != "" {
@@ -645,9 +712,22 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 		}
 		args = append(args, options.LinalgProviderFlags...)
 	}
+	if nativeTLSProviderRequested(options.NativeCapabilities) {
+		opensslFlags, err := nativeOpenSSLFlags(ctx)
+		if err != nil {
+			return err
+		}
+		args = append(args, opensslFlags...)
+	}
 	cmd := exec.CommandContext(ctx, compiler, args...)
 	if !object {
 		cmd.Args = append(cmd.Args, "-lm")
+		if runtime.GOOS == "windows" {
+			// The Windows native host adapter owns HANDLEs and Winsock sockets;
+			// these libraries provide CreateProcess/CreateFile security support
+			// and the ws2tcpip networking ABI used by generated C.
+			cmd.Args = append(cmd.Args, "-lws2_32", "-ladvapi32")
+		}
 		if strings.Contains(source, "O_FFI") && runtime.GOOS == "linux" {
 			cmd.Args = append(cmd.Args, "-ldl")
 		}
@@ -656,6 +736,18 @@ func compileCArtifact(ctx context.Context, source, outputPath string, object boo
 		return fmt.Errorf("%s failed: %w\n%s", compiler, err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func nativeOpenSSLFlags(ctx context.Context) ([]string, error) {
+	pkgConfig, err := exec.LookPath("pkg-config")
+	if err != nil {
+		return nil, fmt.Errorf("native TLS provider requires pkg-config and OpenSSL: %w", err)
+	}
+	output, err := exec.CommandContext(ctx, pkgConfig, "--cflags", "--libs", "openssl").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("native TLS provider requires an OpenSSL pkg-config package: %w\n%s", err, strings.TrimSpace(string(output)))
+	}
+	return strings.Fields(string(output)), nil
 }
 
 func nativeSanitizerFlags() []string {

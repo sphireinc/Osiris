@@ -378,11 +378,11 @@
     },
     {
       "name": "simd",
-      "summary": "Packed `vector` type for vectorized lowering."
+      "summary": "Fixed-width numeric or boolean lane vector with explicit lane count and element family."
     },
     {
       "name": "quat",
-      "summary": "Quaternion type for 3D rotation math."
+      "summary": "Four-component quaternion with deterministic Hamilton multiplication, conjugation, norm, inverse, and division."
     },
     {
       "name": "dual",
@@ -390,15 +390,19 @@
     },
     {
       "name": "sparse_matrix",
-      "summary": "Sparse matrix representation."
+      "summary": "Canonical two-dimensional sparse matrix with deterministic duplicate summation, zero elision, and CSR/CSC format metadata."
     },
     {
       "name": "sparse_tensor",
-      "summary": "Sparse tensor representation."
+      "summary": "Canonical n-dimensional COO sparse tensor with explicit shape, coordinate ordering, duplicate summation, and zero elision."
     },
     {
       "name": "poly",
-      "summary": "Polynomial value type."
+      "summary": "Normalized polynomial whose coefficient family is retained through arithmetic, evaluation, indexing, and codecs."
+    },
+    {
+      "name": "future",
+      "summary": "Portable runtime envelope used for the explicit `poly`, `quat`, `simd`, `sparse_matrix`, and `sparse_tensor` value families; programs should use the concrete family types."
     }
   ],
   "groups": [
@@ -992,6 +996,129 @@
             "`run` and `vm` preserve the `dual` value; `encode`/`decode` preserves both IEEE-754 components. Native C compilation rejects `dual` calls until a dedicated tagged `ABI` exists."
           ],
           "example": "let x = dual(3, 1)\nlet y = dual(2, 0.5)\nemit x * y\nemit tangent(x * y)\n# dual(6, 3.5), 3.5"
+        },
+        {
+          "name": "poly",
+          "syntax": "poly<T>(coefficients)",
+          "returns": "`poly<T>`",
+          "summary": "Construct a normalized polynomial from coefficients in ascending degree order.",
+          "details": [
+            "`T` is `number`, `f32`, or `f64`. Trailing zero coefficients are removed while the zero polynomial retains one zero coefficient.",
+            "Polynomial values preserve coefficient width and support `+`, `-`, `*`, indexing, `poly_degree`, and `poly_eval`."
+          ],
+          "example": "let p = poly<number>([1, 2, 3])\nemit p # poly<number>(1, 2, 3)"
+        },
+        {
+          "name": "poly_degree",
+          "syntax": "poly_degree(value)",
+          "returns": "`u64`",
+          "summary": "Return the normalized degree of a polynomial.",
+          "details": ["The zero polynomial has degree zero. The operation rejects non-polynomial values."],
+          "example": "emit poly_degree(poly<number>([1, 2, 3])) # 2u64"
+        },
+        {
+          "name": "poly_eval",
+          "syntax": "poly_eval(value, x)",
+          "returns": "polynomial coefficient type",
+          "summary": "Evaluate a polynomial using deterministic Horner arithmetic.",
+          "details": ["The evaluation value is converted to the polynomial coefficient family; incompatible widths and non-numeric values fail."],
+          "example": "emit poly_eval(poly<number>([1, 2, 3]), 2) # 17"
+        },
+        {
+          "name": "quat",
+          "syntax": "quat<T>(components)",
+          "returns": "`quat<T>`",
+          "summary": "Construct a four-component quaternion.",
+          "details": ["Components use `w, x, y, z` order and retain `number`, `f32`, or `f64` width. Quaternion multiplication uses the Hamilton convention."],
+          "example": "let q = quat<number>([1, 0, 0, 0])\nemit q"
+        },
+        {
+          "name": "quat_conjugate",
+          "syntax": "quat_conjugate(value)",
+          "returns": "`quat<T>`",
+          "summary": "Negate the vector components of a quaternion.",
+          "details": ["The scalar component is retained and the coefficient family is unchanged."],
+          "example": "emit quat_conjugate(quat<number>([1, 2, 3, 4]))"
+        },
+        {
+          "name": "quat_norm",
+          "syntax": "quat_norm(value)",
+          "returns": "`number`, `f32`, or `f64`",
+          "summary": "Return the Euclidean norm of a quaternion.",
+          "details": ["The result retains the quaternion coefficient family. Invalid values are rejected with a structured diagnostic."],
+          "example": "emit quat_norm(quat<number>([1, 0, 0, 0])) # 1"
+        },
+        {
+          "name": "quat_inverse",
+          "syntax": "quat_inverse(value)",
+          "returns": "`quat<T>`",
+          "summary": "Return the multiplicative inverse of a nonzero quaternion.",
+          "details": ["A zero quaternion fails deterministically instead of producing a non-finite result."],
+          "example": "emit quat_inverse(quat<number>([1, 0, 0, 0]))"
+        },
+        {
+          "name": "simd",
+          "syntax": "simd<N, T>(lane_count, values)",
+          "returns": "`simd<N, T>`",
+          "summary": "Construct a fixed-width SIMD value with numeric or boolean lanes.",
+          "details": ["Lane counts are powers of two from 2 through 16. Numeric lanes support elementwise arithmetic; boolean lanes are used as masks."],
+          "example": "emit simd<4, number>(4, [1, 2, 3, 4])"
+        },
+        {
+          "name": "simd_mask",
+          "syntax": "simd_mask(values)",
+          "returns": "`simd<N, bool>`",
+          "summary": "Construct a boolean SIMD mask from truthy lane values.",
+          "details": ["The lane count is inferred from the bounded input collection and must satisfy the SIMD lane contract."],
+          "example": "emit simd_mask([true, false, true, false])"
+        },
+        {
+          "name": "simd_select",
+          "syntax": "simd_select(mask, when_true, when_false)",
+          "returns": "`simd<N, T>`",
+          "summary": "Select corresponding lanes using a boolean SIMD mask.",
+          "details": ["The mask and both values must have matching lane counts and element families."],
+          "example": "emit simd_select(simd_mask([true, false]), simd<2, number>(2, [1, 2]), simd<2, number>(2, [3, 4]))"
+        },
+        {
+          "name": "sparse_matrix",
+          "syntax": "sparse_matrix<T>(shape, entries, format)",
+          "returns": "`sparse_matrix<T>`",
+          "summary": "Construct a canonical two-dimensional sparse matrix.",
+          "details": ["Entries are coordinate/value rows. Duplicate coordinates are summed, zero entries are removed, and coordinates are sorted lexicographically. `format` is `csr` or `csc`."],
+          "example": "emit sparse_matrix<number>([2, 2], [[0, 1, 3]], \"csr\")"
+        },
+        {
+          "name": "sparse_tensor",
+          "syntax": "sparse_tensor<T>(shape, entries)",
+          "returns": "`sparse_tensor<T>`",
+          "summary": "Construct a canonical n-dimensional COO sparse tensor.",
+          "details": ["Coordinates are bounds-checked, duplicate values are summed, zero entries are removed, and iteration is lexicographically deterministic."],
+          "example": "emit sparse_tensor<number>([2, 2, 2], [[0, 1, 1, 7]])"
+        },
+        {
+          "name": "nnz",
+          "syntax": "nnz(value)",
+          "returns": "`u64`",
+          "summary": "Return the number of stored nonzero entries in a sparse value.",
+          "details": ["The count reflects canonical zero elision and duplicate aggregation."],
+          "example": "emit nnz(sparse_tensor<number>([2], [[0, 4]])) # 1u64"
+        },
+        {
+          "name": "to_dense",
+          "syntax": "to_dense(value)",
+          "returns": "`tensor`",
+          "summary": "Expand a sparse matrix or tensor into a dense tensor.",
+          "details": ["Missing coordinates use the exact zero of the stored element family. Shape and width metadata are retained."],
+          "example": "emit to_dense(sparse_matrix<number>([2, 2], [[0, 1, 3]], \"csr\"))"
+        },
+        {
+          "name": "to_sparse",
+          "syntax": "to_sparse(value, format)",
+          "returns": "`sparse_matrix` or `sparse_tensor`",
+          "summary": "Convert a dense tensor to its canonical sparse representation.",
+          "details": ["Rank two tensors become sparse matrices; other ranks become sparse tensors. Zero values are omitted and the optional format is validated."],
+          "example": "emit to_sparse(tensor([[0, 3], [0, 0]]), \"csr\")"
         },
         {
           "name": "primal",

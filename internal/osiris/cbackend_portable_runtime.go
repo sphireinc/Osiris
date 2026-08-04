@@ -62,6 +62,38 @@ static OValue ostd(OValue value) {
   for(size_t i=0;i<count;i++) { onumericitem(value,i,&item); double d=item-mean; sum+=d*d; }
   return ofloat(sqrt(sum/(double)count));
 }
+static int odoublecmp(const void *left, const void *right);
+static OValue oquantile(OValue value, OValue qvalue);
+static OValue ovar(OValue value) {
+  size_t count; double item; if(!onumericsequence(value,&count)||count==0) return ofail("var expects non-empty numeric data");
+  double total=0; for(size_t i=0;i<count;i++) { if(!onumericitem(value,i,&item)) return ofail("var expects numeric data"); total+=item; }
+  double mean=total/(double)count,sum=0; for(size_t i=0;i<count;i++) { onumericitem(value,i,&item); double delta=item-mean; sum+=delta*delta; }
+  return ofloat(sum/(double)count);
+}
+static OValue omedian(OValue value) {
+  size_t count; if(!onumericsequence(value,&count)||count==0) return ofail("median expects non-empty numeric data");
+  double *copy=(double *)malloc(count*sizeof(double)); if(!copy) return ofail("out of memory"); for(size_t i=0;i<count;i++) if(!onumericitem(value,i,&copy[i])) { free(copy); return ofail("median expects numeric data"); } qsort(copy,count,sizeof(double),odoublecmp);
+  double result=count%2?copy[count/2]:(copy[count/2-1]+copy[count/2])/2; free(copy); return ofloat(result);
+}
+static OValue opercentile(OValue value, OValue p) { double percent; if(!onum(p,&percent)) return ofail("percentile expects data and p"); return oquantile(value,ofloat(percent/100)); }
+static OValue oargextreme(OValue value, int want_max) {
+  size_t count; double best,next; if(!onumericsequence(value,&count)||count==0||!onumericitem(value,0,&best)) return ofail(want_max?"argmax expects non-empty numeric data":"argmin expects non-empty numeric data"); size_t index=0;
+  for(size_t i=1;i<count;i++) { if(!onumericitem(value,i,&next)) return ofail("argmin/argmax expects numeric data"); if((want_max&&next>best)||(!want_max&&next<best)) { best=next; index=i; } }
+  return ouint(index);
+}
+static OValue oargmin(OValue value) { return oargextreme(value,0); }
+static OValue oargmax(OValue value) { return oargextreme(value,1); }
+static OValue oany(OValue value) { size_t count; if(!onumericsequence(value,&count)) return ofail("any expects data"); for(size_t i=0;i<count;i++) { double item; if(!onumericitem(value,i,&item)) return ofail("any expects numeric data"); if(item!=0) return obool(1); } return obool(0); }
+static OValue oall(OValue value) { size_t count; if(!onumericsequence(value,&count)) return ofail("all expects data"); for(size_t i=0;i<count;i++) { double item; if(!onumericitem(value,i,&item)) return ofail("all expects numeric data"); if(item==0) return obool(0); } return obool(1); }
+static OValue ocumulative(OValue value, int product) {
+  size_t count; if(!onumericsequence(value,&count)) return ofail(product?"cumprod expects data":"cumsum expects data");
+  double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); double total=product?1:0;
+  for(size_t i=0;i<count;i++) { double item; if(!onumericitem(value,i,&item)) { free(data); return ofail("cumulative operation expects numeric data"); } total=product?total*item:total+item; data[i]=total; }
+  if(value.kind==O_TENSOR) return otensordata(data,count,value.as.tensor.shape,value.as.tensor.rank);
+  OValue *items=count?(OValue *)malloc(count*sizeof(OValue)):NULL; if(count&&!items) { free(data); return ofail("out of memory"); } for(size_t i=0;i<count;i++) items[i]=ofloat(data[i]); free(data); OValue out=olist(items,count); free(items); return out;
+}
+static OValue ocumsum(OValue value) { return ocumulative(value,0); }
+static OValue ocumprod(OValue value) { return ocumulative(value,1); }
 static int odoublecmp(const void *left, const void *right) {
   double a=*(const double *)left,b=*(const double *)right;
   return a<b?-1:a>b?1:0;
@@ -332,12 +364,38 @@ static int ocodecencodeinto(OBuffer *buffer, OValue value, unsigned depth) {
     else if(!ocodecbyte(buffer,0x08)) return 0;
     return ocodecu64be(buffer,realbits)&&ocodecu64be(buffer,imagbits);
   }
+  case O_DUAL: {
+    uint64_t primalbits,tangentbits; memcpy(&primalbits,&value.as.dual.primal,sizeof(primalbits)); memcpy(&tangentbits,&value.as.dual.tangent,sizeof(tangentbits));
+    return ocodecbyte(buffer,0x19)&&ocodecu64be(buffer,primalbits)&&ocodecu64be(buffer,tangentbits);
+  }
+  case O_DECIMAL:
+  case O_BIGINT:
+    return ocodecbyte(buffer,value.kind==O_DECIMAL?0x07:0x0b)&&ocodecuvar(buffer,value.as.s.len)&&obufferadd(buffer,value.as.s.data,value.as.s.len);
   case O_STRING:
     return ocodecbyte(buffer,0x05)&&ocodecuvar(buffer,value.as.s.len)&&obufferadd(buffer,value.as.s.data,value.as.s.len);
   case O_LIST:
     if(!ocodecbyte(buffer,0x06)||!ocodecuvar(buffer,value.as.list.len)) return 0;
     for(size_t i=0;i<value.as.list.len;i++) if(!ocodecencodeinto(buffer,value.as.list.items[i],depth+1)) return 0;
     return 1;
+  case O_TENSOR: {
+    if(!ocodecbyte(buffer,0x09)||!ocodecuvar(buffer,value.as.tensor.rank)) return 0;
+    for(size_t i=0;i<value.as.tensor.rank;i++) if(!ocodecuvar(buffer,value.as.tensor.shape[i])) return 0;
+    if(!ocodecuvar(buffer,value.as.tensor.len)) return 0;
+    for(size_t i=0;i<value.as.tensor.len;i++) { OValue item=value.as.tensor.element_kind==1?ouintbits((uint64_t)value.as.tensor.data[i],value.fbits?value.fbits:64):value.as.tensor.element_kind==2?ointbits((int64_t)value.as.tensor.data[i],value.fbits?value.fbits:64):ofloatbits(value.as.tensor.data[i],value.fbits); if(!ocodecencodeinto(buffer,item,depth+1)) return 0; }
+    return 1;
+  }
+  case O_COMPLEX_TENSOR: {
+    if(!ocodecbyte(buffer,0x09)||!ocodecuvar(buffer,value.as.ctensor.rank)) return 0;
+    for(size_t i=0;i<value.as.ctensor.rank;i++) if(!ocodecuvar(buffer,value.as.ctensor.shape[i])) return 0;
+    if(!ocodecuvar(buffer,value.as.ctensor.len)) return 0;
+    for(size_t i=0;i<value.as.ctensor.len;i++) { OValue item=ocomplexbits(value.as.ctensor.data[i].real,value.as.ctensor.data[i].imag,value.fbits); if(!ocodecencodeinto(buffer,item,depth+1)) return 0; }
+    return 1;
+  }
+  case O_QUANTITY: {
+    if(value.as.quantity.unit.len==0) return 0;
+    char magnitude[64]; int length=snprintf(magnitude,sizeof(magnitude),"%.17g",value.as.quantity.magnitude); if(length<0||(size_t)length>=sizeof(magnitude)) return 0;
+    return ocodecbyte(buffer,0x0d)&&ocodecuvar(buffer,(size_t)length)&&obufferadd(buffer,magnitude,(size_t)length)&&ocodecuvar(buffer,1)&&ocodecuvar(buffer,value.as.quantity.unit.len)&&obufferadd(buffer,value.as.quantity.unit.data,value.as.quantity.unit.len)&&ocodecvar(buffer,1);
+  }
   case O_DATETIME: {
     int64_t seconds=value.as.i/1000000000,nanos=value.as.i%1000000000;
     if(nanos<0) { seconds--; nanos+=1000000000; }
@@ -402,6 +460,15 @@ static int ocodecdecodefrom(OCursor *cursor, OValue *out, unsigned depth) {
     if(!ocursoru64be(cursor,&realbits)||!ocursoru64be(cursor,&imagbits)) return 0;
     double real,imag; memcpy(&real,&realbits,sizeof(real)); memcpy(&imag,&imagbits,sizeof(imag)); *out=ocomplexbits(real,imag,width); return 1;
   }
+  case 0x19: {
+    uint64_t primalbits,tangentbits; if(!ocursoru64be(cursor,&primalbits)||!ocursoru64be(cursor,&tangentbits)) return 0;
+    double primal,tangent; memcpy(&primal,&primalbits,sizeof(primal)); memcpy(&tangent,&tangentbits,sizeof(tangent)); *out=odual(primal,tangent); return 1;
+  }
+  case 0x07:
+  case 0x0b: {
+    uint64_t len; const unsigned char *raw; if(!ocursoruvar(cursor,&len)||len==0||len>OCODEC_LIMIT||!ocursortake(cursor,(size_t)len,&raw)) return 0;
+    OValue text=ostringview((const char *)raw,(size_t)len); *out=oexacttext(tag==0x07?O_DECIMAL:O_BIGINT,text); return !ohaderror;
+  }
   case 0x05: {
     uint64_t len; const unsigned char *raw; if(!ocursoruvar(cursor,&len)||len>OCODEC_LIMIT||!ocursortake(cursor,(size_t)len,&raw)) return 0;
     *out=oownedstring((const char *)raw,(size_t)len); return !ohaderror;
@@ -411,6 +478,23 @@ static int ocodecdecodefrom(OCursor *cursor, OValue *out, unsigned depth) {
     OValue *items=count?(OValue *)malloc((size_t)count*sizeof(OValue)):NULL; if(count&&!items) return 0;
     for(uint64_t i=0;i<count;i++) if(!ocodecdecodefrom(cursor,&items[i],depth+1)) { free(items); return 0; }
     *out=olist(items,(size_t)count); free(items); return !ohaderror;
+  }
+  case 0x09: {
+    uint64_t rank,count; if(!ocursoruvar(cursor,&rank)||rank>OCODEC_DEPTH) return 0;
+    size_t *shape=rank?(size_t *)malloc((size_t)rank*sizeof(size_t)):NULL; if(rank&&!shape) return 0;
+    size_t expected=1; for(size_t i=0;i<(size_t)rank;i++) { uint64_t dim; if(!ocursoruvar(cursor,&dim)||dim>SIZE_MAX||(dim&&expected>SIZE_MAX/(size_t)dim)) { free(shape); return 0; } shape[i]=(size_t)dim; expected*=shape[i]; }
+    if(!ocursoruvar(cursor,&count)||count!=expected||count>OCODEC_LIMIT/sizeof(OValue)) { free(shape); return 0; }
+    OValue *items=count?(OValue *)malloc((size_t)count*sizeof(OValue)):NULL; if(count&&!items) { free(shape); return 0; }
+    int complex=0; unsigned char element_kind=0; for(size_t i=0;i<(size_t)count;i++) { if(!ocodecdecodefrom(cursor,&items[i],depth+1)) { free(items); free(shape); return 0; } if(items[i].kind==O_COMPLEX) complex=1; else if(items[i].kind==O_UINT) { if(element_kind&&element_kind!=1) { free(items); free(shape); return 0; } element_kind=1; } else if(items[i].kind==O_INT) { if(element_kind&&element_kind!=2) { free(items); free(shape); return 0; } element_kind=2; } else if(items[i].kind!=O_FLOAT) { free(items); free(shape); return 0; } }
+    if(complex) { OComplex *data=count?(OComplex *)malloc((size_t)count*sizeof(OComplex)):NULL; if(count&&!data) { free(items); free(shape); return 0; } for(size_t i=0;i<(size_t)count;i++) { if(!ocomplexnum(items[i],&data[i])) { free(data); free(items); free(shape); return 0; } } *out=ocomplextensordata(data,(size_t)count,shape,(size_t)rank); }
+    else { double *data=count?(double *)malloc((size_t)count*sizeof(double)):NULL; if(count&&!data) { free(items); free(shape); return 0; } for(size_t i=0;i<(size_t)count;i++) data[i]=element_kind==1?(double)items[i].as.u:element_kind==2?(double)items[i].as.i:items[i].as.f; *out=otensordata_kind(data,(size_t)count,shape,(size_t)rank,count&&items[0].kind==O_FLOAT?items[0].fbits:0,element_kind); }
+    free(items); free(shape); return !ohaderror;
+  }
+  case 0x0d: {
+    uint64_t magLen,dimCount,unitLen; const unsigned char *mag,*unit; int64_t exponent;
+    if(!ocursoruvar(cursor,&magLen)||magLen==0||magLen>128||!ocursortake(cursor,(size_t)magLen,&mag)||!ocursoruvar(cursor,&dimCount)||dimCount!=1||!ocursoruvar(cursor,&unitLen)||unitLen==0||unitLen>128||!ocursortake(cursor,(size_t)unitLen,&unit)||!ocursorvar(cursor,&exponent)||exponent!=1) return 0;
+    char number[129]; memcpy(number,mag,(size_t)magLen); number[magLen]=0; char *end=NULL; double magnitude=strtod(number,&end); if(!end||*end) return 0;
+    *out=(OValue){O_QUANTITY,0,{.quantity={magnitude,{(const char *)unit,(size_t)unitLen}}}}; return 1;
   }
   case 0x1a: {
     int64_t value; if(!ocursorvar(cursor,&value)) return 0; *out=(OValue){O_DURATION,0,{.i=value}}; return 1;

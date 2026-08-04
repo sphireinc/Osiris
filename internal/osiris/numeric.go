@@ -2201,6 +2201,9 @@ func atValue(args []Value) (Value, error) {
 	if len(args) != 2 {
 		return nullValue(), fmt.Errorf("at expects 2 arguments")
 	}
+	if args[0].kind == kindFuture {
+		return futureIndex(args[0], args[1])
+	}
 	if args[0].kind == kindTensor && args[1].kind == kindList {
 		coordinateRank := len(args[1].list)
 		if coordinateRank == 0 || coordinateRank > len(args[0].shape) {
@@ -2264,6 +2267,9 @@ func atValue(args []Value) (Value, error) {
 func setAtValue(args []Value) (Value, error) {
 	if len(args) != 3 {
 		return nullValue(), fmt.Errorf("setat expects 3 arguments")
+	}
+	if args[0].kind == kindFuture {
+		return futureSetIndex(args[0], args[1], args[2])
 	}
 	if args[0].kind == kindTensor && args[1].kind == kindList {
 		coordinateRank := len(args[1].list)

@@ -100,8 +100,16 @@ type ffiSymbolCache struct {
 }
 
 type ffiNativeLibrary struct {
-	handle unsafe.Pointer
-	cache  *ffiSymbolCache
+	state *ffiNativeState
+}
+
+type ffiNativeState struct {
+	mu      sync.Mutex
+	handle  unsafe.Pointer
+	cache   *ffiSymbolCache
+	active  int
+	closed  bool
+	closing bool
 }
 
 func openFFINativeLibrary(path string) (ffiNativeLibrary, error) {
@@ -117,27 +125,63 @@ func openFFINativeLibrary(path string) (ffiNativeLibrary, error) {
 		}
 		return ffiNativeLibrary{}, fmt.Errorf("%s", message)
 	}
-	return ffiNativeLibrary{handle: handle, cache: &ffiSymbolCache{symbols: make(map[string]unsafe.Pointer)}}, nil
+	return ffiNativeLibrary{state: &ffiNativeState{handle: handle, cache: &ffiSymbolCache{symbols: make(map[string]unsafe.Pointer)}}}, nil
 }
 
 func (library ffiNativeLibrary) lookup(name string) error {
-	_, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return err
+	}
+	defer library.end(state)
+	_, err = library.symbolWithState(state, name)
 	return err
 }
 
 func (library ffiNativeLibrary) symbol(name string) (unsafe.Pointer, error) {
-	if library.cache != nil {
-		library.cache.mu.RLock()
-		symbol, ok := library.cache.symbols[name]
-		library.cache.mu.RUnlock()
-		if ok {
-			return symbol, nil
-		}
+	state, err := library.begin()
+	if err != nil {
+		return nil, err
+	}
+	defer library.end(state)
+	return library.symbolWithState(state, name)
+}
+
+func (library ffiNativeLibrary) begin() (*ffiNativeState, error) {
+	if library.state == nil {
+		return nil, fmt.Errorf("direct C FFI library is unavailable")
+	}
+	library.state.mu.Lock()
+	defer library.state.mu.Unlock()
+	if library.state.closed || library.state.closing || library.state.handle == nil {
+		return nil, fmt.Errorf("ffi: native library is closed")
+	}
+	library.state.active++
+	return library.state, nil
+}
+
+func (library ffiNativeLibrary) end(state *ffiNativeState) {
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	if state.active > 0 {
+		state.active--
+	}
+	state.mu.Unlock()
+}
+
+func (library ffiNativeLibrary) symbolWithState(state *ffiNativeState, name string) (unsafe.Pointer, error) {
+	state.cache.mu.RLock()
+	symbol, ok := state.cache.symbols[name]
+	state.cache.mu.RUnlock()
+	if ok {
+		return symbol, nil
 	}
 	cname := C.CString(name)
 	defer C.free(unsafe.Pointer(cname))
 	var cerr *C.char
-	symbol := C.osiris_ffi_symbol(library.handle, cname, &cerr)
+	symbol = C.osiris_ffi_symbol(state.handle, cname, &cerr)
 	if symbol == nil {
 		message := "symbol not found"
 		if cerr != nil {
@@ -146,20 +190,23 @@ func (library ffiNativeLibrary) symbol(name string) (unsafe.Pointer, error) {
 		}
 		return nil, fmt.Errorf("%s", message)
 	}
-	if library.cache != nil {
-		library.cache.mu.Lock()
-		if existing, ok := library.cache.symbols[name]; ok {
-			symbol = existing
-		} else {
-			library.cache.symbols[name] = symbol
-		}
-		library.cache.mu.Unlock()
+	state.cache.mu.Lock()
+	if existing, ok := state.cache.symbols[name]; ok {
+		symbol = existing
+	} else {
+		state.cache.symbols[name] = symbol
 	}
+	state.cache.mu.Unlock()
 	return symbol, nil
 }
 
 func (library ffiNativeLibrary) callInteger(name string, args []int64) (int64, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return 0, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return 0, err
 	}
@@ -175,7 +222,12 @@ func (library ffiNativeLibrary) callInteger(name string, args []int64) (int64, e
 }
 
 func (library ffiNativeLibrary) callFloat(name string, args []float64) (float64, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return 0, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return 0, err
 	}
@@ -191,7 +243,12 @@ func (library ffiNativeLibrary) callFloat(name string, args []float64) (float64,
 }
 
 func (library ffiNativeLibrary) callString(name string, args []string) (string, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return "", err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return "", err
 	}
@@ -216,7 +273,12 @@ func (library ffiNativeLibrary) callString(name string, args []string) (string, 
 }
 
 func (library ffiNativeLibrary) callConstBufferInteger(name string, args [][]byte) (int64, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return 0, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return 0, err
 	}
@@ -247,7 +309,12 @@ func (library ffiNativeLibrary) callConstBufferInteger(name string, args [][]byt
 }
 
 func (library ffiNativeLibrary) callMutableBufferInteger(name string, data []byte) (int64, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return 0, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return 0, err
 	}
@@ -263,7 +330,12 @@ func (library ffiNativeLibrary) callMutableBufferInteger(name string, data []byt
 }
 
 func (library ffiNativeLibrary) callHandle(name string, input any) (any, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return nil, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +355,12 @@ func (library ffiNativeLibrary) callHandle(name string, input any) (any, error) 
 }
 
 func (library ffiNativeLibrary) releaseHandle(name string, value any) error {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return err
 	}
@@ -298,7 +375,12 @@ func (library ffiNativeLibrary) releaseHandle(name string, value any) error {
 }
 
 func (library ffiNativeLibrary) callCallbackInteger(name string, id uintptr) (int64, error) {
-	symbol, err := library.symbol(name)
+	state, err := library.begin()
+	if err != nil {
+		return 0, err
+	}
+	defer library.end(state)
+	symbol, err := library.symbolWithState(state, name)
 	if err != nil {
 		return 0, err
 	}
@@ -310,8 +392,36 @@ func (library ffiNativeLibrary) callCallbackInteger(name string, id uintptr) (in
 }
 
 func (library ffiNativeLibrary) close() error {
-	if library.handle != nil {
-		C.dlclose(library.handle)
+	if library.state == nil {
+		return nil
 	}
+	library.state.mu.Lock()
+	if library.state.closed {
+		library.state.mu.Unlock()
+		return nil
+	}
+	if library.state.closing {
+		library.state.mu.Unlock()
+		return fmt.Errorf("ffi: native library is closing")
+	}
+	if library.state.active != 0 {
+		library.state.mu.Unlock()
+		return fmt.Errorf("ffi: native library has active operations")
+	}
+	handle := library.state.handle
+	library.state.closing = true
+	library.state.mu.Unlock()
+	if handle != nil && C.dlclose(handle) != 0 {
+		library.state.mu.Lock()
+		library.state.closing = false
+		library.state.mu.Unlock()
+		return fmt.Errorf("ffi: native library close failed")
+	}
+	library.state.mu.Lock()
+	library.state.handle = nil
+	library.state.cache = nil
+	library.state.closed = true
+	library.state.closing = false
+	library.state.mu.Unlock()
 	return nil
 }

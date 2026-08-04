@@ -1188,30 +1188,60 @@ func runGPU(ctx context.Context, args []string, stdout io.Writer) error {
 //
 // It returns an error when the operation cannot complete cleanly.
 func runRepl(ctx context.Context, stdout io.Writer) error {
+	return runReplWithInput(ctx, os.Stdin, stdout)
+}
+
+// runReplWithInput is the testable REPL loop. It frames input only; parsing
+// and execution remain owned by the language parser and Session APIs so the
+// REPL cannot grow a second set of language rules.
+func runReplWithInput(ctx context.Context, input io.Reader, stdout io.Writer) error {
 	sess := osiris.NewSession(osiris.NewRuntime(), ctx, "<repl>")
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	var pending string
+	var history string
 	for {
-		if _, err := io.WriteString(stdout, "osiris> "); err != nil {
+		prompt := "osiris> "
+		if pending != "" {
+			prompt = "....> "
+		}
+		if _, err := io.WriteString(stdout, prompt); err != nil {
 			return err
 		}
 		if !scanner.Scan() {
-			return scanner.Err()
-		}
-		line := strings.TrimSpace(scanner.Text())
-		switch line {
-		case "", ";":
-			continue
-		case "exit", "quit", ":q":
+			if err := scanner.Err(); err != nil {
+				return err
+			}
+			if strings.TrimSpace(pending) != "" {
+				return errors.New("<repl>: incomplete input at end of input")
+			}
 			return nil
 		}
-		src := line
-		if !strings.HasPrefix(line, "let ") &&
-			!strings.HasPrefix(line, "emit ") &&
-			!strings.HasPrefix(line, "import ") &&
-			!strings.HasPrefix(line, "macro ") &&
-			!strings.HasPrefix(line, "package ") &&
-			!strings.HasPrefix(line, "export ") {
-			src = "emit " + line
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if pending == "" {
+			switch trimmed {
+			case "", ";":
+				continue
+			case "exit", "quit", ":q":
+				return nil
+			}
+		}
+		if pending == "" {
+			pending = line
+		} else {
+			pending += "\n" + line
+		}
+		src, parseErr, complete := replSourceForInputWithHistory(history, pending)
+		if !complete {
+			continue
+		}
+		pending = ""
+		if parseErr != nil {
+			if _, writeErr := fmt.Fprintln(stdout, parseErr); writeErr != nil {
+				return writeErr
+			}
+			continue
 		}
 		out, err := sess.ExecSource(src)
 		if err != nil {
@@ -1220,12 +1250,118 @@ func runRepl(ctx context.Context, stdout io.Writer) error {
 			}
 			continue
 		}
+		if history == "" {
+			history = src
+		} else {
+			history += "\n" + src
+		}
 		for _, v := range out {
 			if _, err := io.WriteString(stdout, v.String()+"\n"); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// replSourceForInput asks the parser whether input is a language source unit
+// before trying the REPL's expression convenience. This makes declarations
+// such as const/let/var and compound statements take exactly the same path as
+// a source file while preserving the interactive `emit expression` shortcut.
+func replSourceForInput(source string) (string, error, bool) {
+	return replSourceForInputWithHistory("", source)
+}
+
+func replSourceForInputWithHistory(history, source string) (string, error, bool) {
+	parseSource := source
+	if history != "" {
+		parseSource = history + "\n" + source
+	}
+	if _, err := osiris.Parse("<repl>", parseSource); err == nil {
+		return source, nil, true
+	} else if replInputIncomplete(source) {
+		return "", nil, false
+	} else {
+		parseErr := err
+		emitted := "emit " + source
+		emittedSource := emitted
+		if history != "" {
+			emittedSource = history + "\n" + emitted
+		}
+		if _, err := osiris.Parse("<repl>", emittedSource); err == nil {
+			return emitted, nil, true
+		}
+		return "", parseErr, true
+	}
+}
+
+// replInputIncomplete performs only lexical input framing. It tracks paired
+// delimiters and unterminated string/tag/comment state; it deliberately does
+// not recognize declaration names or evaluator rules.
+func replInputIncomplete(source string) bool {
+	var stack []byte
+	var quote byte
+	escaped := false
+	lineComment := false
+	invalidDelimiter := false
+	for i := 0; i < len(source); i++ {
+		ch := source[i]
+		if lineComment {
+			if ch == '\n' {
+				lineComment = false
+			}
+			continue
+		}
+		if quote != 0 {
+			if quote == '"' && escaped {
+				escaped = false
+				continue
+			}
+			if quote == '"' && ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '/' && i+1 < len(source) && source[i+1] == '/' {
+			lineComment = true
+			i++
+			continue
+		}
+		if ch == '#' {
+			lineComment = true
+			continue
+		}
+		switch ch {
+		case '"', '`':
+			quote = ch
+		case '(', '[', '{':
+			stack = append(stack, ch)
+		case ')', ']', '}':
+			if len(stack) > 0 && ((stack[len(stack)-1] == '(' && ch == ')') ||
+				(stack[len(stack)-1] == '[' && ch == ']') ||
+				(stack[len(stack)-1] == '{' && ch == '}')) {
+				stack = stack[:len(stack)-1]
+			} else {
+				invalidDelimiter = true
+			}
+		}
+	}
+	if invalidDelimiter {
+		return false
+	}
+	if quote != 0 || lineComment || len(stack) != 0 {
+		return true
+	}
+	trimmed := strings.TrimSpace(source)
+	for _, suffix := range []string{"=", "=>", ",", "+", "-", "*", "/", "%", "&&", "||", "|", "&", "?"} {
+		if strings.HasSuffix(trimmed, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // runLSP handles the run lsp command path for the CLI. It parses the

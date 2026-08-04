@@ -77,6 +77,22 @@ in `index.tsv` while preserving every optimization record.
 opaque handles, ownership, cleanup, and capability-gated FFI before admitting
 any explicitly unsafe operation.
 
+### Wave 13 - complete backend parity
+
+Tasks 134 and 138–154 are the REPL and backend-parity program. The shared
+parser/lexer contract, interpreter reference semantics, VM differential
+coverage, REPL entry path, formatter, LSP, native core/state, reserved future
+types, and real WASM/GPU foundations are complete or under active validation.
+Native C remains sequential 145 → 146 → 147 → 148. The remaining WASM work is
+split into 155 (scalar instruction lowering), 156 (functions, aggregates, and
+numeric lowering), and 157 (host ABI and capability execution). GPU work is
+split into 158 (real device provider) and 159 (device execution and memory
+synchronization). LSP work is split into 160 (semantic IDE parity) and 161
+(workspace, refactoring, and test tooling). Matrix closure is split into
+162–163 for native C, 164–165 for WASM, 166–167 for GPU, and 168 for LSP.
+Task 154 is the final single owner of the support-matrix transition and may
+close only when every matrix cell is exactly `stable`.
+
 ## Parallelism cautions
 
 - Do not parallelize tasks that simultaneously modify `cbackend_native.go`.
@@ -106,15 +122,32 @@ any explicitly unsafe operation.
   discovery model from task 123; it must not duplicate them inside the LSP.
 - Task 126 may not weaken ordinary value safety to simplify FFI. Unsafe access
   remains a separately imported, capability-gated, auditable boundary.
+- Task 139 owns lexer/parser files and fixtures; task 138 owns only REPL
+  dispatch and REPL fixtures; task 140 owns interpreter/session semantics;
+  task 141 owns bytecode VM semantics; task 142 owns formatter code and
+  round-trip fixtures; task 143 owns LSP protocol/IDE code and fixtures.
+- Tasks 144–148 are one native-C ownership chain. Do not run them concurrently:
+  each changes the shared native lowering/runtime boundary and must inherit
+  the previous task's differential evidence.
+- Tasks 149–151 are one WASM ownership chain, and tasks 152–153 are one GPU
+  ownership chain. They may run alongside the native-C chain, but not alongside
+  another task in the same backend chain.
+- Implementation tasks 138–153 must not edit the support matrix's final
+  statuses. Task 154 owns the final matrix update, matrix-wide tests, and the
+  proof that no backend relies on an interpreter/planner fallback while claiming
+  `stable`.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049 and 100–136.
+  next-step metadata for tasks 001–049 and 100–154.
 - `completed/`: finished task records with validation evidence.
 - Tasks 100–110 are under `completed/`.
 - Tasks 111–136 are the scoped general-purpose maturity backlog derived from
   `osiris-language-assessment.md` and subsequent workflow requirements.
+- Tasks 138–154 are the scoped REPL/backend-parity backlog; each has one
+  primary ownership boundary so multiple agents can work concurrently after
+  dependencies are satisfied.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

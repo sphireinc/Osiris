@@ -360,6 +360,9 @@ func tensorShapeValue(args []Value) (Value, error) {
 	if len(args) != 1 {
 		return nullValue(), fmt.Errorf("shape expects 1 argument")
 	}
+	if args[0].kind == kindFuture {
+		return futureShape(args[0])
+	}
 	shape, _, err := inferTensor(args[0])
 	if err != nil {
 		return nullValue(), err

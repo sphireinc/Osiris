@@ -84,7 +84,13 @@
           "parameters": "This command accepts no arguments and reads expressions or statements from standard input.",
           "returns": "process exit status and interactive values",
           "returnValue": "Each completed input is evaluated in the persistent session until end-of-file or termination.",
-          "details": ["Use a source file for reproducible programs and the REPL for exploratory work."],
+          "details": [
+            "The prompt is `osiris> `; `quit`, `exit`, `:q`, or end-of-file ends the session. Empty lines and a line containing only `;` request another prompt without executing.",
+            "Complete statements use the same language syntax and parser as source files. This includes `const`, `let`, `var`, functions, product types, enums, traits, interfaces, implementations, macros, packages, exports, imports, `defer`, and `emit`; declarations are never rewritten as expressions.",
+            "A standalone expression may omit `emit` for exploratory use. The REPL evaluates it as implicit `emit expression`, while explicit `emit` remains available for all statement contexts.",
+            "Bindings and declarations persist across submissions. Compound declarations and blocks are collected until complete; incomplete input is diagnosed without partial execution, and failed submissions leave existing state unchanged.",
+            "For reproducible programs, put the same source in a `.osr` file and use `osiris run`. Apart from prompts and expression convenience, REPL values, diagnostics, source locations, and output ordering match source-file execution."
+          ],
           "example": "osiris repl"
         }
       ]
