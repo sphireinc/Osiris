@@ -1,7 +1,7 @@
 # Task 120: regex, compression, configuration, and i18n contract
 
 This document is the implementation contract for the task-120 host API and
-the public `std/regex`, `std/compress`, `std/config`, and `std/i18n` modules.
+the public `std/regex`, `std/compress`, `std/json`, and `std/i18n` modules.
 Every operation has its own signature, argument contract, return value, limits,
 and cancellation behavior. The public reference page mirrors these symbols
 one at a time; a category is never used as a substitute for an API entry.
@@ -57,26 +57,44 @@ duplicate normalized names, symlinks, devices, sparse files, and other special
 metadata are rejected with `ErrTask120Path` or `ErrTask120Invalid`.
 Extraction invokes the caller visitor in archive order and returns owned data.
 
-## `std/config`
+## `std/json`
 
 | Symbol | Signature | Contract |
 | --- | --- | --- |
-| `version` | `string` | Ordered configuration contract version. |
-| `parse_json(data)` | `config value` | Parses bounded JSON while preserving object order and number spelling. |
+| `version` | `string` | Bounded JSON utility contract version. |
+| `parse(data)` | `config value` | Parses bounded RFC 8259 JSON while preserving object order and number spelling. |
+| `parse_json(data)` | `config value` | Compatibility alias for `parse`. |
+| `valid(data)` | `bool` | Checks one complete bounded JSON value. |
+| `stringify(value)` | `list<byte>` | Emits compact JSON in object insertion order. |
+| `pretty(value[, indent])` | `list<byte>` | Emits bounded human-readable JSON. |
+| `canonicalize(value)` | `list<byte>` | Emits the supported finite-number RFC 8785 canonical form. |
+| `pointer_get(value, pointer)` | `config value` | Reads a detached value using RFC 6901. |
+| `pointer_set(value, pointer, replacement)` | `config value` | Adds or replaces a detached value using RFC 6901. |
+| `pointer_remove(value, pointer)` | `config value` | Removes a detached member using RFC 6901. |
+| `patch(document, operations)` | `config value` | Applies RFC 6902 add/remove/replace/move/copy/test operations transactionally. |
+| `merge_patch(document, patch)` | `config value` | Applies RFC 7396 recursive merge semantics. |
 | `parse_properties(data)` | `config value` | Parses the deterministic human-authored properties subset. |
 | `validate(value, schema)` | `bool` | Validates against the bounded schema map; host validation retains paths. |
 | `schema_property_names(schema)` | `list<string>` | Returns schema property names in deterministic order. |
 
-The host functions are `Task120ParseJSONConfig`,
-`Task120ParseJSONConfigStream`, `Task120ParsePropertiesConfig`,
-`Task120ValidateConfig`, and `Task120SchemaPropertyNames`.
-`Task120ConfigValue` is null, boolean, number, string, array, or ordered
-object. `Task120ConfigLimits` bounds bytes, depth, nodes, string bytes, and
-object fields. Duplicate JSON keys are invalid. `Task120ConfigSchema` supports
-`type`, `required`, properties, `items`, additional-property policy, and
-min/max item, property, and string-length bounds. Validation returns stable
-`Task120ConfigError{Path, Code, Message}` records such as
-`$["items"][0]`.
+The host functions are `Task120JSONParse`, `Task120JSONStreamParse`,
+`Task120JSONValidate`, `Task120JSONValid`, `Task120JSONStringify`,
+`Task120JSONPretty`, `Task120JSONPrettyIndent`, `Task120JSONCanonicalize`,
+`Task120JSONPointerGet`, `Task120JSONPointerSet`, `Task120JSONPointerRemove`,
+`Task120ApplyJSONPatch`, and `Task120ApplyJSONMergePatch`. `Task120ConfigValue`
+is null, boolean, number, string, array, or ordered object. `Task120JSONLimits`
+bounds bytes, depth, nodes, string bytes, object fields, pointer tokens, patch
+operations, and output bytes. Duplicate JSON keys are invalid. JSON Pointer
+follows RFC 6901, JSON Patch follows RFC 6902, Merge Patch follows RFC 7396,
+and canonicalization implements the documented finite-number subset of RFC
+8785. `Task120ConfigSchema` supports `type`, `required`, properties, `items`,
+additional-property policy, and min/max item, property, and string-length
+bounds. Validation returns stable `Task120ConfigError{Path, Code, Message}`
+records such as `$["items"][0]`.
+
+`std/config` remains registered as a deprecated compatibility alias for the
+original properties/configuration surface. It is intentionally not the
+canonical JSON module and new source should import `std/json`.
 
 ## `std/i18n`
 

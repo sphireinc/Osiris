@@ -3032,9 +3032,9 @@
       "summary": "Bounded deterministic compression and safe archive operations."
     },
     {
-      "id": "config",
-      "title": "std/config",
-      "summary": "Ordered bounded configuration parsing and validation."
+      "id": "json",
+      "title": "std/json",
+      "summary": "Canonical bounded JSON parsing, properties compatibility, schema introspection, and validation. `std/config` remains a deprecated compatibility alias."
     },
     {
       "id": "i18n",

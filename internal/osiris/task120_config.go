@@ -86,7 +86,7 @@ func (v Task120ConfigValue) MarshalJSON() ([]byte, error) {
 		}
 		return []byte("false"), nil
 	case Task120ConfigNumber:
-		if v.Number == "" || !json.Valid([]byte(v.Number)) || strings.ContainsAny(v.Number, "{}[]\"") {
+		if !task120JSONNumberValid(v.Number) {
 			return nil, fmt.Errorf("%w: invalid config number", ErrTask120Invalid)
 		}
 		return []byte(v.Number), nil
@@ -238,6 +238,9 @@ func Task120ParseJSONConfig(ctx context.Context, data []byte, limits Task120Conf
 	if int64(len(data)) > limits.MaxBytes {
 		return Task120ConfigValue{}, task120LimitError("config parse", "input bytes", int64(len(data)), limits.MaxBytes)
 	}
+	if !utf8.Valid(data) {
+		return Task120ConfigValue{}, fmt.Errorf("config parse: %w: input is not valid UTF-8", ErrTask120Invalid)
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	d := &task120JSONDecoder{limits: limits}
@@ -261,7 +264,11 @@ func Task120ParseJSONConfigStream(ctx context.Context, src io.Reader, limits Tas
 		return Task120ConfigValue{}, fmt.Errorf("config parse: %w: nil source", ErrTask120Invalid)
 	}
 	limits = limits.normalized()
-	data, err := io.ReadAll(io.LimitReader(&task120ContextReader{ctx: ctx, r: src}, limits.MaxBytes+1))
+	readLimit := limits.MaxBytes
+	if readLimit < int64(^uint64(0)>>1) {
+		readLimit++
+	}
+	data, err := io.ReadAll(io.LimitReader(&task120ContextReader{ctx: ctx, r: src}, readLimit))
 	if err != nil {
 		return Task120ConfigValue{}, fmt.Errorf("config stream: %w", err)
 	}
@@ -275,6 +282,9 @@ func Task120ParsePropertiesConfig(ctx context.Context, data []byte, limits Task1
 	limits = limits.normalized()
 	if int64(len(data)) > limits.MaxBytes {
 		return Task120ConfigValue{}, task120LimitError("properties parse", "input bytes", int64(len(data)), limits.MaxBytes)
+	}
+	if !utf8.Valid(data) {
+		return Task120ConfigValue{}, fmt.Errorf("properties parse: %w: input is not valid UTF-8", ErrTask120Invalid)
 	}
 	root := Task120ConfigValue{Kind: Task120ConfigObject}
 	seen := map[string]struct{}{}

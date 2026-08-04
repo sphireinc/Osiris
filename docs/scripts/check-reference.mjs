@@ -20,6 +20,7 @@ const lexerSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris
 const valueSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'value.go'), 'utf8');
 const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'main.go'), 'utf8');
 const task120Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_stdlib.go'), 'utf8');
+const task120JSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_json_stdlib.go'), 'utf8');
 const task121Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task121_stdlib.go'), 'utf8');
 const task122Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task122_stdlib.go'), 'utf8');
 
@@ -141,6 +142,7 @@ function wrapperExports(source, functionName) {
 stdlibTables.push([task120Source, 'std/regex', wrapperExports(task120Source, 'task120RegexModule')]);
 stdlibTables.push([task120Source, 'std/compress', [...new Set([...wrapperExports(task120Source, 'task120CompressionModule'), ...wrapperExports(task120Source, 'task120ArchiveModule')])]]);
 stdlibTables.push([task120Source, 'std/config', wrapperExports(task120Source, 'task120ConfigModule')]);
+stdlibTables.push([task120JSONSource, 'std/json', wrapperExports(task120JSONSource, 'task120JSONModule')]);
 stdlibTables.push([task120Source, 'std/i18n', wrapperExports(task120Source, 'task120I18nModule')]);
 stdlibTables.push([task121Source, 'std/db', wrapperExports(task121Source, 'task121DatabaseModule')]);
 stdlibTables.push([task122Source, 'std/telemetry', wrapperExports(task122Source, 'task122TelemetryModule')]);
@@ -220,7 +222,7 @@ for (const section of constants.global.sections) {
 const specialFormBlock = runtimeSource.slice(runtimeSource.indexOf('func specialFormName'), runtimeSource.indexOf('func builtinHasTaskEffect'));
 const specialForms = [...specialFormBlock.matchAll(/case ([^:]+):/g)].flatMap((line) => [...line[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
 const technicalIndexes = technical.sections.find((section) => section.id === 'surface-indexes')?.indexes || [];
-for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os', 'std/regex', 'std/compress', 'std/config', 'std/i18n', 'std/db', 'std/telemetry']) {
+for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os', 'std/regex', 'std/compress', 'std/config', 'std/json', 'std/i18n', 'std/db', 'std/telemetry']) {
 	const index = technicalIndexes.find((candidate) => candidate.title === `${moduleName} exports`);
 	const documented = index?.source ? technical[index.source] : index?.items || [];
 	const implemented = moduleName === 'std/os' ? implementedStdOSExports : implementedStdlibExports.get(moduleName) || [];

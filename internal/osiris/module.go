@@ -512,11 +512,20 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
+	case "std/json":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, task120JSONModule()), nil
 	case "std/config":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
+		// Compatibility alias for the original task-120 configuration parser.
+		// New code should import std/json; properties parsing remains available
+		// here until a dedicated configuration format module is introduced.
 		return makeModule(name, version, task120ConfigModule()), nil
 	case "std/i18n":
 		version := "1.0.0"

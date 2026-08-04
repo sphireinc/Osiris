@@ -8,7 +8,7 @@ import (
 func TestTask120To122LanguageModulesInterpreterAndVM(t *testing.T) {
 	source := `import "std/regex" as regex
 import "std/compress" as compress
-import "std/config" as config
+import "std/json" as json
 import "std/i18n" as i18n
 import "std/db" as db
 import "std/telemetry" as telemetry
@@ -21,7 +21,7 @@ emit db.next(rows)
 emit telemetry.info("module smoke", "task-120-122")
 emit regex.is_match("a+", "aaa")
 emit compress.gunzip(compress.gzip([1u8, 2u8]))
-emit config.parse_json([123u8, 34u8, 120u8, 34u8, 58u8, 49u8, 125u8])
+emit json.parse([123u8, 34u8, 120u8, 34u8, 58u8, 49u8, 125u8])
 emit i18n.format_number("en-US", 1234.5)
 emit db.values(rows)
 emit telemetry.dropped()
@@ -46,5 +46,21 @@ emit telemetry.dropped()
 				t.Fatalf("module outputs = %#v", values)
 			}
 		})
+	}
+}
+
+func TestTask120ConfigCompatibilityModule(t *testing.T) {
+	source := `import "std/config" as config
+emit config.parse_json([123u8, 34u8, 120u8, 34u8, 58u8, 49u8, 125u8])`
+	program, err := Parse("<task-120-config-compatibility>", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := NewRuntime().Run(context.Background(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 {
+		t.Fatalf("compatibility outputs = %#v", values)
 	}
 }

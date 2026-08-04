@@ -57,9 +57,11 @@ deterministic locale-aware formatting.
   bounded RE2 regex, deterministic gzip/zlib, safe USTAR archives, ordered
   JSON/properties parsing, path-aware schema validation, and embedded locale
   formatting.
-- `std/regex`, `std/compress`, `std/config`, and `std/i18n` are registered in
+- `std/regex`, `std/compress`, `std/json`, and `std/i18n` are registered in
   `internal/osiris/module.go`; interpreter and VM coverage is in
   `internal/osiris/task120_123_stdlib_test.go`.
+- `std/config` remains a deprecated compatibility alias for the original
+  configuration parser.
 - Granular API documentation is in
   `AGENT/docs/design/TASK-120-REGEX-COMPRESSION-CONFIG-I18N.md` and
   `docs/src/std-task-reference.js`. The documentation checker verifies every
