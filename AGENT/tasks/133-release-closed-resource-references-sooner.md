@@ -26,4 +26,9 @@
   7. Consider lazy stream buffers and post-close reference detachment.
 
   Validation should use the existing TCP parity/cancellation tests plus new race tests, allocation benchmarks, and repeated canceled-operation stress. The current worktree contains
-  unrelated modifications, including internal/osiris/runtime.go, session.go, and value.go; none were changed during this analysis.
+ unrelated modifications, including internal/osiris/runtime.go, session.go, and value.go; none were changed during this analysis.
+## Completion evidence
+
+- Close now establishes the closed state under the write ownership lock, flushes safely, detaches connection/file/reader/writer/closer/handle and scratch references, and then releases the underlying resources.
+- The lock order prevents close/write deadlock; scratch detachment has its own synchronization so concurrent reads remain race-free.
+- Focused close, transfer, and race tests pass.

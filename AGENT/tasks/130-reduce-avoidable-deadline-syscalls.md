@@ -38,4 +38,9 @@
   - no deadline watcher/reset work for contexts that have neither cancellation nor a deadline.
 
   The default NoDelay and KeepAlive settings also cause socket option syscalls on every endpoint. Whether those should remain explicit defaults or be delegated to platform defaults
-  needs benchmark and compatibility evidence before changing.
+ needs benchmark and compatibility evidence before changing.
+## Completion evidence
+
+- Socket configuration is validated once and applied through the validated path; dial and accept no longer repeat configuration validation.
+- Operations with no context deadline take a direct path without deadline syscalls. Cancellation-only operations install only a cancellation callback; deadline contexts use the one effective deadline and restore it afterward.
+- Focused deadline, TCP, and race tests pass.

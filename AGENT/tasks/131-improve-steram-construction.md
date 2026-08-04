@@ -22,4 +22,9 @@
   design could reduce connection setup allocations, but it needs synchronization with readMu, writeMu, and close.
 
   SocketConfig.ReadBufferBytes controls the OS socket buffer through SetReadBuffer; it does not control the user-space bufio.Reader size. If larger buffered reads are desired,
-  introduce an explicit user-space buffer setting rather than silently reusing the OS buffer field.
+ introduce an explicit user-space buffer setting rather than silently reusing the OS buffer field.
+## Completion evidence
+
+- TCP stream construction snapshots the remote address once and stores the configured write batch size.
+- TCP readers and writers are created lazily, avoiding unused buffer allocations for read-only or write-only connections while preserving explicit batch sizing.
+- Focused construction, transfer, and race tests pass.

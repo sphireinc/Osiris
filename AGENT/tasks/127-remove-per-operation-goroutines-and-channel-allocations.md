@@ -38,4 +38,9 @@
   - BenchmarkTCPLoopbackRoundTrip64KiB
   - TestTCPCancellationTimeoutAndStructuredErrors
 
-  Add allocation and goroutine-count assertions around the context.Background() fast path.
+ Add allocation and goroutine-count assertions around the context.Background() fast path.
+## Completion evidence
+
+- Nil/background contexts now execute read and write operations directly.
+- Deadline contexts use the socket deadline path; cancellation-only contexts use `context.AfterFunc` to interrupt the socket without an operation-owned goroutine or pair of channels.
+- Focused network tests and race tests pass.

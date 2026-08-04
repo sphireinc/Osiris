@@ -45,6 +45,11 @@
      The close contract needs to be explicit: graceful flush with a bounded cancellation path, or immediate connection shutdown followed by best-effort buffer cleanup.
 
   3. closeTCPListenerValue checks listener.listener == nil under one lock and then calls (*tcpListener).close, which locks again. The state can change between the check and the
-     close.
+    close.
+## Completion evidence
+
+- Replaced accept cancellation channels with deadline-backed cancellation and closes an accepted connection if cancellation wins the ownership race.
+- Made listener close atomic and idempotent, added context-aware stream write, flush, and close paths, and preserved cancellation error classification.
+- Added concurrent listener-close and blocked-flush tests; focused package and race tests pass.
 
      Refactor closeTCPListenerValue and (*tcpListener).close into one atomic idempotent close operation that returns whether this caller performed the close.

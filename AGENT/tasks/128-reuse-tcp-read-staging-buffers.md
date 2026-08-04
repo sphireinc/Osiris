@@ -23,4 +23,9 @@
   - avoid retaining an accidentally huge buffer indefinitely.
 
   transferToContext separately allocates a 32 KiB buffer per transfer invocation. That buffer is a good candidate for a bounded pool, provided the pool does not retain unbounded
-  user-controlled sizes.
+ user-controlled sizes.
+## Completion evidence
+
+- Added a bounded per-stream scratch buffer for reads up to 64 KiB; larger reads remain one-shot allocations and are not retained.
+- Added a bounded pooled 32 KiB transfer buffer and retained the required owned `[]Value` result conversion.
+- Added close/read race coverage and passed focused package and race tests.

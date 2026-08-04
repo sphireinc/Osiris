@@ -12,20 +12,27 @@ import (
 )
 
 type streamValue struct {
-	mu      sync.Mutex
-	readMu  sync.Mutex
-	writeMu sync.Mutex
-	id      string
-	path    string
-	mode    string
-	file    *os.File
-	conn    net.Conn
-	reader  *bufio.Reader
-	writer  *bufio.Writer
-	closer  io.Closer
-	stdFile *stdOSFileHandle
-	closed  bool
+	mu         sync.Mutex
+	readMu     sync.Mutex
+	writeMu    sync.Mutex
+	id         string
+	path       string
+	mode       string
+	file       *os.File
+	conn       net.Conn
+	reader     *bufio.Reader
+	writer     *bufio.Writer
+	closer     io.Closer
+	stdFile    *stdOSFileHandle
+	closed     bool
+	scratchMu  sync.Mutex
+	scratch    []byte
+	writeBatch int
 }
+
+const streamScratchMax = 64 << 10
+
+var streamTransferBufferPool = sync.Pool{New: func() any { return make([]byte, 32<<10) }}
 
 // openReadStream opens a readable file stream for chunked and line-oriented
 // reads. The returned handle stays valid until close is called, and repeated
@@ -435,7 +442,7 @@ func (s *streamValue) readChunk(n int) (Value, error) {
 	if n == 0 {
 		return listValue(nil), nil
 	}
-	buf := make([]byte, n)
+	buf := s.readScratch(n)
 	read, err := reader.Read(buf)
 	if err != nil && err != io.EOF {
 		return nullValue(), filesystemHostFailure("readchunk", path, err)
@@ -448,6 +455,20 @@ func (s *streamValue) readChunk(n int) (Value, error) {
 		out[i] = uintValue(uint64(buf[i]), 8)
 	}
 	return listValue(out), nil
+}
+
+func (s *streamValue) readScratch(size int) []byte {
+	s.scratchMu.Lock()
+	defer s.scratchMu.Unlock()
+	if size <= cap(s.scratch) && size <= streamScratchMax {
+		s.scratch = s.scratch[:size]
+		return s.scratch
+	}
+	if size <= streamScratchMax {
+		s.scratch = make([]byte, size)
+		return s.scratch
+	}
+	return make([]byte, size)
 }
 
 // readChunkValue reads up to n bytes from an Osiris stream handle and returns
@@ -536,7 +557,7 @@ func (s *streamValue) readChunkContext(ctx context.Context, n int) (Value, error
 	if err != nil {
 		return nullValue(), err
 	}
-	buf := make([]byte, n)
+	buf := s.readScratch(n)
 	read, err := readTCPContext(ctx, conn, func() (int, error) { return reader.Read(buf) })
 	if err != nil && err != io.EOF {
 		return nullValue(), err
@@ -558,9 +579,31 @@ func (s *streamValue) tcpReader() (*bufio.Reader, net.Conn, error) {
 		return nil, nil, err
 	}
 	if s.reader == nil || s.conn == nil {
-		return nil, nil, fmt.Errorf("stream %s is not a readable TCP stream", s.path)
+		if s.conn == nil {
+			return nil, nil, fmt.Errorf("stream %s is not a readable TCP stream", s.path)
+		}
+		s.reader = bufio.NewReader(s.conn)
 	}
 	return s.reader, s.conn, nil
+}
+
+func (s *streamValue) tcpWriter() (*bufio.Writer, net.Conn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return nil, nil, err
+	}
+	if s.conn == nil {
+		return nil, nil, fmt.Errorf("stream %s is not a writable TCP stream", s.path)
+	}
+	if s.writer == nil {
+		batch := s.writeBatch
+		if batch <= 0 {
+			batch = 4096
+		}
+		s.writer = bufio.NewWriterSize(s.conn, batch)
+	}
+	return s.writer, s.conn, nil
 }
 
 func readTCPContext[T any](ctx context.Context, conn net.Conn, read func() (T, error)) (T, error) {
@@ -577,19 +620,17 @@ func readTCPContext[T any](ctx context.Context, conn net.Conn, read func() (T, e
 		}
 		defer conn.SetReadDeadline(time.Time{})
 	}
-	done := make(chan struct{})
-	stopped := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.SetReadDeadline(time.Now())
-		case <-done:
-		}
-		close(stopped)
-	}()
+	if ctx.Done() == nil {
+		return read()
+	}
+	var stop func() bool
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		stop = context.AfterFunc(ctx, func() { _ = conn.SetReadDeadline(time.Now()) })
+	}
 	value, err := read()
-	close(done)
-	<-stopped
+	if stop != nil {
+		stop()
+	}
 	if contextErr := socketContextError(ctx, err); contextErr != nil {
 		return zero, contextErr
 	}
@@ -612,6 +653,7 @@ func (s *streamValue) transferToContext(ctx context.Context, destination *stream
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	var err error
 	s.readMu.Lock()
 	defer s.readMu.Unlock()
 	destination.writeMu.Lock()
@@ -623,6 +665,12 @@ func (s *streamValue) transferToContext(ctx context.Context, destination *stream
 	}
 	reader, sourceConn, sourcePath := s.reader, s.conn, s.path
 	s.mu.Unlock()
+	if reader == nil && sourceConn != nil {
+		reader, sourceConn, err = s.tcpReader()
+		if err != nil {
+			return 0, err
+		}
+	}
 	destination.mu.Lock()
 	if err := destination.ensureOpen(); err != nil {
 		destination.mu.Unlock()
@@ -630,13 +678,20 @@ func (s *streamValue) transferToContext(ctx context.Context, destination *stream
 	}
 	writer, destinationConn, destinationPath := destination.writer, destination.conn, destination.path
 	destination.mu.Unlock()
+	if writer == nil && destinationConn != nil {
+		writer, destinationConn, err = destination.tcpWriter()
+		if err != nil {
+			return 0, err
+		}
+	}
 	if reader == nil {
 		return 0, fmt.Errorf("stream %s is not readable", sourcePath)
 	}
 	if writer == nil {
 		return 0, fmt.Errorf("stream %s is not writable", destinationPath)
 	}
-	buffer := make([]byte, 32<<10)
+	buffer := streamTransferBufferPool.Get().([]byte)
+	defer streamTransferBufferPool.Put(buffer[:32<<10])
 	var copied int64
 	for limit < 0 || copied < limit {
 		if err := ctx.Err(); err != nil {
@@ -737,18 +792,17 @@ func writeTCPContext[T any](ctx context.Context, conn net.Conn, write func() (T,
 		}
 		defer conn.SetWriteDeadline(time.Time{})
 	}
-	done, stopped := make(chan struct{}), make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = conn.SetWriteDeadline(time.Now())
-		case <-done:
-		}
-		close(stopped)
-	}()
+	if ctx.Done() == nil {
+		return write()
+	}
+	var stop func() bool
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		stop = context.AfterFunc(ctx, func() { _ = conn.SetWriteDeadline(time.Now()) })
+	}
 	value, err := write()
-	close(done)
-	<-stopped
+	if stop != nil {
+		stop()
+	}
 	if ctx.Err() != nil {
 		return zero, ctx.Err()
 	}
@@ -760,12 +814,30 @@ func writeTCPContext[T any](ctx context.Context, conn net.Conn, write func() (T,
 // incremental output behavior so large results can be streamed without holding
 // the entire payload in memory.
 func (s *streamValue) writeChunk(v Value) (Value, error) {
+	return s.writeChunkContext(context.Background(), v)
+}
+
+func (s *streamValue) writeChunkContext(ctx context.Context, v Value) (Value, error) {
 	if s == nil {
 		return nullValue(), filesystemFailure(ErrorKindType, "writechunk", "", "writechunk expects a stream", nil)
 	}
-	data, err := bytesFromValue(v)
-	if err != nil {
-		return nullValue(), filesystemFailure(ErrorKindType, "writechunk", s.path, "writechunk expects byte-compatible data", nil)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nullValue(), err
+	}
+	var data []byte
+	var text string
+	var err error
+	isText := v.kind == kindString
+	if isText {
+		text = v.str
+	} else {
+		data, err = bytesFromValue(v)
+		if err != nil {
+			return nullValue(), filesystemFailure(ErrorKindType, "writechunk", s.path, "writechunk expects byte-compatible data", nil)
+		}
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -774,14 +846,37 @@ func (s *streamValue) writeChunk(v Value) (Value, error) {
 		s.mu.Unlock()
 		return nullValue(), err
 	}
-	writer := s.writer
+	writer, conn := s.writer, s.conn
 	path := s.path
 	s.mu.Unlock()
+	if writer == nil && conn != nil {
+		writer, conn, err = s.tcpWriter()
+		if err != nil {
+			return nullValue(), err
+		}
+	}
 	if writer == nil {
 		return nullValue(), filesystemFailure(ErrorKindUnsupported, "writechunk", path, "writechunk requires a writable stream", nil)
 	}
-	n, err := writer.Write(data)
+	var n int
+	if conn != nil {
+		n, err = writeTCPContext(ctx, conn, func() (int, error) {
+			if isText {
+				return writer.WriteString(text)
+			}
+			return writer.Write(data)
+		})
+	} else {
+		if isText {
+			n, err = writer.WriteString(text)
+		} else {
+			n, err = writer.Write(data)
+		}
+	}
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nullValue(), ctxErr
+		}
 		return nullValue(), filesystemHostFailure("writechunk", path, err)
 	}
 	return uintValue(uint64(n), 64), nil
@@ -800,11 +895,27 @@ func writeChunkValue(args []Value) (Value, error) {
 	return stream.writeChunk(args[1])
 }
 
+func writeChunkContextValue(ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 2 {
+		return nullValue(), fmt.Errorf("writechunk expects 2 arguments")
+	}
+	stream, err := args[0].AsStream()
+	if err != nil {
+		return nullValue(), err
+	}
+	return stream.writeChunkContext(ctx, args[1])
+}
+
 // flush writes any buffered output to the underlying file descriptor.
 func (s *streamValue) flush() (Value, error) {
+	return s.flushContext(context.Background())
+}
+
+func (s *streamValue) flushContext(ctx context.Context) (Value, error) {
 	if s == nil {
 		return nullValue(), filesystemFailure(ErrorKindType, "flush", "", "flush expects a stream", nil)
 	}
+	var err error
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	s.mu.Lock()
@@ -812,12 +923,26 @@ func (s *streamValue) flush() (Value, error) {
 		s.mu.Unlock()
 		return nullValue(), err
 	}
-	writer := s.writer
+	writer, conn := s.writer, s.conn
 	s.mu.Unlock()
+	if writer == nil && conn != nil {
+		writer, conn, err = s.tcpWriter()
+		if err != nil {
+			return nullValue(), err
+		}
+	}
 	if writer == nil {
 		return boolValue(true), nil
 	}
-	if err := writer.Flush(); err != nil {
+	if conn != nil {
+		_, err = writeTCPContext(ctx, conn, func() (struct{}, error) { return struct{}{}, writer.Flush() })
+	} else {
+		err = writer.Flush()
+	}
+	if err != nil {
+		if ctx != nil && ctx.Err() != nil {
+			return nullValue(), ctx.Err()
+		}
 		return nullValue(), filesystemHostFailure("flush", s.path, err)
 	}
 	return boolValue(true), nil
@@ -835,28 +960,74 @@ func flushStreamValue(args []Value) (Value, error) {
 	return stream.flush()
 }
 
+func flushStreamContextValue(ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("flush expects 1 argument")
+	}
+	stream, err := args[0].AsStream()
+	if err != nil {
+		return nullValue(), err
+	}
+	return stream.flushContext(ctx)
+}
+
 // close releases the underlying file descriptor. The handle remains printable
 // after close, but further read or write operations will fail.
 func (s *streamValue) close() (Value, error) {
+	return s.closeContext(context.Background())
+}
+
+func (s *streamValue) closeContext(ctx context.Context) (Value, error) {
 	if s == nil {
 		return boolValue(false), filesystemFailure(ErrorKindType, "close", "", "close expects a stream", nil)
 	}
+	// Writers acquire writeMu before inspecting the stream state. Close uses
+	// the same order so a concurrent write cannot hold writeMu while waiting
+	// for mu as close waits for writeMu; that ordering would deadlock.
+	s.writeMu.Lock()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
+		s.writeMu.Unlock()
 		return boolValue(false), nil
 	}
 	s.closed = true
 	writer, file, conn, closer, path := s.writer, s.file, s.conn, s.closer, s.path
 	s.closer = nil
+	s.writer = nil
+	s.reader = nil
+	s.file = nil
+	s.conn = nil
+	s.stdFile = nil
+	s.scratchMu.Lock()
+	s.scratch = nil
+	s.scratchMu.Unlock()
 	s.mu.Unlock()
 	var firstErr error
+	var stopClose func() bool
+	if conn != nil && ctx != nil && ctx.Done() != nil {
+		stopClose = context.AfterFunc(ctx, func() { _ = conn.Close() })
+	}
 	if writer != nil {
-		s.writeMu.Lock()
-		if err := writer.Flush(); err != nil {
-			firstErr = filesystemHostFailure("close", path, err)
+		var err error
+		if conn != nil {
+			_, err = writeTCPContext(ctx, conn, func() (struct{}, error) { return struct{}{}, writer.Flush() })
+		} else {
+			err = writer.Flush()
 		}
-		s.writeMu.Unlock()
+		if err != nil {
+			if ctx != nil && ctx.Err() != nil {
+				firstErr = ctx.Err()
+			} else {
+				firstErr = filesystemHostFailure("close", path, err)
+			}
+		}
+	}
+	if stopClose != nil {
+		stopClose()
+	}
+	if ctx != nil && ctx.Err() != nil && firstErr == nil {
+		firstErr = ctx.Err()
 	}
 	if file != nil {
 		if err := file.Close(); err != nil {
@@ -878,8 +1049,10 @@ func (s *streamValue) close() (Value, error) {
 		}
 	}
 	if firstErr != nil {
+		s.writeMu.Unlock()
 		return nullValue(), firstErr
 	}
+	s.writeMu.Unlock()
 	return boolValue(true), nil
 }
 
@@ -893,6 +1066,17 @@ func closeStreamValue(args []Value) (Value, error) {
 		return nullValue(), err
 	}
 	return stream.close()
+}
+
+func closeStreamContextValue(ctx context.Context, args []Value) (Value, error) {
+	if len(args) != 1 {
+		return nullValue(), fmt.Errorf("close expects 1 argument")
+	}
+	stream, err := args[0].AsStream()
+	if err != nil {
+		return nullValue(), err
+	}
+	return stream.closeContext(ctx)
 }
 
 // ensureOpen validates that the stream has not already been closed.

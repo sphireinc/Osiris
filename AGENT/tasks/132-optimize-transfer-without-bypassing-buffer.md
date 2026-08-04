@@ -25,4 +25,9 @@
   - align the writer buffer and transfer buffer for explicit bulk configurations;
   - benchmark against the existing 64 KiB bulk benchmark.
 
-  Do not replace the buffered reader blindly with raw net.Conn.Read.
+ Do not replace the buffered reader blindly with raw net.Conn.Read.
+## Completion evidence
+
+- Transfer initializes lazy TCP readers and writers before borrowing them, keeps buffered-reader ownership intact, and uses a bounded pooled staging buffer.
+- Every write remains behind the destination buffered writer, and the final flush remains cancellation-aware; no raw connection bypass was introduced.
+- Focused transfer and race tests pass.

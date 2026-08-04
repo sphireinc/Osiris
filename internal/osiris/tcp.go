@@ -1,7 +1,6 @@
 package osiris
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -74,6 +73,10 @@ func (config SocketConfig) apply(connection *net.TCPConn) error {
 	if err := config.validate(); err != nil {
 		return err
 	}
+	return config.applyValidated(connection)
+}
+
+func (config SocketConfig) applyValidated(connection *net.TCPConn) error {
 	if config.NoDelay != nil {
 		if err := connection.SetNoDelay(*config.NoDelay); err != nil {
 			return err
@@ -133,17 +136,22 @@ func (l *tcpListener) address() string {
 }
 
 func (l *tcpListener) close() error {
+	_, err := l.closeOnce()
+	return err
+}
+
+func (l *tcpListener) closeOnce() (bool, error) {
 	if l == nil {
-		return nil
+		return false, nil
 	}
 	l.mu.Lock()
 	listener := l.listener
 	l.listener = nil
 	l.mu.Unlock()
 	if listener == nil {
-		return nil
+		return false, nil
 	}
-	return listener.Close()
+	return true, listener.Close()
 }
 
 func (l *tcpListener) accept(timeoutMS int) (*streamValue, error) {
@@ -193,7 +201,7 @@ func (l *tcpListener) acceptContextWithConfig(ctx context.Context, timeoutMS int
 		}
 		return nil, err
 	}
-	return tcpStreamWithConfig(connection, config)
+	return tcpStreamWithValidatedConfig(connection, config)
 }
 
 func tcpDial(address string, timeoutMS int) (*streamValue, error) {
@@ -223,7 +231,7 @@ func tcpDialWithConfig(ctx context.Context, address string, config SocketConfig)
 	if err != nil {
 		return nil, err
 	}
-	return tcpStreamWithConfig(connection, config)
+	return tcpStreamWithValidatedConfig(connection, config)
 }
 
 func tcpStream(connection net.Conn) (*streamValue, error) {
@@ -235,8 +243,12 @@ func tcpStreamWithConfig(connection net.Conn, config SocketConfig) (*streamValue
 		_ = connection.Close()
 		return nil, err
 	}
+	return tcpStreamWithValidatedConfig(connection, config)
+}
+
+func tcpStreamWithValidatedConfig(connection net.Conn, config SocketConfig) (*streamValue, error) {
 	if concrete, ok := connection.(*net.TCPConn); ok {
-		if err := config.apply(concrete); err != nil {
+		if err := config.applyValidated(concrete); err != nil {
 			_ = connection.Close()
 			return nil, err
 		}
@@ -245,7 +257,8 @@ func tcpStreamWithConfig(connection net.Conn, config SocketConfig) (*streamValue
 	if batch == 0 {
 		batch = 4096
 	}
-	return &streamValue{id: connection.RemoteAddr().String(), path: connection.RemoteAddr().String(), mode: "tcp", conn: connection, reader: bufio.NewReader(connection), writer: bufio.NewWriterSize(connection, batch)}, nil
+	address := connection.RemoteAddr().String()
+	return &streamValue{id: address, path: address, mode: "tcp", conn: connection, writeBatch: batch}, nil
 }
 
 func tcpListenValue(args []Value) (Value, error) {
@@ -330,14 +343,12 @@ func closeTCPListenerValue(args []Value) (Value, error) {
 	if err != nil {
 		return nullValue(), err
 	}
-	listener.mu.Lock()
-	closed := listener.listener == nil
-	listener.mu.Unlock()
-	if closed {
-		return boolValue(false), nil
-	}
-	if err := listener.close(); err != nil {
+	closed, err := listener.closeOnce()
+	if err != nil {
 		return nullValue(), err
+	}
+	if !closed {
+		return boolValue(false), nil
 	}
 	return boolValue(true), nil
 }
@@ -354,26 +365,31 @@ func tcpDeadline(ctx context.Context, timeoutMS int) time.Time {
 }
 
 func acceptWithCancellation(ctx context.Context, listener *net.TCPListener, config SocketConfig) (*streamValue, error) {
-	done := make(chan struct{})
-	stopped := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = listener.SetDeadline(time.Now())
-		case <-done:
-		}
-		close(stopped)
-	}()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var stop func() bool
+	if ctx.Done() != nil {
+		stop = context.AfterFunc(ctx, func() { _ = listener.SetDeadline(time.Now()) })
+	}
 	connection, err := listener.Accept()
-	close(done)
-	<-stopped
+	if stop != nil {
+		stop()
+	}
 	if err != nil {
 		if contextErr := socketContextError(ctx, err); contextErr != nil {
 			return nil, contextErr
 		}
 		return nil, err
 	}
-	return tcpStreamWithConfig(connection, config)
+	if contextErr := ctx.Err(); contextErr != nil {
+		_ = connection.Close()
+		return nil, contextErr
+	}
+	return tcpStreamWithValidatedConfig(connection, config)
 }
 
 func socketContextError(ctx context.Context, err error) error {
