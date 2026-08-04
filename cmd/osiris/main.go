@@ -251,6 +251,7 @@ type testEvent struct {
 	DurationNS      int64                                `json:"duration_ns"`
 	Outputs         []string                             `json:"outputs,omitempty"`
 	Assertions      []osiris.LanguageTestAssertionResult `json:"assertions,omitempty"`
+	Logs            []string                             `json:"logs,omitempty"`
 	Location        osiris.LanguageTestLocation          `json:"location"`
 	Error           string                               `json:"error,omitempty"`
 	Coverage        *osiris.LanguageCoverageReport       `json:"coverage,omitempty"`
@@ -348,7 +349,7 @@ func runTests(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		message := result.ErrorText
 		if *jsonOut {
-			_ = json.NewEncoder(stdout).Encode(testEvent{SchemaVersion: 1, Event: "test", Name: result.Name, File: result.File, Backend: result.Backend, Status: status, Passed: result.Passed, Skipped: result.Skipped, ExpectedFailure: result.ExpectedFailure, UnexpectedPass: result.UnexpectedPass, DurationNS: result.DurationNS, Outputs: result.OutputStrings, Assertions: result.Assertions, Location: result.Location, Error: message, Coverage: result.Coverage, Benchmark: result.Benchmark, Artifacts: result.Artifacts})
+			_ = json.NewEncoder(stdout).Encode(testEvent{SchemaVersion: 1, Event: "test", Name: result.Name, File: result.File, Backend: result.Backend, Status: status, Passed: result.Passed, Skipped: result.Skipped, ExpectedFailure: result.ExpectedFailure, UnexpectedPass: result.UnexpectedPass, DurationNS: result.DurationNS, Outputs: result.OutputStrings, Assertions: result.Assertions, Logs: result.Logs, Location: result.Location, Error: message, Coverage: result.Coverage, Benchmark: result.Benchmark, Artifacts: result.Artifacts})
 		} else if message == "" {
 			fmt.Fprintf(stdout, "%s %s\n", status, result.Name)
 		} else {

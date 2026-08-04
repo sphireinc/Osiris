@@ -478,6 +478,12 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			"noise":  functionValueOf("std/crypto.noise", func(args []Value) (Value, error) { return builtinNoise(args) }),
 			"random": functionValueOf("std/crypto.random", seededRandomValue),
 		}), nil
+	case "std/testing":
+		version := "1.0.0"
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, languageTestingModule(rt)), nil
 	case "std/signal":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {

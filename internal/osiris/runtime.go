@@ -46,6 +46,7 @@ type Runtime struct {
 	processProvider  osProcessProvider
 	snapshotProvider osSnapshotProvider
 	stdOSTest        *stdOSTestState
+	languageTest     *languageTestState
 }
 
 // NewRuntime constructs a new runtime and wires together the internal caches,

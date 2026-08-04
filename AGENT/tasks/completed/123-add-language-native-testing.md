@@ -101,3 +101,9 @@ Granular workflow and CLI/API documentation is in
 entries in `docs/src/std-task-reference.js`. Focused tests, full repository
 tests, race-focused tests, vet/build, docs navigation/reference checks, and
 checked examples passed on 2026-08-02.
+
+The test-scoped `std/testing` API is also complete: `assert`, `assert_equal`,
+`error`, `errorf`, `fatal`, `fatalf`, `skip`, `skipf`, `log`, `logf`, `name`,
+and `failed` are implemented with deterministic result logs, structured
+assertions, and cleanup-aware fatal/skip control flow. Each symbol is listed
+individually in the public reference.

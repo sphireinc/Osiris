@@ -24,10 +24,10 @@ all recorded dependencies satisfied and is the next selection candidate.
 ## Current selection
 
 - **Active:** none.
-- **Ready:** tasks 115, 116, and 123 remain independently ready.
-- **Blocked:** tasks 117–122 and the remaining 126 memory-boundary work name their exact
-  prerequisite work in `tasks/index.tsv`.
-- **Complete:** tasks 001–049, 100–114, 124, 125, and 136 are complete.
+- **Ready:** task 134 is ready after the completed 110–114 type sequence.
+- **Blocked:** none of the indexed implementation tasks are blocked; future
+  work is selected from the ready queue and its recorded dependencies.
+- **Complete:** tasks 001–049, 100–126, 135, and 136 are complete.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a
@@ -45,6 +45,12 @@ all recorded dependencies satisfied and is the next selection candidate.
   reintroducing eager binding or per-iteration output into the arithmetic
   benchmarks. Task 109 completed the native integration target while retaining
   deferred task evaluation and the unchanged showcase fixture.
+
+The TCP optimization records 126–133 are under
+`tasks/completed/optimizations/`. They document the completed TCP lifecycle
+batch. Their numeric prefixes are retained for provenance, but are not added
+as separate index rows because the optimization record named 126 shares its
+prefix with the canonical unsafe-boundary task 126.
 
 ## General-purpose maturity sequence
 

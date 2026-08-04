@@ -49,8 +49,9 @@ their implementation, parity tests, and documentation evidence.
 
 ### Wave 9 - execution, resources, and interoperability
 
-115 and 116 are ready. Task 117 follows task 116 and implements the
-capability-gated FFI design from completed task 047.
+Tasks 115–117 are complete: backend parity, deterministic cleanup, and the
+capability-gated FFI design from task 047 have implementation and validation
+records under `completed/`.
 
 ### Wave 10 - application standard library
 
@@ -60,10 +61,15 @@ portable.
 
 ### Wave 11 - project ecosystem and IDE
 
-123 remains ready. Tasks 124, 125, and 136 are complete: repository-oriented
+Task 123 and tasks 124, 125, and 136 are complete: repository-oriented
 module resolution, workspace-aware IDE support, and Go-style colocated test
 discovery now have stable contracts. Task 124 uses GitHub as the first
 complete provider and keeps discovery separate from build resolution.
+
+Completed records are physically stored under `completed/`. The TCP
+optimization family 126–133 is nested under `completed/optimizations/` because
+its filenames overlap canonical task 126; this avoids an invalid duplicate ID
+in `index.tsv` while preserving every optimization record.
 
 ### Wave 12 - explicit low-level access
 

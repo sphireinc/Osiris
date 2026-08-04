@@ -380,6 +380,7 @@ func runLanguageTestCase(ctx context.Context, item *languageTestCase, options La
 			rt.GrantCapability(capability)
 		}
 	}
+	rt.languageTest = newLanguageTestState(item.name)
 	runFragment := func(source string, collectCoverage bool) languageExecution {
 		return executeLanguageFragment(caseCtx, item.file, source, backend, rt, collectCoverage)
 	}
@@ -410,6 +411,28 @@ func runLanguageTestCase(ctx context.Context, item *languageTestCase, options La
 	execution := runFragment(item.body, options.CoveragePath != "")
 	result.Outputs = execution.outputs
 	result.OutputStrings = execution.outputStrings
+	failed, skipped, control, controlMessage, logs, testAssertions := rt.languageTest.snapshot()
+	result.Logs = logs
+	for i := range testAssertions {
+		if testAssertions[i].Location.Source == "" {
+			testAssertions[i].Location = item.location
+		}
+	}
+	result.Assertions = append(result.Assertions, testAssertions...)
+	if control == "skip" || skipped {
+		result.Passed = true
+		result.Skipped = true
+		result.Status = "skip"
+		result.ErrorText = controlMessage
+		return
+	}
+	if control == "fatal" {
+		if controlMessage == "" {
+			controlMessage = "test stopped by fatal"
+		}
+		setLanguageTestFailure(result, fmt.Errorf("%s", controlMessage), item.location)
+		return
+	}
 	if execution.coverage != nil {
 		result.Coverage = execution.coverage
 		if options.CoveragePath != "" {
@@ -434,6 +457,10 @@ func runLanguageTestCase(ctx context.Context, item *languageTestCase, options La
 		result.Status = "unexpected_pass"
 		result.Passed = false
 		result.ErrorText = "expected failure passed"
+		return
+	}
+	if failed {
+		setLanguageTestFailure(result, fmt.Errorf("test %s reported a failure", item.name), item.location)
 		return
 	}
 	if err := checkLanguageAssertions(item, result.OutputStrings, result); err != nil {

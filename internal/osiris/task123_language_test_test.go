@@ -86,3 +86,41 @@ func TestTask123BenchmarkFuzzAndTimeoutAreBounded(t *testing.T) {
 		t.Fatalf("timeout = %#v, err = %v", timeoutResults, err)
 	}
 }
+
+func TestStdTestingContextFunctions(t *testing.T) {
+	source := `import "std/testing" as testing
+emit testing.log("starting")
+emit testing.logf("case: %v", 7)
+emit testing.assert(2 + 2 == 4, "arithmetic")
+emit testing.assert_equal("hello", "hello")
+emit testing.name()
+emit testing.failed()`
+	result := RunLanguageTestSource(context.Background(), "greetings.TestHelloName", source, LanguageTestOptions{Deterministic: true})
+	if !result.Passed || result.Status != "ok" {
+		t.Fatalf("success result = %#v, error = %v", result, result.Error)
+	}
+	if len(result.Logs) != 2 || result.Logs[0] != `"starting"` || result.Logs[1] != "case: 7u64" {
+		t.Fatalf("logs = %#v", result.Logs)
+	}
+
+	failure := RunLanguageTestSource(context.Background(), "greetings.TestFailure", `import "std/testing" as testing
+emit testing.errorf("got %q", "bad")
+emit testing.failed()`, LanguageTestOptions{})
+	if failure.Passed || failure.Status != "fail" || len(failure.Assertions) == 0 || failure.Assertions[0].Expression != "errorf" {
+		t.Fatalf("failure result = %#v, error = %v", failure, failure.Error)
+	}
+
+	skip := RunLanguageTestSource(context.Background(), "greetings.TestSkip", `import "std/testing" as testing
+emit testing.skipf("requires %v", "network")
+emit "unreachable"`, LanguageTestOptions{})
+	if !skip.Passed || !skip.Skipped || skip.Status != "skip" {
+		t.Fatalf("skip result = %#v, error = %v", skip, skip.Error)
+	}
+
+	fatal := RunLanguageTestSource(context.Background(), "greetings.TestFatal", `import "std/testing" as testing
+emit testing.fatal("stop")
+emit "unreachable"`, LanguageTestOptions{})
+	if fatal.Passed || fatal.Status != "fail" || fatal.ErrorText != `"stop"` {
+		t.Fatalf("fatal result = %#v, error = %v", fatal, fatal.Error)
+	}
+}

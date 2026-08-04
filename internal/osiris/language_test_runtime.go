@@ -122,6 +122,7 @@ type LanguageTestResult struct {
 	Outputs         []Value                       `json:"-"`
 	OutputStrings   []string                      `json:"outputs,omitempty"`
 	Assertions      []LanguageTestAssertionResult `json:"assertions,omitempty"`
+	Logs            []string                      `json:"logs,omitempty"`
 	Location        LanguageTestLocation          `json:"location"`
 	Error           error                         `json:"-"`
 	ErrorText       string                        `json:"error,omitempty"`
