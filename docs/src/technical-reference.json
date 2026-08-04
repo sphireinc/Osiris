@@ -1145,6 +1145,7 @@
             "map",
             "deps",
             "mod",
+            "get",
             "heap",
             "trace",
             "debug",
