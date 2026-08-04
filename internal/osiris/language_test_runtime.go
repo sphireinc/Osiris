@@ -168,7 +168,14 @@ func DiscoverLanguageTests(paths []string) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-			seen[filepath.Clean(path)] = struct{}{}
+			path = filepath.Clean(path)
+			if !isLanguageTestFile(path) {
+				if companion := colocatedTestFile(path); companion != "" {
+					seen[companion] = struct{}{}
+					continue
+				}
+			}
+			seen[path] = struct{}{}
 			continue
 		}
 		if err := filepath.WalkDir(raw, func(path string, entry os.DirEntry, walkErr error) error {
@@ -199,6 +206,44 @@ func DiscoverLanguageTests(paths []string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func isLanguageTestFile(path string) bool {
+	name := filepath.Base(path)
+	return strings.HasSuffix(name, "_test.osr") || strings.HasSuffix(name, ".test.osr")
+}
+
+// colocatedTestFile maps a production source file to its canonical sidecar,
+// retaining the *_test.osr spelling as a compatibility fallback. The returned
+// path is absolute and exists on disk.
+func colocatedTestFile(sourcePath string) string {
+	base := strings.TrimSuffix(sourcePath, filepath.Ext(sourcePath))
+	candidates := []string{base + ".test.osr", base + "_test.osr"}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			absolute, err := filepath.Abs(candidate)
+			if err == nil {
+				return filepath.Clean(absolute)
+			}
+		}
+	}
+	return ""
+}
+
+func colocatedSourceFile(testPath string) string {
+	base := testPath
+	if strings.HasSuffix(base, ".test.osr") {
+		base = strings.TrimSuffix(base, ".test.osr")
+	} else if strings.HasSuffix(base, "_test.osr") {
+		base = strings.TrimSuffix(base, "_test.osr")
+	} else {
+		return ""
+	}
+	source := base + ".osr"
+	if info, err := os.Stat(source); err == nil && !info.IsDir() {
+		return source
+	}
+	return ""
 }
 
 // DiscoverLanguageTestInventory parses declarations and returns their stable
@@ -284,6 +329,16 @@ func RunLanguageTests(ctx context.Context, paths []string, options LanguageTestO
 		if parseErr != nil {
 			all = append(all, languageTestCase{name: filepath.Base(file), file: file, body: string(source), parseErr: parseErr, location: languageTestLocation(file, 1, 1, 1, 1)})
 			continue
+		}
+		if sourceFile := colocatedSourceFile(file); sourceFile != "" {
+			production, err := os.ReadFile(sourceFile)
+			if err != nil {
+				return nil, err
+			}
+			prefix := string(production) + "\n"
+			for i := range cases {
+				cases[i].body = prefix + cases[i].body
+			}
 		}
 		for _, item := range cases {
 			if options.Filter != "" && !languageTestFilterMatch(options.Filter, item.name) {
