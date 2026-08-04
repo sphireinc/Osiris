@@ -2,7 +2,7 @@
 
 **Priority:** P2
 **Dependencies:** 036, 037, 041, 046
-**Status:** Ready
+**Status:** Complete
 
 ## Objective
 
@@ -128,3 +128,17 @@ language-level monopoly.
 - No central package-upload registry, mandatory discovery service, execution
   of dependency code during resolution, GitHub-only language grammar, or
   community-governance mandate.
+
+## Completion evidence
+
+- Implemented canonical repository module identities, provider-based GitHub
+  resolution, semantic tags, commit selectors, pseudo-versions, immutable
+  source-tree digests, and provider/provenance lock metadata.
+- Added `osiris.mod`, `osiris.work`, repository provider, workspace,
+  replacement, tidy/download/verify/audit/vendor, and CLI workflows while
+  retaining the existing local-module cache behavior.
+- Added deterministic fake provider fixtures and coverage for manifests,
+  repository imports, lock/cache verification, offline behavior, workspace
+  resolution, traversal rejection, and CLI workflows.
+- Verification: focused internal repository/module tests, focused CLI tests,
+  compile-only package tests, and `git diff --check` passed.

@@ -1,6 +1,7 @@
 package osiris
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -94,7 +95,7 @@ func (rt *Runtime) BuildDependencyReport(sourceName, src string) (DependencyRepo
 				continue
 			}
 			childRef, selector := splitModuleRef(imp.Path)
-			childKey, childSrc, childKind, err := rt.resolveDependencySource(childRef, ref)
+			childKey, childSrc, childKind, err := rt.resolveDependencySource(childRef, ref, selector)
 			if err != nil {
 				return err
 			}
@@ -136,12 +137,12 @@ func (rt *Runtime) BuildDependencyReport(sourceName, src string) (DependencyRepo
 //
 // It returns string, string, moduleKind, error so callers can continue with
 // the next stage of the pipeline without re-deriving the same information.
-func (rt *Runtime) resolveDependencySource(ref, base string) (string, string, moduleKind, error) {
+func (rt *Runtime) resolveDependencySource(ref, base, selector string) (string, string, moduleKind, error) {
 	if strings.HasPrefix(ref, "std/") {
 		return ref, "", moduleKindStdlib, nil
 	}
 	reg := rt.registryFor(base)
-	key, src, err := reg.materialize(ref, base)
+	key, src, err := reg.materializeContext(context.Background(), ref, base, selector)
 	if err != nil {
 		return "", "", 0, err
 	}

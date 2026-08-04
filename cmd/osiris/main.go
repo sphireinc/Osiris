@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -121,7 +123,7 @@ func classifyCLIExit(command string, err error) int {
 	switch command {
 	case "run", "vm", "test", "eval", "demo", "repl", "debug", "trace":
 		return cliExitRuntime
-	case "fmt", "opt", "ir", "ssa", "cfg", "dom", "loop", "c", "obj", "build", "compile", "infer", "alias", "pure", "closure", "viz", "wasm", "gpu", "map", "deps", "heap", "lsp":
+	case "fmt", "opt", "ir", "ssa", "cfg", "dom", "loop", "c", "obj", "build", "compile", "infer", "alias", "pure", "closure", "viz", "wasm", "gpu", "map", "deps", "get", "mod", "heap", "lsp":
 		return cliExitCompile
 	default:
 		return cliExitInternal
@@ -209,6 +211,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runMap(ctx, args[1:], stdout)
 	case "deps":
 		return runDeps(ctx, args[1:], stdout)
+	case "get":
+		return runGet(ctx, args[1:], stdout)
 	case "mod":
 		return runMod(ctx, args[1:], stdout)
 	case "heap":
@@ -1333,9 +1337,100 @@ func runDeps(ctx context.Context, args []string, stdout io.Writer) error {
 // does not expose manual lockfile editing.
 func runMod(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("mod expects sync or clean")
+		return fmt.Errorf("mod expects init, tidy, download, verify, sync, clean, graph, list, audit, vendor, or workspace")
 	}
 	action := args[0]
+	root := osiris.ModuleRootFor("")
+	jsonOut := false
+	for _, arg := range args[1:] {
+		if arg == "-json" || arg == "--json" {
+			jsonOut = true
+		}
+	}
+	switch action {
+	case "init":
+		modulePath := ""
+		if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+			modulePath = args[1]
+		}
+		if modulePath == "" {
+			return fmt.Errorf("mod init requires a canonical module path")
+		}
+		manifest, err := osiris.ModuleInit(root, modulePath)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			return json.NewEncoder(stdout).Encode(manifest)
+		}
+		_, err = fmt.Fprintf(stdout, "created %s for %s\n", osiris.ModuleManifestFile(), manifest.Module)
+		return err
+	case "tidy":
+		manifest, err := osiris.ModuleTidy(ctx, root)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			return json.NewEncoder(stdout).Encode(manifest)
+		}
+		_, err = fmt.Fprintf(stdout, "updated %s (%d requirements)\n", osiris.ModuleManifestFile(), len(manifest.Requirements))
+		return err
+	case "download":
+		if err := osiris.ModuleDownload(ctx, root); err != nil {
+			return err
+		}
+		if jsonOut {
+			return json.NewEncoder(stdout).Encode(map[string]any{"action": "download", "root": root, "verified": true})
+		}
+		_, err := fmt.Fprintf(stdout, "downloaded verified modules for %s\n", root)
+		return err
+	case "verify":
+		if err := osiris.ModuleVerify(root); err != nil {
+			return err
+		}
+		if jsonOut {
+			return json.NewEncoder(stdout).Encode(map[string]any{"action": "verify", "root": root, "verified": true})
+		}
+		_, err := fmt.Fprintf(stdout, "verified module cache for %s\n", root)
+		return err
+	case "graph":
+		return runModGraph(ctx, root, stdout, jsonOut)
+	case "list":
+		return runModList(root, stdout, jsonOut)
+	case "audit":
+		report, err := osiris.AuditModule(root)
+		if err != nil {
+			return err
+		}
+		if jsonOut {
+			data, err := osiris.EncodeModuleAudit(report)
+			if err != nil {
+				return err
+			}
+			_, err = stdout.Write(append(data, '\n'))
+			return err
+		}
+		for _, finding := range report.Findings {
+			fmt.Fprintf(stdout, "%s %s: %s\n", strings.ToUpper(finding.Severity), finding.Code, finding.Message)
+		}
+		if len(report.Findings) == 0 {
+			_, err := fmt.Fprintln(stdout, "module audit: clean")
+			return err
+		}
+		return nil
+	case "vendor":
+		destination := ""
+		if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+			destination = args[1]
+		}
+		if err := osiris.ModuleVendor(root, destination); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(stdout, "vendored verified modules into %s\n", destination)
+		return err
+	case "workspace":
+		return runModWorkspace(root, stdout, jsonOut)
+	}
 	if action == "sync" {
 		return runDeps(ctx, args[1:], stdout)
 	}
@@ -1354,6 +1449,119 @@ func runMod(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	_, err := fmt.Fprintf(stdout, "removed generated module state:\n  %s\n  %s\n", lockPath, cacheDir)
 	return err
+}
+
+func runGet(ctx context.Context, args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return fmt.Errorf("get requires module[@selector]")
+	}
+	jsonOut := false
+	spec := ""
+	for _, arg := range args {
+		if arg == "-json" || arg == "--json" {
+			jsonOut = true
+			continue
+		}
+		if spec != "" {
+			return fmt.Errorf("get accepts one module selector")
+		}
+		spec = arg
+	}
+	path, selector := splitGetSpec(spec)
+	root := osiris.ModuleRootFor("")
+	manifest, err := osiris.ModuleGet(root, path, selector)
+	if err != nil {
+		return err
+	}
+	if selector != "none" {
+		if err := osiris.ModuleDownload(ctx, root); err != nil {
+			return err
+		}
+	}
+	if jsonOut {
+		return json.NewEncoder(stdout).Encode(manifest)
+	}
+	if selector == "none" {
+		_, err = fmt.Fprintf(stdout, "removed %s from %s\n", path, osiris.ModuleManifestFile())
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "resolved %s@%s\n", path, selector)
+	return err
+}
+
+func splitGetSpec(spec string) (string, string) {
+	if i := strings.LastIndex(spec, "@"); i > 0 && i < len(spec)-1 {
+		return spec[:i], spec[i+1:]
+	}
+	return spec, "latest"
+}
+
+func runModList(root string, stdout io.Writer, jsonOut bool) error {
+	lockPath, _ := osiris.ModuleStatePaths(root)
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		_, err = stdout.Write(append(data, '\n'))
+		return err
+	}
+	var lock struct {
+		Modules map[string]struct{ Version, Commit, Provider string } `json:"modules"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		return err
+	}
+	paths := make([]string, 0, len(lock.Modules))
+	for path := range lock.Modules {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		entry := lock.Modules[path]
+		fmt.Fprintf(stdout, "%s %s %s %s\n", path, entry.Version, entry.Commit, entry.Provider)
+	}
+	return nil
+}
+
+func runModGraph(ctx context.Context, root string, stdout io.Writer, jsonOut bool) error {
+	manifest, err := osiris.LoadModuleManifest(root)
+	if err != nil {
+		return err
+	}
+	source := filepath.Join(root, manifest.Source)
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	report, err := osiris.NewRuntime().BuildDependencyReport(source, string(data))
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(report)
+	}
+	for _, ref := range report.Order {
+		fmt.Fprintln(stdout, ref)
+	}
+	_ = ctx
+	return nil
+}
+
+func runModWorkspace(root string, stdout io.Writer, jsonOut bool) error {
+	modules, err := osiris.WorkspaceModules(root)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		return json.NewEncoder(stdout).Encode(modules)
+	}
+	for _, manifest := range modules {
+		fmt.Fprintln(stdout, manifest.Module)
+	}
+	return nil
 }
 
 type debugBreakpoint struct {
@@ -1812,7 +2020,8 @@ func commandHelpRows() []commandHelpRow {
 		{"osiris lsp", "run the language server over stdio"},
 		{"osiris map [file]", "emit source maps for debugging and stepping"},
 		{"osiris deps [-json] [file]", "report module dependencies and cycles"},
-		{"osiris mod sync [file] | mod clean <file>", "create or remove generated module lock/cache state"},
+		{"osiris get module[@selector]", "add, update, or remove a repository module requirement"},
+		{"osiris mod init|tidy|download|verify|sync|clean|graph|list|audit|vendor|workspace", "manage manifests, workspaces, lockfiles, caches, and supply-chain state"},
 		{"osiris heap [-json] [-query expr] [file]", "inspect live scopes, modules, and dependency state"},
 		{"osiris trace [-json] [file]", "print execution trace frames"},
 		{"osiris debug [-json] [-break line[:col]] [file]", "step through execution with breakpoints"},

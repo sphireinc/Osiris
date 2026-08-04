@@ -55,7 +55,7 @@ func (rt *Runtime) loadModule(ctx context.Context, ref, base string, stack []str
 	}
 
 	reg := rt.registryFor(base)
-	key, src, err := reg.materialize(ref, base)
+	key, src, err := reg.materializeContext(ctx, ref, base, selector)
 	if err != nil {
 		return nullValue(), err
 	}
@@ -124,7 +124,17 @@ func (rt *Runtime) registryFor(base string) *moduleRegistry {
 	if reg, ok := rt.registries[root]; ok {
 		return reg
 	}
-	reg := newModuleRegistry(root)
+	reg := newModuleRegistry(root, rt.repositoryProviders()...)
+	if manifest, err := LoadModuleManifest(root); err == nil {
+		for _, replacement := range manifest.Replacements {
+			reg.replacements[replacement.Path] = replacement
+		}
+	}
+	if workspace, err := LoadWorkspaceManifest(root); err == nil {
+		for _, replacement := range workspace.Replacements {
+			reg.replacements[replacement.Path] = replacement
+		}
+	}
 	rt.registries[root] = reg
 	return reg
 }
@@ -134,6 +144,7 @@ type moduleKind uint8
 const (
 	moduleKindFile moduleKind = iota
 	moduleKindStdlib
+	moduleKindRepository
 )
 
 // resolveModulePath handles the resolve module path step in the surrounding
@@ -166,7 +177,13 @@ func resolveModulePath(ref, base string) (string, moduleKind, error) {
 		if _, err := os.Stat(withExt); err == nil {
 			return withExt, moduleKindFile, nil
 		}
+		if validModulePath(ref) {
+			return ref, moduleKindRepository, fmt.Errorf("repository source is not available locally")
+		}
 		return withExt, moduleKindFile, fmt.Errorf("module file not found at %s", withExt)
+	}
+	if validModulePath(ref) {
+		return ref, moduleKindRepository, fmt.Errorf("repository source is not available locally")
 	}
 	return abs, moduleKindFile, fmt.Errorf("module file not found at %s", abs)
 }

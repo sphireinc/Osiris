@@ -28,6 +28,35 @@ func TestVersionReportsActionableProvenance(t *testing.T) {
 	}
 }
 
+func TestModuleManifestCLIWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	var stdout bytes.Buffer
+	if err := run(context.Background(), []string{"mod", "init", "github.com/acme/app"}, &stdout, io.Discard); err != nil {
+		t.Fatalf("mod init: %v", err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "created osiris.mod") {
+		t.Fatalf("mod init output = %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.osr"), []byte("emit 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := run(context.Background(), []string{"mod", "tidy"}, &stdout, io.Discard); err != nil {
+		t.Fatalf("mod tidy: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "osiris.mod")); err != nil {
+		t.Fatalf("manifest missing: %v", err)
+	}
+	stdout.Reset()
+	if err := run(context.Background(), []string{"mod", "audit"}, &stdout, io.Discard); err != nil {
+		t.Fatalf("mod audit: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "module audit") {
+		t.Fatalf("audit output = %q", stdout.String())
+	}
+}
+
 func TestRunTestsUsesDeterministicStdOSProvidersByDefault(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "todo_test.osr")
 	source := "import \"std/os\" as os\nlet wrote = os.write_file(\"/todo.txt\", \"buy milk\", 420)\nemit [wrote, os.read_file(\"/todo.txt\")]\n"

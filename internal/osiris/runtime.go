@@ -3327,6 +3327,9 @@ func registerContextBuiltins(dst map[string]contextCallable) {
 	dst["http_serve"] = httpServeContextValue
 	dst["readline"] = readLineContextValue
 	dst["readchunk"] = readChunkContextValue
+	dst["writechunk"] = writeChunkContextValue
+	dst["flush"] = flushStreamContextValue
+	dst["close"] = closeStreamContextValue
 	dst["transfer"] = transferContextValue
 	dst["append"] = appendContextValue
 	dst["read_limit"] = readLimitContextValue
