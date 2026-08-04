@@ -472,12 +472,16 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, map[string]Value{
+		mod := map[string]Value{
 			"hash":   functionValueOf("std/crypto.hash", func(args []Value) (Value, error) { return builtinHash(args) }),
 			"mix":    functionValueOf("std/crypto.mix", func(args []Value) (Value, error) { return builtinMix(args) }),
 			"noise":  functionValueOf("std/crypto.noise", func(args []Value) (Value, error) { return builtinNoise(args) }),
 			"random": functionValueOf("std/crypto.random", seededRandomValue),
-		}), nil
+		}
+		for key, value := range task137CryptoModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/testing":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
@@ -489,10 +493,14 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, map[string]Value{
+		mod := map[string]Value{
 			"hann":     functionValueOf("std/signal.hann", hannValue),
 			"convolve": functionValueOf("std/signal.convolve", convolveValue),
-		}), nil
+		}
+		for key, value := range task137SignalModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/net":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
@@ -526,19 +534,27 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, map[string]Value{
+		mod := map[string]Value{
 			"len":     functionValueOf("std/list.len", func(args []Value) (Value, error) { return builtinLen(args) }),
 			"range":   functionValueOf("std/list.range", func(args []Value) (Value, error) { return builtinRange(args) }),
 			"take":    functionValueOf("std/list.take", func(args []Value) (Value, error) { return builtinTake(args) }),
 			"sum":     functionValueOf("std/list.sum", func(args []Value) (Value, error) { return builtinSum(args) }),
 			"product": functionValueOf("std/list.product", func(args []Value) (Value, error) { return builtinProduct(args) }),
-		}), nil
+		}
+		for key, value := range task137ListModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/regex":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, task120RegexModule()), nil
+		mod := task120RegexModule()
+		for key, value := range task137RegexModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/compress":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
@@ -554,7 +570,11 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, task120JSONModule()), nil
+		mod := task120JSONModule()
+		for key, value := range Task137JSONModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/config":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
@@ -569,7 +589,11 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, task120I18nModule()), nil
+		mod := task120I18nModule()
+		for key, value := range Task137I18nModule() {
+			mod[key] = value
+		}
+		return makeModule(name, version, mod), nil
 	case "std/db", "std/database":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {

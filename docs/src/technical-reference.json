@@ -1078,6 +1078,18 @@
           "source": "stdMathExports"
         },
         {
+          "title": "std/crypto exports",
+          "source": "stdCryptoExports"
+        },
+        {
+          "title": "std/signal exports",
+          "source": "stdSignalExports"
+        },
+        {
+          "title": "std/list exports",
+          "source": "stdListExports"
+        },
+        {
           "title": "std/regex exports",
           "source": "stdRegexExports"
         },
@@ -1585,7 +1597,7 @@
     "os_process"
   ],
   "stdRegexExports": [
-    "compile", "engine_version", "find", "is_match", "match", "replace", "split", "version"
+    "capture_count", "capture_names", "compile", "engine_version", "escape", "find", "find_indices", "find_named", "is_match", "match", "match_count", "max_input_bytes", "max_matches", "max_output_bytes", "max_pattern_bytes", "max_split_parts", "pattern_info", "quote_meta", "replace", "replace_first", "replace_n", "split", "split_n", "version"
   ],
   "stdCompressExports": [
     "archive_create", "archive_extract", "compress", "decompress", "gunzip", "gzip", "unzlib", "version", "zlib"
@@ -1594,10 +1606,19 @@
     "parse_json", "parse_properties", "schema_property_names", "validate", "version"
   ],
   "stdJsonExports": [
-    "canonicalize", "merge_patch", "parse", "parse_json", "parse_properties", "patch", "pointer_get", "pointer_remove", "pointer_set", "pretty", "schema_property_names", "stringify", "valid", "validate", "version"
+    "canonicalize", "equal", "keys", "length", "merge", "merge_patch", "parse", "parse_json", "parse_lines", "parse_properties", "patch", "pointer_get", "pointer_remove", "pointer_set", "pretty", "query", "schema_property_names", "stringify", "stringify_lines", "task137_version", "type_of", "valid", "validate", "version"
   ],
   "stdI18nExports": [
-    "data_version", "format_date", "format_message", "format_number", "locale"
+    "catalog_format", "data_version", "format_currency", "format_date", "format_date_style", "format_list", "format_message", "format_number", "format_percent", "format_relative", "locale", "plural_category", "supported_locales", "task137_version"
+  ],
+  "stdCryptoExports": [
+    "algorithm_supported", "base64_decode", "base64_encode", "base64url_decode", "base64url_encode", "compare_digest", "derive_key", "digest", "digest_bytes", "hash", "hex_decode", "hex_encode", "hmac", "max_input_bytes", "max_key_bytes", "max_output_bytes", "max_token_bytes", "mix", "noise", "random", "random_bytes", "sha256", "sha512", "sha512_256", "token", "uuid_v5", "version"
+  ],
+  "stdSignalExports": [
+    "bartlett", "blackman", "convolve", "correlate", "energy", "fft", "filter_fir", "hann", "hamming", "ifft", "max_samples", "max_transform_samples", "mean", "normalize", "pi", "rectangular", "resample", "rms", "variance", "version"
+  ],
+  "stdListExports": [
+    "all", "any", "at", "chunks", "concat", "contains", "count", "empty", "enumerate", "flatten", "index_of", "last_index_of", "len", "max_depth", "max_items", "none", "partition", "product", "range", "repeat", "reverse", "slice", "sort", "sum", "take", "unique", "version", "windows", "zip"
   ],
   "stdDBExports": [
     "api_version", "begin", "close", "columns", "commit", "exec", "next", "open", "prepare", "provider", "query", "rollback", "row_error", "statement_exec", "statement_query", "stats", "values"

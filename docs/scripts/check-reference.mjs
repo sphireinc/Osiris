@@ -23,6 +23,12 @@ const task120Source = await readFile(resolve(here, '..', '..', 'internal', 'osir
 const task120JSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_json_stdlib.go'), 'utf8');
 const task121Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task121_stdlib.go'), 'utf8');
 const task122Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task122_stdlib.go'), 'utf8');
+const task137CryptoSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_crypto.go'), 'utf8');
+const task137I18nSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_i18n.go'), 'utf8');
+const task137JSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_json.go'), 'utf8');
+const task137ListSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_list.go'), 'utf8');
+const task137RegexSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_regex.go'), 'utf8');
+const task137SignalSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_signal.go'), 'utf8');
 
 if (chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 const moduleIDs = modules.map((module) => module.id);
@@ -140,7 +146,7 @@ function wrapperExports(source, functionName) {
   const end = source.indexOf('\nfunc ', start + 6);
   source = source.slice(start, end < 0 ? source.length : end);
   return sortedUnique([
-    ...source.matchAll(/^\s*"([^"\n]+)":\s*(?:functionValueOf|contextFunctionValueOf|stringValue|uintValue|intValue)/gm),
+    ...source.matchAll(/^\s*"([^"\n]+)":\s*(?:functionValueOf|contextFunctionValueOf|stringValue|uintValue|intValue|numberValue)/gm),
     ...source.matchAll(/\["([^"\n]+)"\]\s*=/g),
   ].map((match) => match[1]));
 }
@@ -151,6 +157,12 @@ stdlibTables.push([task120JSONSource, 'std/json', wrapperExports(task120JSONSour
 stdlibTables.push([task120Source, 'std/i18n', wrapperExports(task120Source, 'task120I18nModule')]);
 stdlibTables.push([task121Source, 'std/db', wrapperExports(task121Source, 'task121DatabaseModule')]);
 stdlibTables.push([task122Source, 'std/telemetry', wrapperExports(task122Source, 'task122TelemetryModule')]);
+stdlibTables.push([task137CryptoSource, 'std/crypto', sortedUnique(['hash', 'mix', 'noise', 'random', ...wrapperExports(task137CryptoSource, 'task137CryptoModule')])]);
+stdlibTables.push([task137I18nSource, 'std/i18n', sortedUnique([...wrapperExports(task120Source, 'task120I18nModule'), ...wrapperExports(task137I18nSource, 'Task137I18nModule')])]);
+stdlibTables.push([task137JSONSource, 'std/json', sortedUnique([...wrapperExports(task120JSONSource, 'task120JSONModule'), ...wrapperExports(task137JSONSource, 'Task137JSONModuleExtensions')])]);
+stdlibTables.push([task137ListSource, 'std/list', sortedUnique(['len', 'range', 'take', 'sum', 'product', ...wrapperExports(task137ListSource, 'task137ListModule')])]);
+stdlibTables.push([task137RegexSource, 'std/regex', sortedUnique([...wrapperExports(task120Source, 'task120RegexModule'), ...wrapperExports(task137RegexSource, 'task137RegexModule'), 'is_match'])]);
+stdlibTables.push([task137SignalSource, 'std/signal', sortedUnique(['hann', 'convolve', ...wrapperExports(task137SignalSource, 'task137SignalModule')])]);
 if (!stdlibTables.length) throw new Error('Cannot locate stdlib export tables for reference coverage.');
 const implementedStdlibExports = new Map();
 for (const [, moduleName, table] of stdlibTables) {
@@ -227,7 +239,7 @@ for (const section of constants.global.sections) {
 const specialFormBlock = runtimeSource.slice(runtimeSource.indexOf('func specialFormName'), runtimeSource.indexOf('func builtinHasTaskEffect'));
 const specialForms = [...specialFormBlock.matchAll(/case ([^:]+):/g)].flatMap((line) => [...line[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
 const technicalIndexes = technical.sections.find((section) => section.id === 'surface-indexes')?.indexes || [];
-for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os', 'std/regex', 'std/compress', 'std/config', 'std/json', 'std/i18n', 'std/db', 'std/telemetry']) {
+for (const moduleName of ['std/math', 'std/text', 'std/time', 'std/os', 'std/crypto', 'std/signal', 'std/list', 'std/regex', 'std/compress', 'std/config', 'std/json', 'std/i18n', 'std/db', 'std/telemetry']) {
 	const index = technicalIndexes.find((candidate) => candidate.title === `${moduleName} exports`);
 	const documented = index?.source ? technical[index.source] : index?.items || [];
 	const implemented = moduleName === 'std/os' ? implementedStdOSExports : implementedStdlibExports.get(moduleName) || [];

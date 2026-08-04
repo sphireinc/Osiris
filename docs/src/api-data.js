@@ -6,7 +6,7 @@ import technicalReference from './technical-reference.json' with { type: 'json' 
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
 import stdOSReference from './std-os-reference.js';
-import { task120References, task121Reference, task122Reference, task123Reference, task126Reference } from './std-task-reference.js';
+import { task120References, task121Reference, task122Reference, task123Reference, task126Reference, task137References } from './std-task-reference.js';
 import { orderReferenceSections } from './reference-order.js';
 
 export const languageSections = orderReferenceSections(
@@ -97,6 +97,7 @@ combinedGroups.push(timeReference);
 
 const generatedModuleReferenceGroups = [
   ...task120References,
+  ...task137References,
   task121Reference,
   task122Reference,
   task123Reference,
@@ -107,7 +108,21 @@ for (const reference of generatedModuleReferenceGroups) {
     combinedGroups.push({ id: reference.id, title: reference.title, summary: reference.summary, items: [] });
   }
 }
-const generatedModuleReferences = new Map(generatedModuleReferenceGroups.map((reference) => [reference.id, reference.items]));
+const generatedModuleReferences = new Map();
+for (const reference of generatedModuleReferenceGroups) {
+  const current = generatedModuleReferences.get(reference.id) || [];
+  const byName = new Map(current.map((item) => [item.name, item]));
+  for (const item of reference.items) byName.set(item.name, item);
+  generatedModuleReferences.set(reference.id, [...byName.values()]);
+}
+
+const moduleItems = (group) => {
+  if (group.id === 'os') return stdOSReference;
+  if (!generatedModuleReferences.has(group.id)) return group.items;
+  const byName = new Map((group.items || []).map((item) => [item.name, item]));
+  for (const item of generatedModuleReferences.get(group.id)) byName.set(item.name, item);
+  return [...byName.values()];
+};
 
 const apiModules = combinedGroups.map((group) => ({
   id: group.id,
@@ -115,7 +130,7 @@ const apiModules = combinedGroups.map((group) => ({
   summary: group.summary,
   importLine: group.title.startsWith('std/') ? `import "${group.title}" as ${group.id}` : '# Built-in reference surface',
   sections: orderReferenceSections(
-    [{ title: group.title, entries: (group.id === 'os' ? stdOSReference : generatedModuleReferences.get(group.id) || group.items).map((item) => entryFromReference(group.id, item)) }],
+    [{ title: group.title, entries: moduleItems(group).map((item) => entryFromReference(group.id, item)) }],
     group.id,
   ),
 }));
