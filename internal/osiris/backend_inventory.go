@@ -57,7 +57,7 @@ func BackendCapabilityInventory() []BackendCapability {
 			Note:     "host capability; native C reports a source-spanned unsupported diagnostic",
 		})
 	}
-	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/os", "std/list"} {
+	for _, module := range []string{"std/time", "std/text", "std/math", "std/crypto", "std/signal", "std/net", "std/os", "std/list", "std/unsafe"} {
 		entries = append(entries, BackendCapability{
 			ID:       "module/" + module,
 			Surface:  "stdlib module",
@@ -66,7 +66,11 @@ func BackendCapabilityInventory() []BackendCapability {
 			Evidence: "internal/osiris/module.go; internal/osiris/bytecode.go",
 			Note:     "module availability is implemented; native support is recorded per exported member below",
 		})
-		mod, err := stdlibModule(NewRuntime(), module, "")
+		inventoryRuntime := NewRuntime()
+		if capability := stdlibModuleCapability(module); capability != "" {
+			inventoryRuntime.GrantCapability(capability)
+		}
+		mod, err := stdlibModule(inventoryRuntime, module, "")
 		if err != nil {
 			continue
 		}
@@ -173,6 +177,9 @@ func nativeModuleMemberNote(module, member string) string {
 	}
 	if module == "std/os" {
 		return "host capability; native C reports a source-spanned unsupported diagnostic"
+	}
+	if module == "std/unsafe" {
+		return "explicit unsafe.memory capability; native C reports a source-spanned unsupported diagnostic"
 	}
 	return "native C rejects this module member with a source-spanned diagnostic"
 }

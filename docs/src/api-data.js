@@ -6,7 +6,7 @@ import technicalReference from './technical-reference.json' with { type: 'json' 
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
 import stdOSReference from './std-os-reference.js';
-import { task120References, task121Reference, task122Reference, task123Reference } from './std-task-reference.js';
+import { task120References, task121Reference, task122Reference, task123Reference, task126Reference } from './std-task-reference.js';
 import { orderReferenceSections } from './reference-order.js';
 
 export const languageSections = orderReferenceSections(
@@ -100,6 +100,7 @@ const generatedModuleReferences = new Map([
   [task121Reference.id, task121Reference.items],
   [task122Reference.id, task122Reference.items],
   [task123Reference.id, task123Reference.items],
+  [task126Reference.id, task126Reference.items],
 ]);
 
 const apiModules = combinedGroups.map((group) => ({

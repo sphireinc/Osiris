@@ -24,11 +24,10 @@ all recorded dependencies satisfied and is the next selection candidate.
 ## Current selection
 
 - **Active:** none.
-- **Ready:** tasks 115, 116, 123,
-  and 124 are independently ready.
-- **Blocked:** tasks 117–122, 125, and 126 name their exact
+- **Ready:** tasks 115, 116, and 123 remain independently ready.
+- **Blocked:** tasks 117–122 and the remaining 126 memory-boundary work name their exact
   prerequisite work in `tasks/index.tsv`.
-- **Complete:** tasks 001–049 and 100–114 are complete.
+- **Complete:** tasks 001–049, 100–114, 124, 125, and 136 are complete.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a
@@ -56,7 +55,8 @@ reviewable increments rather than one open-ended language rewrite:
    product types.
 2. **Execution and interoperability:** 115–117.
 3. **Application standard library:** 118–122.
-4. **User ecosystem and developer experience:** 123–125.
+4. **User ecosystem and developer experience:** 123–125, with task 136
+   extending task 123's test discovery and package workflow.
 5. **Explicit low-level boundary:** 126 follows the safe FFI, ownership,
    cleanup, state, and backend foundations.
 

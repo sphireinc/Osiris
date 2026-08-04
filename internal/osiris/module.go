@@ -22,6 +22,11 @@ func (rt *Runtime) loadModule(ctx context.Context, ref, base string, stack []str
 	ref, selector := splitModuleRef(ref)
 	if strings.HasPrefix(ref, "std/") {
 		key := ref
+		if capability := stdlibModuleCapability(key); capability != "" {
+			if err := requireStdlibCapability(rt, key, capability); err != nil {
+				return nullValue(), err
+			}
+		}
 		rt.moduleMu.Lock()
 		if mod, ok := rt.modules[key]; ok {
 			rt.moduleMu.Unlock()
@@ -222,6 +227,15 @@ func resolveModuleRef(ref, base string) (string, moduleKind, string, error) {
 // error is nil.
 func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 	switch name {
+	case "std/unsafe":
+		version := unsafeMemoryVersion
+		if err := requireStdlibCapability(rt, name, UnsafeMemoryCapability); err != nil {
+			return nullValue(), err
+		}
+		if !versionMatchesSelector(version, selector) {
+			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
+		}
+		return makeModule(name, version, unsafeMemoryModule()), nil
 	case "std/time":
 		return stdlibTimeModule(rt, selector)
 	case "std/text":

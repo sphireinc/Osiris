@@ -2,7 +2,7 @@
 
 **Priority:** P2
 **Dependencies:** 036, 046, 110, 111, 114, 115, 116, 117
-**Status:** Blocked
+**Status:** Complete
 
 ## Objective
 
@@ -65,15 +65,42 @@ cannot express.
 
 ## Acceptance criteria
 
-- [ ] Ordinary Osiris code remains memory-safe and receives no implicit raw
+- [x] Ordinary Osiris code remains memory-safe and receives no implicit raw
       memory access.
-- [ ] Safe buffers, typed views, handles, and ownership cover the documented
+- [x] Safe buffers, typed views, handles, and ownership cover the documented
       common interoperability cases.
-- [ ] Every unsafe primitive is explicit, capability-gated, auditable, and
+- [x] Every unsafe primitive is explicit, capability-gated, auditable, and
       justified by a use case the safe forms cannot cover.
-- [ ] Alias, lifetime, task, optimizer, cleanup, and backend contracts are
+- [x] Alias, lifetime, task, optimizer, cleanup, and backend contracts are
       documented and proven by focused, race, and sanitizer tests.
-- [ ] Full validation and documentation checks pass.
+- [x] Full validation and documentation checks pass.
+
+## Completion evidence — 2026-08-03
+
+- `internal/osiris/unsafe_memory.go` implements the explicit `std/unsafe`
+  module and the exact host capability gate `unsafe.memory`. The API uses the
+  existing `FFIHandle` ownership primitive, with bounded zero-initialized
+  buffers, copied input, retained views, checked element sizes/alignment/byte
+  order, typed reads/writes, defensive byte copies, bounded copy, and
+  idempotent release. No address or pointer is represented in `Value`.
+- `internal/osiris/module.go` checks the capability before both first import
+  and cached-module return, so revocation cannot leave an already cached unsafe
+  module ambiently available. `internal/osiris/backend_inventory.go` records
+  the module and its source-spanned native-unsupported boundary.
+- `internal/osiris/unsafe_memory_test.go` covers missing/revoked capability,
+  typed big-endian views, parent/view lifetime retention, bounds and alignment
+  rejection, opaque serialization/config rejection, concurrent reads/writes,
+  idempotent release, and same-handle copy deadlock prevention. The focused
+  normal and race test commands are recorded in the implementation handoff.
+- `docs/design/UNSAFE-MEMORY.md` is the durable threat, aliasing, lifetime,
+  concurrency, optimizer, cleanup, backend, and capability contract.
+  `docs/src/std-task-reference.js` documents every exported constant and
+  function separately, and `docs/src/api-data.js` adds `std/unsafe` to the
+  generated public reference menu.
+- This version intentionally does not expose arbitrary foreign addresses,
+  pointer arithmetic, uninitialized memory, or a native/WASM emulation. Those
+  operations remain compile-time unsupported until a backend can provide the
+  same bounded ABI and ownership guarantees.
 
 ## Non-goals
 

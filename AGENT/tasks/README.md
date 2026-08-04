@@ -60,10 +60,10 @@ portable.
 
 ### Wave 11 - project ecosystem and IDE
 
-123 and 124 are ready. Task 124 follows a repository-oriented Go-style model,
-with GitHub as the first complete provider and discovery separate from build
-resolution. Task 125 follows the type-system and testing work so completion,
-refactoring, hints, and test discovery use stable contracts.
+123 remains ready. Tasks 124, 125, and 136 are complete: repository-oriented
+module resolution, workspace-aware IDE support, and Go-style colocated test
+discovery now have stable contracts. Task 124 uses GitHub as the first
+complete provider and keeps discovery separate from build resolution.
 
 ### Wave 12 - explicit low-level access
 
@@ -104,11 +104,11 @@ any explicitly unsafe operation.
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049 and 100–126.
+  next-step metadata for tasks 001–049 and 100–136.
 - `completed/`: finished task records with validation evidence.
 - Tasks 100–110 are under `completed/`.
-- Tasks 111–126 are the scoped general-purpose maturity backlog derived from
-  `osiris-language-assessment.md`.
+- Tasks 111–136 are the scoped general-purpose maturity backlog derived from
+  `osiris-language-assessment.md` and subsequent workflow requirements.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

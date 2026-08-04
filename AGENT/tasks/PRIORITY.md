@@ -6,18 +6,20 @@ human shortcut and must agree with it.
 ## Now
 
 No task is active. Task 111 is the next type/data-model increment; tasks 115,
-116, 123, and 124 remain independently ready. Tasks 001–049 and 100–110 are
-complete.
+116, and 123 remain independently ready. Tasks 001–049, 100–110, 124, 125,
+and 136 are complete.
 
 ## Ready — general-purpose foundations
 
-1. 111 adds immutable structs with Go-style field tags, tuples, aliases, and
+1. 136 extends task 123 with Go-style colocated test discovery while retaining
+   explicit file and directory arguments.
+2. 111 adds immutable structs with Go-style field tags, tuples, aliases, and
    nominal newtypes on task 110's completed static checker.
-2. 115 closes the remaining stable VM/native C parity gaps.
-3. 116 adds deterministic scope-bound cleanup and unlocks FFI and
+3. 115 closes the remaining stable VM/native C parity gaps.
+4. 116 adds deterministic scope-bound cleanup and unlocks FFI and
    resource-owning libraries.
-4. 123 adds an Osiris-native testing workflow.
-5. 124 adds Go-style repository modules, GitHub-backed resolution, workspaces,
+5. 123 adds an Osiris-native testing workflow.
+6. 124 adds Go-style repository modules, GitHub-backed resolution, workspaces,
    separate package discovery, and supply-chain auditing without requiring a
    central registry.
 
