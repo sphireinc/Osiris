@@ -2,7 +2,7 @@
 
 **Priority:** P2
 **Dependencies:** 038, 110, 111, 112, 113, 123
-**Status:** Blocked
+**Status:** Complete
 
 ## Objective
 
@@ -51,3 +51,15 @@ types, modules, tests, and refactoring.
 
 - No editor-specific proprietary extension, cloud indexing service, or
   compiler semantics duplicated inside the LSP.
+
+## Completion evidence
+
+- Added bounded workspace indexing and shared compiler-analysis-backed
+  completion, signatures, navigation, symbols, semantic tokens, inlay hints,
+  folding, selection ranges, formatting, diagnostics, rename edits, call and
+  type hierarchy, and language-test metadata.
+- Added protocol negotiation, malformed-request diagnostics, UTF-16-aware
+  document updates, cancellation/stale-result handling, deterministic edits,
+  and multi-file workspace fixtures.
+- Verification: focused LSP/task-125 tests, compile-only package tests, and
+  focused race tests passed.

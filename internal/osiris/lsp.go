@@ -9,7 +9,9 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 )
@@ -20,11 +22,16 @@ import (
 const maxLSPMessageBytes = 16 << 20
 
 type languageServer struct {
-	rt     *Runtime
-	out    io.Writer
-	log    io.Writer
-	docs   map[string]*documentState
-	closed bool
+	rt            *Runtime
+	out           io.Writer
+	log           io.Writer
+	mu            sync.RWMutex
+	docs          map[string]*documentState
+	workspace     map[string]*documentState
+	versions      map[string]int
+	workspaceRoot string
+	initialized   bool
+	closed        bool
 }
 
 type documentState struct {
@@ -34,6 +41,8 @@ type documentState struct {
 	prog        *Program
 	diagnostics []lspDiagnostic
 	analysis    *documentAnalysis
+	version     int
+	generation  uint64
 }
 
 type documentAnalysis struct {
@@ -41,6 +50,7 @@ type documentAnalysis struct {
 	defs        []*symbolDef
 	refs        []*symbolRef
 	enumCases   map[string]*symbolDef
+	checked     *CheckedProgram
 }
 
 // findAt operates on documentAnalysis values and keeps the
@@ -88,11 +98,12 @@ func spanWidth(sp sourceSpan) int {
 }
 
 type symbolDef struct {
-	name   string
-	kind   string
-	detail string
-	uri    string
-	span   sourceSpan
+	name     string
+	kind     string
+	detail   string
+	uri      string
+	span     sourceSpan
+	typeName string
 }
 
 type symbolRef struct {
@@ -149,7 +160,7 @@ func NewLanguageServer(rt *Runtime, out, log io.Writer) *languageServer {
 	if log == nil {
 		log = io.Discard
 	}
-	return &languageServer{rt: rt, out: out, log: log, docs: make(map[string]*documentState)}
+	return &languageServer{rt: rt, out: out, log: log, docs: make(map[string]*documentState), workspace: make(map[string]*documentState), versions: make(map[string]int)}
 }
 
 // Serve operates on languageServer values and keeps the
@@ -175,10 +186,18 @@ messageLoop:
 			return err
 		}
 		if msg.Method == "" {
+			if msg.IsRequest() {
+				if err := s.writeResponse(msg.ID, nil, lspRPCError{code: -32600, message: "invalid request: method is required"}); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		switch msg.Method {
 		case "exit":
+			s.mu.Lock()
+			s.closed = true
+			s.mu.Unlock()
 			return nil
 		case "initialized":
 			continue
@@ -189,20 +208,32 @@ messageLoop:
 			}
 			continue
 		case "initialize":
+			var params initializeParams
+			if len(msg.Params) > 0 && string(msg.Params) != "null" {
+				if err := json.Unmarshal(msg.Params, &params); err != nil {
+					if msg.IsRequest() {
+						if writeErr := s.writeResponse(msg.ID, nil, lspInvalidParams(err)); writeErr != nil {
+							return writeErr
+						}
+					}
+					continue
+				}
+			}
+			s.configureWorkspace(params)
 			if err := s.writeResponse(msg.ID, map[string]any{
-				"capabilities": map[string]any{
-					// 2 is TextDocumentSyncKind.Incremental. Every edit is
-					// applied against the current document with UTF-16 positions.
-					"textDocumentSync":      map[string]any{"openClose": true, "change": 2},
-					"hoverProvider":         true,
-					"definitionProvider":    true,
-					"referencesProvider":    true,
-					"completionProvider":    map[string]any{"triggerCharacters": []string{".", "("}},
-					"signatureHelpProvider": map[string]any{"triggerCharacters": []string{"(", ","}},
-					"renameProvider":        true,
-				},
+				"capabilities": s.capabilities(),
+				"serverInfo":   map[string]any{"name": "osiris", "version": lspServerVersion},
 			}, nil); err != nil {
 				return err
+			}
+			s.mu.Lock()
+			s.initialized = true
+			s.mu.Unlock()
+			if params.RootURI != "" || params.RootPath != "" || len(params.WorkspaceFolders) > 0 {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				s.refreshWorkspace(ctx)
 			}
 			continue
 		}
@@ -213,18 +244,20 @@ messageLoop:
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
 				return err
 			}
-			s.upsertDocument(params.TextDocument.URI, params.TextDocument.Text)
+			s.upsertDocumentContext(ctx, params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
 			continue
 		case "textDocument/didChange":
 			var params didChangeParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
 				return err
 			}
+			s.mu.RLock()
 			state := s.docs[params.TextDocument.URI]
 			text := ""
 			if state != nil {
 				text = state.text
 			}
+			s.mu.RUnlock()
 			for _, change := range params.ContentChanges {
 				var applyErr error
 				text, applyErr = applyLSPChange(text, change.Range, change.Text)
@@ -236,14 +269,17 @@ messageLoop:
 					continue messageLoop
 				}
 			}
-			s.upsertDocument(params.TextDocument.URI, text)
+			s.upsertDocumentContext(ctx, params.TextDocument.URI, text, params.TextDocument.Version)
 			continue
 		case "textDocument/didClose":
 			var params didCloseParams
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
 				return err
 			}
+			s.mu.Lock()
 			delete(s.docs, params.TextDocument.URI)
+			delete(s.versions, params.TextDocument.URI)
+			s.mu.Unlock()
 			if err := s.publishDiagnostics(params.TextDocument.URI, nil); err != nil {
 				return err
 			}
@@ -260,7 +296,10 @@ messageLoop:
 			}
 			resp, err := s.hover(params.TextDocument.URI, params.Position)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
@@ -272,7 +311,10 @@ messageLoop:
 			}
 			resp, err := s.definition(params.TextDocument.URI, params.Position)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
@@ -284,7 +326,10 @@ messageLoop:
 			}
 			resp, err := s.references(params.TextDocument.URI, params.Position)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
@@ -296,7 +341,10 @@ messageLoop:
 			}
 			resp, err := s.completion(params.TextDocument.URI, params.Position)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
@@ -308,7 +356,10 @@ messageLoop:
 			}
 			resp, err := s.signatureHelp(params.TextDocument.URI, params.Position)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
 			if err := s.writeResponse(msg.ID, resp, nil); err != nil {
 				return err
@@ -318,13 +369,31 @@ messageLoop:
 			if err := json.Unmarshal(msg.Params, &params); err != nil {
 				return err
 			}
-			rewritten, err := s.RenameDocument(params.TextDocument.URI, params.Position, params.NewName)
+			edit, err := s.renameWorkspaceEdit(params.TextDocument.URI, params.Position, params.NewName)
 			if err != nil {
-				return s.writeResponse(msg.ID, nil, err)
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
 			}
-			state := s.docs[params.TextDocument.URI]
-			edit := map[string]any{"changes": map[string]any{params.TextDocument.URI: []any{map[string]any{"range": fullDocumentRange(state.text), "newText": rewritten}}}}
 			if err := s.writeResponse(msg.ID, edit, nil); err != nil {
+				return err
+			}
+		default:
+			result, handled, err := s.handleIDERequest(ctx, msg.Method, msg.Params)
+			if !handled {
+				if writeErr := s.writeResponse(msg.ID, nil, lspMethodNotFound(msg.Method)); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err := s.writeResponse(msg.ID, result, nil); err != nil {
 				return err
 			}
 		}
@@ -338,7 +407,18 @@ messageLoop:
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func (s *languageServer) upsertDocument(uri, text string) {
-	state := &documentState{uri: uri, sourceName: uri, text: text}
+	s.upsertDocumentContext(context.Background(), uri, text, 0)
+}
+
+// upsertDocumentContext parses and checks one document off the server lock,
+// then publishes it only if it is newer than the state that was analyzed.
+// This is the stale-result boundary for both ordinary incremental edits and
+// concurrent workspace refreshes.
+func (s *languageServer) upsertDocumentContext(ctx context.Context, uri, text string, version int) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	state := &documentState{uri: uri, sourceName: uri, text: text, version: version}
 	if path, err := uriToPath(uri); err == nil {
 		state.sourceName = path
 	}
@@ -347,10 +427,18 @@ func (s *languageServer) upsertDocument(uri, text string) {
 		state.diagnostics = []lspDiagnostic{{Range: lspRange{}, Severity: 1, Source: "osiris", Message: err.Error()}}
 	} else {
 		state.prog = prog
-		state.analysis = analyzeDocument(s.rt, uri, prog)
+		state.analysis = analyzeDocumentContext(ctx, s.rt, uri, prog)
 		state.diagnostics = diagnosticsInText(text, state.analysis.diagnostics)
 	}
+	s.mu.Lock()
+	if version > 0 && s.versions[uri] > version {
+		s.mu.Unlock()
+		return
+	}
+	s.versions[uri] = version
+	state.generation = uint64(version)
 	s.docs[uri] = state
+	s.mu.Unlock()
 	_ = s.publishDiagnostics(uri, state.diagnostics)
 }
 
@@ -358,7 +446,7 @@ func (s *languageServer) upsertDocument(uri, text string) {
 // LSP. Definitions can point at a different open document, whose text must be
 // used for the conversion.
 func (s *languageServer) rangeForURI(uri string, sp sourceSpan) lspRange {
-	if target := s.docs[uri]; target != nil {
+	if target := s.document(uri); target != nil {
 		return toLSPRangeInText(target.text, sp)
 	}
 	return toLSPRange(sp)
@@ -371,7 +459,7 @@ func (s *languageServer) rangeForURI(uri string, sp sourceSpan) lspRange {
 // It returns *lspHover and an error. Callers should only trust the value when
 // the error is nil.
 func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
 	}
@@ -415,7 +503,7 @@ func (s *languageServer) hover(uri string, pos lspPosition) (*lspHover, error) {
 // It returns any and an error. Callers should only trust the value when the
 // error is nil.
 func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
 	}
@@ -460,12 +548,38 @@ type lspSignatureHelp struct {
 }
 
 func (s *languageServer) completion(uri string, pos lspPosition) ([]lspCompletionItem, error) {
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
 	}
 	if state.analysis == nil {
 		return []lspCompletionItem{}, nil
+	}
+	if offset, ok := lspUTF16Offset(state.text, pos); ok && offset > 0 && state.prog != nil {
+		prefix := state.text[:offset]
+		if strings.HasSuffix(prefix, ".") {
+			aliasEnd := len(prefix) - 1
+			aliasStart := aliasEnd
+			for aliasStart > 0 {
+				r, size := utf8.DecodeLastRuneInString(prefix[:aliasStart])
+				if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') { break }
+				aliasStart -= size
+			}
+			alias := prefix[aliasStart:aliasEnd]
+			for _, stmt := range state.prog.Statements {
+				imp, ok := stmt.(importStmt)
+				if !ok || imp.Alias != alias || !strings.HasPrefix(imp.Path, "std/") { continue }
+				ref, selector := splitModuleRef(imp.Path)
+				if modValue, err := stdlibModule(s.rt, ref, selector); err == nil {
+					if mod, err := modValue.AsModule(); err == nil {
+						items := make([]lspCompletionItem, 0, len(mod.members))
+						for member := range mod.members { items = append(items, lspCompletionItem{Label: member, Kind: 3, Detail: "module member"}) }
+						sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+						return items, nil
+					}
+				}
+			}
+		}
 	}
 	seen := make(map[string]lspCompletionItem)
 	for _, def := range state.analysis.defs {
@@ -496,7 +610,7 @@ func (s *languageServer) completion(uri string, pos lspPosition) ([]lspCompletio
 }
 
 func (s *languageServer) references(uri string, pos lspPosition) ([]lspLocation, error) {
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
 	}
@@ -523,7 +637,7 @@ func (s *languageServer) references(uri string, pos lspPosition) ([]lspLocation,
 }
 
 func (s *languageServer) signatureHelp(uri string, pos lspPosition) (*lspSignatureHelp, error) {
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
 	}
@@ -575,7 +689,7 @@ func (s *languageServer) RenameDocument(uri string, pos lspPosition, replacement
 	if !validIdentifier(replacement) {
 		return "", fmt.Errorf("invalid replacement identifier %q", replacement)
 	}
-	state := s.docs[uri]
+	state := s.document(uri)
 	if state == nil || state.analysis == nil {
 		return "", fmt.Errorf("document not open: %s", uri)
 	}
@@ -685,7 +799,11 @@ func (s *languageServer) publishDiagnostics(uri string, diags []lspDiagnostic) e
 func (s *languageServer) writeResponse(id json.RawMessage, result any, rpcErr error) error {
 	resp := map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(id)}
 	if rpcErr != nil {
-		resp["error"] = map[string]any{"code": -32603, "message": rpcErr.Error()}
+		code := -32603
+		if coded, ok := rpcErr.(interface{ LSPCode() int }); ok {
+			code = coded.LSPCode()
+		}
+		resp["error"] = map[string]any{"code": code, "message": rpcErr.Error()}
 	} else {
 		resp["result"] = result
 	}
@@ -716,9 +834,10 @@ func (s *languageServer) writeMessage(v any) error {
 }
 
 type lspMessage struct {
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
-	ID     json.RawMessage `json:"id"`
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+	ID      json.RawMessage `json:"id"`
 }
 
 // IsRequest operates on lspMessage values and keeps the lspmessage-specific
@@ -736,6 +855,7 @@ func (m lspMessage) IsRequest() bool { return len(m.ID) > 0 }
 // the error is nil.
 func readLSPMessage(r *bufio.Reader) (lspMessage, error) {
 	var length int
+	foundLength := false
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
@@ -745,14 +865,20 @@ func readLSPMessage(r *bufio.Reader) (lspMessage, error) {
 		if line == "" {
 			break
 		}
-		if strings.HasPrefix(strings.ToLower(line), "content-length:") {
-			if _, err := fmt.Sscanf(line, "Content-Length: %d", &length); err != nil {
-				return lspMessage{}, err
+		name, value, ok := strings.Cut(line, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(name), "content-length") {
+			parsed, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil || parsed < 0 {
+				return lspMessage{}, fmt.Errorf("invalid Content-Length header")
 			}
+			length, foundLength = parsed, true
 		}
 	}
-	if length <= 0 {
-		return lspMessage{}, io.EOF
+	if !foundLength {
+		return lspMessage{}, fmt.Errorf("missing Content-Length header")
+	}
+	if length == 0 {
+		return lspMessage{}, fmt.Errorf("empty LSP message")
 	}
 	if length > maxLSPMessageBytes {
 		return lspMessage{}, fmt.Errorf("LSP message exceeds %d-byte limit", maxLSPMessageBytes)
@@ -770,14 +896,16 @@ func readLSPMessage(r *bufio.Reader) (lspMessage, error) {
 
 type didOpenParams struct {
 	TextDocument struct {
-		URI  string `json:"uri"`
-		Text string `json:"text"`
+		URI     string `json:"uri"`
+		Text    string `json:"text"`
+		Version int    `json:"version"`
 	} `json:"textDocument"`
 }
 
 type didChangeParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version int    `json:"version"`
 	} `json:"textDocument"`
 	ContentChanges []struct {
 		Range *lspRange `json:"range,omitempty"`
@@ -884,22 +1012,46 @@ type signatureHelpParams struct {
 // It returns *documentAnalysis so callers can continue with the next stage of
 // the pipeline without re-deriving the same information.
 func analyzeDocument(rt *Runtime, uri string, prog *Program) *documentAnalysis {
+	return analyzeDocumentContext(context.Background(), rt, uri, prog)
+}
+
+func analyzeDocumentContext(ctx context.Context, rt *Runtime, uri string, prog *Program) *documentAnalysis {
 	a := &documentAnalysis{enumCases: make(map[string]*symbolDef)}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if rt == nil {
+		rt = NewRuntime()
+	}
 	root := &lspScope{defs: map[string]*symbolDef{}}
 	for name := range rt.Builtins {
 		root.defs[name] = &symbolDef{name: name, kind: "builtin", detail: "builtin function", uri: "", span: sourceSpan{}}
 	}
 	_, _ = analyzeStmtSeq(a, root, uri, prog.Statements, false)
-	if _, err := rt.CheckProgram(context.Background(), prog); err != nil {
+	checked, checkErr := rt.CheckProgram(ctx, prog)
+	a.checked = checked
+	if checkErr != nil {
 		span := sourceSpan{}
-		message := err.Error()
-		if typed, ok := err.(*OsirisError); ok {
+		message := checkErr.Error()
+		if typed, ok := checkErr.(*OsirisError); ok {
 			message = typed.message
 			if typed.location != nil {
 				span = typed.location.Span
 			}
 		}
 		a.diagnostics = append(a.diagnostics, diagnosticAt(span, message))
+	}
+	if checked != nil {
+		for _, binding := range checked.Bindings {
+			for _, def := range a.defs {
+				if def.name == binding.Name && def.span == binding.Span {
+					def.typeName = binding.Type
+					if binding.Type != "" && !strings.Contains(def.detail, binding.Type) {
+						def.detail += " : " + binding.Type
+					}
+				}
+			}
+		}
 	}
 	return a
 }
