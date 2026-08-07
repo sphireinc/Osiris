@@ -3,6 +3,7 @@ package osiris
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -32,6 +33,7 @@ const (
 type WASMABI struct {
 	Version        uint32   `json:"version"`
 	Profile        string   `json:"profile"`
+	ExecutionMode  string   `json:"execution_mode"`
 	MemoryPageSize uint32   `json:"memory_page_size"`
 	ResultEncoding string   `json:"result_encoding"`
 	Cancellation   string   `json:"cancellation"`
@@ -147,6 +149,8 @@ func CompileWASMWithProfile(ctx context.Context, rt *Runtime, prog *Program, pro
 	if err != nil {
 		return nil, err
 	}
+	body, executionMode := emitWASMInstructionBody(ir)
+	compiled.ABI.ExecutionMode = executionMode
 	payload, err := marshalWASMPayload(compiled)
 	if err != nil {
 		return nil, fmt.Errorf("WASM backend: encode ABI payload: %w", err)
@@ -154,7 +158,6 @@ func CompileWASMWithProfile(ctx context.Context, rt *Runtime, prog *Program, pro
 	if uint64(len(payload)) > limits.MaxArtifactBytes {
 		return nil, wasmLimitError("artifact", limits.MaxArtifactBytes)
 	}
-	body := emitWASMInspectionBody(ir)
 	binary := buildWASMModule(payload, body, limits)
 	if uint64(len(binary)) > limits.MaxArtifactBytes {
 		return nil, wasmLimitError("artifact", limits.MaxArtifactBytes)
@@ -167,6 +170,7 @@ func CompileWASMWithProfile(ctx context.Context, rt *Runtime, prog *Program, pro
 		ABI: WASMABI{
 			Version:        WASMABIVersion,
 			Profile:        profile.Name,
+			ExecutionMode:  compiled.ABI.ExecutionMode,
 			MemoryPageSize: wasmPageSize,
 			ResultEncoding: "osiris-json-v1",
 			Cancellation:   "context-check-per-instruction",
@@ -225,6 +229,13 @@ func buildWASMText(sourceName string, body []byte, preview string, limits WASMEx
 	b.WriteString("  (global (export \"abi_version\") i32 (i32.const 1))\n")
 	b.WriteString("  (global (export \"result_ptr\") i32 (i32.const 0))\n")
 	b.WriteString("  (global (export \"result_len\") i32 (i32.const 0))\n")
+	b.WriteString("  (global (export \"result_kind\") (mut i32) (i32.const 0))\n")
+	b.WriteString("  (global (export \"result_value\") (mut i64) (i64.const 0))\n")
+	b.WriteString("  (global (export \"result_f64\") (mut f64) (f64.const 0))\n")
+	b.WriteString("  (global (export \"instruction_count\") (mut i64) (i64.const 0))\n")
+	b.WriteString("  (global (export \"instruction_budget\") (mut i64) (i64.const ")
+	b.WriteString(strconv.FormatUint(limits.MaxInstructions, 10))
+	b.WriteString("))\n")
 	b.WriteString("  (func (export \"run\") (result i32)\n")
 	b.WriteString("    ;; lowered scalar/control-flow inspection body\n")
 	for _, op := range body {
@@ -264,27 +275,33 @@ func buildWASMModule(payload, body []byte, limits WASMExecutionLimits) []byte {
 		writeULEB(buf, (limits.MaxMemoryBytes+wasmPageSize-1)/wasmPageSize)
 	})
 	writeWASMSection(&out, 6, func(buf *bytes.Buffer) {
-		writeULEB(buf, 3)
-		writeWASMGlobal(buf, 1)
-		writeWASMGlobal(buf, 0)
-		writeWASMGlobal(buf, 0)
+		writeULEB(buf, 8)
+		writeWASMGlobal(buf, 1, false)
+		writeWASMGlobal(buf, 0, false)
+		writeWASMGlobal(buf, 0, false)
+		writeWASMGlobal(buf, 0, true)
+		writeWASMI64Global(buf, 0, true)
+		writeWASMF64Global(buf, 0, true)
+		writeWASMI64Global(buf, 0, true)
+		writeWASMI64Global(buf, int64(limits.MaxInstructions), true)
 	})
 	writeWASMSection(&out, 7, func(buf *bytes.Buffer) {
-		writeULEB(buf, 5)
+		writeULEB(buf, 10)
 		writeWASMExport(buf, "memory", 0x02, 0)
 		writeWASMExport(buf, "abi_version", 0x03, 0)
 		writeWASMExport(buf, "result_ptr", 0x03, 1)
 		writeWASMExport(buf, "result_len", 0x03, 2)
+		writeWASMExport(buf, "result_kind", 0x03, 3)
+		writeWASMExport(buf, "result_value", 0x03, 4)
+		writeWASMExport(buf, "result_f64", 0x03, 5)
+		writeWASMExport(buf, "instruction_count", 0x03, 6)
+		writeWASMExport(buf, "instruction_budget", 0x03, 7)
 		writeWASMExport(buf, "run", 0x00, 0)
 	})
 	writeWASMSection(&out, 10, func(buf *bytes.Buffer) {
 		writeULEB(buf, 1)
 		var fn bytes.Buffer
-		writeULEB(&fn, 0)
 		fn.Write(body)
-		fn.WriteByte(0x41)
-		writeSLEB(&fn, 0)
-		fn.WriteByte(0x0b)
 		writeULEB(buf, uint64(fn.Len()))
 		buf.Write(fn.Bytes())
 	})
@@ -294,6 +311,753 @@ func buildWASMModule(payload, body []byte, limits WASMExecutionLimits) []byte {
 		buf.Write(payload)
 	})
 	return out.Bytes()
+}
+
+func emitWASMInstructionBody(ir *IRProgram) ([]byte, string) {
+	if body, ok := emitWASMScalarBody(ir); ok {
+		return body, "scalar-i64-v1"
+	}
+	var body bytes.Buffer
+	writeULEB(&body, 0)
+	body.Write(emitWASMInspectionBody(ir))
+	body.WriteByte(0x41)
+	writeSLEB(&body, 0)
+	body.WriteByte(0x0b)
+	return body.Bytes(), "payload-v1"
+}
+
+type wasmScalarKind byte
+
+const (
+	wasmScalarUint    wasmScalarKind = 1
+	wasmScalarInt     wasmScalarKind = 2
+	wasmScalarBool    wasmScalarKind = 3
+	wasmScalarFloat   wasmScalarKind = 4
+	wasmScalarFloat32 wasmScalarKind = 5
+	wasmScalarNull    wasmScalarKind = 6
+)
+
+func emitWASMScalarBody(ir *IRProgram) ([]byte, bool) {
+	if ir == nil || len(ir.Functions) != 1 || ir.Functions[0] == nil || len(ir.Functions[0].Blocks) == 0 {
+		return nil, false
+	}
+	if len(ir.Functions[0].Blocks) > 1 {
+		return emitWASMScalarCFGBody(ir)
+	}
+	block := ir.Functions[0].Blocks[0]
+	locals := make(map[string]uint32)
+	kinds := make(map[string]wasmScalarKind)
+	var emitted string
+	var emittedKind wasmScalarKind
+	for _, in := range block.Instrs {
+		if in.Op == "emit" {
+			if emitted != "" || len(in.Args) != 1 {
+				return nil, false
+			}
+			emitted = in.Args[0]
+			emittedKind = kinds[emitted]
+			continue
+		}
+		if in.Dest == "" {
+			return nil, false
+		}
+		if _, ok := kinds[in.Dest]; !ok {
+			kinds[in.Dest] = wasmScalarKind(0)
+			locals[in.Dest] = uint32(len(locals))
+		}
+		switch in.Op {
+		case "const", "global":
+			kinds[in.Dest] = wasmScalarKindForValue(in.Value)
+		case "copy":
+			if len(in.Args) != 1 {
+				return nil, false
+			}
+			kinds[in.Dest] = kinds[in.Args[0]]
+		case "unary":
+			if len(in.Args) != 1 || !wasmScalarUnary(in.Text) {
+				return nil, false
+			}
+			if in.Text == "!" {
+				kinds[in.Dest] = wasmScalarBool
+			} else if in.Text == "-" && wasmScalarIsFloat(kinds[in.Args[0]]) {
+				kinds[in.Dest] = kinds[in.Args[0]]
+			} else if in.Text == "-" {
+				kinds[in.Dest] = wasmScalarInt
+			} else {
+				kinds[in.Dest] = kinds[in.Args[0]]
+			}
+		case "binary":
+			if len(in.Args) != 2 || !wasmScalarBinary(in.Text) {
+				return nil, false
+			}
+			if (wasmScalarIsFloat(kinds[in.Args[0]]) || wasmScalarIsFloat(kinds[in.Args[1]])) && in.Text == "%" {
+				return nil, false
+			}
+			if wasmScalarComparison(in.Text) {
+				kinds[in.Dest] = wasmScalarBool
+			} else if wasmScalarIsFloat(kinds[in.Args[0]]) || wasmScalarIsFloat(kinds[in.Args[1]]) {
+				if kinds[in.Args[0]] == wasmScalarFloat32 && kinds[in.Args[1]] == wasmScalarFloat32 {
+					kinds[in.Dest] = wasmScalarFloat32
+				} else {
+					kinds[in.Dest] = wasmScalarFloat
+				}
+			} else {
+				kinds[in.Dest] = kinds[in.Args[0]]
+			}
+		default:
+			return nil, false
+		}
+		if kinds[in.Dest] == 0 {
+			return nil, false
+		}
+	}
+	if emitted == "" || emittedKind == 0 || block.Term == nil {
+		return nil, false
+	}
+	if _, ok := block.Term.(*irReturn); !ok {
+		return nil, false
+	}
+	var code bytes.Buffer
+	for _, in := range block.Instrs {
+		if in.Op == "emit" {
+			continue
+		}
+		if !writeWASMScalarInstruction(&code, in, locals, kinds) {
+			return nil, false
+		}
+	}
+	writeWASMStep(&code)
+	code.WriteByte(0x20)
+	writeULEB(&code, uint64(locals[emitted]))
+	if wasmScalarIsFloat(emittedKind) {
+		code.WriteByte(0xbf)
+		code.WriteByte(0x24)
+		writeULEB(&code, 5)
+	} else {
+		code.WriteByte(0x24)
+		writeULEB(&code, 4)
+	}
+	code.WriteByte(0x41)
+	writeSLEB(&code, int64(emittedKind))
+	code.WriteByte(0x24)
+	writeULEB(&code, 3)
+	code.WriteByte(0x41)
+	writeSLEB(&code, 0)
+	code.WriteByte(0x0b)
+	var body bytes.Buffer
+	if len(locals) == 0 {
+		writeULEB(&body, 0)
+	} else {
+		writeULEB(&body, 1)
+		writeULEB(&body, uint64(len(locals)))
+		body.WriteByte(0x7e)
+	}
+	body.Write(code.Bytes())
+	return body.Bytes(), true
+}
+
+// emitWASMScalarCFGBody lowers a scalar CFG into a small dispatcher
+// loop. WASM's structured control flow does not have arbitrary gotos, while
+// Osiris SSA blocks do, so the dispatcher keeps the current block in an i32
+// local and copies block arguments into their parameter locals before the next
+// dispatch. Each block visit and lowered instruction is budgeted, so cycles
+// cannot escape the generated execution limit.
+func emitWASMScalarCFGBody(ir *IRProgram) ([]byte, bool) {
+	if ir == nil || len(ir.Functions) != 1 || ir.Functions[0] == nil {
+		return nil, false
+	}
+	fn := ir.Functions[0]
+	if len(fn.Blocks) < 2 {
+		return nil, false
+	}
+	blockIndex := make(map[string]uint32, len(fn.Blocks))
+	for i, block := range fn.Blocks {
+		if block == nil || block.Name == "" {
+			return nil, false
+		}
+		blockIndex[block.Name] = uint32(i)
+	}
+	locals := make(map[string]uint32)
+	kinds := make(map[string]wasmScalarKind)
+	addValue := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := locals[name]; !ok {
+			locals[name] = uint32(len(locals))
+		}
+	}
+	for _, block := range fn.Blocks {
+		for _, param := range block.Params {
+			addValue(param)
+		}
+		for _, in := range block.Instrs {
+			addValue(in.Dest)
+		}
+	}
+	if len(locals) == 0 {
+		return nil, false
+	}
+
+	// Infer block parameters and instruction result kinds to a fixed point,
+	// because a join parameter is defined by incoming edge arguments.
+	for pass := 0; pass <= len(fn.Blocks)*2; pass++ {
+		changed := false
+		for _, block := range fn.Blocks {
+			for _, in := range block.Instrs {
+				kind := wasmScalarInstructionKind(in, kinds)
+				if kind != 0 && kinds[in.Dest] != kind {
+					kinds[in.Dest] = kind
+					changed = true
+				}
+			}
+			propagate := func(target string, args []string) bool {
+				targetBlock := findWASMBlock(fn.Blocks, target)
+				if targetBlock == nil || len(targetBlock.Params) != len(args) {
+					return false
+				}
+				for i, arg := range args {
+					kind := kinds[arg]
+					if kind != 0 && kinds[targetBlock.Params[i]] != kind {
+						kinds[targetBlock.Params[i]] = kind
+						changed = true
+					}
+				}
+				return true
+			}
+			switch term := block.Term.(type) {
+			case *irJump:
+				if !propagate(term.Target, term.Args) {
+					return nil, false
+				}
+			case *irBranch:
+				if !propagate(term.TrueTarget, term.TrueArgs) || !propagate(term.FalseTarget, term.FalseArgs) {
+					return nil, false
+				}
+			case *irReturn:
+			case *irUnreachable:
+			default:
+				return nil, false
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	var emitted string
+	var emittedKind wasmScalarKind
+	for _, block := range fn.Blocks {
+		for _, in := range block.Instrs {
+			if in.Op == "emit" {
+				if emitted != "" || len(in.Args) != 1 {
+					return nil, false
+				}
+				emitted = in.Args[0]
+				emittedKind = kinds[emitted]
+				continue
+			}
+			if in.Dest == "" || kinds[in.Dest] == 0 || !wasmScalarInstructionKindSupported(in, kinds) {
+				return nil, false
+			}
+		}
+		for _, param := range block.Params {
+			if kinds[param] == 0 {
+				return nil, false
+			}
+		}
+	}
+	if emitted == "" || emittedKind == 0 {
+		return nil, false
+	}
+
+	stateLocal := uint32(len(locals))
+	var code bytes.Buffer
+	if len(locals) > 0 {
+		writeULEB(&code, 2)
+		writeULEB(&code, uint64(len(locals)))
+		code.WriteByte(0x7e)
+		writeULEB(&code, 1)
+		code.WriteByte(0x7f)
+	} else {
+		writeULEB(&code, 1)
+		writeULEB(&code, 1)
+		code.WriteByte(0x7f)
+	}
+	code.WriteByte(0x41)
+	writeSLEB(&code, 0)
+	code.WriteByte(0x21)
+	writeULEB(&code, uint64(stateLocal))
+	code.WriteByte(0x02)
+	code.WriteByte(0x40)
+	code.WriteByte(0x03)
+	code.WriteByte(0x40)
+	for index, block := range fn.Blocks {
+		code.WriteByte(0x20)
+		writeULEB(&code, uint64(stateLocal))
+		code.WriteByte(0x41)
+		writeSLEB(&code, int64(index))
+		code.WriteByte(0x46)
+		code.WriteByte(0x04)
+		code.WriteByte(0x40)
+		writeWASMStep(&code)
+		for _, in := range block.Instrs {
+			if in.Op == "emit" {
+				if len(in.Args) != 1 || !writeWASMScalarResult(&code, locals, kinds[in.Args[0]], in.Args[0]) {
+					return nil, false
+				}
+				writeWASMStep(&code)
+				continue
+			}
+			if !writeWASMScalarInstruction(&code, in, locals, kinds) {
+				return nil, false
+			}
+		}
+		switch term := block.Term.(type) {
+		case *irJump:
+			if !writeWASMScalarJump(&code, fn.Blocks, blockIndex, locals, term.Target, term.Args, stateLocal) {
+				return nil, false
+			}
+			code.WriteByte(0x0c)
+			writeULEB(&code, 1)
+		case *irBranch:
+			if !writeWASMScalarCondition(&code, locals, term.Cond) {
+				return nil, false
+			}
+			code.WriteByte(0x04)
+			code.WriteByte(0x40)
+			if !writeWASMScalarJump(&code, fn.Blocks, blockIndex, locals, term.TrueTarget, term.TrueArgs, stateLocal) {
+				return nil, false
+			}
+			code.WriteByte(0x0c)
+			writeULEB(&code, 2)
+			code.WriteByte(0x05)
+			if !writeWASMScalarJump(&code, fn.Blocks, blockIndex, locals, term.FalseTarget, term.FalseArgs, stateLocal) {
+				return nil, false
+			}
+			code.WriteByte(0x0c)
+			writeULEB(&code, 2)
+			code.WriteByte(0x0b)
+		case *irReturn:
+			if term.HasValue {
+				if !writeWASMScalarResult(&code, locals, kinds[term.Value], term.Value) {
+					return nil, false
+				}
+			}
+			code.WriteByte(0x0c)
+			writeULEB(&code, 2)
+		case *irUnreachable:
+			code.WriteByte(0x00)
+		default:
+			return nil, false
+		}
+		code.WriteByte(0x0b)
+	}
+	code.WriteByte(0x0c)
+	writeULEB(&code, 0)
+	code.WriteByte(0x0b)
+	code.WriteByte(0x0b)
+	code.WriteByte(0x41)
+	writeSLEB(&code, 0)
+	code.WriteByte(0x0b)
+	return code.Bytes(), true
+}
+
+func wasmScalarInstructionKind(in IRInstr, kinds map[string]wasmScalarKind) wasmScalarKind {
+	switch in.Op {
+	case "const", "global":
+		return wasmScalarKindForValue(in.Value)
+	case "copy", "assign":
+		if len(in.Args) == 1 {
+			return kinds[in.Args[0]]
+		}
+	case "unary":
+		if len(in.Args) != 1 || !wasmScalarUnary(in.Text) {
+			return 0
+		}
+		arg := kinds[in.Args[0]]
+		if arg == 0 {
+			return 0
+		}
+		if in.Text == "!" {
+			return wasmScalarBool
+		}
+		if in.Text == "-" && wasmScalarIsFloat(arg) {
+			return arg
+		}
+		if in.Text == "-" {
+			return wasmScalarInt
+		}
+		return arg
+	case "binary":
+		if len(in.Args) != 2 || !wasmScalarBinary(in.Text) {
+			return 0
+		}
+		left, right := kinds[in.Args[0]], kinds[in.Args[1]]
+		if left == 0 || right == 0 || (wasmScalarIsFloat(left) || wasmScalarIsFloat(right)) && in.Text == "%" {
+			return 0
+		}
+		if wasmScalarComparison(in.Text) {
+			return wasmScalarBool
+		}
+		if wasmScalarIsFloat(left) || wasmScalarIsFloat(right) {
+			if left == wasmScalarFloat32 && right == wasmScalarFloat32 {
+				return wasmScalarFloat32
+			}
+			return wasmScalarFloat
+		}
+		return left
+	}
+	return 0
+}
+
+func wasmScalarInstructionKindSupported(in IRInstr, kinds map[string]wasmScalarKind) bool {
+	return wasmScalarInstructionKind(in, kinds) != 0
+}
+
+func writeWASMScalarInstruction(code *bytes.Buffer, in IRInstr, locals map[string]uint32, kinds map[string]wasmScalarKind) bool {
+	writeWASMStep(code)
+	switch in.Op {
+	case "const", "global":
+		value, ok := wasmScalarValue(in.Value)
+		if !ok {
+			return false
+		}
+		code.WriteByte(0x42)
+		writeSLEB(code, value)
+	case "copy", "assign":
+		if len(in.Args) != 1 {
+			return false
+		}
+		code.WriteByte(0x20)
+		writeULEB(code, uint64(locals[in.Args[0]]))
+	case "unary":
+		if len(in.Args) != 1 {
+			return false
+		}
+		argKind := kinds[in.Args[0]]
+		if wasmScalarIsFloat(argKind) {
+			code.WriteByte(0x20)
+			writeULEB(code, uint64(locals[in.Args[0]]))
+			code.WriteByte(0xbf)
+			if in.Text == "-" {
+				code.WriteByte(0x9a)
+			}
+			code.WriteByte(0xbd)
+		} else if in.Text == "-" {
+			code.WriteByte(0x42)
+			writeSLEB(code, 0)
+			code.WriteByte(0x20)
+			writeULEB(code, uint64(locals[in.Args[0]]))
+			code.WriteByte(0x7d)
+		} else {
+			code.WriteByte(0x20)
+			writeULEB(code, uint64(locals[in.Args[0]]))
+			if in.Text == "!" {
+				code.WriteByte(0x50)
+				code.WriteByte(0xad)
+			} else if in.Text == "~" {
+				code.WriteByte(0x42)
+				writeSLEB(code, -1)
+				code.WriteByte(0x85)
+			} else if in.Text != "+" {
+				return false
+			}
+		}
+	case "binary":
+		if len(in.Args) != 2 {
+			return false
+		}
+		leftKind, rightKind := kinds[in.Args[0]], kinds[in.Args[1]]
+		if wasmScalarIsFloat(leftKind) || wasmScalarIsFloat(rightKind) {
+			wasmScalarFloatOperand(code, locals[in.Args[0]], leftKind)
+			wasmScalarFloatOperand(code, locals[in.Args[1]], rightKind)
+			code.WriteByte(wasmScalarFloatBinaryOpcode(in.Text))
+			if wasmScalarComparison(in.Text) {
+				code.WriteByte(0xad)
+			} else {
+				code.WriteByte(0xbd)
+			}
+		} else {
+			code.WriteByte(0x20)
+			writeULEB(code, uint64(locals[in.Args[0]]))
+			code.WriteByte(0x20)
+			writeULEB(code, uint64(locals[in.Args[1]]))
+			code.WriteByte(wasmScalarBinaryOpcode(in.Text, leftKind == wasmScalarUint))
+			if wasmScalarComparison(in.Text) {
+				code.WriteByte(0xad)
+			}
+		}
+	default:
+		return false
+	}
+	code.WriteByte(0x21)
+	writeULEB(code, uint64(locals[in.Dest]))
+	return true
+}
+
+func writeWASMScalarCondition(code *bytes.Buffer, locals map[string]uint32, value string) bool {
+	local, ok := locals[value]
+	if !ok {
+		return false
+	}
+	code.WriteByte(0x20)
+	writeULEB(code, uint64(local))
+	code.WriteByte(0x42)
+	writeSLEB(code, 0)
+	code.WriteByte(0x52)
+	return true
+}
+
+func writeWASMScalarJump(code *bytes.Buffer, blocks []*IRBlock, indexes map[string]uint32, locals map[string]uint32, target string, args []string, stateLocal uint32) bool {
+	targetBlock := findWASMBlock(blocks, target)
+	if targetBlock == nil || len(targetBlock.Params) != len(args) {
+		return false
+	}
+	for i, arg := range args {
+		argLocal, ok := locals[arg]
+		if !ok {
+			return false
+		}
+		code.WriteByte(0x20)
+		writeULEB(code, uint64(argLocal))
+		code.WriteByte(0x21)
+		writeULEB(code, uint64(locals[targetBlock.Params[i]]))
+	}
+	index, ok := indexes[target]
+	if !ok {
+		return false
+	}
+	code.WriteByte(0x41)
+	writeSLEB(code, int64(index))
+	code.WriteByte(0x21)
+	writeULEB(code, uint64(stateLocal))
+	return true
+}
+
+func writeWASMScalarResult(code *bytes.Buffer, locals map[string]uint32, kind wasmScalarKind, value string) bool {
+	local, ok := locals[value]
+	if !ok || kind == 0 {
+		return false
+	}
+	code.WriteByte(0x20)
+	writeULEB(code, uint64(local))
+	if wasmScalarIsFloat(kind) {
+		code.WriteByte(0xbf)
+		code.WriteByte(0x24)
+		writeULEB(code, 5)
+	} else {
+		code.WriteByte(0x24)
+		writeULEB(code, 4)
+	}
+	code.WriteByte(0x41)
+	writeSLEB(code, int64(kind))
+	code.WriteByte(0x24)
+	writeULEB(code, 3)
+	return true
+}
+
+func findWASMBlock(blocks []*IRBlock, name string) *IRBlock {
+	for _, block := range blocks {
+		if block != nil && block.Name == name {
+			return block
+		}
+	}
+	return nil
+}
+
+func writeWASMStep(code *bytes.Buffer) {
+	// Every lowered IR operation consumes one budget unit and increments the
+	// exported execution counter. Returning a status from the generated
+	// function keeps the limit failure deterministic and avoids relying on a
+	// host-side replay of the IR.
+	code.WriteByte(0x23)
+	writeULEB(code, 7)
+	code.WriteByte(0x42)
+	writeSLEB(code, 1)
+	code.WriteByte(0x7d)
+	code.WriteByte(0x24)
+	writeULEB(code, 7)
+	code.WriteByte(0x23)
+	writeULEB(code, 7)
+	code.WriteByte(0x42)
+	writeSLEB(code, 0)
+	code.WriteByte(0x53)
+	code.WriteByte(0x04)
+	code.WriteByte(0x40)
+	code.WriteByte(0x41)
+	writeSLEB(code, 1)
+	code.WriteByte(0x0f)
+	code.WriteByte(0x0b)
+	code.WriteByte(0x23)
+	writeULEB(code, 6)
+	code.WriteByte(0x42)
+	writeSLEB(code, 1)
+	code.WriteByte(0x7c)
+	code.WriteByte(0x24)
+	writeULEB(code, 6)
+}
+
+func wasmScalarKindForValue(value Value) wasmScalarKind {
+	switch value.kind {
+	case kindUint:
+		return wasmScalarUint
+	case kindInt:
+		return wasmScalarInt
+	case kindBool:
+		return wasmScalarBool
+	case kindNull:
+		return wasmScalarNull
+	case kindNumber:
+		if value.bfloat {
+			return 0
+		}
+		if value.fbits == 32 {
+			return wasmScalarFloat32
+		}
+		return wasmScalarFloat
+	default:
+		return 0
+	}
+}
+
+func wasmScalarValue(value Value) (int64, bool) {
+	switch value.kind {
+	case kindUint:
+		if value.ub != nil || value.u > math.MaxInt64 {
+			return int64(value.u), value.ub == nil
+		}
+		return int64(value.u), true
+	case kindInt:
+		if value.i == nil || !value.i.IsInt64() {
+			return 0, false
+		}
+		return value.i.Int64(), true
+	case kindBool:
+		if value.boo {
+			return 1, true
+		}
+		return 0, true
+	case kindNull:
+		return 0, true
+	case kindNumber:
+		if value.bfloat || math.IsNaN(value.num) || math.IsInf(value.num, 0) {
+			return 0, false
+		}
+		return int64(math.Float64bits(value.num)), true
+	default:
+		return 0, false
+	}
+}
+
+func wasmScalarUnary(op string) bool { return op == "+" || op == "-" || op == "!" || op == "~" }
+
+func wasmScalarIsFloat(kind wasmScalarKind) bool {
+	return kind == wasmScalarFloat || kind == wasmScalarFloat32
+}
+
+func wasmScalarBinary(op string) bool {
+	switch op {
+	case "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=":
+		return true
+	default:
+		return false
+	}
+}
+
+func wasmScalarComparison(op string) bool {
+	switch op {
+	case "==", "!=", "<", "<=", ">", ">=":
+		return true
+	default:
+		return false
+	}
+}
+
+func wasmScalarBinaryOpcode(op string, unsigned bool) byte {
+	switch op {
+	case "+":
+		return 0x7c
+	case "-":
+		return 0x7d
+	case "*":
+		return 0x7e
+	case "/":
+		if unsigned {
+			return 0x80
+		}
+		return 0x7f
+	case "%":
+		if unsigned {
+			return 0x82
+		}
+		return 0x81
+	case "==":
+		return 0x51
+	case "!=":
+		return 0x52
+	case "<":
+		if unsigned {
+			return 0x54
+		}
+		return 0x53
+	case "<=":
+		if unsigned {
+			return 0x58
+		}
+		return 0x57
+	case ">":
+		if unsigned {
+			return 0x56
+		}
+		return 0x55
+	case ">=":
+		if unsigned {
+			return 0x5a
+		}
+		return 0x59
+	default:
+		return 0x7c
+	}
+}
+
+func wasmScalarFloatOperand(code *bytes.Buffer, local uint32, kind wasmScalarKind) {
+	code.WriteByte(0x20)
+	writeULEB(code, uint64(local))
+	if wasmScalarIsFloat(kind) {
+		code.WriteByte(0xbf)
+	} else if kind == wasmScalarUint {
+		code.WriteByte(0xb8)
+	} else {
+		code.WriteByte(0xb7)
+	}
+}
+
+func wasmScalarFloatBinaryOpcode(op string) byte {
+	switch op {
+	case "+":
+		return 0xa0
+	case "-":
+		return 0xa1
+	case "*":
+		return 0xa2
+	case "/":
+		return 0xa3
+	case "==":
+		return 0x61
+	case "!=":
+		return 0x62
+	case "<":
+		return 0x63
+	case ">":
+		return 0x64
+	case "<=":
+		return 0x65
+	case ">=":
+		return 0x66
+	default:
+		return 0xa0
+	}
 }
 
 func emitWASMInspectionBody(ir *IRProgram) []byte {
@@ -348,10 +1112,40 @@ func emitWASMInspectionBody(ir *IRProgram) []byte {
 	return body.Bytes()
 }
 
-func writeWASMGlobal(buf *bytes.Buffer, value int32) {
+func writeWASMGlobal(buf *bytes.Buffer, value int32, mutable bool) {
 	buf.WriteByte(0x7f)
-	buf.WriteByte(0x00)
+	if mutable {
+		buf.WriteByte(0x01)
+	} else {
+		buf.WriteByte(0x00)
+	}
 	writeWASMConstExpr(buf, value)
+}
+
+func writeWASMI64Global(buf *bytes.Buffer, value int64, mutable bool) {
+	buf.WriteByte(0x7e)
+	if mutable {
+		buf.WriteByte(0x01)
+	} else {
+		buf.WriteByte(0x00)
+	}
+	buf.WriteByte(0x42)
+	writeSLEB(buf, value)
+	buf.WriteByte(0x0b)
+}
+
+func writeWASMF64Global(buf *bytes.Buffer, value float64, mutable bool) {
+	buf.WriteByte(0x7c)
+	if mutable {
+		buf.WriteByte(0x01)
+	} else {
+		buf.WriteByte(0x00)
+	}
+	buf.WriteByte(0x44)
+	var bits [8]byte
+	binary.LittleEndian.PutUint64(bits[:], math.Float64bits(value))
+	buf.Write(bits[:])
+	buf.WriteByte(0x0b)
 }
 
 func writeWASMConstExpr(buf *bytes.Buffer, value int32) {

@@ -2,7 +2,12 @@
 
 **Priority:** P1
 **Dependencies:** 139,140,141,036
-**Status:** Complete
+**Status:** Complete; scalar instruction-level execution is active in the
+`scalar-i64-v1` module mode, including cyclic and acyclic SSA branch/join
+graphs, mutable assignments, null bookkeeping values, edge parameter copies,
+and generated instruction-budget enforcement. Aggregate, closure, and
+host-provider forms continue through the bounded `payload-v1` compatibility
+mode until tasks 156-157 provide their dedicated lowering and import ABIs.
 
 ## Objective
 
@@ -35,8 +40,10 @@ and LSP tasks. Later WASM tasks depend on its ABI.
 
 - `CompileWASM` emits a valid versioned binary with an `osiris.wasm.v1` custom
   section containing lowered IR, ABI metadata, limits, ownership, and
-  cancellation policy; `ExecuteWASM` consumes that artifact through the
-  deterministic provider rather than source evaluation.
+  cancellation policy; scalar artifacts execute their arithmetic, cyclic and
+  acyclic branch/join control flow, generated instruction accounting, and
+  result transport inside wazero, while the deterministic provider remains the
+  bounded compatibility runner for forms outside the scalar lowering scope.
 - `wasm_provider.go`, `wasm_runtime.go`, and `wasm_test.go` cover binary
   validation, malformed sections, bounded instructions/memory/outputs,
   repeated deterministic execution, source-spanned rejection, and

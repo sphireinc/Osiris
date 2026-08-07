@@ -22,11 +22,14 @@ emit base + 3
 	if artifact.ABI.Version != WASMABIVersion || artifact.ABI.ResultEncoding != "osiris-json-v1" {
 		t.Fatalf("ABI = %#v", artifact.ABI)
 	}
+	if artifact.ABI.ExecutionMode != "scalar-i64-v1" {
+		t.Fatalf("execution mode = %q, want scalar-i64-v1", artifact.ABI.ExecutionMode)
+	}
 	if !bytes.HasPrefix(artifact.Binary, []byte{0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00}) {
 		t.Fatalf("not a WASM v1 module: %x", artifact.Binary[:8])
 	}
-	if !bytes.Contains(artifact.Binary, []byte{0x6a}) {
-		t.Fatalf("generated module has no i32.add opcode: %x", artifact.Binary)
+	if !bytes.Contains(artifact.Binary, []byte{0x7c}) {
+		t.Fatalf("generated module has no i64.add opcode: %x", artifact.Binary)
 	}
 	result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
 	if err != nil {
@@ -62,6 +65,76 @@ emit if(flag, 11, 22)
 	}
 	if first.JSON != `[11]` || second.JSON != first.JSON || first.Instructions != second.Instructions {
 		t.Fatalf("runs differ: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestWASMScalarLoopExecutesWithGeneratedBudget(t *testing.T) {
+	program, err := Parse("<wasm-loop>", `
+var total = 0
+while total < 3 { total = total + 1 }
+emit total
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.ABI.ExecutionMode != "scalar-i64-v1" {
+		t.Fatalf("execution mode = %q", artifact.ABI.ExecutionMode)
+	}
+	result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.JSON != `[3]` || result.Instructions < 10 {
+		t.Fatalf("result = %#v, want loop result and dynamic accounting", result)
+	}
+	if _, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{MaxInstructions: result.Instructions - 1}); err == nil || !strings.Contains(err.Error(), "instructions limit exceeded") {
+		t.Fatalf("loop budget error = %v", err)
+	}
+}
+
+func TestWASMScalarInstructionResults(t *testing.T) {
+	fixtures := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "unary", source: "emit -7\n", want: `[{"bits":64,"int":"-7"}]`},
+		{name: "comparison", source: "emit 9 > 3\n", want: `[true]`},
+		{name: "boolean", source: "emit !false\n", want: `[true]`},
+		{name: "float", source: "emit 1.5 + 2.25\n", want: `[{"bits":64,"float":"3.75f64"}]`},
+		{name: "float32", source: "emit 1.5f32 + 2.25f32\n", want: `[{"bits":32,"float":"3.75f32"}]`},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			program, err := Parse("<wasm-scalar-"+fixture.name+">", fixture.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if artifact.ABI.ExecutionMode != "scalar-i64-v1" {
+				t.Fatalf("execution mode = %q", artifact.ABI.ExecutionMode)
+			}
+			result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.JSON != fixture.want {
+				t.Fatalf("result = %s, want %s", result.JSON, fixture.want)
+			}
+			if result.Instructions < 2 {
+				t.Fatalf("instruction accounting = %d, want lowered instruction count", result.Instructions)
+			}
+			if _, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{MaxInstructions: 1}); err == nil || !strings.Contains(err.Error(), "instructions limit exceeded") {
+				t.Fatalf("low instruction limit error = %v", err)
+			}
+		})
 	}
 }
 

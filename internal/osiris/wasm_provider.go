@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -12,7 +13,10 @@ import (
 	"time"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 )
+
+var errWASMInstructionLimit = errors.New("WASM backend: instructions limit exceeded")
 
 type wasmProgram struct {
 	ABI        WASMABI             `json:"abi"`
@@ -104,8 +108,9 @@ type WASMProvider interface {
 }
 
 // DeterministicWASMProvider is the portable in-repository runner. It executes
-// the validated Osiris ABI payload embedded in the WASM module, with no source
-// or interpreter access and no unbounded host allocation.
+// scalar instruction bodies through the WASM engine and uses the validated
+// Osiris ABI payload only for forms outside the scalar lowering boundary, with
+// no source or interpreter access and no unbounded host allocation.
 type DeterministicWASMProvider struct{}
 
 func NewDeterministicWASMProvider() WASMProvider {
@@ -121,10 +126,21 @@ func (DeterministicWASMProvider) Execute(ctx context.Context, artifact []byte, l
 	if err != nil {
 		return WASMExecution{}, err
 	}
-	if err := executeWASMModule(ctx, artifact); err != nil {
+	effective := wasmMinimumLimits(program.Limits, limits)
+	if program.ABI.ExecutionMode == "scalar-i64-v1" {
+		engineResult, err := executeWASMModule(ctx, artifact, effective.MaxInstructions)
+		if err != nil {
+			return WASMExecution{}, err
+		}
+		if engineResult.instructions == 0 {
+			return WASMExecution{}, fmt.Errorf("WASM backend: scalar module did not execute an instruction")
+		}
+		return executeWASMScalarResult(engineResult, effective, engineResult.instructions)
+	}
+	_, err = executeWASMModule(ctx, artifact, 0)
+	if err != nil {
 		return WASMExecution{}, err
 	}
-	effective := wasmMinimumLimits(program.Limits, limits)
 	return executeWASMProgram(ctx, program, effective)
 }
 
@@ -133,31 +149,99 @@ func (DeterministicWASMProvider) Execute(ctx context.Context, artifact []byte, l
 // section carries Osiris values and capabilities, while the engine owns
 // validation and execution of the generated module itself; neither source nor
 // an interpreter is passed to the engine.
-func executeWASMModule(ctx context.Context, artifact []byte) error {
-	engine := wazero.NewRuntime(ctx)
+type wasmEngineResult struct {
+	kind         uint64
+	value        uint64
+	float        uint64
+	instructions uint64
+}
+
+func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget uint64) (wasmEngineResult, error) {
+	engine := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
 	defer engine.Close(ctx)
 	compiled, err := engine.CompileModule(ctx, artifact)
 	if err != nil {
-		return fmt.Errorf("WASM backend: engine compile: %w", err)
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine compile: %w", err)
 	}
 	defer compiled.Close(ctx)
 	module, err := engine.InstantiateModule(ctx, compiled, wazero.NewModuleConfig())
 	if err != nil {
-		return fmt.Errorf("WASM backend: engine instantiate: %w", err)
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine instantiate: %w", err)
 	}
 	defer module.Close(ctx)
 	run := module.ExportedFunction("run")
 	if run == nil {
-		return fmt.Errorf("WASM backend: engine artifact has no run export")
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine artifact has no run export")
+	}
+	if budget := module.ExportedGlobal("instruction_budget"); budget != nil && instructionBudget != 0 {
+		mutable, ok := budget.(api.MutableGlobal)
+		if !ok {
+			return wasmEngineResult{}, fmt.Errorf("WASM backend: instruction budget global is immutable")
+		}
+		mutable.Set(instructionBudget)
 	}
 	results, err := run.Call(ctx)
 	if err != nil {
-		return fmt.Errorf("WASM backend: engine run: %w", err)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return wasmEngineResult{}, ctxErr
+		}
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine run: %w", err)
 	}
-	if len(results) != 1 || results[0] != 0 {
-		return fmt.Errorf("WASM backend: engine run returned invalid status")
+	if len(results) != 1 {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine run returned invalid status")
 	}
-	return nil
+	if results[0] == 1 {
+		return wasmEngineResult{}, errWASMInstructionLimit
+	}
+	if results[0] != 0 {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine run returned invalid status")
+	}
+	kind := module.ExportedGlobal("result_kind")
+	value := module.ExportedGlobal("result_value")
+	float := module.ExportedGlobal("result_f64")
+	if kind == nil || value == nil {
+		return wasmEngineResult{}, nil
+	}
+	var floatBits uint64
+	if float != nil {
+		floatBits = float.Get()
+	}
+	var instructions uint64
+	if count := module.ExportedGlobal("instruction_count"); count != nil {
+		instructions = count.Get()
+	}
+	return wasmEngineResult{kind: kind.Get(), value: value.Get(), float: floatBits, instructions: instructions}, nil
+}
+
+func executeWASMScalarResult(result wasmEngineResult, limits WASMExecutionLimits, instructions uint64) (WASMExecution, error) {
+	if result.kind == 0 {
+		return WASMExecution{}, fmt.Errorf("WASM backend: scalar module did not produce a result")
+	}
+	var value Value
+	switch result.kind {
+	case 1:
+		value = uintValue(result.value, 64)
+	case 2:
+		value = intValue(new(big.Int).SetInt64(int64(result.value)), 64)
+	case 3:
+		value = boolValue(result.value != 0)
+	case 4:
+		value = floatValue(math.Float64frombits(result.float), 64)
+	case 5:
+		value = floatValue(math.Float64frombits(result.float), 32)
+	case 6:
+		value = nullValue()
+	default:
+		return WASMExecution{}, fmt.Errorf("WASM backend: unknown scalar result kind %d", result.kind)
+	}
+	encoded, err := json.Marshal([]Value{value})
+	if err != nil {
+		return WASMExecution{}, fmt.Errorf("WASM backend: encode scalar result: %w", err)
+	}
+	if uint64(len(encoded)) > limits.MaxMemoryBytes {
+		return WASMExecution{}, wasmLimitError("memory", limits.MaxMemoryBytes)
+	}
+	return WASMExecution{Outputs: []Value{value}, JSON: string(encoded), Instructions: instructions, MemoryBytes: uint64(len(encoded))}, nil
 }
 
 func wasmMinimumLimits(left, right WASMExecutionLimits) WASMExecutionLimits {
