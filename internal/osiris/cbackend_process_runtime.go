@@ -26,6 +26,8 @@ var nativeHostResourceMembers = map[string]map[string]string{
 		"fd":                 "os.process_raw_handle",
 		"name":               "os.file_metadata",
 		"new_file":           "os.process_raw_handle",
+		"with_handle":        "os.process_raw_handle",
+		"syscall_conn":       "os.process_raw_handle",
 		"signal_subscribe":   "os.signal",
 		"open":               "os.file_read",
 		"create":             "os.file_write",
@@ -532,6 +534,36 @@ static OValue osiris_host_fd(OValue value) {
   OHostResource *resource = osiris_host_any_resource(value, "fd expects a host resource");
   if (!resource || (resource->kind != OSIRIS_HOST_FILE && resource->kind != OSIRIS_HOST_STREAM)) return onull();
   return ouint((uint64_t)resource->fd);
+}
+
+static OValue osiris_host_with_handle(OValue value, OValue callback) {
+  OHostResource *resource = osiris_host_any_resource(value, "with_handle expects a host resource");
+  if (!resource || (resource->kind != OSIRIS_HOST_FILE && resource->kind != OSIRIS_HOST_STREAM)) return onull();
+  if (callback.kind != O_CLOSURE || !callback.as.closure.call) return ofail("with_handle expects a callback");
+  OValue raw = ouint((uint64_t)resource->fd);
+  return ocall(callback, &raw, 1);
+}
+
+static OValue osiris_host_syscall_conn_apply(const OValue *args, size_t argc, const OValue *captures, size_t capture_count) {
+  if (argc != 1 || capture_count != 1) return ofail("syscall connection callback arity mismatch");
+  OHostResource *resource = osiris_host_any_resource(captures[0], "syscall connection resource is closed");
+  if (!resource || (resource->kind != OSIRIS_HOST_FILE && resource->kind != OSIRIS_HOST_STREAM)) return onull();
+  if (args[0].kind != O_CLOSURE || !args[0].as.closure.call) return ofail("syscall connection method expects a callback");
+  OValue raw = ouint((uint64_t)resource->fd);
+  return ocall(args[0], &raw, 1);
+}
+
+static OValue osiris_host_syscall_conn(OValue value) {
+  OHostResource *resource = osiris_host_any_resource(value, "syscall_conn expects a host resource");
+  if (!resource || (resource->kind != OSIRIS_HOST_FILE && resource->kind != OSIRIS_HOST_STREAM)) return onull();
+  OValue methods[3] = {
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+  };
+  if (ohaderror) return onull();
+  const char *keys[3] = {"control", "read", "write"};
+  return omap(keys, methods, 3);
 }
 
 static OValue osiris_host_name(OValue value) {
@@ -1680,6 +1712,8 @@ var nativeHostResourceRuntimeSymbols = map[string]string{
 	"fd":                 "osiris_host_fd(file)",
 	"name":               "osiris_host_name(file)",
 	"new_file":           "osiris_host_new_file(fd, name)",
+	"with_handle":        "osiris_host_with_handle(file, callback)",
+	"syscall_conn":       "osiris_host_syscall_conn(file)",
 	"signal_subscribe":   "osiris_host_signal_subscribe(signal)",
 	"open":               "osiris_host_file_open(path, O_RDONLY, 0)",
 	"create":             "osiris_host_file_open(path, O_RDWR|O_CREAT|O_TRUNC, mode)",

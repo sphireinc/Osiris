@@ -10,9 +10,13 @@ import (
 
 func TestTask148NativeStandardStreamsAndRawHandlesExecute(t *testing.T) {
 	got := runTask148NativeResourceProgram(t, `import "std/os" as os
+func identity(value) => value
 let raw = os.new_file(1, "raw-stdout")
 let descriptor = os.fd(raw)
 emit descriptor >= 0
+emit os.with_handle(raw, identity) >= 0
+let connection = os.syscall_conn(raw)
+emit connection.read(identity) >= 0
 emit os.name(raw)
 emit os.close(raw)
 emit os.fd(os.stdout) >= 0

@@ -504,7 +504,7 @@ func nativeStaticModuleMember(path, member string) (string, bool) {
 			"format": {}, "parse_duration": {}, "rfc3339": {}, "sub": {},
 			"utc_location": {},
 		},
-		"std/os": {"is_path_separator": {}, "read_file": {}, "write_file": {}, "getenv": {}, "env_names": {}, "environ": {}, "setenv": {}, "unsetenv": {}, "hostname": {}, "getpid": {}, "getppid": {}, "getuid": {}, "geteuid": {}, "getgid": {}, "getegid": {}, "getpagesize": {}, "process_spawn": {}, "start_process": {}, "find_process": {}, "process_wait": {}, "process_state": {}, "process_kill": {}, "process_signal": {}, "process_release": {}, "process_stdin": {}, "process_stdout": {}, "process_stderr": {}, "open": {}, "create": {}, "open_file": {}, "pipe": {}, "stdin": {}, "stdout": {}, "stderr": {}, "fd": {}, "name": {}, "new_file": {}, "signal_subscribe": {}, "close": {}, "read": {}, "write": {}, "write_string": {}, "read_at": {}, "write_at": {}, "seek_file": {}, "sync": {}, "set_deadline": {}, "set_read_deadline": {}, "set_write_deadline": {}, "open_root": {}, "root_create": {}, "root_open": {}, "root_open_file": {}, "root_read_file": {}, "root_write_file": {}, "root_stat": {}, "root_lstat": {}, "root_chown": {}, "root_lchown": {}, "root_chtimes": {}, "root_fs": {}, "root_readlink": {}, "root_mkdir": {}, "root_mkdir_all": {}, "root_remove": {}, "root_remove_all": {}, "root_rename": {}, "root_link": {}, "root_symlink": {}, "root_chmod": {}, "root_close": {}, "stat": {}, "lstat": {}, "read_dir": {}, "mkdir": {}, "mkdir_all": {}, "remove": {}, "remove_all": {}, "truncate": {}, "rename": {}, "link": {}, "symlink": {}, "chmod": {}, "readlink": {}, "watch": {}},
+		"std/os": {"is_path_separator": {}, "read_file": {}, "write_file": {}, "getenv": {}, "env_names": {}, "environ": {}, "setenv": {}, "unsetenv": {}, "hostname": {}, "getpid": {}, "getppid": {}, "getuid": {}, "geteuid": {}, "getgid": {}, "getegid": {}, "getpagesize": {}, "process_spawn": {}, "start_process": {}, "find_process": {}, "process_wait": {}, "process_state": {}, "process_kill": {}, "process_signal": {}, "process_release": {}, "process_stdin": {}, "process_stdout": {}, "process_stderr": {}, "open": {}, "create": {}, "open_file": {}, "pipe": {}, "stdin": {}, "stdout": {}, "stderr": {}, "fd": {}, "name": {}, "new_file": {}, "with_handle": {}, "syscall_conn": {}, "signal_subscribe": {}, "close": {}, "read": {}, "write": {}, "write_string": {}, "read_at": {}, "write_at": {}, "seek_file": {}, "sync": {}, "set_deadline": {}, "set_read_deadline": {}, "set_write_deadline": {}, "open_root": {}, "root_create": {}, "root_open": {}, "root_open_file": {}, "root_read_file": {}, "root_write_file": {}, "root_stat": {}, "root_lstat": {}, "root_chown": {}, "root_lchown": {}, "root_chtimes": {}, "root_fs": {}, "root_readlink": {}, "root_mkdir": {}, "root_mkdir_all": {}, "root_remove": {}, "root_remove_all": {}, "root_rename": {}, "root_link": {}, "root_symlink": {}, "root_chmod": {}, "root_close": {}, "stat": {}, "lstat": {}, "read_dir": {}, "mkdir": {}, "mkdir_all": {}, "remove": {}, "remove_all": {}, "truncate": {}, "rename": {}, "link": {}, "symlink": {}, "chmod": {}, "readlink": {}, "watch": {}},
 	}
 	members, ok := supported[path]
 	if !ok {
@@ -926,6 +926,16 @@ func emitNativeResourceCall(b *strings.Builder, dest, builtin string, args []str
 			return true, err
 		}
 		call("osiris_host_new_file", args[0], args[1])
+	case "with_handle":
+		if err := require(2, 2); err != nil {
+			return true, err
+		}
+		call("osiris_host_with_handle", args[0], args[1])
+	case "syscall_conn":
+		if err := require(1, 1); err != nil {
+			return true, err
+		}
+		call("osiris_host_syscall_conn", args[0])
 	case "signal_subscribe":
 		if err := require(1, 1); err != nil {
 			return true, err

@@ -8,8 +8,9 @@ package osiris
 //
 // The implementation uses UTF-16 Win32 file/process APIs, HANDLE ownership,
 // Winsock SOCKET ownership, CreateProcess pipes, confined rooted paths, and
-// ReadDirectoryChangesW watches. Process groups and environment-overlay
-// semantics remain explicit deferred boundaries owned by task 148B.
+// ReadDirectoryChangesW watches. Process groups use an owned Windows Job
+// Object, and process environment options are lowered into deterministic UTF-16
+// environment blocks.
 const cRuntimeWindowsComponent = `
 #if defined(_WIN32) && !defined(OSIRIS_FORCE_NONPOSIX)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -74,10 +75,12 @@ struct OHostResource {
   HANDLE output_fd;
   HANDLE error_fd;
   HANDLE process;
+  HANDLE job;
   HANDLE watch_event;
   DWORD pid;
   DWORD exit_code;
   int waited;
+  int job_owned;
   int recursive;
   int64_t deadline_ms;
   wchar_t *path;
@@ -238,7 +241,7 @@ static OHostResource *osiris_win_resource_new(int kind) {
   if (!resource) return NULL;
   resource->magic = OSIRIS_HOST_RESOURCE_MAGIC; resource->kind = (uint16_t)kind;
   resource->fd = resource->input_fd = resource->output_fd = resource->error_fd = NULL;
-  resource->process = NULL; resource->watch_event = NULL; resource->signal_read = NULL; resource->signal_write = NULL; resource->deadline_ms = -1;
+  resource->process = NULL; resource->job = NULL; resource->watch_event = NULL; resource->signal_read = NULL; resource->signal_write = NULL; resource->deadline_ms = -1;
   resource->next = osiris_win_resources; osiris_win_resources = resource;
   osiris_win_install_atexit();
   return resource;
@@ -263,7 +266,7 @@ static void osiris_win_resource_close(OHostResource *resource) {
     osiris_win_signal_number = 0;
     signal(resource->signal_number, osiris_win_previous_signal);
   }
-  osiris_win_close_handle(&resource->fd); osiris_win_close_handle(&resource->input_fd); osiris_win_close_handle(&resource->output_fd); osiris_win_close_handle(&resource->error_fd); osiris_win_close_handle(&resource->process); osiris_win_close_handle(&resource->watch_event); osiris_win_close_handle(&resource->signal_read); osiris_win_close_handle(&resource->signal_write);
+  osiris_win_close_handle(&resource->fd); osiris_win_close_handle(&resource->input_fd); osiris_win_close_handle(&resource->output_fd); osiris_win_close_handle(&resource->error_fd); osiris_win_close_handle(&resource->process); if (resource->job_owned) osiris_win_close_handle(&resource->job); else resource->job = NULL; osiris_win_close_handle(&resource->watch_event); osiris_win_close_handle(&resource->signal_read); osiris_win_close_handle(&resource->signal_write);
   free(resource->path); resource->path = NULL; free(resource->name); resource->name = NULL; free(resource->watch_pending); resource->watch_pending = NULL; resource->watch_pending_length = resource->watch_pending_offset = 0; resource->closed = 1;
 }
 
@@ -316,35 +319,115 @@ static int osiris_win_command_line(wchar_t **output, OValue command, OValue argu
   line[length] = 0; *output = line; return 1;
 }
 
-static int osiris_win_process_options(OValue options, wchar_t **cwd) {
-  *cwd = NULL; if (options.kind == O_NULL) return 1; if (options.kind != O_MAP) { ofail("process options must be a map or null"); return 0; }
-  OValue *cwd_value = omapget(options, "cwd"); if (cwd_value) { const char *data = NULL; size_t length = 0; if (!osiris_win_string(*cwd_value, &data, &length) || !length || !osiris_win_utf8_to_wide(data, length, cwd)) { ofail("process options cwd must be a valid non-empty UTF-8 path"); return 0; } }
-  if (omapget(options, "env") || omapget(options, "inherit_env")) { free(*cwd); *cwd = NULL; ofail("Windows process environment overlay is deferred to task 148B"); return 0; }
+typedef struct { wchar_t *key; wchar_t *value; } OWinEnvironmentEntry;
+
+static void osiris_win_free_environment_entries(OWinEnvironmentEntry *entries, size_t count) {
+  if (!entries) return;
+  for (size_t i = 0; i < count; i++) { free(entries[i].key); free(entries[i].value); }
+  free(entries);
+}
+
+static int osiris_win_environment_reserve(OWinEnvironmentEntry **entries, size_t *capacity, size_t needed) {
+  if (needed <= *capacity) return 1;
+  size_t next = *capacity ? *capacity : 16;
+  while (next < needed) { if (next > SIZE_MAX / 2) return 0; next *= 2; }
+  if (next > SIZE_MAX / sizeof(**entries)) return 0;
+  OWinEnvironmentEntry *grown = (OWinEnvironmentEntry *)realloc(*entries, next * sizeof(*grown));
+  if (!grown) return 0;
+  *entries = grown; *capacity = next; return 1;
+}
+
+static int osiris_win_environment_set(OWinEnvironmentEntry **entries, size_t *count, size_t *capacity, const wchar_t *key, const wchar_t *value) {
+  if (!key || !*key || wcschr(key, L'=') || wcslen(key) > OSIRIS_HOST_MAX_IO || (value && wcslen(value) > OSIRIS_HOST_MAX_IO)) return 0;
+  for (size_t i = 0; i < *count; i++) {
+    if (_wcsicmp((*entries)[i].key, key) != 0) continue;
+    if (!value) { free((*entries)[i].key); free((*entries)[i].value); memmove(*entries + i, *entries + i + 1, (*count - i - 1) * sizeof(**entries)); (*count)--; return 1; }
+    wchar_t *replacement = (wchar_t *)malloc((wcslen(value) + 1) * sizeof(wchar_t));
+    if (!replacement) return 0;
+    wcscpy(replacement, value); free((*entries)[i].value); (*entries)[i].value = replacement; return 1;
+  }
+  if (!value) return 1;
+  if (!osiris_win_environment_reserve(entries, capacity, *count + 1)) return 0;
+  (*entries)[*count].key = (wchar_t *)malloc((wcslen(key) + 1) * sizeof(wchar_t));
+  (*entries)[*count].value = (wchar_t *)malloc((wcslen(value) + 1) * sizeof(wchar_t));
+  if (!(*entries)[*count].key || !(*entries)[*count].value) { free((*entries)[*count].key); free((*entries)[*count].value); return 0; }
+  wcscpy((*entries)[*count].key, key); wcscpy((*entries)[*count].value, value); (*count)++; return 1;
+}
+
+static int osiris_win_environment_compare(const void *left, const void *right) {
+  const OWinEnvironmentEntry *a = (const OWinEnvironmentEntry *)left, *b = (const OWinEnvironmentEntry *)right;
+  int folded = _wcsicmp(a->key, b->key); return folded ? folded : wcscmp(a->key, b->key);
+}
+
+static int osiris_win_environment_block(OValue options, wchar_t **block) {
+  *block = NULL;
+  int inherit = 1; OValue *inherit_value = NULL, *environment_value = NULL;
+  if (options.kind != O_NULL && options.kind != O_MAP) { ofail("process options must be a map or null"); return 0; }
+  if (options.kind == O_MAP) { inherit_value = omapget(options, "inherit_env"); environment_value = omapget(options, "env"); }
+  if (inherit_value) { if (inherit_value->kind != O_BOOL) { ofail("process options inherit_env must be bool"); return 0; } inherit = inherit_value->as.b != 0; }
+  if (environment_value && (environment_value->kind != O_MAP || !environment_value->as.map)) { ofail("process options env must be a map"); return 0; }
+  if (!environment_value && inherit) return 1;
+
+  OWinEnvironmentEntry *entries = NULL; size_t count = 0, capacity = 0;
+  if (inherit) {
+    LPWCH inherited = GetEnvironmentStringsW();
+    if (!inherited) { ofail("could not read the parent environment"); return 0; }
+    for (wchar_t *cursor = inherited; *cursor; cursor += wcslen(cursor) + 1) {
+      wchar_t *separator = wcschr(cursor, L'=');
+      if (!separator || separator == cursor) continue;
+      *separator = 0; int ok = osiris_win_environment_set(&entries, &count, &capacity, cursor, separator + 1); *separator = L'=';
+      if (!ok) { FreeEnvironmentStringsW(inherited); osiris_win_free_environment_entries(entries, count); ofail("could not copy the parent environment"); return 0; }
+    }
+    FreeEnvironmentStringsW(inherited);
+  }
+  if (environment_value) {
+    for (size_t i = 0; i < environment_value->as.map->len; i++) {
+      OMapEntry *entry = &environment_value->as.map->entries[i];
+      if (entry->key.len == 0 || memchr(entry->key.data, '=', entry->key.len) || memchr(entry->key.data, 0, entry->key.len) || (entry->value.kind != O_STRING && entry->value.kind != O_NULL) || (entry->value.kind == O_STRING && memchr(entry->value.as.s.data, 0, entry->value.as.s.len))) { osiris_win_free_environment_entries(entries, count); ofail("process environment keys must be valid strings and values must be strings or null"); return 0; }
+      wchar_t *key = NULL, *value = NULL; if (!osiris_win_utf8_to_wide(entry->key.data, entry->key.len, &key) || (entry->value.kind == O_STRING && !osiris_win_utf8_to_wide(entry->value.as.s.data, entry->value.as.s.len, &value))) { free(key); free(value); osiris_win_free_environment_entries(entries, count); ofail("process environment must contain valid UTF-8"); return 0; }
+      int ok = osiris_win_environment_set(&entries, &count, &capacity, key, entry->value.kind == O_STRING ? value : NULL); free(key); free(value);
+      if (!ok) { osiris_win_free_environment_entries(entries, count); ofail("could not construct the process environment"); return 0; }
+    }
+  }
+  qsort(entries, count, sizeof(*entries), osiris_win_environment_compare);
+  size_t length = count ? 1 : 2;
+  for (size_t i = 0; i < count; i++) { size_t key_length = wcslen(entries[i].key), value_length = wcslen(entries[i].value); if (length > SIZE_MAX - key_length - value_length - 2) { osiris_win_free_environment_entries(entries, count); ofail("process environment is too large"); return 0; } length += key_length + value_length + 2; }
+  wchar_t *result = (wchar_t *)calloc(length, sizeof(wchar_t)); if (!result) { osiris_win_free_environment_entries(entries, count); ofail("out of memory"); return 0; }
+  size_t offset = 0; for (size_t i = 0; i < count; i++) { size_t key_length = wcslen(entries[i].key), value_length = wcslen(entries[i].value); memcpy(result + offset, entries[i].key, key_length * sizeof(wchar_t)); offset += key_length; result[offset++] = L'='; memcpy(result + offset, entries[i].value, value_length * sizeof(wchar_t)); offset += value_length; result[offset++] = L'\0'; }
+  result[offset] = L'\0'; osiris_win_free_environment_entries(entries, count); *block = result; return 1;
+}
+
+static int osiris_win_process_options(OValue options, wchar_t **cwd, wchar_t **environment) {
+  *cwd = NULL; if (!osiris_win_environment_block(options, environment)) return 0;
+  if (options.kind == O_MAP) { OValue *cwd_value = omapget(options, "cwd"); if (cwd_value) { const char *data = NULL; size_t length = 0; if (!osiris_win_string(*cwd_value, &data, &length) || !length || !osiris_win_utf8_to_wide(data, length, cwd)) { free(*environment); *environment = NULL; ofail("process options cwd must be a valid non-empty UTF-8 path"); return 0; } } }
   return 1;
 }
 
 static OValue osiris_host_process_spawn(OValue command, OValue arguments, OValue options) {
-  wchar_t *line = NULL, *cwd = NULL; if (!osiris_win_command_line(&line, command, arguments) || !osiris_win_process_options(options, &cwd)) { free(line); free(cwd); return onull(); }
+  wchar_t *line = NULL, *cwd = NULL, *environment = NULL; if (!osiris_win_command_line(&line, command, arguments) || !osiris_win_process_options(options, &cwd, &environment)) { free(line); free(cwd); free(environment); return onull(); }
   SECURITY_ATTRIBUTES security = {sizeof(security), NULL, TRUE}; HANDLE child_in = NULL, parent_in = NULL, parent_out = NULL, child_out = NULL, parent_err = NULL, child_err = NULL;
-  if (!CreatePipe(&child_in, &parent_in, &security, 0) || !CreatePipe(&parent_out, &child_out, &security, 0) || !CreatePipe(&parent_err, &child_err, &security, 0)) { DWORD error = GetLastError(); osiris_win_close_handle(&child_in); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&child_out); osiris_win_close_handle(&parent_err); osiris_win_close_handle(&child_err); free(line); free(cwd); return osiris_win_error("process_spawn.pipe", error); }
+  if (!CreatePipe(&child_in, &parent_in, &security, 0) || !CreatePipe(&parent_out, &child_out, &security, 0) || !CreatePipe(&parent_err, &child_err, &security, 0)) { DWORD error = GetLastError(); osiris_win_close_handle(&child_in); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&child_out); osiris_win_close_handle(&parent_err); osiris_win_close_handle(&child_err); free(line); free(cwd); free(environment); return osiris_win_error("process_spawn.pipe", error); }
   SetHandleInformation(parent_in, HANDLE_FLAG_INHERIT, 0); SetHandleInformation(parent_out, HANDLE_FLAG_INHERIT, 0); SetHandleInformation(parent_err, HANDLE_FLAG_INHERIT, 0);
   STARTUPINFOW startup; PROCESS_INFORMATION process_info; memset(&startup, 0, sizeof(startup)); memset(&process_info, 0, sizeof(process_info)); startup.cb = sizeof(startup); startup.dwFlags = STARTF_USESTDHANDLES; startup.hStdInput = child_in; startup.hStdOutput = child_out; startup.hStdError = child_err;
-  BOOL created = CreateProcessW(NULL, line, NULL, NULL, TRUE, CREATE_UNICODE_ENVIRONMENT, NULL, cwd, &startup, &process_info); DWORD error = created ? ERROR_SUCCESS : GetLastError(); osiris_win_close_handle(&child_in); osiris_win_close_handle(&child_out); osiris_win_close_handle(&child_err); free(line); free(cwd);
+  DWORD creation_flags = CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED; BOOL created = CreateProcessW(NULL, line, NULL, NULL, TRUE, creation_flags, environment, cwd, &startup, &process_info); DWORD error = created ? ERROR_SUCCESS : GetLastError(); osiris_win_close_handle(&child_in); osiris_win_close_handle(&child_out); osiris_win_close_handle(&child_err); free(line); free(cwd); free(environment);
   if (!created) { osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return osiris_win_error("process_spawn", error); }
-  CloseHandle(process_info.hThread); OHostResource *resource = osiris_win_resource_new(OSIRIS_HOST_PROCESS); if (!resource) { TerminateProcess(process_info.hProcess, 1); CloseHandle(process_info.hProcess); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return ofail("out of memory"); }
-  resource->process = process_info.hProcess; resource->pid = process_info.dwProcessId; resource->input_fd = parent_in; resource->output_fd = parent_out; resource->error_fd = parent_err;
+  HANDLE job = CreateJobObjectW(NULL, NULL); if (!job) { error = GetLastError(); TerminateProcess(process_info.hProcess, 1); CloseHandle(process_info.hThread); CloseHandle(process_info.hProcess); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return osiris_win_error("process_spawn.job", error); }
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits; memset(&limits, 0, sizeof(limits)); limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits)) || !AssignProcessToJobObject(job, process_info.hProcess)) { error = GetLastError(); CloseHandle(job); TerminateProcess(process_info.hProcess, 1); CloseHandle(process_info.hThread); CloseHandle(process_info.hProcess); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return osiris_win_error("process_spawn.job", error); }
+  if (ResumeThread(process_info.hThread) == (DWORD)-1) { error = GetLastError(); TerminateJobObject(job, 1); CloseHandle(job); CloseHandle(process_info.hThread); CloseHandle(process_info.hProcess); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return osiris_win_error("process_spawn.resume", error); }
+  CloseHandle(process_info.hThread); OHostResource *resource = osiris_win_resource_new(OSIRIS_HOST_PROCESS); if (!resource) { TerminateJobObject(job, 1); CloseHandle(job); TerminateProcess(process_info.hProcess, 1); CloseHandle(process_info.hProcess); osiris_win_close_handle(&parent_in); osiris_win_close_handle(&parent_out); osiris_win_close_handle(&parent_err); return ofail("out of memory"); }
+  resource->process = process_info.hProcess; resource->job = job; resource->job_owned = 1; resource->pid = process_info.dwProcessId; resource->input_fd = parent_in; resource->output_fd = parent_out; resource->error_fd = parent_err;
   OValue process = osiris_win_resource_value(resource); OValue values[5] = {process, oint((int64_t)resource->pid), osiris_host_process_stream(process, 0), osiris_host_process_stream(process, 1), osiris_host_process_stream(process, 2)}; const char *keys[5] = {"process", "pid", "stdin", "stdout", "stderr"}; return omap(keys, values, 5);
 }
 
 static OValue osiris_host_process_wait(OValue value, OValue timeout) {
-  OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); int64_t milliseconds = -1; if (timeout.kind != O_NULL && (!osiris_win_i64(timeout, &milliseconds) || milliseconds < 0)) return ofail("process_wait timeout must be a non-negative integer or null"); DWORD wait_ms = milliseconds < 0 || milliseconds > 0xfffffffeLL ? INFINITE : (DWORD)milliseconds; DWORD result = WaitForSingleObject(resource->process, wait_ms); if (result == WAIT_TIMEOUT) { TerminateProcess(resource->process, 1); WaitForSingleObject(resource->process, INFINITE); return oerrorvalue("timeout", "process_wait deadline exceeded"); } if (result != WAIT_OBJECT_0 || !GetExitCodeProcess(resource->process, &resource->exit_code)) return osiris_win_error("process_wait", GetLastError()); resource->waited = 1; OValue values[3] = {oint((int64_t)resource->exit_code), obool(resource->exit_code == 0), ostring("")}; const char *keys[3] = {"status", "success", "signal"}; return omap(keys, values, 3);
+  OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); int64_t milliseconds = -1; if (timeout.kind != O_NULL && (!osiris_win_i64(timeout, &milliseconds) || milliseconds < 0)) return ofail("process_wait timeout must be a non-negative integer or null"); DWORD wait_ms = milliseconds < 0 || milliseconds > 0xfffffffeLL ? INFINITE : (DWORD)milliseconds; DWORD result = WaitForSingleObject(resource->process, wait_ms); if (result == WAIT_TIMEOUT) { if (resource->job_owned && resource->job) TerminateJobObject(resource->job, 1); else TerminateProcess(resource->process, 1); WaitForSingleObject(resource->process, INFINITE); return oerrorvalue("timeout", "process_wait deadline exceeded"); } if (result != WAIT_OBJECT_0 || !GetExitCodeProcess(resource->process, &resource->exit_code)) return osiris_win_error("process_wait", GetLastError()); resource->waited = 1; OValue values[3] = {oint((int64_t)resource->exit_code), obool(resource->exit_code == 0), ostring("")}; const char *keys[3] = {"status", "success", "signal"}; return omap(keys, values, 3);
 }
 
 static OValue osiris_host_process_find(OValue pid_value) { int64_t pid = 0; if (!osiris_win_i64(pid_value, &pid) || pid <= 0 || pid > UINT32_MAX) return ofail("find_process expects a positive process id"); HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE, FALSE, (DWORD)pid); if (!process) return osiris_win_error("find_process", GetLastError()); OHostResource *resource = osiris_win_resource_new(OSIRIS_HOST_PROCESS); if (!resource) { CloseHandle(process); return ofail("out of memory"); } resource->process = process; resource->pid = (DWORD)pid; return osiris_win_resource_value(resource); }
 
 static OValue osiris_host_process_state(OValue value) { OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); if (!resource->waited) { if (WaitForSingleObject(resource->process, 0) != WAIT_OBJECT_0) return oerrorvalue("busy", "process_state is not available until the process exits"); if (!GetExitCodeProcess(resource->process, &resource->exit_code)) return osiris_win_error("process_state", GetLastError()); resource->waited = 1; } OValue values[3] = {oint((int64_t)resource->exit_code), obool(resource->exit_code == 0), ostring("")}; const char *keys[3] = {"status", "success", "signal"}; return omap(keys, values, 3); }
 
-static OValue osiris_host_process_kill(OValue value, OValue signal_value) { OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); if (signal_value.kind != O_NULL && !osiris_win_i64(signal_value, &(int64_t){0})) return ofail("process signal must be an integer"); if (!TerminateProcess(resource->process, 1) && GetLastError() != ERROR_PROCESS_NOT_FOUND) return osiris_win_error("process_signal", GetLastError()); return obool(1); }
+static OValue osiris_host_process_kill(OValue value, OValue signal_value) { OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); if (signal_value.kind != O_NULL && !osiris_win_i64(signal_value, &(int64_t){0})) return ofail("process signal must be an integer"); BOOL killed = resource->job_owned && resource->job ? TerminateJobObject(resource->job, 1) : TerminateProcess(resource->process, 1); if (!killed && GetLastError() != ERROR_PROCESS_NOT_FOUND) return osiris_win_error("process_signal", GetLastError()); return obool(1); }
 
 static OValue osiris_host_process_release(OValue value) { OHostResource *resource = osiris_win_resource_get(osiris_win_process_value(value), OSIRIS_HOST_PROCESS); if (!resource) return onull(); if (!resource->waited && WaitForSingleObject(resource->process, 0) != WAIT_OBJECT_0) return oerrorvalue("busy", "process_release requires a waited process"); osiris_win_resource_close(resource); return obool(1); }
 
@@ -376,6 +459,36 @@ static OValue osiris_host_fd(OValue value) {
   OHostResource *resource = osiris_host_io_resource(value);
   if (!resource) return onull();
   return ouintbits((uint64_t)(uintptr_t)resource->fd, 64);
+}
+
+static OValue osiris_host_with_handle(OValue value, OValue callback) {
+  OHostResource *resource = osiris_win_io_resource(value);
+  if (!resource) return onull();
+  if (callback.kind != O_CLOSURE || !callback.as.closure.call) return ofail("with_handle expects a callback");
+  OValue raw = ouintbits((uint64_t)(uintptr_t)resource->fd, 64);
+  return ocall(callback, &raw, 1);
+}
+
+static OValue osiris_host_syscall_conn_apply(const OValue *args, size_t argc, const OValue *captures, size_t capture_count) {
+  if (argc != 1 || capture_count != 1) return ofail("syscall connection callback arity mismatch");
+  OHostResource *resource = osiris_win_io_resource(captures[0]);
+  if (!resource) return onull();
+  if (args[0].kind != O_CLOSURE || !args[0].as.closure.call) return ofail("syscall connection method expects a callback");
+  OValue raw = ouintbits((uint64_t)(uintptr_t)resource->fd, 64);
+  return ocall(args[0], &raw, 1);
+}
+
+static OValue osiris_host_syscall_conn(OValue value) {
+  OHostResource *resource = osiris_win_io_resource(value);
+  if (!resource) return onull();
+  OValue methods[3] = {
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+    oclosure(osiris_host_syscall_conn_apply, &value, 1, "func(func(u64) any) any"),
+  };
+  if (ohaderror) return onull();
+  const char *keys[3] = {"control", "read", "write"};
+  return omap(keys, methods, 3);
 }
 
 static OValue osiris_host_name(OValue value) {
@@ -520,7 +633,7 @@ static OValue osiris_host_root_fs(OValue root) { OHostResource *resource = osiri
 static OValue osiris_host_root_close(OValue value) { OHostResource *resource = osiris_win_resource_get(value, OSIRIS_HOST_ROOT); if (!resource) return onull(); osiris_win_resource_close(resource); return obool(1); }
 
 static OValue osiris_host_watch(OValue path_value, OValue recursive_value) { const char *data = NULL; size_t length = 0; if (!osiris_win_string(path_value, &data, &length) || !length) return ofail("watch expects a non-empty path"); int recursive = 1; if (recursive_value.kind != O_NULL) { if (recursive_value.kind != O_BOOL) return ofail("watch recursive argument must be bool"); recursive = recursive_value.as.b != 0; } wchar_t *wide = NULL, *absolute = NULL; if (!osiris_win_utf8_to_wide(data, length, &wide) || !osiris_win_absolute_path(wide, &absolute)) { free(wide); free(absolute); return ofail("watch expects a valid path"); } HANDLE directory = CreateFileW(absolute, FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL); DWORD error = GetLastError(); free(wide); if (directory == INVALID_HANDLE_VALUE) { free(absolute); return osiris_win_error("watch", error); } HANDLE event = CreateEventW(NULL, TRUE, FALSE, NULL); if (!event) { error = GetLastError(); CloseHandle(directory); free(absolute); return osiris_win_error("watch.event", error); } OHostResource *resource = osiris_win_resource_new(OSIRIS_HOST_WATCH); if (!resource) { CloseHandle(directory); CloseHandle(event); free(absolute); return ofail("out of memory"); } resource->fd = directory; resource->watch_event = event; resource->path = absolute; resource->recursive = recursive; return osiris_win_resource_value(resource); }
-static OValue osiris_host_watch_read(OValue value, OValue size_value, OValue timeout_value) { OHostResource *resource = osiris_win_resource_get(value, OSIRIS_HOST_WATCH); if (!resource) return onull(); int64_t requested = 0, timeout = -1; if (!osiris_win_i64(size_value, &requested) || requested < 0 || requested > OSIRIS_HOST_MAX_IO || (timeout_value.kind != O_NULL && (!osiris_win_i64(timeout_value, &timeout) || timeout < 0))) return ofail("watch_read expects bounded size and timeout"); size_t size = (size_t)requested; while (resource->watch_pending_offset >= resource->watch_pending_length) { OVERLAPPED overlapped; memset(&overlapped, 0, sizeof(overlapped)); overlapped.hEvent = resource->watch_event; ResetEvent(resource->watch_event); DWORD bytes = 0; BOOL started = ReadDirectoryChangesW(resource->fd, resource->watch_buffer, sizeof(resource->watch_buffer), resource->recursive, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes, &overlapped, NULL); if (!started) return osiris_win_error("watch_read", GetLastError()); DWORD wait = WaitForSingleObject(resource->watch_event, timeout < 0 || timeout > 0xfffffffeLL ? INFINITE : (DWORD)timeout); if (wait == WAIT_TIMEOUT) { CancelIoEx(resource->fd, &overlapped); return oerrorvalue("timeout", "watch_read deadline exceeded"); } if (wait != WAIT_OBJECT_0 || !GetOverlappedResult(resource->fd, &overlapped, &bytes, FALSE)) return osiris_win_error("watch_read", GetLastError()); resource->watch_bytes = bytes; resource->watch_offset = 0; while (resource->watch_offset < bytes) { FILE_NOTIFY_INFORMATION *change = (FILE_NOTIFY_INFORMATION *)(resource->watch_buffer + resource->watch_offset); char *name = osiris_win_wide_to_utf8(change->FileName, change->FileNameLength / sizeof(wchar_t)); if (!name) return ofail("watch event path is not valid UTF-8"); const char *kind = change->Action == FILE_ACTION_ADDED ? "create" : (change->Action == FILE_ACTION_REMOVED ? "remove" : (change->Action == FILE_ACTION_MODIFIED ? "modify" : "rename")); char *root_utf8 = osiris_win_wide_to_utf8(resource->path, wcslen(resource->path)); char *escaped_root = root_utf8 ? osiris_win_json_escape(root_utf8, strlen(root_utf8)) : NULL; char *escaped_name = osiris_win_json_escape(name, strlen(name)); if (!root_utf8 || !escaped_root || !escaped_name) { free(name); free(root_utf8); free(escaped_root); free(escaped_name); return ofail("watch event path is not valid UTF-8"); } size_t event_length = strlen(escaped_root) + strlen(escaped_name) + strlen(kind) + 40; char *event = (char *)malloc(event_length); if (!event) { free(name); return ofail("out of memory"); } char *root_utf8 = osiris_win_wide_to_utf8(resource->path, path_length); if (!root_utf8) { free(name); free(event); return ofail("watch root is not valid UTF-8"); } snprintf(event, event_length, "{\"kind\":\"%s\",\"path\":\"%s\\\\%s\"}\n", kind, escaped_root, escaped_name); free(root_utf8); free(name); free(resource->watch_pending); resource->watch_pending = event; resource->watch_pending_length = strlen(event); resource->watch_pending_offset = 0; resource->watch_offset += change->NextEntryOffset ? change->NextEntryOffset : bytes; break; } }
+static OValue osiris_host_watch_read(OValue value, OValue size_value, OValue timeout_value) { OHostResource *resource = osiris_win_resource_get(value, OSIRIS_HOST_WATCH); if (!resource) return onull(); int64_t requested = 0, timeout = -1; if (!osiris_win_i64(size_value, &requested) || requested < 0 || requested > OSIRIS_HOST_MAX_IO || (timeout_value.kind != O_NULL && (!osiris_win_i64(timeout_value, &timeout) || timeout < 0))) return ofail("watch_read expects bounded size and timeout"); size_t size = (size_t)requested; while (resource->watch_pending_offset >= resource->watch_pending_length) { OVERLAPPED overlapped; memset(&overlapped, 0, sizeof(overlapped)); overlapped.hEvent = resource->watch_event; ResetEvent(resource->watch_event); DWORD bytes = 0; BOOL started = ReadDirectoryChangesW(resource->fd, resource->watch_buffer, sizeof(resource->watch_buffer), resource->recursive, FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes, &overlapped, NULL); if (!started) return osiris_win_error("watch_read", GetLastError()); DWORD wait = WaitForSingleObject(resource->watch_event, timeout < 0 || timeout > 0xfffffffeLL ? INFINITE : (DWORD)timeout); if (wait == WAIT_TIMEOUT) { CancelIoEx(resource->fd, &overlapped); return oerrorvalue("timeout", "watch_read deadline exceeded"); } if (wait != WAIT_OBJECT_0 || !GetOverlappedResult(resource->fd, &overlapped, &bytes, FALSE)) return osiris_win_error("watch_read", GetLastError()); resource->watch_bytes = bytes; resource->watch_offset = 0; while (resource->watch_offset < bytes) { FILE_NOTIFY_INFORMATION *change = (FILE_NOTIFY_INFORMATION *)(resource->watch_buffer + resource->watch_offset); char *name = osiris_win_wide_to_utf8(change->FileName, change->FileNameLength / sizeof(wchar_t)); if (!name) return ofail("watch event path is not valid UTF-8"); const char *kind = change->Action == FILE_ACTION_ADDED ? "create" : (change->Action == FILE_ACTION_REMOVED ? "remove" : (change->Action == FILE_ACTION_MODIFIED ? "modify" : "rename")); char *root_utf8 = osiris_win_wide_to_utf8(resource->path, wcslen(resource->path)); char *escaped_root = root_utf8 ? osiris_win_json_escape(root_utf8, strlen(root_utf8)) : NULL; char *escaped_name = osiris_win_json_escape(name, strlen(name)); if (!root_utf8 || !escaped_root || !escaped_name) { free(name); free(root_utf8); free(escaped_root); free(escaped_name); return ofail("watch event path is not valid UTF-8"); } size_t event_length = strlen(escaped_root) + strlen(escaped_name) + strlen(kind) + 40; char *event = (char *)malloc(event_length); if (!event) { free(name); free(root_utf8); free(escaped_root); free(escaped_name); return ofail("out of memory"); } snprintf(event, event_length, "{\"kind\":\"%s\",\"path\":\"%s\\\\%s\"}\n", kind, escaped_root, escaped_name); free(root_utf8); free(escaped_root); free(escaped_name); free(name); free(resource->watch_pending); resource->watch_pending = event; resource->watch_pending_length = strlen(event); resource->watch_pending_offset = 0; resource->watch_offset += change->NextEntryOffset ? change->NextEntryOffset : bytes; break; } }
   size_t available = resource->watch_pending_length - resource->watch_pending_offset; if (available > size) available = size; char *copy = (char *)malloc(available + 1); if (!copy) return ofail("out of memory"); memcpy(copy, resource->watch_pending + resource->watch_pending_offset, available); copy[available] = 0; if (!otrack(copy)) { free(copy); return ofail("out of memory"); } resource->watch_pending_offset += available; if (resource->watch_pending_offset == resource->watch_pending_length) { free(resource->watch_pending); resource->watch_pending = NULL; resource->watch_pending_length = resource->watch_pending_offset = 0; } return ostringview(copy, available);
 }
 

@@ -11,9 +11,18 @@ func TestNativeWindowsRuntimeComponentOwnsWindowsBoundaries(t *testing.T) {
 	for _, marker := range []string{
 		"#if defined(_WIN32)",
 		"CreateProcessW",
+		"CREATE_SUSPENDED",
+		"CREATE_UNICODE_ENVIRONMENT",
 		"CreatePipe",
+		"CreateJobObjectW",
+		"AssignProcessToJobObject",
+		"JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE",
 		"WaitForSingleObject",
+		"TerminateJobObject",
 		"TerminateProcess",
+		"GetEnvironmentStringsW",
+		"osiris_win_environment_block",
+		"osiris_win_environment_set",
 		"CreateFileW",
 		"ReadFile",
 		"WriteFile",
@@ -33,6 +42,8 @@ func TestNativeWindowsRuntimeComponentOwnsWindowsBoundaries(t *testing.T) {
 		"osiris_host_pipe",
 		"osiris_host_standard_stream",
 		"osiris_host_fd",
+		"osiris_host_with_handle",
+		"osiris_host_syscall_conn",
 		"osiris_host_new_file",
 		"osiris_host_signal_subscribe",
 		"osiris_host_signal_read",
@@ -45,7 +56,7 @@ func TestNativeWindowsRuntimeComponentOwnsWindowsBoundaries(t *testing.T) {
 			t.Fatalf("Windows runtime component missing %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"fork()", "execvp(", "openat(", "waitpid(", "poll(&pfd"} {
+	for _, forbidden := range []string{"fork()", "execvp(", "openat(", "waitpid(", "poll(&pfd", "path_length", "Windows process environment overlay is deferred to task 148B", "Process groups and environment-overlay semantics remain explicit deferred boundaries"} {
 		if strings.Contains(component, forbidden) {
 			t.Fatalf("Windows runtime component contains POSIX implementation marker %q", forbidden)
 		}

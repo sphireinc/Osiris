@@ -80,11 +80,18 @@ owner is closed.
 
 The Windows process adapter uses `CreateProcessW`, three owned `CreatePipe`
 connections, `WaitForSingleObject`, `GetExitCodeProcess`, and
-`TerminateProcess`. It accepts `cwd`; Windows environment overlay execution
-and process-group/job-object behavior remain parent-task platform evidence
-because this macOS host has no Windows runtime. A Windows process resource
-cannot be mistaken for another resource kind because every HANDLE wrapper
-carries magic, kind, and closed-state checks.
+`TerminateProcess`. It accepts `cwd`, deterministic inherited or replacement
+environment maps, and explicit null deletion. Environment entries are lowered
+to a sorted UTF-16 environment block; an omitted environment map with
+`inherit_env: true` lets Windows inherit the parent block directly. Each
+spawned process is created suspended, assigned to an owned Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and then resumed. Kill, timeout, and
+resource-close paths therefore cover the owned process tree rather than only
+the direct PID. A Windows process resource cannot be mistaken for another
+resource kind because every HANDLE wrapper carries magic, kind, and
+closed-state checks. The behavior is source- and contract-tested here; actual
+Windows execution is verified by the Windows CI matrix rather than this macOS
+development host.
 
 ## File and stream operations
 
@@ -140,10 +147,14 @@ buffer is freed on success, error, and invalid-element paths.
 | `std/os.fd` | `fd(file_or_stream)` | `os.process_raw_handle` | The borrowed numeric descriptor as `u64`; the returned number does not transfer ownership. |
 | `std/os.name` | `name(file_or_stream)` | `os.file_metadata` | An owned string containing the resource name. |
 | `std/os.new_file` | `new_file(fd: u64, name: string)` | `os.process_raw_handle` | An owned duplicate of the supplied descriptor with the supplied name. |
+| `std/os.with_handle` | `with_handle(file_or_stream, callback)` | `os.process_raw_handle` | Calls `callback(raw_handle)` synchronously while the resource remains owned and open, then returns the callback result. The callback must not retain or close the borrowed raw value. |
+| `std/os.syscall_conn` | `syscall_conn(file_or_stream)` | `os.process_raw_handle` | Returns a map containing `control`, `read`, and `write`; each method accepts a callback and invokes it synchronously with the borrowed raw handle. |
 
-Native `with_handle` and `syscall_conn` remain explicit rejection boundaries
-because they require a generated-language callback/raw-connection ABI rather
-than just a descriptor value.
+Native `with_handle` is implemented as a synchronous, lifetime-scoped callback
+boundary on POSIX and Windows. `syscall_conn` returns a map with synchronous
+`control`, `read`, and `write` methods; each method invokes its callback with
+the same borrowed raw handle. None of these callbacks may retain, close, or
+transfer that raw value.
 
 ## Signal subscriptions
 
@@ -250,10 +261,13 @@ The emitter and capability integration is complete for the symbols listed in
 the tables. Windows `HANDLE` ownership, standard streams, raw handles, socket
 resources, rooted operations, and watches are selected behind the
 `_WIN32`/`OSIRIS_WINDOWS_COMPONENT` guard; POSIX keeps its descriptor adapter.
-Callback-backed raw-handle methods and Windows execution evidence remain
-outside 148B. Process groups, environment overlays, redirects, generated
+Windows execution verification remains a CI responsibility outside this local
+evidence set. Process groups, environment
+overlays, redirects, generated
 closure handlers, producer-aware generic capabilities, and Linux execution
-evidence are complete for the POSIX/native-C contract.
+evidence are complete for the POSIX/native-C contract. The Windows adapter
+now includes process-group and environment-overlay lowering; only Windows
+compiler/runtime execution evidence is collected by the Windows CI matrix.
 
 The focused checks are in
 `internal/osiris/cbackend_process_runtime_test.go`. They verify the explicit

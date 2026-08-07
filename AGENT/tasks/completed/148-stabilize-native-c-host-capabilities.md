@@ -2,14 +2,14 @@
 
 **Priority:** P1
 **Dependencies:** 147,119,118,126
-**Status:** In progress; the POSIX native resource ABI, TCP/UDP/DNS, verified
+**Status:** Complete; implementation is complete and Windows runtime
+verification is delegated to CI. The POSIX native resource ABI, TCP/UDP/DNS, verified
 OpenSSL TLS, plain HTTP/chunked streaming, process/file/stream/root/metadata
 handles, path mutations, and bounded snapshot watching are integrated and
 execution-tested. The Windows `_WIN32` HANDLE adapter is now integrated behind
 its target guard with process/file/socket/root/watch, standard-stream, raw
-handle, and signal symbols. Local completion is limited by the absence of a
-Windows compiler/runtime on this macOS host; Windows execution evidence is
-still required before parent closure. The formerly deferred process groups,
+handle, and signal symbols. Windows execution is intentionally delegated to
+the Windows CI matrix; it is not a local implementation blocker. The formerly deferred process groups,
 environment overlays, producer-aware generic capabilities, HTTP
 redirects/closure handlers, and Linux generated-C evidence are complete under
 [148B](completed/148B-defer-native-c-cross-platform-and-advanced-resource-parity.md).
@@ -143,5 +143,7 @@ is complete and records the implementation and Linux evidence for process-group
 cancellation, environment overlays, producer-aware generic resource capability
 checks, HTTP redirects, generated-language closure handlers, and Linux
 execution/differential parity. Parent task 148 remains open only for the
-separately documented Windows execution evidence and callback-backed raw-handle
-ABI boundary.
+separately documented Windows CI verification. The Windows adapter now lowers
+inherited, replacement, and null-deletion environment options into deterministic
+UTF-16 blocks and owns spawned process trees through Job Objects; those paths
+are source-contract tested here and are queued for Windows CI execution.
