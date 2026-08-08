@@ -159,7 +159,7 @@ func runCPUKernel(ctx context.Context, op GPUKernelOp, values []GPUValue, output
 
 func gpuOutputShape(op GPUKernelOp, left, right []int) ([]int, error) {
 	switch op {
-	case GPUKernelAdd, GPUKernelSub, GPUKernelMul, GPUKernelDiv:
+	case GPUKernelAdd, GPUKernelSub, GPUKernelMul, GPUKernelDiv, GPUKernelPow, GPUKernelHypot:
 		return gpuBroadcastShape(left, right)
 	case GPUKernelDot:
 		if len(left) > 0 && len(right) > 0 && (len(left) != 1 || len(right) != 1) {
@@ -183,7 +183,7 @@ func gpuOutputShape(op GPUKernelOp, left, right []int) ([]int, error) {
 	case GPUKernelShape:
 		return []int{len(left)}, nil
 	case GPUKernelSum, GPUKernelProduct, GPUKernelMean, GPUKernelStd, GPUKernelNorm, GPUKernelMin, GPUKernelMax,
-		GPUKernelPow, GPUKernelClamp, GPUKernelHypot, GPUKernelHann, GPUKernelConvolve,
+		GPUKernelClamp, GPUKernelHann, GPUKernelConvolve,
 		GPUKernelVector, GPUKernelZeros, GPUKernelOnes, GPUKernelFull, GPUKernelEye, GPUKernelArange,
 		GPUKernelLinspace, GPUKernelLogspace, GPUKernelReshape:
 		return nil, nil

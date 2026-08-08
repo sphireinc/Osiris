@@ -22,16 +22,17 @@ import (
 const maxLSPMessageBytes = 16 << 20
 
 type languageServer struct {
-	rt            *Runtime
-	out           io.Writer
-	log           io.Writer
-	mu            sync.RWMutex
-	docs          map[string]*documentState
-	workspace     map[string]*documentState
-	versions      map[string]int
-	workspaceRoot string
-	initialized   bool
-	closed        bool
+	rt             *Runtime
+	out            io.Writer
+	log            io.Writer
+	mu             sync.RWMutex
+	docs           map[string]*documentState
+	workspace      map[string]*documentState
+	versions       map[string]int
+	workspaceRoot  string
+	workspaceRoots []string
+	initialized    bool
+	closed         bool
 }
 
 type documentState struct {
@@ -262,7 +263,11 @@ messageLoop:
 				}
 				continue
 			}
-			s.upsertDocumentContext(ctx, params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version)
+			if err := s.upsertDocumentContext(ctx, params.TextDocument.URI, params.TextDocument.Text, params.TextDocument.Version); err != nil {
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+			}
 			continue
 		case "textDocument/didChange":
 			var params didChangeParams
@@ -274,6 +279,12 @@ messageLoop:
 			}
 			if params.TextDocument.URI == "" {
 				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if len(params.ContentChanges) == 0 {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("contentChanges must not be empty")); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -296,7 +307,37 @@ messageLoop:
 					continue messageLoop
 				}
 			}
-			s.upsertDocumentContext(ctx, params.TextDocument.URI, text, params.TextDocument.Version)
+			if err := s.upsertDocumentContext(ctx, params.TextDocument.URI, text, params.TextDocument.Version); err != nil {
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+			}
+			continue
+		case "textDocument/didSave":
+			var params didSaveParams
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if params.TextDocument.URI == "" {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if s.document(params.TextDocument.URI) == nil {
+				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("document is not open: %s", params.TextDocument.URI)); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err := s.revalidateDocumentContext(ctx, params.TextDocument.URI, params.Text); err != nil {
+				if writeErr := s.reportInvalidParams(msg, err); writeErr != nil {
+					return writeErr
+				}
+			}
 			continue
 		case "textDocument/didClose":
 			var params didCloseParams
@@ -324,6 +365,12 @@ messageLoop:
 		if !msg.IsRequest() {
 			continue
 		}
+		if err := ctx.Err(); err != nil {
+			if writeErr := s.writeResponse(msg.ID, nil, lspRequestCancelled(err)); writeErr != nil {
+				return writeErr
+			}
+			continue
+		}
 		switch msg.Method {
 		case "textDocument/hover":
 			var params hoverParams
@@ -335,6 +382,12 @@ messageLoop:
 			}
 			if params.TextDocument.URI == "" {
 				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err := s.checkDocumentVersion(s.document(params.TextDocument.URI), params.TextDocument.Version); err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -363,6 +416,12 @@ messageLoop:
 				}
 				continue
 			}
+			if err := s.checkDocumentVersion(s.document(params.TextDocument.URI), params.TextDocument.Version); err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
 			resp, err := s.definition(params.TextDocument.URI, params.Position)
 			if err != nil {
 				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
@@ -383,6 +442,12 @@ messageLoop:
 			}
 			if params.TextDocument.URI == "" {
 				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err := s.checkDocumentVersion(s.document(params.TextDocument.URI), params.TextDocument.Version); err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -411,6 +476,12 @@ messageLoop:
 				}
 				continue
 			}
+			if err := s.checkDocumentVersion(s.document(params.TextDocument.URI), params.TextDocument.Version); err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
 			resp, err := s.completion(params.TextDocument.URI, params.Position)
 			if err != nil {
 				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
@@ -431,6 +502,12 @@ messageLoop:
 			}
 			if params.TextDocument.URI == "" {
 				if writeErr := s.reportInvalidParams(msg, fmt.Errorf("textDocument.uri is required")); writeErr != nil {
+					return writeErr
+				}
+				continue
+			}
+			if err := s.checkDocumentVersion(s.document(params.TextDocument.URI), params.TextDocument.Version); err != nil {
+				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
 					return writeErr
 				}
 				continue
@@ -459,7 +536,7 @@ messageLoop:
 				}
 				continue
 			}
-			edit, err := s.renameWorkspaceEdit(params.TextDocument.URI, params.Position, params.NewName)
+			edit, err := s.renameWorkspaceEditAtVersion(params.TextDocument.URI, params.Position, params.NewName, params.TextDocument.Version)
 			if err != nil {
 				if writeErr := s.writeResponse(msg.ID, nil, err); writeErr != nil {
 					return writeErr
@@ -497,14 +574,39 @@ messageLoop:
 // It does not return a value. Success or failure is communicated through side
 // effects or through a separate error path when one exists.
 func (s *languageServer) upsertDocument(uri, text string) {
-	s.upsertDocumentContext(context.Background(), uri, text, 0)
+	_ = s.upsertDocumentContext(context.Background(), uri, text, 0)
 }
 
 // upsertDocumentContext parses and checks one document off the server lock,
 // then publishes it only if it is newer than the state that was analyzed.
 // This is the stale-result boundary for both ordinary incremental edits and
 // concurrent workspace refreshes.
-func (s *languageServer) upsertDocumentContext(ctx context.Context, uri, text string, version int) {
+func (s *languageServer) upsertDocumentContext(ctx context.Context, uri, text string, version int) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	state, err := s.analyzeDocumentState(ctx, uri, text, version)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	current, exists := s.versions[uri]
+	if exists && version > 0 && current > 0 && version <= current {
+		s.mu.Unlock()
+		return fmt.Errorf("stale document version %d for %s; current version is %d", version, uri, current)
+	}
+	s.versions[uri] = version
+	state.generation = uint64(version)
+	s.docs[uri] = state
+	s.mu.Unlock()
+	_ = s.publishDiagnostics(uri, state.diagnostics)
+	return nil
+}
+
+// analyzeDocumentState parses and analyzes a document without publishing or
+// installing it. Keeping this phase separate lets didSave revalidate the
+// editor's saved overlay without inventing a new document version.
+func (s *languageServer) analyzeDocumentState(ctx context.Context, uri, text string, version int) (*documentState, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -520,16 +622,48 @@ func (s *languageServer) upsertDocumentContext(ctx context.Context, uri, text st
 		state.analysis = analyzeDocumentContext(ctx, s.rt, uri, prog)
 		state.diagnostics = diagnosticsInText(text, state.analysis.diagnostics)
 	}
-	s.mu.Lock()
-	if version > 0 && s.versions[uri] > version {
-		s.mu.Unlock()
-		return
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	s.versions[uri] = version
-	state.generation = uint64(version)
+	return state, nil
+}
+
+// revalidateDocumentContext handles textDocument/didSave. The optional save
+// text is analyzed at the currently open document version; it never advances
+// the version because LSP didSave carries no version field. If a didChange or
+// didClose wins while analysis is in flight, the saved result is discarded.
+// When text is nil, the current overlay is captured under the same read lock
+// as the version and generation, so a concurrent change cannot pair stale
+// text with a newer version.
+func (s *languageServer) revalidateDocumentContext(ctx context.Context, uri string, text *string) error {
+	s.mu.RLock()
+	current := s.docs[uri]
+	if current == nil {
+		s.mu.RUnlock()
+		return fmt.Errorf("document is not open: %s", uri)
+	}
+	version, generation := current.version, current.generation
+	if text == nil {
+		value := current.text
+		text = &value
+	}
+	s.mu.RUnlock()
+
+	state, err := s.analyzeDocumentState(ctx, uri, *text, version)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	live := s.docs[uri]
+	if live == nil || live.version != version || live.generation != generation {
+		s.mu.Unlock()
+		return nil
+	}
+	state.generation = live.generation
 	s.docs[uri] = state
 	s.mu.Unlock()
 	_ = s.publishDiagnostics(uri, state.diagnostics)
+	return nil
 }
 
 // rangeForURI converts parser rune columns to the UTF-16 positions required by
@@ -745,8 +879,14 @@ func (s *languageServer) signatureHelp(uri string, pos lspPosition) (*lspSignatu
 		return nil, fmt.Errorf("invalid signature-help position")
 	}
 	prefix := state.text[:offset]
-	open := strings.LastIndexByte(prefix, '(')
-	if open < 0 {
+	open, activeParameter, ok := lspActiveCall(prefix)
+	// Some clients request help at the opening-parenthesis position rather
+	// than immediately after it. Treat that boundary as the start of the call
+	// while keeping the normal nested-call scan for positions inside it.
+	if !ok && offset < len(state.text) && state.text[offset] == '(' {
+		open, activeParameter, ok = offset, 0, true
+	}
+	if !ok {
 		return nil, nil
 	}
 	nameEnd := open
@@ -766,8 +906,15 @@ func (s *languageServer) signatureHelp(uri string, pos lspPosition) (*lspSignatu
 		name = name[dot+1:]
 	}
 	var detail string
+	var parameters []lspSignatureParameter
+	if state.prog != nil {
+		if fn, found := findLSPFunction(state.prog, name); found {
+			detail = functionDetail(fn)
+			parameters = lspSignatureParameters(fn)
+		}
+	}
 	for _, def := range state.analysis.defs {
-		if def != nil && def.name == name && def.detail != "" {
+		if detail == "" && def != nil && def.name == name && def.detail != "" {
 			detail = def.detail
 			break
 		}
@@ -775,7 +922,98 @@ func (s *languageServer) signatureHelp(uri string, pos lspPosition) (*lspSignatu
 	if detail == "" {
 		return nil, nil
 	}
-	return &lspSignatureHelp{Signatures: []lspSignatureInformation{{Label: detail}}}, nil
+	if activeParameter >= len(parameters) && len(parameters) > 0 {
+		activeParameter = len(parameters) - 1
+	}
+	return &lspSignatureHelp{
+		Signatures:      []lspSignatureInformation{{Label: detail, Parameters: parameters}},
+		ActiveSignature: 0,
+		ActiveParameter: activeParameter,
+	}, nil
+}
+
+// lspActiveCall finds the innermost unterminated call at the cursor and
+// returns its opening parenthesis and zero-based argument index. Scanning the
+// complete prefix, instead of taking the last '(' byte, keeps signature help
+// correct for nested calls, commas in nested calls, and quoted strings.
+func lspActiveCall(prefix string) (open int, activeParameter int, ok bool) {
+	stack := make([]int, 0, 4)
+	args := make([]int, 0, 4)
+	inString := false
+	escaped := false
+	for i, r := range prefix {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+			} else if r == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case '(':
+			stack = append(stack, i)
+			args = append(args, 0)
+		case ')':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+				args = args[:len(args)-1]
+			}
+		case ',':
+			if len(args) > 0 {
+				args[len(args)-1]++
+			}
+		}
+	}
+	if len(stack) == 0 {
+		return 0, 0, false
+	}
+	return stack[len(stack)-1], args[len(args)-1], true
+}
+
+func findLSPFunction(program *Program, name string) (funcStmt, bool) {
+	if program == nil {
+		return funcStmt{}, false
+	}
+	for _, stmt := range program.Statements {
+		switch st := stmt.(type) {
+		case funcStmt:
+			if st.Name == name {
+				return st, true
+			}
+		case implStmt:
+			for _, method := range st.Methods {
+				if method.Name == name {
+					return method, true
+				}
+			}
+		case traitStmt:
+			for _, method := range st.Methods {
+				if method.Name == name {
+					return method, true
+				}
+			}
+		}
+	}
+	return funcStmt{}, false
+}
+
+func lspSignatureParameters(fn funcStmt) []lspSignatureParameter {
+	parameters := make([]lspSignatureParameter, 0, len(fn.Params))
+	for i, name := range fn.Params {
+		label := name
+		if i < len(fn.ParamTypes) && fn.ParamTypes[i] != "" {
+			label += " " + fn.ParamTypes[i]
+		}
+		parameters = append(parameters, lspSignatureParameter{Label: label})
+	}
+	return parameters
 }
 
 // RenameDocument returns a formatted, dry-run rewrite of the symbol at pos.
@@ -1021,9 +1259,17 @@ type didChangeParams struct {
 	} `json:"contentChanges"`
 }
 
-type renameParams struct {
+type didSaveParams struct {
 	TextDocument struct {
 		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Text *string `json:"text,omitempty"`
+}
+
+type renameParams struct {
+	TextDocument struct {
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 	NewName  string      `json:"newName"`
@@ -1081,35 +1327,40 @@ type didCloseParams struct {
 
 type hoverParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }
 
 type definitionParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }
 
 type referencesParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }
 
 type completionParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }
 
 type signatureHelpParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }

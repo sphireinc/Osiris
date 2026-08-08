@@ -279,6 +279,10 @@ func formatIRInstr(instr IRInstr) string {
 		return instr.Dest + " = member " + strings.Join(instr.Args, ", ") + "." + instr.Text
 	case "list":
 		return instr.Dest + " = list [" + strings.Join(instr.Args, ", ") + "]"
+	case "tuple":
+		return instr.Dest + " = tuple (" + strings.Join(instr.Args, ", ") + ")"
+	case "index":
+		return instr.Dest + " = index " + strings.Join(instr.Args, ", ")
 	case "phi":
 		return instr.Dest + " = phi [" + strings.Join(instr.Args, ", ") + "]"
 	default:
@@ -1545,7 +1549,37 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		tmp := b.newTemp()
 		b.emitInstr(IRInstr{Dest: tmp, Op: "list", Args: items})
 		return tmp, nil
-	case *tupleExpr, *structExpr, *structUpdateExpr, *indexExpr:
+	case *tupleExpr:
+		items := make([]string, 0, len(n.items))
+		for _, item := range n.items {
+			itemBuilder := b.fork()
+			value, err := itemBuilder.evalExpr(item)
+			if err != nil {
+				return "", err
+			}
+			b.block = itemBuilder.block
+			items = append(items, value)
+		}
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "tuple", Args: items, Span: n.Span})
+		return tmp, nil
+	case *indexExpr:
+		objectBuilder := b.fork()
+		object, err := objectBuilder.evalExpr(n.Object)
+		if err != nil {
+			return "", err
+		}
+		b.block = objectBuilder.block
+		indexBuilder := b.fork()
+		index, err := indexBuilder.evalExpr(n.Index)
+		if err != nil {
+			return "", err
+		}
+		b.block = indexBuilder.block
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "index", Args: []string{object, index}, Span: n.Span})
+		return tmp, nil
+	case *structExpr, *structUpdateExpr:
 		return "", fmt.Errorf("native C backend: product-type expressions are not yet supported")
 	case *blockExpr:
 		cleanupBase := len(b.cleanups)

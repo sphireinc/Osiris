@@ -1519,6 +1519,8 @@ func lenValue(args []Value) (Value, error) {
 	switch args[0].kind {
 	case kindList:
 		return numberValue(float64(len(args[0].list))), nil
+	case kindTuple:
+		return numberValue(float64(len(args[0].tuple))), nil
 	case kindTensor:
 		return numberValue(float64(len(args[0].data))), nil
 	case kindString:

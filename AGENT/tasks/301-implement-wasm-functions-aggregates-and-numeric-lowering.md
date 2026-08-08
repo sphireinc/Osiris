@@ -1,7 +1,7 @@
-# Task 156: Implement WASM functions, aggregates, and numeric lowering
+# Task 301: Implement WASM functions, aggregates, and numeric lowering
 
 **Priority:** P0
-**Dependencies:** 155
+**Dependencies:** 300
 **Status:** Blocked
 
 ## Objective

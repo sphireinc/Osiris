@@ -10,7 +10,7 @@ protocol values.
 
 The initialize response advertises only the methods implemented by the server:
 
-- incremental open/change/close synchronization;
+- incremental open/change/save/close synchronization;
 - diagnostics, hover, document/workspace symbols, definitions, type
   definitions, implementations, references, completion, signature help, and
   rename;
@@ -36,9 +36,37 @@ splits an astral character’s surrogate pair is rejected. Invalid notification
 changes are logged and leave the prior document unchanged. Malformed requests
 receive JSON-RPC `-32602` and the server continues reading framed messages.
 
+`textDocument/didSave` is a notification and therefore never receives a JSON-RPC
+response. The server revalidates the current open-document overlay and publishes
+fresh diagnostics. A client may include the optional saved `text`; when omitted,
+the current overlay is revalidated. Revalidation keeps the document's existing
+version. If a newer change or close wins while analysis is running, the saved
+result is discarded instead of replacing newer state.
+
 Malformed source is retained as the open document and produces a source
 diagnostic. Generated or builtin definitions without a source span return no
 location rather than a fabricated zero range.
+
+## Completion and signature help
+
+`textDocument/completion` returns deterministic, alphabetically sorted items.
+At a module selector such as `text.` it enumerates the imported module's
+exports; elsewhere it enumerates analyzed lexical definitions. Items use LSP
+completion kinds for functions, types, variables, and modules and include the
+definition detail where the analyzer has it. The request position is converted
+from UTF-16 before the module selector is inspected, so an astral character
+before the cursor does not shift the lookup boundary.
+
+`textDocument/signatureHelp` identifies the innermost unterminated call at the
+cursor. Parentheses and commas inside nested calls are not counted as
+arguments of the outer call, and quoted strings are ignored while locating the
+call. For a source function, the response includes the checked signature,
+one parameter label per declared parameter (including its declared type), and
+the zero-based `activeParameter` selected by the commas before the cursor. A
+cursor after the final argument keeps the active parameter clamped to the last
+declared parameter. Both methods accept the optional
+`textDocument.version`; a duplicate or older version is rejected with
+JSON-RPC `-32602` before semantic data is returned.
 
 ## Source analysis coverage
 
@@ -121,4 +149,103 @@ cancellation before and during traversal.
 returns stable schema-versioned test metadata, including skipped,
 expected-failure, benchmark, fuzz, and source-location fields. Code lenses use
 the same inventory and produce `osiris.test` or `osiris.benchmark` commands;
-they do not execute test code inside the language server.
+they do not execute test code inside the language server. Requests may target
+either a colocated `name.test.osr`/`name_test.osr` file or its neighboring
+production source; the latter resolves the sidecar using the same deterministic
+rule as `osiris test`, so an editor and the CLI select the same test file.
+
+## Request and response contract
+
+The server returns one JSON-RPC response for every request, including an error
+response. Notifications never receive a response. The supported request
+methods and their result shapes are:
+
+| Method | Result shape | Source of truth |
+| --- | --- | --- |
+| `textDocument/hover` | `Hover` or `null` | analyzed definition/reference |
+| `textDocument/definition` | `Location`, `Location[]`, or `null` | analyzed definition |
+| `textDocument/typeDefinition` | `Location` or `null` | checked binding type |
+| `textDocument/implementation` | `Location[]` | analyzed function/trait method definitions |
+| `textDocument/references` | `Location[]` | resolved reference targets |
+| `textDocument/completion` | completion item array | lexical scope and module exports |
+| `textDocument/signatureHelp` | `SignatureHelp` or `null` | checked callable signature |
+| `textDocument/documentSymbol` | document symbol array | source definitions |
+| `workspace/symbol` | workspace symbol array | bounded workspace index |
+| `textDocument/semanticTokens/full` | `{data: number[]}` | lexical tokens and definitions |
+| `textDocument/inlayHint` | inlay hint array | checked binding types |
+| `textDocument/foldingRange` | folding range array | source spans and comments |
+| `textDocument/selectionRange` | one selection tree per position | UTF-16 source offsets |
+| `textDocument/codeAction` | code action array | diagnostics and import organizer |
+| `textDocument/formatting` | text edit array | `FormatSource` |
+| `textDocument/diagnostic` | `{kind: "full", items: [...]}` | stored document diagnostics |
+| `textDocument/codeLens` | code-lens array | shared language-test inventory |
+| `textDocument/prepareRename` | range or `null` | resolved rename target |
+| `textDocument/rename` | versioned `WorkspaceEdit` | resolved definitions/references |
+| `callHierarchy/prepare` | call-hierarchy item array | function definitions |
+| `callHierarchy/incomingCalls` | incoming-call array | resolved call references |
+| `callHierarchy/outgoingCalls` | outgoing-call array | resolved call references |
+| `typeHierarchy/prepare` | type-hierarchy item array | type definitions |
+| `typeHierarchy/supertypes` | trait item array | `impl Trait for Type` declarations |
+| `typeHierarchy/subtypes` | implementing type array | `impl Trait for Type` declarations |
+| `osiris/testInventory` | schema-versioned inventory | shared test discovery |
+
+The methods above are advertised by `initialize` and have framed protocol
+coverage in `internal/osiris/testdata/lsp/task143-protocol.jsonl`, with
+additional semantic and workspace fixtures in `task160-semantic.jsonl` and
+`task161-workspace.jsonl`. A method outside this table returns JSON-RPC
+`-32601`; malformed parameters return `-32602`. An unsupported language or
+AST form produces a source-ranged diagnostic rather than an empty successful
+result.
+
+## Versions, cancellation, and edits
+
+Open and changed documents carry a monotonically increasing integer version.
+The server rejects duplicate or older non-zero versions before replacing the
+document or publishing diagnostics. Analysis is performed outside the server
+lock and is discarded if its context is canceled. A canceled request uses the
+JSON-RPC `-32800` code; a canceled server context is returned to the caller.
+
+The standard LSP request structures do not normally include a document version,
+so Osiris accepts an optional `textDocument.version` assertion on version-
+sensitive requests. When present, a mismatch returns `-32602`. Rename and
+organize-import code actions additionally return `WorkspaceEdit.documentChanges`
+with one versioned document identifier per edited file. Edits are sorted by URI
+and then from the end of each document toward the beginning, so applying them
+does not invalidate an earlier range. The server never mutates the open text.
+
+`textDocument/codeAction` returns a `quickfix` titled `Migrate deprecated API`
+when the requested diagnostics contain a deprecation message. It also returns a
+`source.organizeImports` action when the document has an out-of-order leading
+import block. Import ordering is by module path and then alias. The action
+replaces only the import statement spans, keeps unrelated source outside those
+spans untouched, emits UTF-16 ranges in descending document order, and
+includes the document's current version in `WorkspaceEdit.documentChanges`.
+Imports after a non-import declaration are not moved because the AST cannot
+prove that crossing intervening source is safe; `textDocument/formatting`
+remains the explicit whole-document operation. Applying the action is a client
+transaction: the server does not mutate its open overlay, and an optional
+stale `textDocument.version` assertion returns `-32602` before any edit is
+produced.
+
+## Workspace roots and test ownership
+
+`initialize` accepts `rootUri`, `rootPath`, and all `workspaceFolders`. Paths are
+absolute, deduplicated, and sorted before indexing. Each root is walked without
+following symlink directories; hidden directories, `.git`, and `.osiris` are
+skipped. The index is capped at 512 Osiris files and 4 MiB per file. Parse
+failures remain indexed with diagnostics, while an interrupted refresh leaves
+the previous index intact. Open-document overlays always replace indexed
+copies.
+
+`osiris/testInventory` accepts either a test file or an ordinary source file.
+For an ordinary source file it discovers the colocated `name.test.osr` or
+`name_test.osr` file using the same discovery rule as the CLI. The response
+contains the source file list, test locations and flags, the declared package,
+and the nearest `osiris.mod` module path. These fields are metadata only; test
+execution remains owned by the language-test runner.
+
+The support matrix remains conservative: LSP cells stay `partial` until the
+corresponding feature has a maintained fixture and documentation route. The
+matrix test rejects orphaned evidence and the release gate is opt-in, so an
+unsupported or untested feature cannot become `stable` through documentation
+changes alone.

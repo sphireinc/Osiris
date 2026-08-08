@@ -1,7 +1,7 @@
-# Task 164: Close WASM core and numeric matrix rows
+# Task 305: Close WASM core and numeric matrix rows
 
 **Priority:** P0
-**Dependencies:** 155,156
+**Dependencies:** 300,301
 **Status:** Blocked
 
 ## Objective

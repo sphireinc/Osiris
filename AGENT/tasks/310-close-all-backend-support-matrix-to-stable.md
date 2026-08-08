@@ -1,8 +1,8 @@
-# Task 154: Close every backend support-matrix row to stable
+# Task 310: Close every backend support-matrix row to stable
 
 **Priority:** P0
-**Dependencies:** 162,163,164,165,166,167,168
-**Status:** Blocked until backend-specific closure tasks 162–168 complete
+**Dependencies:** 154,305,306,307,308,400
+**Status:** Blocked until task 154 and deferred backend tasks 300–308 and 400 complete
 
 ## Objective
 
@@ -14,7 +14,7 @@ every feature/backend cell in the Backend Support Matrix is `stable`.
 - Own `docs/src/support-matrix.json`, support-matrix evidence, matrix tests,
   cross-backend differential fixtures, and final task records.
 - Reconcile parser, interpreter, VM, native C, WASM, GPU, formatter, and LSP
-  claims against the evidence produced by tasks 162–168; no cell may be
+  claims against the evidence produced by task 154, tasks 300–308, and task 400; no cell may be
   changed to `stable` from prose alone.
 - Require every feature row currently marked `partial`, `experimental`, or
   `unsupported` to have maintained tests, deterministic limits, diagnostics,
@@ -41,15 +41,18 @@ every feature/backend cell in the Backend Support Matrix is `stable`.
 
 ## Parallelism
 
-This is a serialization gate. Tasks 162–168 may proceed in their own backend
-chains, but task 154 starts only after every one of those closure records is
-complete and must be owned by one integrator.
+This is a serialization gate. Native C and LSP work proceeds through task 154;
+WASM and GPU work proceeds through tasks 300–308; environment-gated evidence
+proceeds through task 400. Task 310 starts only after every dependency has a
+complete record and must be owned by one integrator.
 
 ## Decomposition
 
-- 162–163 close native C core/data and standard-library/host rows.
-- 164–165 close WASM core/numeric and library/capability rows.
-- 166–167 close GPU core/numeric and library/capability rows.
-- 168 closes the LSP column after semantic and workspace IDE work.
+- 154 closes the Native C and LSP columns after tasks 160–163 and 168.
+- 305–306 close WASM core/numeric and library/capability rows.
+- 307–308 close GPU core/numeric and library/capability rows.
+- 400 supplies Windows/Linux/real-device evidence that is unavailable on the
+  current machine.
 - This task performs only cross-backend reconciliation, final evidence checks,
-  and the all-stable release decision.
+  and the all-stable release decision after the Native C/LSP gate and deferred
+  backend/environment tasks are complete.

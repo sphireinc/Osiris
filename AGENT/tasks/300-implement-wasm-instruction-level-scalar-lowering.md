@@ -1,8 +1,8 @@
-# Task 155: Implement WASM instruction-level scalar lowering
+# Task 300: Implement WASM instruction-level scalar lowering
 
 **Priority:** P0
 **Dependencies:** 149,150
-**Status:** Ready
+**Status:** Blocked — deferred behind Native C/LSP stabilization
 
 ## Objective
 
@@ -24,7 +24,7 @@ runner.
 - Enforce instruction, memory, output, and cancellation limits inside the
   generated execution contract.
 - Do not add aggregate, closure, host-provider, or GPU behavior here; those
-  belong to tasks 156 and 157.
+  belong to tasks 301 and 302.
 
 ## Acceptance criteria
 

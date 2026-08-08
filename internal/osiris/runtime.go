@@ -2852,6 +2852,8 @@ func registerBuiltins(dst map[string]Builtin) {
 		switch args[0].kind {
 		case kindList:
 			return numberValue(float64(len(args[0].list))), nil
+		case kindTuple:
+			return numberValue(float64(len(args[0].tuple))), nil
 		case kindMap:
 			if args[0].mapValue == nil {
 				return numberValue(0), nil

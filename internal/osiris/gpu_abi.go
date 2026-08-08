@@ -84,6 +84,8 @@ const (
 type GPUCapability string
 
 const (
+	GPUCapabilityNative        GPUCapability = "native-device"
+	GPUCapabilityFloat32       GPUCapability = "float32"
 	GPUCapabilityFloat64       GPUCapability = "float64"
 	GPUCapabilityTensor        GPUCapability = "tensor"
 	GPUCapabilityDeterministic GPUCapability = "deterministic"
@@ -352,10 +354,16 @@ func ValidateGPUArtifact(artifact GPUArtifact) error {
 		if !gpuKernelArityValid(kernel.Op, len(kernel.Inputs)) {
 			return newGPUError(ErrGPUArtifactMalformed, "validate", "kernel "+kernel.Name+" has an invalid input count", nil)
 		}
-		for _, spec := range append(append([]GPUValueSpec(nil), kernel.Inputs...), kernel.Output) {
+		for _, spec := range kernel.Inputs {
 			if spec.ABI != GPUValueABIVersion || spec.Type != GPUValueFloat64 {
 				return newGPUError(ErrGPUArtifactMalformed, "validate", "kernel "+kernel.Name+" has an unsupported value ABI", nil)
 			}
+			if spec.Ownership != GPUBorrowed {
+				return newGPUError(ErrGPUOwnership, "validate", "kernel "+kernel.Name+" inputs must be borrowed", nil)
+			}
+		}
+		if kernel.Output.ABI != GPUValueABIVersion || kernel.Output.Type != GPUValueFloat64 {
+			return newGPUError(ErrGPUArtifactMalformed, "validate", "kernel "+kernel.Name+" has an unsupported output ABI", nil)
 		}
 		if kernel.Output.Ownership != GPUOwned {
 			return newGPUError(ErrGPUOwnership, "validate", "kernel output must be owned", nil)

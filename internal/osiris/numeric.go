@@ -2249,6 +2249,11 @@ func atValue(args []Value) (Value, error) {
 			return nullValue(), fmt.Errorf("at index out of range")
 		}
 		return args[0].list[idx], nil
+	case kindTuple:
+		if idx >= len(args[0].tuple) {
+			return nullValue(), fmt.Errorf("at index out of range")
+		}
+		return args[0].tuple[idx], nil
 	case kindTensor:
 		if idx >= len(args[0].data) {
 			return nullValue(), fmt.Errorf("at index out of range")

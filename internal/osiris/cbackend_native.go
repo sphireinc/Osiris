@@ -496,7 +496,7 @@ func nativeStaticModuleMember(path, member string) (string, bool) {
 	supported := map[string]map[string]struct{}{
 		"std/net":    {"tcp_listen": {}, "tcp_accept": {}, "tcp_dial": {}, "udp_bind": {}, "udp_connect": {}, "udp_send": {}, "udp_receive": {}, "dns_lookup": {}, "tls_dial": {}, "tls_dial_config": {}, "tls_listen": {}, "http_get": {}, "http_request": {}, "http_request_stream": {}, "http_serve": {}},
 		"std/crypto": {"random": {}, "hash": {}, "digest": {}, "digest_bytes": {}, "hex_encode": {}, "hex_decode": {}, "compare_digest": {}, "algorithm_supported": {}},
-		"std/list":   {"range": {}, "len": {}, "take": {}, "reverse": {}, "at": {}, "index_of": {}, "last_index_of": {}, "contains": {}, "count": {}, "sort": {}, "unique": {}, "slice": {}, "chunks": {}, "windows": {}, "zip": {}, "concat": {}, "repeat": {}, "empty": {}, "all": {}, "any": {}, "none": {}, "enumerate": {}},
+		"std/list":   {"range": {}, "len": {}, "take": {}, "sum": {}, "product": {}, "reverse": {}, "at": {}, "index_of": {}, "last_index_of": {}, "contains": {}, "count": {}, "sort": {}, "unique": {}, "slice": {}, "chunks": {}, "windows": {}, "zip": {}, "concat": {}, "repeat": {}, "empty": {}, "all": {}, "any": {}, "none": {}, "enumerate": {}, "flatten": {}},
 		"std/signal": {"rectangular": {}, "hann": {}, "hamming": {}, "blackman": {}, "bartlett": {}, "convolve": {}, "correlate": {}, "filter_fir": {}, "mean": {}, "energy": {}, "variance": {}, "rms": {}, "fft": {}, "ifft": {}, "normalize": {}},
 		"std/text":   {"trim": {}, "trim_space": {}, "upper": {}, "lower": {}, "fields": {}, "join": {}, "slug": {}, "cat": {}, "replace": {}, "replace_n": {}, "split": {}, "split_after": {}, "split_n": {}, "split_after_n": {}, "chunks": {}, "compare": {}, "contains": {}, "has_prefix": {}, "has_suffix": {}, "equal_fold": {}, "count": {}, "index": {}, "last_index": {}, "index_any": {}, "last_index_any": {}, "cut": {}, "cut_prefix": {}, "cut_suffix": {}, "trim_left": {}, "trim_right": {}, "trim_prefix": {}, "trim_suffix": {}, "repeat": {}},
 		"std/time": {
@@ -1398,7 +1398,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(b, "  oprint(%s);\n", a)
+			fmt.Fprintf(b, "  oprint_tuple_aware(%s);\n", a)
 		}
 	case "cleanup":
 		if len(in.Args) != 1 {
@@ -1503,6 +1503,39 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			b.WriteString(v)
 		}
 		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "tuple":
+		if len(in.Args) == 0 {
+			fmt.Fprintf(b, "  %s = otuple(NULL, 0);\n", vars[in.Dest])
+			return nil
+		}
+		b.WriteString("  ")
+		fmt.Fprintf(b, "%s = otuple((OValue[]){", vars[in.Dest])
+		for i, arg := range in.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(arg)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "index":
+		if len(in.Args) != 2 {
+			return fmt.Errorf("native C backend: index expects a value and an index")
+		}
+		object, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		index, err := name(in.Args[1])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = oat(%s, %s);\n", vars[in.Dest], object, index)
 		return nil
 	case "enum":
 		typeName, caseName, ok := strings.Cut(in.Text, ".")
@@ -4338,12 +4371,12 @@ static OValue oslice(OValue tensor, OValue start_arg, OValue end_arg) { if(tenso
 static OValue osliceaxis(OValue tensor, OValue start_arg, OValue end_arg, OValue axis_arg) { if(tensor.kind!=O_TENSOR||tensor.as.tensor.rank==0) return ofail("slice expects a tensor with a leading dimension"); size_t start,end,axis; if(!odimension(start_arg,&start)) return ofail("slice start must be a non-negative integer"); if(!odimension(end_arg,&end)) return ofail("slice end must be a non-negative integer"); if(!odimension(axis_arg,&axis)||axis>=tensor.as.tensor.rank) return ofail("slice axis out of range"); if(start>end) return ofail("slice end must not precede start"); size_t limit=tensor.as.tensor.shape[axis]; if(start>limit) start=limit; if(end>limit) end=limit; size_t outer=1,inner=1; for(size_t i=0;i<axis;i++) outer*=tensor.as.tensor.shape[i]; for(size_t i=axis+1;i<tensor.as.tensor.rank;i++) inner*=tensor.as.tensor.shape[i]; size_t span=end-start,count=outer*span*inner; double *data=count?(double *)malloc(count*sizeof(double)):NULL; if(count&&!data) return ofail("out of memory"); for(size_t group=0;group<outer;group++) { size_t source=(group*limit+start)*inner,destination=group*span*inner; if(span&&inner) memcpy(data+destination,tensor.as.tensor.data+source,span*inner*sizeof(double)); } size_t *shape=(size_t *)malloc(tensor.as.tensor.rank*sizeof(size_t)); if(!shape) { free(data); return ofail("out of memory"); } memcpy(shape,tensor.as.tensor.shape,tensor.as.tensor.rank*sizeof(size_t)); shape[axis]=span; OValue out=otensordata(data,count,shape,tensor.as.tensor.rank); free(shape); return out; }
 static OValue oshape(OValue x) { size_t n; const size_t *shape; if(x.kind==O_TENSOR) { n=x.as.tensor.rank; shape=x.as.tensor.shape; } else if(x.kind==O_COMPLEX_TENSOR) { n=x.as.ctensor.rank; shape=x.as.ctensor.shape; } else return ofail("shape expects a tensor"); OValue *dims=n?(OValue *)malloc(n*sizeof(OValue)):NULL; if(n&&!dims) return ofail("out of memory"); for(size_t i=0;i<n;i++) dims[i]=ouint((uint64_t)shape[i]); OValue out=olist(dims,n); free(dims); return out; }
 static OValue oflatten(OValue x) { size_t n; OValue *items; if(x.kind==O_TENSOR) { n=x.as.tensor.len; items=n?(OValue *)malloc(n*sizeof(OValue)):NULL; if(n&&!items) return ofail("out of memory"); for(size_t i=0;i<n;i++) items[i]=ofloat(x.as.tensor.data[i]); } else if(x.kind==O_COMPLEX_TENSOR) { n=x.as.ctensor.len; items=n?(OValue *)malloc(n*sizeof(OValue)):NULL; if(n&&!items) return ofail("out of memory"); for(size_t i=0;i<n;i++) items[i]=ocomplex(x.as.ctensor.data[i].real,x.as.ctensor.data[i].imag); } else return ofail("flatten expects a tensor"); OValue out=olist(items,n); free(items); return out; }
-static OValue otensorsum(OValue x) { if(x.kind==O_TENSOR) { double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]; return ofloat(total); } if(x.kind==O_COMPLEX_TENSOR) { OComplex total={0,0}; for(size_t i=0;i<x.as.ctensor.len;i++) { total.real+=x.as.ctensor.data[i].real; total.imag+=x.as.ctensor.data[i].imag; } return ocomplex(total.real,total.imag); } return ofail("sum expects a tensor"); }
-static OValue otensorproduct(OValue x) { if(x.kind==O_TENSOR) { double total=1; for(size_t i=0;i<x.as.tensor.len;i++) total*=x.as.tensor.data[i]; return ofloat(total); } if(x.kind==O_COMPLEX_TENSOR) { OComplex total={1,0}; for(size_t i=0;i<x.as.ctensor.len;i++) { OComplex value=x.as.ctensor.data[i]; total=(OComplex){total.real*value.real-total.imag*value.imag,total.real*value.imag+total.imag*value.real}; } return ocomplex(total.real,total.imag); } return ofail("product expects a tensor"); }
-static OValue otensordot(OValue a, OValue b) { if((a.kind!=O_TENSOR&&a.kind!=O_COMPLEX_TENSOR)||(b.kind!=O_TENSOR&&b.kind!=O_COMPLEX_TENSOR)) return ofail("dot expects tensors"); size_t an=a.kind==O_TENSOR?a.as.tensor.len:a.as.ctensor.len,bn=b.kind==O_TENSOR?b.as.tensor.len:b.as.ctensor.len; if(an!=bn) return ofail("dot expects tensors with the same length"); if(a.kind==O_TENSOR&&b.kind==O_TENSOR) { double total=0; for(size_t i=0;i<an;i++) total+=a.as.tensor.data[i]*b.as.tensor.data[i]; return ofloat(total); } OComplex total={0,0}; for(size_t i=0;i<an;i++) { OComplex left=a.kind==O_TENSOR?(OComplex){a.as.tensor.data[i],0}:a.as.ctensor.data[i],right=b.kind==O_TENSOR?(OComplex){b.as.tensor.data[i],0}:b.as.ctensor.data[i]; total.real+=left.real*right.real-left.imag*right.imag; total.imag+=left.real*right.imag+left.imag*right.real; } return ocomplex(total.real,total.imag); }
-static OValue otensornorm(OValue x) { if(x.kind==O_TENSOR) { double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]*x.as.tensor.data[i]; return ofloat(sqrt(total)); } if(x.kind==O_COMPLEX_TENSOR) { double total=0; for(size_t i=0;i<x.as.ctensor.len;i++) total+=x.as.ctensor.data[i].real*x.as.ctensor.data[i].real+x.as.ctensor.data[i].imag*x.as.ctensor.data[i].imag; return ofloat(sqrt(total)); } return ofail("norm expects a tensor"); }
+static OValue otensorsum(OValue x) { if(x.kind==O_TENSOR) { double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]; return ofloatbits(total,x.fbits); } if(x.kind==O_COMPLEX_TENSOR) { OComplex total={0,0}; for(size_t i=0;i<x.as.ctensor.len;i++) { total.real+=x.as.ctensor.data[i].real; total.imag+=x.as.ctensor.data[i].imag; } return ocomplexbits(total.real,total.imag,x.fbits); } return ofail("sum expects a tensor"); }
+static OValue otensorproduct(OValue x) { if(x.kind==O_TENSOR) { double total=1; for(size_t i=0;i<x.as.tensor.len;i++) total*=x.as.tensor.data[i]; return ofloatbits(total,x.fbits); } if(x.kind==O_COMPLEX_TENSOR) { OComplex total={1,0}; for(size_t i=0;i<x.as.ctensor.len;i++) { OComplex value=x.as.ctensor.data[i]; total=(OComplex){total.real*value.real-total.imag*value.imag,total.real*value.imag+total.imag*value.real}; } return ocomplexbits(total.real,total.imag,x.fbits); } return ofail("product expects a tensor"); }
+static OValue otensordot(OValue a, OValue b) { if((a.kind!=O_TENSOR&&a.kind!=O_COMPLEX_TENSOR)||(b.kind!=O_TENSOR&&b.kind!=O_COMPLEX_TENSOR)) return ofail("dot expects tensors"); size_t an=a.kind==O_TENSOR?a.as.tensor.len:a.as.ctensor.len,bn=b.kind==O_TENSOR?b.as.tensor.len:b.as.ctensor.len; if(an!=bn) return ofail("dot expects tensors with the same length"); uint16_t bits=(a.fbits>b.fbits)?a.fbits:b.fbits; if(a.kind==O_TENSOR&&b.kind==O_TENSOR) { double total=0; for(size_t i=0;i<an;i++) total+=a.as.tensor.data[i]*b.as.tensor.data[i]; return ofloatbits(total,bits); } OComplex total={0,0}; for(size_t i=0;i<an;i++) { OComplex left=a.kind==O_TENSOR?(OComplex){a.as.tensor.data[i],0}:a.as.ctensor.data[i],right=b.kind==O_TENSOR?(OComplex){b.as.tensor.data[i],0}:b.as.ctensor.data[i]; total.real+=left.real*right.real-left.imag*right.imag; total.imag+=left.real*right.imag+left.imag*right.real; } return ocomplexbits(total.real,total.imag,bits); }
+static OValue otensornorm(OValue x) { if(x.kind==O_TENSOR) { double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]*x.as.tensor.data[i]; return ofloatbits(sqrt(total),x.fbits); } if(x.kind==O_COMPLEX_TENSOR) { double total=0; for(size_t i=0;i<x.as.ctensor.len;i++) total+=x.as.ctensor.data[i].real*x.as.ctensor.data[i].real+x.as.ctensor.data[i].imag*x.as.ctensor.data[i].imag; return ofloatbits(sqrt(total),x.fbits); } return ofail("norm expects a tensor"); }
 static void oprintfloat(double x) { if(isnan(x)) { fputs("NaN",stdout); return; } if(isinf(x)) { fputs(signbit(x)?"-Inf":"+Inf",stdout); return; } if(trunc(x)==x&&x>=-9223372036854775808.0&&x<=9223372036854775807.0) { printf("%lld",(long long)x); return; } char text[64], *end=NULL; for(int precision=1;precision<=17;precision++) { snprintf(text,sizeof(text),"%.*g",precision,x); double roundtrip=strtod(text,&end); if(end&&*end==0&&roundtrip==x&&!(x==0&&signbit(roundtrip)!=signbit(x))) { fputs(text,stdout); return; } } printf("%.17g",x); }
-static void oprintvalue(OValue x) { switch(x.kind) { case O_NULL: fputs("null",stdout); break; case O_BOOL: fputs(x.as.b?"true":"false",stdout); break; case O_UINT: printf("%lluu%u",(unsigned long long)x.as.u,(unsigned)(x.fbits?x.fbits:64)); break; case O_INT: printf("%lldi%u",(long long)x.as.i,(unsigned)(x.fbits?x.fbits:64)); break; case O_FLOAT: oprintfloat(x.as.f); if(x.fbits) printf("f%u",(unsigned)x.fbits); break; case O_COMPLEX: if(x.as.cx.imag==0) { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("+0",stdout); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else if(x.as.cx.real==0) { oprintfloat(x.as.cx.imag); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); if(signbit(x.as.cx.imag)) { putchar('-'); oprintfloat(-x.as.cx.imag); } else { putchar('+'); oprintfloat(x.as.cx.imag); } if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } break; case O_DUAL: oprintfloat(x.as.dual.primal); fputs("+",stdout); oprintfloat(x.as.dual.tangent); fputs("ε",stdout); break; case O_STRING: printf("\"%.*s\"",(int)x.as.s.len,x.as.s.data); break; case O_LIST: putchar('['); for(size_t i=0;i<x.as.list.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.list.items[i]); } putchar(']'); break; case O_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.tensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.tensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.tensor.len;i++) { if(i) fputs(", ",stdout); oprintfloat(x.as.tensor.data[i]); if(x.fbits) printf("f%u",(unsigned)x.fbits); } fputs("])",stdout); break; case O_COMPLEX_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.ctensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.ctensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.ctensor.len;i++) { if(i) fputs(", ",stdout); oprintvalue(ocomplexbits(x.as.ctensor.data[i].real,x.as.ctensor.data[i].imag,x.fbits)); } fputs("])",stdout); break; case O_CLOSURE: fputs("<function>",stdout); break; case O_ENUM: printf("%.*s.%.*s",(int)x.as.en.type_name.len,x.as.en.type_name.data,(int)x.as.en.case_name.len,x.as.en.case_name.data); if(x.as.en.payload.len) { putchar('('); for(size_t i=0;i<x.as.en.payload.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.en.payload.items[i]); } putchar(')'); } break; case O_DECIMAL: printf("%.*sd",(int)x.as.s.len,x.as.s.data); break; case O_BIGINT: printf("%.*sn",(int)x.as.s.len,x.as.s.data); break; case O_QUANTITY: oprintfloat(x.as.quantity.magnitude); printf("*%.*s",(int)x.as.quantity.unit.len,x.as.quantity.unit.data); break; case O_DATETIME: oprintdatetime(x); break; case O_DURATION: printf("duration(%lld)",(long long)x.as.i); break; case O_ERROR: printf("error(%.*s, %.*s)",(int)x.as.error.kind.len,x.as.error.kind.data,(int)x.as.error.message.len,x.as.error.message.data); break; case O_RESULT: fputs(x.fbits?"ok":"err",stdout); break; case O_OPTION: if(!x.fbits) fputs("none",stdout); else { fputs("some(",stdout); if(x.as.box.value) oprintvalue(*x.as.box.value); fputs(")",stdout); } break; case O_TASK: fputs("<task>",stdout); break; case O_BYTES: fputs("bytes",stdout); break; case O_MAP: putchar('{'); for(size_t i=0;i<x.as.map->len;i++) { if(i) fputs(", ",stdout); printf("%.*s: ",(int)x.as.map->entries[i].key.len,x.as.map->entries[i].key.data); oprintvalue(x.as.map->entries[i].value); } putchar('}'); break; case O_CELL: fputs("<cell>",stdout); break; case O_FFI: fputs("<ffi>",stdout); break; case O_RESOURCE: fputs("<host-resource>",stdout); break; } }
+static void oprintvalue(OValue x) { switch(x.kind) { case O_NULL: fputs("null",stdout); break; case O_BOOL: fputs(x.as.b?"true":"false",stdout); break; case O_UINT: printf("%lluu%u",(unsigned long long)x.as.u,(unsigned)(x.fbits?x.fbits:64)); break; case O_INT: printf("%lldi%u",(long long)x.as.i,(unsigned)(x.fbits?x.fbits:64)); break; case O_FLOAT: oprintfloat(x.as.f); if(x.fbits) printf("f%u",(unsigned)x.fbits); break; case O_COMPLEX: if(x.as.cx.imag==0) { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("+0",stdout); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else if(x.as.cx.real==0) { oprintfloat(x.as.cx.imag); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); if(signbit(x.as.cx.imag)) { putchar('-'); oprintfloat(-x.as.cx.imag); } else { putchar('+'); oprintfloat(x.as.cx.imag); } if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } break; case O_DUAL: oprintfloat(x.as.dual.primal); fputs("+",stdout); oprintfloat(x.as.dual.tangent); fputs("ε",stdout); break; case O_STRING: printf("\"%.*s\"",(int)x.as.s.len,x.as.s.data); break; case O_LIST: putchar('['); for(size_t i=0;i<x.as.list.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.list.items[i]); } putchar(']'); break; case O_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.tensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.tensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.tensor.len;i++) { if(i) fputs(", ",stdout); oprintfloat(x.as.tensor.data[i]); if(x.fbits) printf("f%u",(unsigned)x.fbits); } fputs("])",stdout); break; case O_COMPLEX_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.ctensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.ctensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.ctensor.len;i++) { if(i) fputs(", ",stdout); oprintvalue(ocomplexbits(x.as.ctensor.data[i].real,x.as.ctensor.data[i].imag,x.fbits)); } fputs("])",stdout); break; case O_CLOSURE: fputs("<function>",stdout); break; case O_ENUM: printf("%.*s.%.*s",(int)x.as.en.type_name.len,x.as.en.type_name.data,(int)x.as.en.case_name.len,x.as.en.case_name.data); if(x.as.en.payload.len) { putchar('('); for(size_t i=0;i<x.as.en.payload.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.en.payload.items[i]); } putchar(')'); } break; case O_DECIMAL: printf("%.*sd",(int)x.as.s.len,x.as.s.data); break; case O_BIGINT: printf("%.*sn",(int)x.as.s.len,x.as.s.data); break; case O_QUANTITY: oprintfloat(x.as.quantity.magnitude); printf("*%.*s",(int)x.as.quantity.unit.len,x.as.quantity.unit.data); break; case O_DATETIME: oprintdatetime(x); break; case O_DURATION: printf("duration(%lld)",(long long)x.as.i); break; case O_ERROR: printf("error(%.*s, %.*s)",(int)x.as.error.kind.len,x.as.error.kind.data,(int)x.as.error.message.len,x.as.error.message.data); break; case O_RESULT: if(x.fbits&&x.as.box.value) { fputs("ok(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else if(x.as.box.value) { fputs("err(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else fputs(x.fbits?"ok":"err",stdout); break; case O_OPTION: if(!x.fbits) fputs("none",stdout); else { fputs("some(",stdout); if(x.as.box.value) oprintvalue(*x.as.box.value); fputs(")",stdout); } break; case O_TASK: fputs("<task>",stdout); break; case O_BYTES: fputs("bytes",stdout); break; case O_MAP: putchar('{'); for(size_t i=0;i<x.as.map->len;i++) { if(i) fputs(", ",stdout); printf("%.*s: ",(int)x.as.map->entries[i].key.len,x.as.map->entries[i].key.data); oprintvalue(x.as.map->entries[i].value); } putchar('}'); break; case O_CELL: fputs("<cell>",stdout); break; case O_FFI: fputs("<ffi>",stdout); break; case O_RESOURCE: fputs("<host-resource>",stdout); break; } }
 static void oprint(OValue x) {
 #ifdef OSIRIS_PUBLIC_EMIT_SPACING
 if(oprinted) putchar('\n');
@@ -4354,6 +4387,28 @@ oprintvalue(x); putchar('\n'); oprinted=1;
 }
 
 const cRuntimeFFIComponent = `
+/* Tuples use the existing bounded aggregate storage, with fbits=1 as the
+   tuple discriminator. Lists never set fbits, so the representation remains
+   ABI-compatible while tuple construction, length, and indexing stay
+   distinct from list values at the backend boundary. */
+static OValue otuple(const OValue *items, size_t len) { OValue out=olist(items,len); if(out.kind==O_LIST) out.fbits=1; return out; }
+static void oprint_tuple_value(OValue value) {
+  if (value.kind != O_LIST) { oprintvalue(value); return; }
+  putchar(value.fbits ? '(' : '[');
+  for (size_t i = 0; i < value.as.list.len; i++) {
+    if (i) fputs(", ", stdout);
+    oprint_tuple_value(value.as.list.items[i]);
+  }
+  putchar(value.fbits ? ')' : ']');
+}
+static void oprint_tuple_aware(OValue value) {
+#ifdef OSIRIS_PUBLIC_EMIT_SPACING
+  if (oprinted) putchar('\n');
+#endif
+  oprint_tuple_value(value);
+  putchar('\n');
+  oprinted = 1;
+}
 static OValue offi_load(OValue path) {
 #if defined(__unix__) || defined(__APPLE__)
   if(path.kind!=O_STRING || memchr(path.as.s.data, 0, path.as.s.len)) return ofail("ffi_load expects a NUL-free manifest path");

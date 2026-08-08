@@ -29,3 +29,21 @@ workspace symbols, diagnostics, and semantic tokens.
   ignored.
 - UTF-16 positions, generated macro spans, module boundaries, and stale
   document versions are tested and race-safe.
+
+## Current implementation evidence
+
+- `languageServer.signatureHelp`, `lspActiveCall`, `findLSPFunction`, and
+  `lspSignatureParameters` now provide structured parameter labels, types,
+  active-parameter selection, nested-call handling, quoted-string handling,
+  UTF-16 positioning, and stale-version rejection.
+- `TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion`
+  provides framed JSON-RPC evidence for that slice, including a race-enabled
+  focused run.
+- `TestTask160LSPVersionsCancellationAndTypeHierarchy` and the deterministic
+  `task160-semantic.jsonl` fixture cover cancellation, stale versions, save
+  revalidation, and type hierarchy behavior.
+
+This evidence is incremental. The task remains **Ready** and is not complete;
+completion, hover, definitions/references, symbols, semantic tokens, module
+and macro spans, and the remaining advertised protocol/error fixtures still
+need full coverage before task 168 can close the LSP column.

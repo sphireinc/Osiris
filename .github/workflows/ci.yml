@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -47,6 +48,20 @@ jobs:
 
       - name: Run tests
         run: go test ./...
+
+  support-matrix-release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      OSIRIS_REQUIRE_STABLE_MATRIX: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require every support-matrix cell to be stable
+        run: ./scripts/check-support-matrix.sh
 
   race:
     runs-on: ubuntu-latest

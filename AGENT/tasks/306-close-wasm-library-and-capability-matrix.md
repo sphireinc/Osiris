@@ -1,7 +1,7 @@
-# Task 165: Close WASM library and capability matrix rows
+# Task 306: Close WASM library and capability matrix rows
 
 **Priority:** P0
-**Dependencies:** 157,164
+**Dependencies:** 302,305
 **Status:** Blocked
 
 ## Objective

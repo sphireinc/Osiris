@@ -3,7 +3,9 @@ package osiris
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -135,6 +137,100 @@ func TestWASMScalarInstructionResults(t *testing.T) {
 				t.Fatalf("low instruction limit error = %v", err)
 			}
 		})
+	}
+}
+
+func TestWASMScalarWidthsAndTrapDiagnostics(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		source string
+		want   string
+		bits   uint16
+	}{
+		{name: "u8-wrap", source: "emit 255u8 + 1u8\n", want: "0u8", bits: 8},
+		{name: "i8-wrap", source: "emit 127i8 + 1i8\n", want: "-128i8", bits: 8},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			program, err := Parse("<wasm-width-"+fixture.name+">", fixture.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if artifact.ABI.ExecutionMode != "scalar-i64-v1" {
+				t.Fatalf("execution mode = %q", artifact.ABI.ExecutionMode)
+			}
+			result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Outputs[0].String() != fixture.want || (result.Outputs[0].bits != uint8(fixture.bits) && result.Outputs[0].ibits != fixture.bits) {
+				t.Fatalf("result = %#v JSON=%s, want %s", result.Outputs[0], result.JSON, fixture.want)
+			}
+		})
+	}
+
+	program, err := Parse("wasm-divzero.osr", "emit 1u64 / 0u64\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{}); err == nil || !strings.Contains(err.Error(), "wasm-divzero.osr") || !strings.Contains(err.Error(), "division by zero") {
+		t.Fatalf("division trap = %v", err)
+	}
+}
+
+func TestWASMAggregateMemoryRecordAndCodecRoundTrip(t *testing.T) {
+	program, err := Parse("<wasm-aggregate>", "emit [1u8, 2u8, 3u8]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.ABI.ExecutionMode != "aggregate-record-v1" {
+		t.Fatalf("execution mode = %q", artifact.ABI.ExecutionMode)
+	}
+	result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outputs[0].String() != "[1u8, 2u8, 3u8]" || result.MemoryBytes <= 8 {
+		t.Fatalf("aggregate result = %#v, want module-owned codec record", result)
+	}
+}
+
+func TestWASMStaticFunctionMemoryRecord(t *testing.T) {
+	program, err := Parse("<wasm-function>", "func add(value u64) u64 => value + 1u64\nemit add(2u64)\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ir, err := NewRuntime().BuildIR(context.Background(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, data, ok := emitWASMAggregateBody(ir); !ok {
+		t.Fatalf("aggregate body rejected body=%x data=%d", body, len(data))
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.ABI.ExecutionMode != "aggregate-record-v1" {
+		t.Fatalf("execution mode = %q", artifact.ABI.ExecutionMode)
+	}
+	result, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Outputs) != 1 || result.Outputs[0].String() != "3u64" || result.MemoryBytes <= 8 {
+		t.Fatalf("function result = %#v", result)
 	}
 }
 
@@ -341,5 +437,87 @@ func TestWASMProfileRejectsUnlistedCapabilityAndAllowsExplicitUnsafe(t *testing.
 	}
 	if len(result.Outputs) != 1 || result.Outputs[0].str != UnsafeMemoryCapability {
 		t.Fatalf("unsafe output = %#v", result.Outputs)
+	}
+}
+
+func TestWASMHostImportManifestIsExplicitAndValidated(t *testing.T) {
+	program, err := Parse("<wasm-host-imports>", `
+import "std/list" as list
+import "std/os" as os
+emit list.sum([1u64, 2u64])
+emit os.getenv("OSIRIS_TEST_MISSING")
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []WASMHostImport{
+		{Module: "std/list", Member: "sum", Encoding: WASMHostImportEncoding},
+		{Module: "std/os", Member: "getenv", Capability: "os.environment", Encoding: WASMHostImportEncoding},
+	}
+	if !reflect.DeepEqual(artifact.ABI.Imports, want) {
+		t.Fatalf("host imports = %#v, want %#v", artifact.ABI.Imports, want)
+	}
+	payload, err := parseWASMArtifact(artifact.Binary, WASMExecutionLimits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateWASMProgramProfile(payload); err != nil {
+		t.Fatalf("generated host-import manifest rejected: %v", err)
+	}
+
+	tampered := *payload
+	tampered.ABI.Imports = append([]WASMHostImport(nil), payload.ABI.Imports...)
+	tampered.ABI.Imports[1].Capability = "os.file_read"
+	if err := validateWASMProgramProfile(&tampered); err == nil || !strings.Contains(err.Error(), "declares capability") {
+		t.Fatalf("tampered capability error = %v, want capability mismatch", err)
+	}
+
+	tampered = *payload
+	tampered.ABI.Imports = append([]WASMHostImport(nil), payload.ABI.Imports...)
+	tampered.ABI.Imports = append(tampered.ABI.Imports, tampered.ABI.Imports[1])
+	if err := validateWASMProgramProfile(&tampered); err == nil || !strings.Contains(err.Error(), "duplicate host-import") {
+		t.Fatalf("duplicate import error = %v, want duplicate rejection", err)
+	}
+
+	tampered = *payload
+	tampered.ABI.Imports = append([]WASMHostImport(nil), payload.ABI.Imports[:1]...)
+	if err := validateWASMProgramProfile(&tampered); err == nil || !strings.Contains(err.Error(), "manifest count") {
+		t.Fatalf("missing import error = %v, want manifest/reference mismatch", err)
+	}
+}
+
+func TestWASMHostImportValidationIsConcurrentSafe(t *testing.T) {
+	program, err := Parse("<wasm-host-imports-race>", `
+import "std/os" as os
+emit os.getenv("OSIRIS_TEST_MISSING")
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := CompileWASM(context.Background(), NewRuntime(), program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const workers = 8
+	errs := make(chan error, workers)
+	var group sync.WaitGroup
+	group.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer group.Done()
+			_, err := ExecuteWASM(context.Background(), artifact, WASMExecutionLimits{})
+			errs <- err
+		}()
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent WASM execution failed: %v", err)
+		}
 	}
 }

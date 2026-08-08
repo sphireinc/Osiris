@@ -1,0 +1,10 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/task160.osr","languageId":"osiris","version":7,"text":"trait Render { func render() string }\nstruct User { name string }\nimpl Render for User { func render() string => \"ok\" }\nemit User\n"}}}
+{"jsonrpc":"2.0","method":"textDocument/didSave","params":{"textDocument":{"uri":"file:///tmp/task160.osr"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"file:///tmp/task160.osr","version":7}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":"file:///tmp/task160.osr","version":7}}}
+{"jsonrpc":"2.0","id":4,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/task160.osr","version":7},"position":{"line":1,"character":7}}}
+{"jsonrpc":"2.0","id":5,"method":"typeHierarchy/subtypes","params":{"item":{"name":"Render","kind":11,"uri":"file:///tmp/task160.osr","range":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},"selectionRange":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},"data":"Render"}}}
+{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":null}
+{"jsonrpc":"2.0","id":7,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

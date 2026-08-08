@@ -58,8 +58,9 @@ func (s shapeInfo) copy() shapeInfo {
 }
 
 type shapeEnv struct {
-	parent *shapeEnv
-	items  map[string]shapeInfo
+	parent         *shapeEnv
+	items          map[string]shapeInfo
+	stdListAliases map[string]struct{}
 }
 
 // child operates on shapeEnv values and keeps the shapeenv-specific behavior
@@ -69,7 +70,7 @@ type shapeEnv struct {
 // It returns *shapeEnv so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
 func (e *shapeEnv) child() *shapeEnv {
-	return &shapeEnv{parent: e, items: make(map[string]shapeInfo)}
+	return &shapeEnv{parent: e, items: make(map[string]shapeInfo), stdListAliases: e.stdListAliases}
 }
 
 // lookup operates on shapeEnv values and keeps the shapeenv-specific behavior
@@ -111,7 +112,14 @@ func validateTensorShapes(prog *Program) error {
 	if prog == nil {
 		return nil
 	}
-	return validateStatements(prog.Statements, &shapeEnv{items: make(map[string]shapeInfo)})
+	aliases := make(map[string]struct{})
+	for _, stmt := range prog.Statements {
+		imp, ok := stmt.(importStmt)
+		if ok && imp.Path == "std/list" {
+			aliases[imp.Alias] = struct{}{}
+		}
+	}
+	return validateStatements(prog.Statements, &shapeEnv{items: make(map[string]shapeInfo), stdListAliases: aliases})
 }
 
 // validateStatements handles the validate statements step in the surrounding
@@ -270,6 +278,19 @@ func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 			case "transpose":
 				return shapeOfTransposeCall(n.args, env)
 			case "flatten":
+				// std/list.flatten(values, depth) is a list operation. It
+				// deliberately has a different arity from the tensor flatten
+				// builtin, so do not route that qualified call through the
+				// tensor shape validator. Keep validation for other flatten
+				// members so an accidental extra tensor argument is rejected.
+				if isStdListFlattenCall(n.callee, env) {
+					for _, arg := range n.args {
+						if _, err := shapeOfExpr(arg, env); err != nil {
+							return unknownShape(), err
+						}
+					}
+					return unknownShape(), nil
+				}
 				return shapeOfFlattenCall(n.args, env)
 			case "shape":
 				return shapeOfShapeCall(n.args, env)
@@ -375,6 +396,24 @@ func shapeOfExpr(expr Expr, env *shapeEnv) (shapeInfo, error) {
 	default:
 		return unknownShape(), nil
 	}
+}
+
+// isStdListFlattenCall identifies the list module's depth-aware flatten
+// operation without treating every two-argument member named flatten as a
+// list operation. The parser preserves the imported module alias as the
+// member receiver, which is sufficient for the shape pass and avoids adding
+// a second module/type-resolution system here.
+func isStdListFlattenCall(expr Expr, env *shapeEnv) bool {
+	member, ok := expr.(*memberExpr)
+	if !ok || member.name != "flatten" {
+		return false
+	}
+	object, ok := member.object.(*identExpr)
+	if !ok || env == nil {
+		return false
+	}
+	_, ok = env.stdListAliases[object.name]
+	return ok
 }
 
 // calledShapeName handles the called shape name step in the surrounding

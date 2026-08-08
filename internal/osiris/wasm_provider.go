@@ -128,7 +128,7 @@ func (DeterministicWASMProvider) Execute(ctx context.Context, artifact []byte, l
 	}
 	effective := wasmMinimumLimits(program.Limits, limits)
 	if program.ABI.ExecutionMode == "scalar-i64-v1" {
-		engineResult, err := executeWASMModule(ctx, artifact, effective.MaxInstructions)
+		engineResult, err := executeWASMModule(ctx, artifact, effective.MaxInstructions, program.SourceName)
 		if err != nil {
 			return WASMExecution{}, err
 		}
@@ -137,7 +137,14 @@ func (DeterministicWASMProvider) Execute(ctx context.Context, artifact []byte, l
 		}
 		return executeWASMScalarResult(engineResult, effective, engineResult.instructions)
 	}
-	_, err = executeWASMModule(ctx, artifact, 0)
+	if program.ABI.ExecutionMode == "aggregate-record-v1" {
+		engineResult, err := executeWASMModule(ctx, artifact, effective.MaxInstructions, program.SourceName)
+		if err != nil {
+			return WASMExecution{}, err
+		}
+		return executeWASMAggregateResult(engineResult.record, effective, engineResult.instructions)
+	}
+	_, err = executeWASMModule(ctx, artifact, 0, program.SourceName)
 	if err != nil {
 		return WASMExecution{}, err
 	}
@@ -153,10 +160,12 @@ type wasmEngineResult struct {
 	kind         uint64
 	value        uint64
 	float        uint64
+	bits         uint64
 	instructions uint64
+	record       []byte
 }
 
-func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget uint64) (wasmEngineResult, error) {
+func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget uint64, sourceName string) (wasmEngineResult, error) {
 	engine := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true))
 	defer engine.Close(ctx)
 	compiled, err := engine.CompileModule(ctx, artifact)
@@ -185,7 +194,7 @@ func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget u
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return wasmEngineResult{}, ctxErr
 		}
-		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine run: %w", err)
+		return wasmEngineResult{}, wasmTrapError(sourceName, err)
 	}
 	if len(results) != 1 {
 		return wasmEngineResult{}, fmt.Errorf("WASM backend: engine run returned invalid status")
@@ -199,8 +208,11 @@ func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget u
 	kind := module.ExportedGlobal("result_kind")
 	value := module.ExportedGlobal("result_value")
 	float := module.ExportedGlobal("result_f64")
-	if kind == nil || value == nil {
-		return wasmEngineResult{}, nil
+	bits := module.ExportedGlobal("result_bits")
+	resultPtr := module.ExportedGlobal("result_ptr")
+	resultLen := module.ExportedGlobal("result_len")
+	if kind == nil || value == nil || resultPtr == nil || resultLen == nil {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result ABI is incomplete")
 	}
 	var floatBits uint64
 	if float != nil {
@@ -210,7 +222,102 @@ func executeWASMModule(ctx context.Context, artifact []byte, instructionBudget u
 	if count := module.ExportedGlobal("instruction_count"); count != nil {
 		instructions = count.Get()
 	}
-	return wasmEngineResult{kind: kind.Get(), value: value.Get(), float: floatBits, instructions: instructions}, nil
+	var width uint64
+	if bits != nil {
+		width = bits.Get()
+	}
+	memory := module.Memory()
+	if memory == nil {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result record is unavailable")
+	}
+	if resultLen.Get() == 0 || resultLen.Get() > uint64(^uint32(0)) || resultPtr.Get() > uint64(^uint32(0)) {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result bounds are invalid")
+	}
+	record, ok := memory.Read(uint32(resultPtr.Get()), uint32(resultLen.Get()))
+	if !ok {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result record is unavailable")
+	}
+	if kind.Get() == 0 {
+		// payload-v1 bodies intentionally expose no generated result record yet;
+		// the validated compatibility runner owns those results.
+		return wasmEngineResult{instructions: instructions}, nil
+	}
+	if kind.Get() > 6 {
+		return wasmEngineResult{kind: kind.Get(), value: value.Get(), bits: width, instructions: instructions, record: append([]byte(nil), record...)}, nil
+	}
+	if len(record) < 16 {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated scalar result record is truncated")
+	}
+	if uint64(record[0]) != kind.Get() || uint64(record[1]) != width {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result record does not match result globals")
+	}
+	recordValue := binary.LittleEndian.Uint64(record[8:])
+	if recordValue != value.Get() && kind.Get() <= 6 && kind.Get() != 4 && kind.Get() != 5 {
+		return wasmEngineResult{}, fmt.Errorf("WASM backend: generated result payload does not match result global")
+	}
+	if kind.Get() == 4 || kind.Get() == 5 {
+		floatBits = recordValue
+	}
+	return wasmEngineResult{kind: kind.Get(), value: recordValue, float: floatBits, bits: width, instructions: instructions, record: append([]byte(nil), record...)}, nil
+}
+
+func executeWASMAggregateResult(record []byte, limits WASMExecutionLimits, instructions uint64) (WASMExecution, error) {
+	if len(record) < 8 || string(record[:4]) != "OSMR" {
+		return WASMExecution{}, fmt.Errorf("WASM backend: malformed aggregate result record")
+	}
+	count := binary.LittleEndian.Uint32(record[4:8])
+	if count > limits.MaxOutputs {
+		return WASMExecution{}, wasmLimitError("outputs", uint64(limits.MaxOutputs))
+	}
+	outputs := make([]Value, 0, count)
+	offset := 8
+	for i := uint32(0); i < count; i++ {
+		if offset+4 > len(record) {
+			return WASMExecution{}, fmt.Errorf("WASM backend: truncated aggregate result length")
+		}
+		length := int(binary.LittleEndian.Uint32(record[offset : offset+4]))
+		offset += 4
+		if length > len(record)-offset {
+			return WASMExecution{}, fmt.Errorf("WASM backend: truncated aggregate result value")
+		}
+		value, err := decodeValueBytes(record[offset : offset+length])
+		if err != nil {
+			return WASMExecution{}, fmt.Errorf("WASM backend: decode aggregate result %d: %w", i, err)
+		}
+		outputs = append(outputs, value)
+		offset += length
+	}
+	if offset != len(record) {
+		return WASMExecution{}, fmt.Errorf("WASM backend: aggregate result has trailing bytes")
+	}
+	encoded, err := json.Marshal(outputs)
+	if err != nil {
+		return WASMExecution{}, fmt.Errorf("WASM backend: encode aggregate result: %w", err)
+	}
+	if uint64(len(encoded)) > limits.MaxMemoryBytes || uint64(len(record)) > limits.MaxMemoryBytes {
+		return WASMExecution{}, wasmLimitError("memory", limits.MaxMemoryBytes)
+	}
+	return WASMExecution{Outputs: outputs, JSON: string(encoded), Instructions: instructions, MemoryBytes: uint64(len(record))}, nil
+}
+
+func wasmTrapError(sourceName string, err error) error {
+	reason := err.Error()
+	switch {
+	case strings.Contains(reason, "integer divide by zero"):
+		reason = "integer division by zero"
+	case strings.Contains(reason, "integer overflow"):
+		reason = "signed integer overflow"
+	case strings.Contains(reason, "unreachable"):
+		reason = "unreachable trap"
+	case strings.Contains(reason, "out of bounds"):
+		reason = "linear-memory bounds trap"
+	default:
+		reason = "execution trap: " + reason
+	}
+	if sourceName == "" {
+		sourceName = "<wasm>"
+	}
+	return fmt.Errorf("WASM backend: %s: %s", sourceName, reason)
 }
 
 func executeWASMScalarResult(result wasmEngineResult, limits WASMExecutionLimits, instructions uint64) (WASMExecution, error) {
@@ -220,9 +327,17 @@ func executeWASMScalarResult(result wasmEngineResult, limits WASMExecutionLimits
 	var value Value
 	switch result.kind {
 	case 1:
-		value = uintValue(result.value, 64)
+		bits := uint8(result.bits)
+		if bits == 0 {
+			bits = 64
+		}
+		value = uintValue(result.value, bits)
 	case 2:
-		value = intValue(new(big.Int).SetInt64(int64(result.value)), 64)
+		bits := uint16(result.bits)
+		if bits == 0 {
+			bits = 64
+		}
+		value = intValue(new(big.Int).SetInt64(int64(result.value)), bits)
 	case 3:
 		value = boolValue(result.value != 0)
 	case 4:
@@ -370,6 +485,29 @@ func wasmProfileAllowsMember(profile WASMCapabilityProfile, module, member strin
 	return capability == "" || wasmProfileHasCapability(profile, capability)
 }
 
+func wasmHostImportFor(module, member string) WASMHostImport {
+	return WASMHostImport{
+		Module:     module,
+		Member:     member,
+		Capability: wasmModuleMemberCapability(module, member),
+		Encoding:   WASMHostImportEncoding,
+	}
+}
+
+func sortedWASMHostImports(imports map[WASMHostImport]struct{}) []WASMHostImport {
+	out := make([]WASMHostImport, 0, len(imports))
+	for importDecl := range imports {
+		out = append(out, importDecl)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Module != out[j].Module {
+			return out[i].Module < out[j].Module
+		}
+		return out[i].Member < out[j].Member
+	})
+	return out
+}
+
 func wasmOSMemberAllowed(member string) bool {
 	switch member {
 	case "args", "args_all", "env", "env_names", "getenv", "lookup_env", "environ", "expand_env",
@@ -402,6 +540,7 @@ func lowerWASMProgram(ir *IRProgram, limits WASMExecutionLimits, profile WASMCap
 		Limits:     limits,
 		SourceName: ir.SourceName,
 	}
+	hostImports := make(map[WASMHostImport]struct{})
 	var instructionCount uint64
 	for _, fn := range ir.Functions {
 		if fn == nil {
@@ -431,6 +570,11 @@ func lowerWASMProgram(ir *IRProgram, limits WASMExecutionLimits, profile WASMCap
 				if err != nil {
 					return nil, err
 				}
+				if in.Op == "member" {
+					if module := moduleValues[firstIRArg(in)]; module != "" {
+						hostImports[wasmHostImportFor(module, in.Text)] = struct{}{}
+					}
+				}
 				outBlock.Instrs = append(outBlock.Instrs, lowered)
 			}
 			term, err := lowerWASMTerm(ir.SourceName, fn, block.Term)
@@ -445,6 +589,7 @@ func lowerWASMProgram(ir *IRProgram, limits WASMExecutionLimits, profile WASMCap
 		}
 		program.Functions = append(program.Functions, outFn)
 	}
+	program.ABI.Imports = sortedWASMHostImports(hostImports)
 	return program, nil
 }
 

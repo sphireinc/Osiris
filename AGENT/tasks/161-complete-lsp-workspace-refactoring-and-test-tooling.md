@@ -27,3 +27,22 @@ workspace/file watching, repository modules, test discovery, and test metadata.
   and transactionally rejected when a document version is stale.
 - Workspace and test-discovery results match CLI behavior exactly.
 - All advertised features have granular protocol and documentation coverage.
+
+## Current implementation evidence
+
+- `languageServer.codeActionsAtVersion` now implements the bounded
+  `source.organizeImports` action through `organizeImportEdits`.
+- Leading imports are sorted deterministically by module path and alias,
+  edits are minimal, non-overlapping, UTF-16-correct, emitted in descending
+  source order, and carry the open document version.
+- `TestTask161OrganizeImportsProducesMinimalVersionedEdits` and
+  `task161-import-actions.jsonl` provide unit and framed protocol evidence;
+  stale document versions are rejected before edits are produced.
+- Existing workspace inventory, versioned rename, formatting, and colocated
+  test-discovery fixtures remain in `TestTask161VersionedWorkspaceEditsAndColocatedInventory`
+  and `task161-workspace.jsonl`.
+
+This evidence is incremental. The task remains **Blocked** and is not
+complete; full multi-file rename, workspace/module parity, formatting and
+test-tooling behavior, cancellation, root-boundary cases, and complete
+documentation coverage remain open.

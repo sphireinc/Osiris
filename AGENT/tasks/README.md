@@ -77,21 +77,20 @@ in `index.tsv` while preserving every optimization record.
 opaque handles, ownership, cleanup, and capability-gated FFI before admitting
 any explicitly unsafe operation.
 
-### Wave 13 - complete backend parity
+### Wave 13 - Native C and LSP stabilization
 
-Tasks 134 and 138–154 are the REPL and backend-parity program. The shared
-parser/lexer contract, interpreter reference semantics, VM differential
-coverage, REPL entry path, formatter, LSP, native core/state, reserved future
-types, and real WASM/GPU foundations are complete or under active validation.
-Native C remains sequential 145 → 146 → 147 → 148. The remaining WASM work is
-split into 155 (scalar instruction lowering), 156 (functions, aggregates, and
-numeric lowering), and 157 (host ABI and capability execution). GPU work is
-split into 158 (real device provider) and 159 (device execution and memory
-synchronization). LSP work is split into 160 (semantic IDE parity) and 161
-(workspace, refactoring, and test tooling). Matrix closure is split into
-162–163 for native C, 164–165 for WASM, 166–167 for GPU, and 168 for LSP.
-Task 154 is the final single owner of the support-matrix transition and may
-close only when every matrix cell is exactly `stable`.
+Tasks 134 and 138–153 established the initial REPL and backend foundations.
+The current priority lane is Native C and LSP: task 160 owns semantic IDE
+parity, task 161 owns workspace/refactoring/test tooling, tasks 162–163 own
+Native C core/data and standard-library/host closure, task 168 owns the LSP
+matrix column, and task 154 is the focused Native C/LSP release gate.
+
+WASM, GPU, and unavailable-platform evidence have been intentionally moved to
+the 300-series deferred lane. Tasks 300–302 own WASM implementation, 303–304
+own GPU provider/execution, 305–306 close WASM rows, 307–308 close GPU rows,
+400 owns Windows/Linux/real-device evidence, and 310 is the eventual
+all-backend matrix gate. Deferral changes scheduling priority only; it does
+not relax implementation, evidence, ownership, or documentation requirements.
 
 ## Parallelism cautions
 
@@ -133,21 +132,24 @@ close only when every matrix cell is exactly `stable`.
   ownership chain. They may run alongside the native-C chain, but not alongside
   another task in the same backend chain.
 - Implementation tasks 138–153 must not edit the support matrix's final
-  statuses. Task 154 owns the final matrix update, matrix-wide tests, and the
-  proof that no backend relies on an interpreter/planner fallback while claiming
-  `stable`.
+  statuses. Task 154 owns only the Native C/LSP column gate; task 310 owns the
+  final all-backend update, matrix-wide tests, and the proof that no backend
+  relies on an interpreter/planner fallback while claiming `stable`.
 
 ## Contents
 
 - `INDEX.md` and `index.tsv`: authoritative status, dependency, owner, and
-  next-step metadata for tasks 001–049 and 100–154.
+  next-step metadata for tasks 001–049 and 100–310.
 - `completed/`: finished task records with validation evidence.
 - Tasks 100–110 are under `completed/`.
 - Tasks 111–136 are the scoped general-purpose maturity backlog derived from
   `osiris-language-assessment.md` and subsequent workflow requirements.
-- Tasks 138–154 are the scoped REPL/backend-parity backlog; each has one
-  primary ownership boundary so multiple agents can work concurrently after
-  dependencies are satisfied.
+- Tasks 138–154 are the completed-foundation and Native C/LSP stabilization
+  lane. Tasks 160–163 and 168 own the current implementation and matrix work;
+  task 154 must not promote WASM or GPU cells.
+- Tasks 300–308 and 400 are the deferred WASM/GPU/environment lane; task 310
+  is the all-backend gate. They
+  remain indexed so deferred work cannot disappear from the release plan.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;
   they are not implementation tasks.
 - `roadmaps/`: archived source text roadmaps.

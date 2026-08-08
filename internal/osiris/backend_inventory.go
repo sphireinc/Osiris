@@ -151,7 +151,7 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 			return BackendImplemented
 		}
 	case "std/list":
-		if member == "range" {
+		if member == "range" || member == "len" || member == "take" || member == "sum" || member == "product" || member == "reverse" || member == "at" || member == "index_of" || member == "last_index_of" || member == "contains" || member == "count" || member == "sort" || member == "unique" || member == "slice" || member == "chunks" || member == "windows" || member == "zip" || member == "concat" || member == "repeat" || member == "empty" || member == "all" || member == "any" || member == "none" || member == "enumerate" || member == "flatten" {
 			return BackendImplemented
 		}
 	case "std/signal":
@@ -160,7 +160,7 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 		}
 	case "std/text":
 		switch member {
-		case "fields", "join", "slug", "upper":
+		case "trim", "trim_space", "lower", "contains", "has_prefix", "has_suffix", "fields", "join", "slug", "upper":
 			return BackendImplemented
 		}
 	case "std/time":

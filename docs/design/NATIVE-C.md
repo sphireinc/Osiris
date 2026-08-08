@@ -145,6 +145,152 @@ interpreter/VM/native differential fixtures, malformed and unsupported
 diagnostics, cleanup edges, task failure/cancellation, and undefined-behavior
 sanitizer runs.
 
+## Core and data parity witnesses (tasks 162 and 163)
+
+The following native C symbols are part of the executable parity surface and
+are documented individually here because they have different contracts:
+
+- `emitCInstr` lowers the typed IR instruction that constructs and emits a
+  value. The generated program owns the result payload and prints the complete
+  Result value, including a payload such as `ok(7u64)` or `err(...)`.
+- `oresultbind` implements the shared `Result`/`Option` extraction boundary.
+  `ok` and `some` return their owned payload; `err` and `none` retain their
+  structured failure semantics. It is used by `unwrap`, `expect`, `or_else`,
+  `to_option`, `to_result`, `collect`, `issome`, and `isnone` in the admitted
+  forms.
+- `otensorsum` reduces every tensor element and returns a scalar whose numeric
+  family and maximum floating-point width match the input tensor.
+- `otensorproduct` performs the analogous product reduction and preserves the
+  input floating-point width and complex/scalar family.
+- `otensordot` computes the dot product for compatible one-dimensional tensor
+  values. Its result width is the wider operand width, and complex operands
+  produce a complex result.
+- `otensornorm` computes the Euclidean norm for a numeric tensor and preserves
+  the tensor's floating-point width in the returned scalar.
+
+The focused differential witness
+`TestTask162NativeCoreDataParityExpanded` in
+`internal/osiris/task162_163_native_parity_test.go` executes the same core/data
+fixture through the interpreter, VM, and generated C executable. It covers
+payload-bearing Results, Option extraction, codec round-tripping, tensor
+construction, reductions, dot product, and shape reporting.
+
+## Native `std/list` reduction contracts (task 163)
+
+`std/list.sum(values)` accepts one list of numeric or complex values and returns
+the additive identity for an empty list (`0` at the default floating width).
+`std/list.product(values)` accepts the same shape and returns the multiplicative
+identity for an empty list (`1` at the default floating width). Both functions reject a non-list,
+non-numeric element, or an incorrect argument count with a structured native
+failure; neither calls back into the interpreter or VM.
+
+The C implementation is split into these symbols:
+
+- `nativeStaticModuleMember` admits `std/list.sum` and
+  `std/list.product` during native compilation.
+- `nativeModuleMemberStatus` and `BackendCapabilityInventory` expose the
+  individual member status used by support audits.
+- `ostd_list_fold` performs the shared numeric/complex fold and preserves the
+  maximum floating-point width observed in its input list.
+- `ostd_list_sum` and `ostd_list_product` provide the named runtime entry
+  points used by the standard-library dispatcher.
+- `ostd_dispatch` validates the argument count and routes the two members to
+  their dedicated fold operation.
+
+`TestTask163NativeListReductionParity` in
+`internal/osiris/task162_163_native_parity_test.go` compares integer, `f64`,
+and complex sum/product results across the interpreter, VM, and generated C
+paths. The broader standard-library witnesses remain in
+`internal/osiris/task145_native_parity_test.go`,
+`internal/osiris/task146_native_parity_test.go`, and
+`internal/osiris/task147_native_parity_test.go`.
+
+### `std/list.flatten`
+
+`std/list.flatten(values, depth)` accepts exactly two arguments: a list and a
+non-negative integer depth in the inclusive range `0..64`. It returns a new
+list containing the input elements with at most `depth` nested list layers
+removed. At depth zero, nested lists are preserved as elements; an empty nested
+list contributes no output once its containing layer is traversed. The input
+list and the returned list are never mutated.
+
+The native path is implemented by `nativeStaticModuleMember`,
+`nativeModuleMemberStatus`, `ostd_list_flatten`,
+`ostd_list_flatten_append`, and `ostd_dispatch`. The C helper bounds both the
+top-level input and flattened output at 100,000 elements and bounds recursive
+descent at 64 layers. Invalid argument counts, non-list input, negative or
+non-integral depth, excessive depth, and limit violations produce a structured
+native failure; the helper does not call the interpreter or VM.
+
+`TestTask163NativeListFlattenParity` compares depth-one, depth-two, and
+depth-zero behavior through the interpreter, VM, and generated-C executable.
+
+## Native tuple construction and indexing (task 162 bounded slice)
+
+This slice closes tuple expressions without claiming struct declarations,
+named product types, or struct updates. The supported operations are explicit:
+
+- `irBuilder.evalExpr` recursively lowers each tuple item and emits one
+  `IRInstr{Op: "tuple"}`. Item order and item evaluation order are preserved.
+- `irBuilder.evalExpr` lowers `object[index]` to
+  `IRInstr{Op: "index"}`. The operation evaluates the object and index once
+  and retains the normal `at` bounds and non-negative-integer diagnostics.
+- `emitCInstr` maps `tuple` to `otuple` and `index` to `oat`; it does not call
+  the interpreter, VM, or a source evaluator.
+- `oprint_tuple_value` recursively renders tuple aggregates with parentheses
+  and list aggregates with brackets. `oprint_tuple_aware` preserves the normal
+  generated-output spacing/newline contract while making direct tuple emits
+  match the interpreter and VM.
+- `otuple` copies the bounded item array through the existing allocation
+  tracker and marks the aggregate with the tuple discriminator. Tuple storage
+  is layout-compatible with the native aggregate array; the marker is kept
+  for backend operations that need to distinguish tuple and list values.
+- `atValue` and `lenValue` accept `kindTuple` with the same one-based contract
+  used by the existing value model: indexing is zero-based, negative or
+  out-of-range indices return an error, and length returns the number of
+  elements.
+
+`TestTask162NativeCoreDataParityExpanded` covers mixed-width numeric, string,
+nested tuple construction, direct tuple rendering, constant indexing, and
+tuple length through the interpreter, VM, and generated-C executable. Struct
+declarations, struct construction, struct update,
+tuple destructuring, and tuple pattern matching remain explicit unsupported
+native boundaries until their ownership and generated representation are
+implemented.
+
+These witnesses do not close either task by themselves. Product-type
+declarations and their native lowering remain an explicit boundary, and
+unverified wide numeric, dual/complex-width, provider-dependent host, and
+cross-platform execution surfaces must remain non-stable until they have
+executable evidence. The explicit product-type boundary is asserted by
+`TestStructNativeCompileBoundaryIsExplicit` in
+`internal/osiris/structs_test.go`; unsupported native members must continue to
+produce source-spanned diagnostics rather than being admitted by inventory
+metadata alone.
+
+## Native `std/text` boundary contracts (task 163)
+
+The following six members are a bounded, host-independent native C slice:
+
+| Symbol | Signature | Capability | Result and ownership |
+| --- | --- | --- | --- |
+| `std/text.trim` | `trim(value: string) -> string` | none | New owned UTF-8 string with Unicode whitespace removed at both ends. |
+| `std/text.trim_space` | `trim_space(value: string) -> string` | none | Same owned result contract as `trim`; the alias is independently admitted and tested. |
+| `std/text.lower` | `lower(value: string) -> string` | none | New owned UTF-8 string using the native Unicode lower-case table; the input is not mutated. |
+| `std/text.contains` | `contains(value: string, needle: string) -> bool` | none | Boolean search result; no borrowed result escapes the call. |
+| `std/text.has_prefix` | `has_prefix(value: string, prefix: string) -> bool` | none | Boolean prefix predicate; both arguments remain caller-owned. |
+| `std/text.has_suffix` | `has_suffix(value: string, suffix: string) -> bool` | none | Boolean suffix predicate; both arguments remain caller-owned. |
+
+`ostd_dispatch` validates arity and runtime kinds before calling the helpers.
+`ostd_text_trim` and `ostd_text_case` construct owned result strings through
+`oownedstring`; predicates return scalar values and do not retain input
+pointers. Invalid UTF-8 and wrong argument kinds produce structured native
+errors. Since this slice performs no host I/O, it does not accept or infer an
+OS capability. `TestTask163NativeTextBoundaryParity` compares the interpreter,
+VM, generated C, and generated executable, while
+`TestTask163NativeTextOwnershipAndCapabilityContract` checks the generated
+ownership boundary and the backend inventory entry.
+
 ## Linux generated-C evidence
 
 Linux execution evidence is maintained separately from the macOS/POSIX test

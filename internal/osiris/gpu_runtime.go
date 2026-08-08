@@ -45,15 +45,22 @@ type GPUProvider interface {
 // GPUBuffer is an owned provider allocation. Read and Synchronize never expose
 // the backing slice, and use after Release is rejected deterministically.
 type GPUBuffer struct {
-	mu       sync.RWMutex
-	owner    string
-	value    GPUValue
-	event    *GPUEvent
-	released bool
+	mu            sync.RWMutex
+	owner         string
+	value         GPUValue
+	event         *GPUEvent
+	released      bool
+	nativeHandle  uintptr
+	nativeRead    func(context.Context) (GPUValue, error)
+	nativeRelease func()
 }
 
 func newGPUBuffer(owner string, value GPUValue) *GPUBuffer {
 	return &GPUBuffer{owner: owner, value: cloneGPUValue(value)}
+}
+
+func newNativeGPUBuffer(owner string, value GPUValue, handle uintptr, read func(context.Context) (GPUValue, error), release func()) *GPUBuffer {
+	return &GPUBuffer{owner: owner, value: cloneGPUValue(value), nativeHandle: handle, nativeRead: read, nativeRelease: release}
 }
 
 func (b *GPUBuffer) setEvent(event *GPUEvent) {
@@ -90,11 +97,27 @@ func (b *GPUBuffer) Read(ctx context.Context) (GPUValue, error) {
 		return GPUValue{}, err
 	}
 	b.mu.RLock()
-	defer b.mu.RUnlock()
 	if b.released {
+		b.mu.RUnlock()
 		return GPUValue{}, newGPUError(ErrGPUOwnership, "read", "buffer was released", nil)
 	}
-	return cloneGPUValue(b.value), nil
+	nativeRead := b.nativeRead
+	value := cloneGPUValue(b.value)
+	b.mu.RUnlock()
+	if nativeRead != nil {
+		var err error
+		value, err = nativeRead(ctx)
+		if err != nil {
+			return GPUValue{}, err
+		}
+		b.mu.RLock()
+		released := b.released
+		b.mu.RUnlock()
+		if released {
+			return GPUValue{}, newGPUError(ErrGPUOwnership, "read", "buffer was released", nil)
+		}
+	}
+	return value, nil
 }
 
 func (b *GPUBuffer) Release() error {
@@ -108,8 +131,40 @@ func (b *GPUBuffer) Release() error {
 	}
 	b.released = true
 	b.value = GPUValue{}
+	event := b.event
+	nativeRelease := b.nativeRelease
+	b.nativeRelease = nil
+	b.nativeRead = nil
+	b.nativeHandle = 0
 	b.mu.Unlock()
+	// A device allocation may still be referenced by an in-flight command
+	// buffer. Release waits for that command before dropping the native handle;
+	// callers can still cancel their foreground wait without leaking resources.
+	if event != nil {
+		_ = event.Wait(context.Background())
+	}
+	if nativeRelease != nil {
+		nativeRelease()
+	}
 	return nil
+}
+
+func (b *GPUBuffer) nativeFor(owner string) (uintptr, error) {
+	if b == nil {
+		return 0, newGPUError(ErrGPUOwnership, "launch", "nil input buffer", nil)
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if b.released {
+		return 0, newGPUError(ErrGPUOwnership, "launch", "input buffer was released", nil)
+	}
+	if b.owner != owner {
+		return 0, newGPUError(ErrGPUOwnership, "launch", "input buffer is not owned by this provider", nil)
+	}
+	if b.nativeHandle == 0 {
+		return 0, newGPUError(ErrGPUOwnership, "launch", "input buffer is not a native device allocation", nil)
+	}
+	return b.nativeHandle, nil
 }
 
 type GPUEvent struct {
@@ -160,10 +215,14 @@ func ExecuteGPU(ctx context.Context, artifact GPUArtifact, provider GPUProvider,
 	}
 	limits := stricterGPULimits(artifact.Limits, request.Limits)
 	if provider == nil {
-		if !request.Device.AllowCPUReference {
-			return GPUValue{}, newGPUError(ErrGPUCapabilityUnavailable, "execute", "no provider supplied and CPU reference fallback is disabled", nil)
+		native, nativeErr := NewNativeGPUProvider(limits)
+		if nativeErr == nil {
+			provider = native
+		} else if request.Device.AllowCPUReference {
+			provider = NewDeterministicCPUProvider(limits)
+		} else {
+			return GPUValue{}, nativeErr
 		}
-		provider = NewDeterministicCPUProvider(limits)
 	}
 	device, err := provider.SelectDevice(ctx, request.Device)
 	if err != nil {

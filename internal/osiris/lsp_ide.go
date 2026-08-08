@@ -8,6 +8,7 @@ package osiris
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -45,6 +46,13 @@ func lspMethodNotFound(method string) error {
 	return lspRPCError{code: -32601, message: "method not found: " + method}
 }
 
+func lspRequestCancelled(err error) error {
+	if err == nil {
+		err = context.Canceled
+	}
+	return lspRPCError{code: -32800, message: "request cancelled: " + err.Error()}
+}
+
 type initializeParams struct {
 	RootURI          string `json:"rootUri"`
 	RootPath         string `json:"rootPath"`
@@ -56,19 +64,43 @@ type initializeParams struct {
 }
 
 func (s *languageServer) configureWorkspace(params initializeParams) {
-	root := params.RootURI
-	if root == "" && params.RootPath != "" {
-		root = pathToURI(params.RootPath)
+	roots := make([]string, 0, len(params.WorkspaceFolders)+1)
+	if params.RootURI != "" {
+		roots = append(roots, params.RootURI)
+	} else if params.RootPath != "" {
+		roots = append(roots, pathToURI(params.RootPath))
 	}
-	if root == "" && len(params.WorkspaceFolders) > 0 {
-		root = params.WorkspaceFolders[0].URI
+	for _, folder := range params.WorkspaceFolders {
+		if folder.URI != "" {
+			roots = append(roots, folder.URI)
+		}
 	}
-	path, err := uriToPath(root)
-	if err != nil || path == "" {
-		return
+	paths := make([]string, 0, len(roots))
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		path, err := uriToPath(root)
+		if err != nil || path == "" {
+			continue
+		}
+		path, err = filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		path = filepath.Clean(path)
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
 	}
+	sort.Strings(paths)
 	s.mu.Lock()
-	s.workspaceRoot = filepath.Clean(path)
+	s.workspaceRoots = paths
+	if len(paths) > 0 {
+		s.workspaceRoot = paths[0]
+	} else {
+		s.workspaceRoot = ""
+	}
 	s.mu.Unlock()
 }
 
@@ -100,17 +132,32 @@ func (s *languageServer) capabilities() map[string]any {
 }
 
 func (s *languageServer) handleIDERequest(ctx context.Context, method string, raw json.RawMessage) (any, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, true, lspRequestCancelled(err)
+	}
 	decode := func(dst any) error {
 		if len(raw) == 0 || string(raw) == "null" {
 			return fmt.Errorf("missing params")
 		}
 		return json.Unmarshal(raw, dst)
 	}
+	checkVersion := func(uri string, expected *int) error {
+		if uri == "" {
+			return lspInvalidParams(fmt.Errorf("textDocument.uri is required"))
+		}
+		return s.checkDocumentVersion(s.document(uri), expected)
+	}
 	switch method {
 	case "textDocument/documentSymbol":
 		var p lspTextDocumentParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.documentSymbols(p.TextDocument.URI)
 		return v, true, err
@@ -128,12 +175,18 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.typeDefinition(p.TextDocument.URI, p.Position)
 		return v, true, err
 	case "textDocument/implementation":
 		var p lspTextDocumentParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.implementations(p.TextDocument.URI, p.Position)
 		return v, true, err
@@ -142,12 +195,18 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.semanticTokens(p.TextDocument.URI)
 		return v, true, err
 	case "textDocument/inlayHint":
 		var p lspRangeParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.inlayHints(p.TextDocument.URI, p.Range)
 		return v, true, err
@@ -156,17 +215,24 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.foldingRanges(p.TextDocument.URI)
 		return v, true, err
 	case "textDocument/selectionRange":
 		var p struct {
 			TextDocument struct {
-				URI string `json:"uri"`
+				URI     string `json:"uri"`
+				Version *int   `json:"version,omitempty"`
 			} `json:"textDocument"`
 			Positions []lspPosition `json:"positions"`
 		}
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.selectionRanges(p.TextDocument.URI, p.Positions)
 		return v, true, err
@@ -175,23 +241,22 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
-		v, err := s.codeActions(p.TextDocument.URI, p.Range, p.Context.Diagnostics)
+		v, err := s.codeActionsAtVersion(p.TextDocument.URI, p.Range, p.Context.Diagnostics, p.TextDocument.Version)
 		return v, true, err
 	case "textDocument/formatting":
-		var p struct {
-			TextDocument struct {
-				URI string `json:"uri"`
-			} `json:"textDocument"`
-		}
+		var p lspTextDocumentParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
-		v, err := s.formatting(p.TextDocument.URI)
+		v, err := s.formattingAtVersion(p.TextDocument.URI, p.TextDocument.Version)
 		return v, true, err
 	case "textDocument/diagnostic":
 		var p lspTextDocumentParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.pullDiagnostics(p.TextDocument.URI)
 		return v, true, err
@@ -200,6 +265,9 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.codeLenses(p.TextDocument.URI)
 		return v, true, err
 	case "textDocument/prepareRename":
@@ -207,12 +275,18 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.prepareRename(p.TextDocument.URI, p.Position)
 		return v, true, err
 	case "callHierarchy/prepare":
 		var p lspTextDocumentParams
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.prepareCallHierarchy(p.TextDocument.URI, p.Position)
 		return v, true, err
@@ -239,6 +313,9 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
 		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
+		}
 		v, err := s.prepareTypeHierarchy(p.TextDocument.URI, p.Position)
 		return v, true, err
 	case "typeHierarchy/supertypes":
@@ -262,11 +339,15 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 	case "osiris/testInventory":
 		var p struct {
 			TextDocument struct {
-				URI string `json:"uri"`
+				URI     string `json:"uri"`
+				Version *int   `json:"version,omitempty"`
 			} `json:"textDocument"`
 		}
 		if err := decode(&p); err != nil {
 			return nil, true, lspInvalidParams(err)
+		}
+		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
+			return nil, true, err
 		}
 		v, err := s.testInventory(p.TextDocument.URI)
 		return v, true, err
@@ -277,21 +358,24 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 
 type lspTextDocumentParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Position lspPosition `json:"position"`
 }
 
 type lspRangeParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Range lspRange `json:"range"`
 }
 
 type lspCodeActionParams struct {
 	TextDocument struct {
-		URI string `json:"uri"`
+		URI     string `json:"uri"`
+		Version *int   `json:"version,omitempty"`
 	} `json:"textDocument"`
 	Range   lspRange `json:"range"`
 	Context struct {
@@ -305,6 +389,19 @@ func (s *languageServer) document(uri string) *documentState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.docs[uri]
+}
+
+func (s *languageServer) checkDocumentVersion(doc *documentState, expected *int) error {
+	if expected == nil {
+		return nil
+	}
+	if doc == nil {
+		return lspInvalidParams(fmt.Errorf("document is not open"))
+	}
+	if doc.version != *expected {
+		return lspInvalidParams(fmt.Errorf("stale document version %d; current version is %d", *expected, doc.version))
+	}
+	return nil
 }
 
 func (s *languageServer) allDocuments() []*documentState {
@@ -331,50 +428,73 @@ func (s *languageServer) allDocuments() []*documentState {
 
 func (s *languageServer) refreshWorkspace(ctx context.Context) {
 	s.mu.RLock()
-	root := s.workspaceRoot
+	roots := append([]string(nil), s.workspaceRoots...)
+	if len(roots) == 0 && s.workspaceRoot != "" {
+		roots = []string{s.workspaceRoot}
+	}
 	s.mu.RUnlock()
-	if root == "" || ctx == nil {
+	if len(roots) == 0 || ctx == nil {
 		return
 	}
+	sort.Strings(roots)
 	indexed := make(map[string]*documentState)
 	files := 0
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
+	for _, root := range roots {
+		if files >= lspMaxWorkspaceFiles {
+			break
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if entry.IsDir() {
-			if path != root && (entry.Name() == ".git" || entry.Name() == ".osiris" || strings.HasPrefix(entry.Name(), ".")) {
-				return filepath.SkipDir
+		walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return nil
 			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			if entry.IsDir() {
+				if path != root && (entry.Name() == ".git" || entry.Name() == ".osiris" || strings.HasPrefix(entry.Name(), ".")) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			// WalkDir does not follow symlinked directories, but reading a
+			// symlinked file would still escape the workspace root. Keep the
+			// index rooted by excluding symlink entries altogether.
+			if entry.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if files >= lspMaxWorkspaceFiles || !strings.HasSuffix(entry.Name(), ".osr") {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil || info.Size() > lspMaxWorkspaceFileSize {
+				return nil
+			}
+			src, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			uri := pathToURI(path)
+			state := &documentState{uri: uri, sourceName: path, text: string(src)}
+			state.prog, err = Parse(path, state.text)
+			if err != nil {
+				state.diagnostics = []lspDiagnostic{{Range: lspRange{}, Severity: 1, Source: "osiris", Message: err.Error()}}
+			} else {
+				state.analysis = analyzeDocumentContext(ctx, s.rt, uri, state.prog)
+				state.diagnostics = diagnosticsInText(state.text, state.analysis.diagnostics)
+			}
+			indexed[uri] = state
+			files++
 			return nil
+		})
+		if walkErr != nil && !errors.Is(walkErr, context.Canceled) && !errors.Is(walkErr, context.DeadlineExceeded) {
+			continue
 		}
-		if files >= lspMaxWorkspaceFiles || !strings.HasSuffix(entry.Name(), ".osr") {
-			return nil
+		if ctx.Err() != nil {
+			return
 		}
-		info, err := entry.Info()
-		if err != nil || info.Size() > lspMaxWorkspaceFileSize {
-			return nil
-		}
-		src, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		uri := pathToURI(path)
-		prog, err := Parse(path, string(src))
-		if err != nil {
-			return nil
-		}
-		state := &documentState{uri: uri, sourceName: path, text: string(src), prog: prog, analysis: analyzeDocumentContext(ctx, s.rt, uri, prog)}
-		state.diagnostics = diagnosticsInText(state.text, state.analysis.diagnostics)
-		indexed[uri] = state
-		files++
-		return nil
-	})
+	}
 	if ctx.Err() != nil {
 		return
 	}
@@ -619,9 +739,16 @@ func (s *languageServer) selectionRanges(uri string, positions []lspPosition) ([
 }
 
 func (s *languageServer) codeActions(uri string, r lspRange, diagnostics []lspDiagnostic) ([]lspCodeAction, error) {
+	return s.codeActionsAtVersion(uri, r, diagnostics, nil)
+}
+
+func (s *languageServer) codeActionsAtVersion(uri string, r lspRange, diagnostics []lspDiagnostic, expectedVersion *int) ([]lspCodeAction, error) {
 	doc := s.document(uri)
 	if doc == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if err := s.checkDocumentVersion(doc, expectedVersion); err != nil {
+		return nil, err
 	}
 	var out []lspCodeAction
 	for _, diagnostic := range diagnostics {
@@ -629,16 +756,107 @@ func (s *languageServer) codeActions(uri string, r lspRange, diagnostics []lspDi
 			out = append(out, lspCodeAction{Title: "Migrate deprecated API", Kind: "quickfix", Diagnostics: []lspDiagnostic{diagnostic}})
 		}
 	}
-	if len(out) == 0 && r != (lspRange{}) && len(doc.diagnostics) == 0 {
-		out = append(out, lspCodeAction{Title: "Organize Osiris imports", Kind: "source.organizeImports", Edit: lspWorkspaceEdit{Changes: map[string][]lspTextEdit{uri: {{Range: fullDocumentRange(doc.text), NewText: FormatProgram(doc.prog)}}}}})
+	if edits, err := organizeImportEdits(doc); err != nil {
+		return nil, err
+	} else if len(edits) > 0 {
+		out = append(out, lspCodeAction{
+			Title: "Organize Osiris imports",
+			Kind:  "source.organizeImports",
+			Edit:  versionedWorkspaceEdit(map[string][]lspTextEdit{uri: edits}, map[string]int{uri: doc.version}),
+		})
 	}
 	return out, nil
 }
 
+// organizeImportEdits returns only the edits needed to sort a leading import
+// block. It deliberately does not reformat the whole document: a source
+// organize-import action must be safe to apply independently of formatting,
+// preserve unrelated source text, and remain valid when the client applies
+// edits from the end of the document toward the beginning.
+//
+// Imports that occur after another non-import statement are left alone. Moving
+// those imports could cross executable declarations or comments whose source
+// ownership is not represented in the AST. The formatter remains available for
+// full-document formatting in textDocument/formatting.
+func organizeImportEdits(doc *documentState) ([]lspTextEdit, error) {
+	if doc == nil {
+		return nil, fmt.Errorf("document is not open")
+	}
+	prog := doc.prog
+	if prog == nil {
+		var err error
+		prog, err = Parse(doc.sourceName, doc.text)
+		if err != nil {
+			return nil, err
+		}
+	}
+	type importSlot struct {
+		stmt  importStmt
+		start int
+		end   int
+		text  string
+	}
+	slots := make([]importSlot, 0)
+	blocked := false
+	for _, statement := range prog.Statements {
+		imp, ok := statement.(importStmt)
+		if !ok {
+			if len(slots) > 0 {
+				blocked = true
+			}
+			continue
+		}
+		if blocked {
+			return []lspTextEdit{}, nil
+		}
+		start, ok := sourceSpanOffsets(doc.text, imp.Span)
+		if !ok {
+			return nil, fmt.Errorf("import source span is invalid")
+		}
+		end := start + imp.Span.end.col - imp.Span.start.col
+		if end < start || end > len(doc.text) {
+			return nil, fmt.Errorf("import source span exceeds document")
+		}
+		slots = append(slots, importSlot{stmt: imp, start: start, end: end, text: doc.text[start:end]})
+	}
+	if len(slots) < 2 {
+		return []lspTextEdit{}, nil
+	}
+	sorted := append([]importSlot(nil), slots...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].stmt.Path != sorted[j].stmt.Path {
+			return sorted[i].stmt.Path < sorted[j].stmt.Path
+		}
+		return sorted[i].stmt.Alias < sorted[j].stmt.Alias
+	})
+	edits := make([]lspTextEdit, 0, len(slots))
+	for i, slot := range slots {
+		replacement := formatStmt(sorted[i].stmt)
+		if slot.text == replacement {
+			continue
+		}
+		edits = append(edits, lspTextEdit{Range: lspRangeFromOffsets(doc.text, slot.start, slot.end), NewText: replacement})
+	}
+	sort.Slice(edits, func(i, j int) bool {
+		if edits[i].Range.Start.Line != edits[j].Range.Start.Line {
+			return edits[i].Range.Start.Line > edits[j].Range.Start.Line
+		}
+		return edits[i].Range.Start.Character > edits[j].Range.Start.Character
+	})
+	return edits, nil
+}
+
 func (s *languageServer) formatting(uri string) ([]lspTextEdit, error) {
+	return s.formattingAtVersion(uri, nil)
+}
+
+func (s *languageServer) formattingAtVersion(uri string, expectedVersion *int) ([]lspTextEdit, error) {
 	doc := s.document(uri)
 	if doc == nil {
 		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if err := s.checkDocumentVersion(doc, expectedVersion); err != nil {
+		return nil, err
 	}
 	formatted, err := FormatSource(doc.sourceName, doc.text)
 	if err != nil {
@@ -685,11 +903,32 @@ func (s *languageServer) testInventory(uri string) (LanguageTestInventory, error
 	if doc == nil {
 		return LanguageTestInventory{}, fmt.Errorf("document not open: %s", uri)
 	}
-	entries, err := parseLanguageTestFile(doc.sourceName, doc.text)
+	file, source := doc.sourceName, doc.text
+	if !isLanguageTestFile(file) {
+		if companion := colocatedTestFile(file); companion != "" {
+			data, err := os.ReadFile(companion)
+			if err != nil {
+				return LanguageTestInventory{}, err
+			}
+			file, source = companion, string(data)
+		}
+	}
+	entries, err := parseLanguageTestFile(file, source)
 	if err != nil {
 		return LanguageTestInventory{}, err
 	}
-	out := LanguageTestInventory{SchemaVersion: 1, Files: []string{doc.sourceName}}
+	out := LanguageTestInventory{SchemaVersion: 1, Files: []string{file}}
+	if doc.prog != nil {
+		for _, stmt := range doc.prog.Statements {
+			if pkg, ok := stmt.(packageStmt); ok {
+				out.Package = pkg.Name
+				break
+			}
+		}
+	}
+	if manifest, err := LoadModuleManifest(ModuleRootFor(doc.sourceName)); err == nil {
+		out.Module = manifest.Module
+	}
 	for _, entry := range entries {
 		out.Tests = append(out.Tests, LanguageTestEntry{Name: entry.name, File: entry.file, Location: entry.location, Skip: entry.skipReason != "", ExpectedFailure: entry.expectedFailure, Benchmark: entry.benchmark != nil, Fuzz: entry.fuzz != nil})
 	}
@@ -715,12 +954,19 @@ func (s *languageServer) prepareRename(uri string, pos lspPosition) (any, error)
 }
 
 func (s *languageServer) renameWorkspaceEdit(uri string, pos lspPosition, replacement string) (lspWorkspaceEdit, error) {
+	return s.renameWorkspaceEditAtVersion(uri, pos, replacement, nil)
+}
+
+func (s *languageServer) renameWorkspaceEditAtVersion(uri string, pos lspPosition, replacement string, expectedVersion *int) (lspWorkspaceEdit, error) {
 	if !validIdentifier(replacement) {
 		return lspWorkspaceEdit{}, lspInvalidParams(fmt.Errorf("invalid replacement identifier %q", replacement))
 	}
 	doc := s.document(uri)
 	if doc == nil || doc.analysis == nil {
 		return lspWorkspaceEdit{}, fmt.Errorf("document not open: %s", uri)
+	}
+	if err := s.checkDocumentVersion(doc, expectedVersion); err != nil {
+		return lspWorkspaceEdit{}, err
 	}
 	ref, target := doc.analysis.findAt(toSourcePosInText(doc.text, pos))
 	if ref != nil {
@@ -750,7 +996,7 @@ func (s *languageServer) renameWorkspaceEdit(uri string, pos lspPosition, replac
 			if candidate == nil || candidate.target == nil {
 				continue
 			}
-			if candidate.target == target || (candidateDoc.uri != uri && candidate.target.name == target.name && candidate.target.kind == target.kind) {
+			if candidate.target == target {
 				byURI[candidateDoc.uri] = append(byURI[candidateDoc.uri], spanEdit{span: candidate.span, text: candidateDoc.text})
 			}
 		}
@@ -793,6 +1039,20 @@ func (s *languageServer) renameWorkspaceEdit(uri string, pos lspPosition, replac
 	if len(edit.Changes) == 0 {
 		return lspWorkspaceEdit{}, fmt.Errorf("no renameable references found")
 	}
+	versions := make(map[string]int, len(edit.Changes))
+	for targetURI := range edit.Changes {
+		if candidate := s.document(targetURI); candidate != nil {
+			versions[targetURI] = candidate.version
+			continue
+		}
+		for _, indexed := range s.allDocuments() {
+			if indexed != nil && indexed.uri == targetURI {
+				versions[targetURI] = indexed.version
+				break
+			}
+		}
+	}
+	edit.DocumentChanges = versionedDocumentChanges(edit.Changes, versions)
 	return edit, nil
 }
 
@@ -913,20 +1173,94 @@ func (s *languageServer) prepareTypeHierarchy(uri string, pos lspPosition) ([]ls
 }
 
 func (s *languageServer) typeSupertypes(item lspTypeHierarchyItem) ([]lspTypeHierarchyItem, error) {
-	// Trait implementations are represented in the shared AST. The current
-	// symbol index records the trait and target names; expose matching traits
-	// without inventing a nominal relationship for unrelated types.
-	if item.Kind != lspSymbolKind("struct") && item.Kind != lspSymbolKind("enum") {
+	if item.Kind != lspSymbolKind("struct") && item.Kind != lspSymbolKind("enum") && item.Kind != lspSymbolKind("newtype") {
 		return []lspTypeHierarchyItem{}, nil
 	}
-	return []lspTypeHierarchyItem{}, nil
+	target := item.Data
+	if target == "" {
+		target = item.Name
+	}
+	seen := map[string]struct{}{}
+	var out []lspTypeHierarchyItem
+	for _, doc := range s.allDocuments() {
+		if doc == nil || doc.prog == nil {
+			continue
+		}
+		for _, stmt := range doc.prog.Statements {
+			impl, ok := stmt.(implStmt)
+			if !ok || impl.Target != target {
+				continue
+			}
+			def := s.typeDefinitionByName(impl.Trait)
+			if def == nil || def.kind != "trait" || !validSourceSpan(def.span) {
+				continue
+			}
+			key := def.uri + ":" + def.name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			rng := s.rangeForURI(def.uri, def.span)
+			out = append(out, lspTypeHierarchyItem{Name: def.name, Kind: lspSymbolKind(def.kind), URI: def.uri, Range: rng, SelectionRange: rng, Data: def.name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 func (s *languageServer) typeSubtypes(item lspTypeHierarchyItem) ([]lspTypeHierarchyItem, error) {
 	if item.Kind != lspSymbolKind("trait") {
 		return []lspTypeHierarchyItem{}, nil
 	}
-	return []lspTypeHierarchyItem{}, nil
+	target := item.Data
+	if target == "" {
+		target = item.Name
+	}
+	seen := map[string]struct{}{}
+	var out []lspTypeHierarchyItem
+	for _, doc := range s.allDocuments() {
+		if doc == nil || doc.prog == nil {
+			continue
+		}
+		for _, stmt := range doc.prog.Statements {
+			impl, ok := stmt.(implStmt)
+			if !ok || impl.Trait != target {
+				continue
+			}
+			def := s.typeDefinitionByName(impl.Target)
+			if def == nil || !validSourceSpan(def.span) {
+				continue
+			}
+			key := def.uri + ":" + def.name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			rng := s.rangeForURI(def.uri, def.span)
+			out = append(out, lspTypeHierarchyItem{Name: def.name, Kind: lspSymbolKind(def.kind), URI: def.uri, Range: rng, SelectionRange: rng, Data: def.name})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].URI < out[j].URI
+	})
+	return out, nil
+}
+
+func (s *languageServer) typeDefinitionByName(name string) *symbolDef {
+	for _, doc := range s.allDocuments() {
+		if doc == nil || doc.analysis == nil {
+			continue
+		}
+		for _, def := range doc.analysis.defs {
+			if def != nil && def.name == name && (def.kind == "struct" || def.kind == "enum" || def.kind == "trait" || def.kind == "type alias" || def.kind == "newtype") {
+				return def
+			}
+		}
+	}
+	return nil
 }
 
 // lspDocumentSymbol and related wire structs intentionally stay local to the
@@ -971,8 +1305,48 @@ type lspTextEdit struct {
 	NewText string   `json:"newText"`
 }
 type lspWorkspaceEdit struct {
-	Changes map[string][]lspTextEdit `json:"changes,omitempty"`
+	Changes         map[string][]lspTextEdit   `json:"changes,omitempty"`
+	DocumentChanges []lspVersionedDocumentEdit `json:"documentChanges,omitempty"`
 }
+
+type lspVersionedDocumentEdit struct {
+	TextDocument struct {
+		URI     string `json:"uri"`
+		Version int    `json:"version"`
+	} `json:"textDocument"`
+	Edits []lspTextEdit `json:"edits"`
+}
+
+func (e lspWorkspaceEdit) MarshalJSON() ([]byte, error) {
+	if len(e.DocumentChanges) > 0 {
+		return json.Marshal(struct {
+			DocumentChanges []lspVersionedDocumentEdit `json:"documentChanges"`
+		}{DocumentChanges: e.DocumentChanges})
+	}
+	type plain lspWorkspaceEdit
+	return json.Marshal(plain(e))
+}
+
+func versionedWorkspaceEdit(changes map[string][]lspTextEdit, versions map[string]int) lspWorkspaceEdit {
+	return lspWorkspaceEdit{Changes: changes, DocumentChanges: versionedDocumentChanges(changes, versions)}
+}
+
+func versionedDocumentChanges(changes map[string][]lspTextEdit, versions map[string]int) []lspVersionedDocumentEdit {
+	uris := make([]string, 0, len(changes))
+	for uri := range changes {
+		uris = append(uris, uri)
+	}
+	sort.Strings(uris)
+	out := make([]lspVersionedDocumentEdit, 0, len(uris))
+	for _, uri := range uris {
+		item := lspVersionedDocumentEdit{Edits: append([]lspTextEdit(nil), changes[uri]...)}
+		item.TextDocument.URI = uri
+		item.TextDocument.Version = versions[uri]
+		out = append(out, item)
+	}
+	return out
+}
+
 type lspCodeAction struct {
 	Title       string           `json:"title"`
 	Kind        string           `json:"kind,omitempty"`

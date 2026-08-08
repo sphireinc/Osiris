@@ -141,7 +141,7 @@ func TestStdTextStructuredErrors(t *testing.T) {
 func TestStdTextInferenceAndNativeGate(t *testing.T) {
 	const source = `import "std/text" as text
 let ordering = text.compare("a", "b")
-let predicate = text.contains("abc", "b")
+let predicate = text.contains_any("abc", "b")
 let counted = text.count("banana", "an")
 let found = text.index("a世b", "b")
 let cut = text.cut("a=b", "=")
@@ -184,7 +184,7 @@ emit ordering, predicate, counted, found, cut, tokens, transformed
 	if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil {
 		t.Fatal("native compilation unexpectedly accepted std/text")
 	} else {
-		for _, want := range []string{`<text-static>:2:21:`, `native C backend: static module member "std/text".compare is not supported`} {
+		for _, want := range []string{`<text-static>:3:22:`, `native C backend: static module member "std/text".contains_any is not supported`} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("native diagnostic %q lacks %q", err, want)
 			}

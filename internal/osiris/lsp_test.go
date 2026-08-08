@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -255,6 +257,64 @@ func TestLanguageServerCompletionReferencesAndSignatureHelp(t *testing.T) {
 	help, err := server.signatureHelp(uri, lspPosition{Line: 1, Character: 17})
 	if err != nil || help == nil || len(help.Signatures) != 1 || !strings.Contains(help.Signatures[0].Label, "greet") {
 		t.Fatalf("signature help = %#v, %v", help, err)
+	}
+}
+
+func TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion(t *testing.T) {
+	uri := pathToURI("/tmp/signature-help-unicode.osr")
+	source := "let emoji = \"😀\"\nfunc greet(name string, count u64) string => name\nlet value = greet(\"x\", 1)\nemit value\n"
+	callLine := "let value = greet(\"x\", 1)"
+	cursor := strings.Index(callLine, ")")
+	if cursor < 0 {
+		t.Fatal("test call has no closing parenthesis")
+	}
+	position := fmt.Sprintf(`{"line":2,"character":%d}`, utf16Units(callLine[:cursor]))
+	encodedSource, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n" +
+		fmt.Sprintf("{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":%q,\"languageId\":\"osiris\",\"version\":7,\"text\":%s}}}\n", uri, encodedSource) +
+		fmt.Sprintf("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/signatureHelp\",\"params\":{\"textDocument\":{\"uri\":%q,\"version\":7},\"position\":%s}}\n", uri, position) +
+		fmt.Sprintf("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/signatureHelp\",\"params\":{\"textDocument\":{\"uri\":%q,\"version\":6},\"position\":%s}}\n", uri, position) +
+		"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"shutdown\",\"params\":{}}\n" +
+		"{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}"
+	frames := decodeTask143Frames(t, runTask143ProtocolFixture(t, []byte(fixture)))
+	var help lspSignatureHelp
+	var sawHelp, sawStale bool
+	for _, message := range frames {
+		id, _ := message["id"].(float64)
+		switch int(id) {
+		case 2:
+			encoded, err := json.Marshal(message["result"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(encoded, &help); err != nil {
+				t.Fatal(err)
+			}
+			sawHelp = true
+		case 3:
+			errObj, ok := message["error"].(map[string]any)
+			if ok && int(errObj["code"].(float64)) == -32602 {
+				sawStale = true
+			}
+		}
+	}
+	if !sawHelp || len(help.Signatures) != 1 || len(help.Signatures[0].Parameters) != 2 {
+		t.Fatalf("signature-help response = %#v, sawHelp=%v", help, sawHelp)
+	}
+	if got := help.ActiveParameter; got != 1 {
+		t.Fatalf("active parameter = %d, want 1", got)
+	}
+	if got := help.Signatures[0].Parameters[0].Label; got != "name string" {
+		t.Fatalf("first parameter label = %q", got)
+	}
+	if got := help.Signatures[0].Parameters[1].Label; got != "count u64" {
+		t.Fatalf("second parameter label = %q", got)
+	}
+	if !sawStale {
+		t.Fatal("stale signature-help request was accepted")
 	}
 }
 

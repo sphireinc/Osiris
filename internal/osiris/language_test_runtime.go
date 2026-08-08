@@ -139,6 +139,8 @@ type LanguageTestInventory struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Files         []string            `json:"files"`
 	Tests         []LanguageTestEntry `json:"tests"`
+	Package       string              `json:"package,omitempty"`
+	Module        string              `json:"module,omitempty"`
 }
 
 // LanguageTestEntry describes one source declaration without executing it.

@@ -23,19 +23,21 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 ## Current selection
 
-- **Active:** task 148 is the current native host-capability stream. It has
-  explicit native FFI lifecycle, bounded file, environment, identity, and
-  path-helper coverage, but networking, process handles, and remaining owned
-  host resources are not yet complete.
-- **Ready:** tasks 155, 158, and 160 are independently assignable WASM, GPU,
-  and LSP implementation slices.
-- **Blocked:** task 154 remains the serialized final matrix gate. Its current
-  audit records non-stable native, WASM, GPU, and LSP cells, so it cannot be
-  closed from documentation or status prose.
-- **Follow-on blocked tasks:** 156–157, 159, 161–168 wait on their smaller
-  implementation or backend-matrix predecessors.
-- **Complete records:** tasks 001–049, 100–126, 134, and 138–147, 149–153
-  have completion records; task 148 and the final matrix gate remain open.
+- **Active focus:** Native C and LSP stabilization. Task 160 covers semantic
+  IDE parity and task 162 covers Native C core/data closure; task 163 and 168
+  follow their respective prerequisites. Task 154 is the Native C/LSP-only
+  gate.
+- **Ready:** tasks 160 and 162 are the independently assignable priority
+  slices for LSP and Native C.
+- **Blocked:** task 154 remains blocked until the Native C/LSP closure tasks
+  complete. The all-backend gate is task 310; WASM/GPU/environment work is
+  deliberately blocked in the 300-series queue.
+- **Deferred queue:** tasks 300–308 and 400 contain WASM, GPU, and
+  alternate-platform work. They retain their implementation requirements and
+  cannot promote support-matrix cells while deferred.
+- **Complete records:** tasks 001–049, 100–126, 134, and 138–153 have
+  completion records; Native C/LSP closure and the two release gates remain
+  open.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a
@@ -72,10 +74,10 @@ reviewable increments rather than one open-ended language rewrite:
    extending task 123's test discovery and package workflow.
 5. **Explicit low-level boundary:** 126 follows the safe FFI, ownership,
    cleanup, state, and backend foundations.
-6. **REPL and backend parity:** 138–154 established the initial parity
-  streams. Tasks 155–161 now split the remaining WASM, GPU, and LSP
-  implementation work into independently assignable slices. Tasks 162–168
-  close each backend's matrix rows, and task 154 remains the final matrix-wide
+6. **REPL and backend parity:** 138–153 established the initial parity
+  streams. Tasks 160–163 and 168 are the current Native C/LSP stabilization
+  lane, with task 154 as its focused gate. Tasks 300–308 and 400 defer WASM, GPU, and
+  environment-gated evidence; task 310 remains the final all-backend
   `stable` gate.
 
 Task 110 now supplies the checker and typed callable foundation. Task 111 is

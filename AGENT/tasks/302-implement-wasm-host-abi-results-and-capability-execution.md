@@ -1,7 +1,7 @@
-# Task 157: Implement WASM host ABI, results, and capability execution
+# Task 302: Implement WASM host ABI, results, and capability execution
 
 **Priority:** P0
-**Dependencies:** 156,151
+**Dependencies:** 301,151
 **Status:** Blocked
 
 ## Objective

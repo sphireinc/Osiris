@@ -86,8 +86,8 @@
       "label": "std/text",
       "documentation": ["https://sphireinc.github.io/Osiris/#text"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTextUnicodeParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
-      "notes": "Native C directly lowers the parity-tested `slug`, `fields`, `upper`, and `join` slice with owned UTF-8 results. Other `std/text` members remain compile-time diagnostics; this partial support is not a module-wide native promise."
+      "evidence": {"tests": ["internal/osiris/text_test.go#TestStdTextFunctionsInterpreterVMParity", "internal/osiris/text_test.go#TestStdTextStructuredErrors", "internal/osiris/text_test.go#FuzzStdTextCutReconstruction", "internal/osiris/text_test.go#FuzzStdTextSplitJoinRoundTrip", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredTextUnicodeParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeTextBoundaryParity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeTextOwnershipAndCapabilityContract"]},
+      "notes": "Native C directly lowers the bounded, host-independent `trim`, `trim_space`, `lower`, `contains`, `has_prefix`, `has_suffix`, `slug`, `fields`, `upper`, and `join` slice with owned UTF-8 results where applicable. Other `std/text` members remain compile-time diagnostics; this partial support is not a module-wide native promise."
     },
     {
       "id": "std-math-scalar",

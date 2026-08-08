@@ -104,6 +104,10 @@ func validateWASMProgramProfile(program *wasmProgram) error {
 		Modules:      program.ABI.Modules,
 		Capabilities: program.ABI.Capabilities,
 	})
+	if err := validateWASMHostImportManifest(profile, program.ABI.Imports); err != nil {
+		return err
+	}
+	expectedImports := make(map[WASMHostImport]struct{})
 	for _, fn := range program.Functions {
 		moduleValues := make(map[string]string)
 		for _, block := range fn.Blocks {
@@ -116,12 +120,56 @@ func validateWASMProgramProfile(program *wasmProgram) error {
 					}
 					moduleValues[in.Dest] = module
 				case "member":
-					if module := moduleValues[firstWASMArg(in)]; module != "" && !wasmProfileAllowsMember(profile, module, in.Text) {
-						return fmt.Errorf("WASM backend: artifact uses %s.%s outside profile", module, in.Text)
+					if module := moduleValues[firstWASMArg(in)]; module != "" {
+						if !wasmProfileAllowsMember(profile, module, in.Text) {
+							return fmt.Errorf("WASM backend: artifact uses %s.%s outside profile", module, in.Text)
+						}
+						expectedImports[wasmHostImportFor(module, in.Text)] = struct{}{}
 					}
 				}
 			}
 		}
+	}
+	expected := sortedWASMHostImports(expectedImports)
+	if len(expected) != len(program.ABI.Imports) {
+		return fmt.Errorf("WASM backend: host-import manifest count %d does not match lowered references %d", len(program.ABI.Imports), len(expected))
+	}
+	for i := range expected {
+		if expected[i] != program.ABI.Imports[i] {
+			return fmt.Errorf("WASM backend: host-import manifest entry %d does not match lowered reference (%s.%s)", i, expected[i].Module, expected[i].Member)
+		}
+	}
+	return nil
+}
+
+func validateWASMHostImportManifest(profile WASMCapabilityProfile, imports []WASMHostImport) error {
+	var previous WASMHostImport
+	for i, importDecl := range imports {
+		if importDecl.Module == "" || importDecl.Member == "" {
+			return fmt.Errorf("WASM backend: host-import entry %d has an empty module or member", i)
+		}
+		if importDecl.Encoding != WASMHostImportEncoding {
+			return fmt.Errorf("WASM backend: host-import %s.%s has unsupported encoding %q", importDecl.Module, importDecl.Member, importDecl.Encoding)
+		}
+		if i > 0 {
+			if importDecl.Module < previous.Module || (importDecl.Module == previous.Module && importDecl.Member <= previous.Member) {
+				if importDecl == previous {
+					return fmt.Errorf("WASM backend: duplicate host-import %s.%s", importDecl.Module, importDecl.Member)
+				}
+				return fmt.Errorf("WASM backend: host-import manifest is not sorted by module and member")
+			}
+		}
+		if !wasmProfileHasModule(profile, importDecl.Module) {
+			return fmt.Errorf("WASM backend: host-import module %q is outside profile", importDecl.Module)
+		}
+		if !wasmProfileAllowsMember(profile, importDecl.Module, importDecl.Member) {
+			return fmt.Errorf("WASM backend: host-import %s.%s is outside profile", importDecl.Module, importDecl.Member)
+		}
+		expectedCapability := wasmModuleMemberCapability(importDecl.Module, importDecl.Member)
+		if importDecl.Capability != expectedCapability {
+			return fmt.Errorf("WASM backend: host-import %s.%s declares capability %q, want %q", importDecl.Module, importDecl.Member, importDecl.Capability, expectedCapability)
+		}
+		previous = importDecl
 	}
 	return nil
 }
