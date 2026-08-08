@@ -496,7 +496,7 @@ func nativeStaticModuleMember(path, member string) (string, bool) {
 	supported := map[string]map[string]struct{}{
 		"std/net":    {"tcp_listen": {}, "tcp_accept": {}, "tcp_dial": {}, "udp_bind": {}, "udp_connect": {}, "udp_send": {}, "udp_receive": {}, "dns_lookup": {}, "tls_dial": {}, "tls_dial_config": {}, "tls_listen": {}, "http_get": {}, "http_request": {}, "http_request_stream": {}, "http_serve": {}},
 		"std/crypto": {"random": {}, "hash": {}, "digest": {}, "digest_bytes": {}, "hex_encode": {}, "hex_decode": {}, "compare_digest": {}, "algorithm_supported": {}},
-		"std/list":   {"range": {}, "len": {}, "take": {}, "sum": {}, "product": {}, "reverse": {}, "at": {}, "index_of": {}, "last_index_of": {}, "contains": {}, "count": {}, "sort": {}, "unique": {}, "slice": {}, "chunks": {}, "windows": {}, "zip": {}, "concat": {}, "repeat": {}, "empty": {}, "all": {}, "any": {}, "none": {}, "enumerate": {}, "flatten": {}},
+		"std/list":   {"range": {}, "len": {}, "take": {}, "sum": {}, "product": {}, "reverse": {}, "at": {}, "index_of": {}, "last_index_of": {}, "contains": {}, "count": {}, "sort": {}, "unique": {}, "partition": {}, "slice": {}, "chunks": {}, "windows": {}, "zip": {}, "concat": {}, "repeat": {}, "empty": {}, "all": {}, "any": {}, "none": {}, "enumerate": {}, "flatten": {}},
 		"std/signal": {"rectangular": {}, "hann": {}, "hamming": {}, "blackman": {}, "bartlett": {}, "convolve": {}, "correlate": {}, "filter_fir": {}, "mean": {}, "energy": {}, "variance": {}, "rms": {}, "fft": {}, "ifft": {}, "normalize": {}},
 		"std/text":   {"trim": {}, "trim_space": {}, "upper": {}, "lower": {}, "fields": {}, "join": {}, "slug": {}, "cat": {}, "replace": {}, "replace_n": {}, "split": {}, "split_after": {}, "split_n": {}, "split_after_n": {}, "chunks": {}, "compare": {}, "contains": {}, "has_prefix": {}, "has_suffix": {}, "equal_fold": {}, "count": {}, "index": {}, "last_index": {}, "index_any": {}, "last_index_any": {}, "cut": {}, "cut_prefix": {}, "cut_suffix": {}, "trim_left": {}, "trim_right": {}, "trim_prefix": {}, "trim_suffix": {}, "repeat": {}},
 		"std/time": {
@@ -1477,7 +1477,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			if len(in.Args) != 1 {
 				return fmt.Errorf("native C backend: member access expects one receiver")
 			}
-			fmt.Fprintf(b, "  %s = omember(%s, \"%s\");\n", vars[in.Dest], vars[in.Args[0]], cEscapeString(in.Text))
+			fmt.Fprintf(b, "  %s = omember_any(%s, \"%s\");\n", vars[in.Dest], vars[in.Args[0]], cEscapeString(in.Text))
 		}
 		return nil
 	case "builtin":
@@ -1522,6 +1522,58 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			b.WriteString(v)
 		}
 		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "product":
+		if len(in.Args) != len(in.FieldNames) || in.Text == "" {
+			return fmt.Errorf("native C backend: product instruction has mismatched fields")
+		}
+		fmt.Fprintf(b, "  %s = oproduct(\"%s\", (const char*[]){", vars[in.Dest], cEscapeString(in.Text))
+		for i, field := range in.FieldNames {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "\"%s\"", cEscapeString(field))
+		}
+		b.WriteString("}, (OValue[]){")
+		for i, arg := range in.Args {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(arg)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+		return nil
+	case "product_update":
+		if len(in.Args) != len(in.FieldNames)+1 {
+			return fmt.Errorf("native C backend: product update has mismatched fields")
+		}
+		base, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = oproductupdate(%s, (const char*[]){", vars[in.Dest], base)
+		for i, field := range in.FieldNames {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "\"%s\"", cEscapeString(field))
+		}
+		b.WriteString("}, (OValue[]){")
+		for i, arg := range in.Args[1:] {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			v, err := name(arg)
+			if err != nil {
+				return err
+			}
+			b.WriteString(v)
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.FieldNames))
 		return nil
 	case "index":
 		if len(in.Args) != 2 {
@@ -4056,7 +4108,7 @@ func cRuntimePrelude() string {
 #include <unistd.h>
 #endif
 
-typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_DUAL, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_CELL, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_OPTION, O_TASK, O_BYTES, O_MAP, O_FFI, O_RESOURCE } OKind;
+typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_DUAL, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_CELL, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_OPTION, O_TASK, O_BYTES, O_MAP, O_PRODUCT, O_FFI, O_RESOURCE } OKind;
 typedef struct OValue OValue;
 typedef struct OTask OTask;
 typedef struct OCell OCell;
@@ -4066,6 +4118,7 @@ typedef struct { double real; double imag; } OComplex;
 typedef struct { double primal; double tangent; } ODual;
 typedef struct { OValue *items; size_t len; } OList;
 typedef struct OMap OMap;
+typedef struct { OString type_name; OMap *fields; } OProduct;
 typedef struct { OString type_name; OString case_name; OList payload; } OEnum;
 typedef struct {
   OString kind;
@@ -4094,7 +4147,7 @@ typedef enum { O_LINALG_OK = 0, O_LINALG_INVALID_ARGUMENT, O_LINALG_NOT_CONVERGE
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); } OLinalgProviderV1;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); OLinalgStatus (*eig_f64)(size_t, double *, OComplex *, OComplex *); } OLinalgProviderV2;
 extern const OLinalgProviderV1 *osiris_linalg_provider_v1(void);
-struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OCell *cell; OEnum en; OError error; OQuantity quantity; OBox box; OTask *task; OMap *map; OFFILibrary ffi; void *resource; } as; };
+struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OCell *cell; OEnum en; OError error; OQuantity quantity; OBox box; OTask *task; OMap *map; OProduct product; OFFILibrary ffi; void *resource; } as; };
 typedef struct { OString key; OValue value; } OMapEntry;
 struct OMap { OMapEntry *entries; size_t len; };
 struct OCell { OValue value; };
@@ -4170,7 +4223,7 @@ static OValue omapnew(const OValue *items, size_t len) {
   }
   return (OValue){O_MAP, 0, {.map = map}};
 }
-static OValue *omapget(OValue value, const char *key) { if(value.kind!=O_MAP||!value.as.map) return NULL; for(size_t i=0;i<value.as.map->len;i++) if(value.as.map->entries[i].key.len==strlen(key)&&memcmp(value.as.map->entries[i].key.data,key,value.as.map->entries[i].key.len)==0) return &value.as.map->entries[i].value; return NULL; }
+static OValue *omapget(OValue value, const char *key) { OMap *map=value.kind==O_MAP?value.as.map:(value.kind==O_PRODUCT?value.as.product.fields:NULL); if(!map) return NULL; for(size_t i=0;i<map->len;i++) if(map->entries[i].key.len==strlen(key)&&memcmp(map->entries[i].key.data,key,map->entries[i].key.len)==0) return &map->entries[i].value; return NULL; }
 static OValue oenum(const char *type_name, const char *case_name, const OValue *payload, size_t count) { OValue values=olist(payload,count); if(count&&values.kind==O_NULL) return values; return (OValue){O_ENUM,0,{.en={{type_name,strlen(type_name)},{case_name,strlen(case_name)},values.as.list}}}; }
 static OValue oenumis(OValue value, const char *type_name, const char *case_name, size_t payload_count) { return obool(value.kind==O_ENUM&&value.as.en.type_name.len==strlen(type_name)&&value.as.en.case_name.len==strlen(case_name)&&value.as.en.payload.len==payload_count&&!memcmp(value.as.en.type_name.data,type_name,value.as.en.type_name.len)&&!memcmp(value.as.en.case_name.data,case_name,value.as.en.case_name.len)); }
 static OValue oenumpayload(OValue value, size_t index) { return value.kind==O_ENUM&&index<value.as.en.payload.len?value.as.en.payload.items[index]:ofail("enum payload index out of range"); }
@@ -4387,6 +4440,14 @@ oprintvalue(x); putchar('\n'); oprinted=1;
 }
 
 const cRuntimeFFIComponent = `
+static OValue omember_any(OValue value, const char *name) { if(value.kind==O_PRODUCT) { OValue *found=omapget(value,name); return found?*found:ofail("member is not available on this product"); } return omember(value,name); }
+
+/* Named products have a nominal tag plus map-like fields. The field storage
+   deliberately reuses OMap's ownership-independent entries, while the
+   product tag keeps member access and generated output distinct from maps. */
+static OValue oproduct(const char *type_name, const char **keys, const OValue *values, size_t len) { OValue map=omap(keys,values,len); if(map.kind!=O_MAP) return map; return (OValue){O_PRODUCT,0,{.product={{type_name,strlen(type_name)},map.as.map}}}; }
+static OValue oproductupdate(OValue base, const char **keys, const OValue *values, size_t len) { if(base.kind!=O_PRODUCT||!base.as.product.fields) return ofail("product update requires a product value"); OMap *old=base.as.product.fields; OMap *map=(OMap *)malloc(sizeof(OMap)); if(!map) return ofail("out of memory"); map->entries=(OMapEntry *)calloc(old->len+len,sizeof(OMapEntry)); if(!map->entries) { free(map); return ofail("out of memory"); } map->len=old->len; for(size_t i=0;i<old->len;i++) map->entries[i]=old->entries[i]; for(size_t i=0;i<len;i++) { size_t at=0; while(at<map->len&&strcmp(map->entries[at].key.data,keys[i])) at++; if(at==map->len) { map->entries[map->len].key=(OString){keys[i],strlen(keys[i])}; map->len++; } map->entries[at].value=values[i]; } return (OValue){O_PRODUCT,0,{.product={base.as.product.type_name,map}}}; }
+
 /* Tuples use the existing bounded aggregate storage, with fbits=1 as the
    tuple discriminator. Lists never set fbits, so the representation remains
    ABI-compatible while tuple construction, length, and indexing stay

@@ -38,8 +38,8 @@
       "label": "Types, numeric families, units, and exact values",
       "documentation": ["https://sphireinc.github.io/Osiris/#types"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "experimental", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/named_test.go#TestExpandedUnitExactIdentitiesAndInterpreterVMParity", "internal/osiris/named_test.go#TestNamedQuantityCodecRoundTripsEveryCatalogConcept", "internal/osiris/named_test.go#TestNativeNumericGlobalParityAndQuantityDiagnostic", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity"]},
-      "notes": "The interpreter and VM share the exact rational quantity catalog, alias values, inference, and codecs. Native C lowers supported default-number globals directly and rejects dimensioned named quantities until its ABI can preserve arbitrary rational magnitudes and dimension vectors."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestComplexLiteralsAndArithmetic", "internal/osiris/runtime_test.go#TestUnitTypesAndDimensionalAnalysis", "internal/osiris/named_test.go#TestExpandedUnitExactIdentitiesAndInterpreterVMParity", "internal/osiris/named_test.go#TestNamedQuantityCodecRoundTripsEveryCatalogConcept", "internal/osiris/named_test.go#TestNativeNumericGlobalParityAndQuantityDiagnostic", "internal/osiris/runtime_test.go#TestCBackendFixedWidthIntegerArithmeticParity", "internal/osiris/task162_163_native_parity_test.go#TestTask162NativeNamedProductParity", "internal/osiris/task162_163_native_parity_test.go#TestTask162NativeNamedProductDiagnostic"]},
+      "notes": "The interpreter and VM share the exact rational quantity catalog, alias values, inference, and codecs. Native C lowers the tested named-product construction/member/update subset and supported default-number globals directly; aliases, newtypes, dimensioned named quantities, and unproved numeric families remain explicit boundaries."
     },
     {
       "id": "errors-results-and-options",
@@ -78,8 +78,8 @@
       "label": "Formatting, IR analysis, tracing, and editor protocol",
       "documentation": ["https://sphireinc.github.io/Osiris/#tooling"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "unsupported", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestFormatSource", "internal/osiris/ir_test.go#TestBuildIRLowering", "internal/osiris/lsp_test.go#TestLanguageServerHoverAndDefinition", "internal/osiris/lsp_test.go#TestLanguageServerFramedInitializeFixture", "internal/osiris/lsp_test.go#TestLanguageServerUsesUTF16Positions", "internal/osiris/optimize_report_test.go#TestOptimizeProgramWithReportIsStableAndPreservesExecution"]},
-      "notes": "Analysis tools operate on source/IR. The CLI has an opt-in versioned JSON diagnostic envelope with stable stream separation and exit categories. Native cache, lock, and GPU JSON formats are versioned and validated. The optimizer emits ordered text or versioned JSON reports and names unavailable proof-dependent passes explicitly. LSP supports incremental UTF-16 document updates, hover, and definition with protocol fixtures; it deliberately does not advertise completion, rename, or other IDE features."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestFormatSource", "internal/osiris/ir_test.go#TestBuildIRLowering", "internal/osiris/lsp_test.go#TestLanguageServerHoverAndDefinition", "internal/osiris/lsp_test.go#TestLanguageServerFramedInitializeFixture", "internal/osiris/lsp_test.go#TestLanguageServerUsesUTF16Positions", "internal/osiris/lsp_test.go#TestLanguageServerTypedMembersCompletionNavigationAndUTF16", "internal/osiris/lsp_task160_168_test.go#TestTask160StdlibExportsNavigateWithUTF16AndIdentity", "internal/osiris/lsp_task160_168_test.go#TestTask161SemanticTokensHaveExactShapeUTF16ClassificationAndDeterminism", "internal/osiris/lsp_task160_168_test.go#TestTask161ColocatedInventoryDrivesCodeLensesAndUsesOverlay", "internal/osiris/optimize_report_test.go#TestOptimizeProgramWithReportIsStableAndPreservesExecution"]},
+      "notes": "Analysis tools operate on source/IR. The CLI has an opt-in versioned JSON diagnostic envelope with stable stream separation and exit categories. Native cache, lock, and GPU JSON formats are versioned and validated. The optimizer emits ordered text or versioned JSON reports and names unavailable proof-dependent passes explicitly. LSP supports incremental UTF-16 document updates, typed-member and standard-library completion/hover/definition/references, deterministic semantic tokens, cancellable colocated-test code lenses, and versioned protocol fixtures; broader semantic and refactoring coverage remains partial."
     },
     {
       "id": "std-text",
@@ -174,8 +174,8 @@
       "label": "std/crypto",
       "documentation": ["https://sphireinc.github.io/Osiris/#crypto"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCryptoVectorsParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
-      "notes": "Native C directly lowers deterministic `random` and SHA-256 `hash` for the parity-tested scalar, string, list, enum, complex, and time value families. `mix`, `noise`, and unproved hash value families remain compile-time diagnostics."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/cbackend_native_surface_test.go#TestCBackendCryptoVectorsParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeCryptoSHA512Parity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeCryptoSHA512OwnershipCapabilityAndErrorContract"]},
+      "notes": "Native C directly lowers deterministic `random`, SHA-256, SHA-512, and SHA-512/256 digest operations for the documented byte-compatible inputs. The SHA-512 family uses a portable owned-result implementation with no host capability. `mix`, `noise`, and unproved hash value families remain compile-time diagnostics."
     },
     {
       "id": "std-signal",
@@ -190,8 +190,8 @@
       "label": "std/list",
       "documentation": ["https://sphireinc.github.io/Osiris/#list"],
       "support": {"parser": "stable", "interpreter": "stable", "vm": "stable", "native_c": "partial", "wasm": "experimental", "gpu": "unsupported", "formatter": "stable", "lsp": "partial"},
-      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity"]},
-      "notes": "Native C supports selected list literals, indexing, loops, and the imported `std/list.range(stop)` form. Other `std/list` members remain unsupported."
+      "evidence": {"tests": ["internal/osiris/runtime_test.go#TestStdlibImportAndMemberCall", "internal/osiris/runtime_test.go#TestCBackendListIndexAndForParity", "internal/osiris/cbackend_native_surface_test.go#TestCBackendRequiredNativeSurfaceParity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeListPartitionParity", "internal/osiris/task162_163_native_parity_test.go#TestTask163NativeListPartitionOwnershipAndErrorContract"]},
+      "notes": "Native C supports selected list literals, indexing, loops, the imported `std/list.range(stop)` form, and the bounded `std/list.partition(values, index) -> tuple<list,list>` member with copied ownership. Other `std/list` members remain unsupported."
     },
     {
       "id": "std-time",

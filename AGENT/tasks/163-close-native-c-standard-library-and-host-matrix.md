@@ -60,3 +60,49 @@ signature/ownership/capability evidence for the remaining standard-library and
 host surfaces, sanitizer and cross-platform generated-C evidence, and
 provider-dependent implementations. No support-matrix status is changed by
 this progress update.
+
+## Current implementation evidence: `std/list.partition` slice
+
+The portable native standard-library dispatcher now implements the individual
+member `std/list.partition(values, index) -> tuple<list,list>`. The compiler
+allow-list and backend inventory admit it explicitly through
+`nativeStaticModuleMember` and `nativeModuleMemberStatus`.
+
+`ostd_list_partition` validates a bounded list and non-negative integral index,
+rejects an index past the end to match the existing `Task137ListPartition`
+contract, copies both ranges into separately tracked `olist` allocations, and
+marks the outer two-element list as
+the tuple representation. It has no host-capability macro and never retains an
+input pointer. Wrong arity and invalid values return structured native errors.
+
+`TestTask163NativeListPartitionParity` covers interpreter, VM, generated-C,
+and executable output, including the caught out-of-range error case. The companion
+`TestTask163NativeListPartitionOwnershipAndErrorContract` checks the exact
+runtime symbols, allocation/tuple boundary, capability absence, inventory
+entry, and invalid-input messages. The task remains **Blocked**; this bounded
+slice does not close the remaining standard-library, host, sanitizer, or
+cross-platform criteria, and no matrix status changed.
+
+## Current implementation evidence: SHA-512 crypto slice
+
+The portable native runtime now implements the following individual members:
+
+- `std/crypto.digest(data: string | list<u8>, algorithm: string) -> string`
+- `std/crypto.digest_bytes(data: string | list<u8>, algorithm: string) -> list<u8>`
+- `std/crypto.algorithm_supported(name: string) -> bool`
+
+The canonical algorithms are `sha256`, `sha512`, and `sha512_256`. `OSHA512`,
+`osh512init`, `osh512write`, and `osh512final` implement the SHA-512 family
+without an OpenSSL or operating-system provider. String results use
+`oownedstring`; raw bytes use `ostd_bytes_list`; temporary list-to-byte buffers
+are released before return. These pure operations require no host capability.
+Wrong kinds, wrong arity, invalid byte elements, unknown algorithms, and the
+1 MiB input limit remain structured native failures.
+
+`TestTask163NativeCryptoSHA512Parity` compares hexadecimal output, raw digest
+bytes, and algorithm support across interpreter, VM, generated C, and the
+generated executable. `TestTask163NativeCryptoSHA512OwnershipCapabilityAndErrorContract`
+checks the generated symbols, ownership boundary, absence of capability macros,
+error strings, and individual backend-inventory entries. The task remains
+Blocked: provider-dependent standard-library members, host-resource ownership,
+sanitizer/cross-platform evidence, and full matrix closure are still open.

@@ -225,10 +225,33 @@ native failure; the helper does not call the interpreter or VM.
 `TestTask163NativeListFlattenParity` compares depth-one, depth-two, and
 depth-zero behavior through the interpreter, VM, and generated-C executable.
 
+### `std/list.partition`
+
+`std/list.partition(values, index) -> tuple<list, list>` accepts exactly a
+bounded list and a non-negative integer index. It returns a two-element tuple:
+the first element contains the copied half-open range `[0,index)`, and the
+second contains `[index,len(values))`. An index greater than the input length is
+rejected under the established `std/list.slice` contract; the input is never
+mutated. The two returned lists and the tuple wrapper are independently owned
+native allocations.
+
+The native symbols are `nativeStaticModuleMember`,
+`nativeModuleMemberStatus`, `ostd_list_partition`, `olist`, and `ostd_dispatch`.
+`ostd_list_partition` rejects non-lists, negative or non-integral indexes, and
+indexes beyond the input length, and incorrect arity with the structured native message
+`partition expects a list and non-negative index` or
+`partition expects list and index`. It is pure and requires no host capability.
+
+`TestTask163NativeListPartitionParity` and
+`TestTask163NativeListPartitionOwnershipAndErrorContract` in
+`internal/osiris/task162_163_native_parity_test.go` cover interpreter/VM/native
+execution, the caught out-of-range error, tuple indexing, allocation symbols, capability absence,
+and the invalid-input error contract.
+
 ## Native tuple construction and indexing (task 162 bounded slice)
 
-This slice closes tuple expressions without claiming struct declarations,
-named product types, or struct updates. The supported operations are explicit:
+This slice closes tuple expressions and is complemented by the bounded named
+product slice below. The supported tuple operations are explicit:
 
 - `irBuilder.evalExpr` recursively lowers each tuple item and emits one
   `IRInstr{Op: "tuple"}`. Item order and item evaluation order are preserved.
@@ -252,21 +275,59 @@ named product types, or struct updates. The supported operations are explicit:
 
 `TestTask162NativeCoreDataParityExpanded` covers mixed-width numeric, string,
 nested tuple construction, direct tuple rendering, constant indexing, and
-tuple length through the interpreter, VM, and generated-C executable. Struct
-declarations, struct construction, struct update,
-tuple destructuring, and tuple pattern matching remain explicit unsupported
-native boundaries until their ownership and generated representation are
-implemented.
+tuple length through the interpreter, VM, and generated-C executable. Tuple
+pattern matching remains a separate boundary until its ownership and generated
+representation are implemented.
 
-These witnesses do not close either task by themselves. Product-type
-declarations and their native lowering remain an explicit boundary, and
-unverified wide numeric, dual/complex-width, provider-dependent host, and
-cross-platform execution surfaces must remain non-stable until they have
-executable evidence. The explicit product-type boundary is asserted by
-`TestStructNativeCompileBoundaryIsExplicit` in
-`internal/osiris/structs_test.go`; unsupported native members must continue to
-produce source-spanned diagnostics rather than being admitted by inventory
-metadata alone.
+### Native named products (task 162 bounded slice)
+
+The Native C backend now supports ordinary `struct` declarations, construction,
+dot-member reads, and copy-on-write `with` updates for the statically checked
+field subset. `Runtime.BuildIR` records declaration-order `IRProductType` and
+`IRProductField` metadata. `irBuilder.lowerStmt` accepts product declarations;
+`irBuilder.evalExpr` emits `product` and `product_update` instructions; and
+`emitCInstr` lowers those instructions without invoking another evaluator.
+
+The generated runtime uses tagged `O_PRODUCT` values with an owned type name
+and field map. `oproduct` copies field values into tracked storage,
+`oproductupdate` copies the original map before replacing named fields, and
+`omember_any`/`omapget` resolve dot-member reads. Construction and updates are
+copy-on-write: an existing product is never mutated and source expression
+pointers are not retained.
+
+`TestTask162NativeNamedProductParity` compares declaration, construction,
+member reads, and updates through interpreter, VM, generated C, and the native
+executable. `TestTask162NativeNamedProductDiagnostic` preserves source-spanned
+rejection for invalid field values. Product rendering as a standalone emitted
+value, bracket indexing, aliases, newtypes, and product pattern matching remain
+explicit follow-up boundaries.
+
+### Native tuple destructuring (task 162 bounded slice)
+
+Tuple destructuring in a `let` binding is now lowered through the existing
+tuple index ABI:
+
+- `irBuilder.lowerStmt` evaluates the source expression once, creates a
+  zero-based unsigned index constant for each binding, emits `index`, and then
+  emits `copy` for the destination binding in source order.
+- The generated C path therefore uses `oat`, the same helper used by direct
+  tuple indexing. A non-tuple source, a non-integral index, or an out-of-range
+  element returns the normal structured native error rather than silently
+  binding a null value.
+- Binding names are inserted into the IR environment only after their item is
+  extracted, preserving left-to-right visibility and matching the interpreter
+  and VM tuple-bind operations.
+
+`TestTask162NativeTupleDestructuringParity` is the differential witness for
+flat and nested tuple bindings across interpreter and VM, and checks the
+generated-C artifact for the corresponding `oat` operations.
+
+These witnesses do not close either task by themselves. Unverified product
+rendering/indexing, wide numeric, dual/complex-width, provider-dependent host,
+and cross-platform execution surfaces must remain non-stable until they have
+executable evidence. Unsupported native members must continue to produce
+source-spanned diagnostics rather than being admitted by inventory metadata
+alone.
 
 ## Native `std/text` boundary contracts (task 163)
 
@@ -290,6 +351,41 @@ OS capability. `TestTask163NativeTextBoundaryParity` compares the interpreter,
 VM, generated C, and generated executable, while
 `TestTask163NativeTextOwnershipAndCapabilityContract` checks the generated
 ownership boundary and the backend inventory entry.
+
+## Native `std/crypto` SHA-512 contracts (task 163 bounded slice)
+
+This slice closes the pure, host-independent digest members for the standard
+SHA-512 family. It does not enable HMAC, random bytes, key derivation, or any
+other host/provider surface.
+
+| Symbol | Signature | Capability | Result and ownership |
+| --- | --- | --- | --- |
+| `std/crypto.digest` | `digest(data: string \| list<u8>, algorithm: string) -> string` | none | Lowercase hexadecimal string, newly allocated and owned by the result. |
+| `std/crypto.digest_bytes` | `digest_bytes(data: string \| list<u8>, algorithm: string) -> list<u8>` | none | Newly allocated raw digest bytes; 64 bytes for `sha512`, 32 bytes for `sha256` and `sha512_256`. |
+| `std/crypto.algorithm_supported` | `algorithm_supported(name: string) -> bool` | none | Boolean result; no input pointer or host resource is retained. |
+
+The accepted canonical algorithm names are `sha256`, `sha512`, and
+`sha512_256`. The C implementation uses `OSHA256` for SHA-256 and the local
+`OSHA512` implementation for SHA-512 and SHA-512/256. The latter uses the
+FIPS 180-4 round constants, 128-byte block schedule, 128-bit length encoding,
+and the SHA-512/256 initialization vectors; it does not call an OpenSSL,
+CommonCrypto, or operating-system provider.
+
+Input accepts UTF-8 strings or lists containing only `u8` values and is capped
+at 1 MiB before a temporary byte conversion is allocated. A list input is
+copied into a temporary buffer and released before the result is returned. A
+hex result is constructed through `oownedstring`; a raw result is copied into
+an owned Osiris list through `ostd_bytes_list`. No borrowed C pointer escapes
+the dispatcher, and no capability macro is required.
+
+Wrong arity or value kinds, invalid byte-list elements, inputs over 1 MiB, and
+unknown algorithm names return a structured native failure. In particular,
+`algorithm_supported` returns `false` for unknown names rather than attempting
+provider discovery. `TestTask163NativeCryptoSHA512Parity` compares digest
+strings, raw bytes, and the capability predicate across the interpreter, VM,
+generated C, and generated executable. `TestTask163NativeCryptoSHA512OwnershipCapabilityAndErrorContract`
+checks the generated ownership symbols, pure-capability boundary, error
+messages, and individual backend-inventory entries.
 
 ## Linux generated-C evidence
 

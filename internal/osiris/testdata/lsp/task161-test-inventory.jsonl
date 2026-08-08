@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/task161-inventory.test.osr","languageId":"osiris","version":4,"text":"// osiris:test name=smoke\nemit 1\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"osiris/testInventory","params":{"textDocument":{"uri":"file:///tmp/task161-inventory.test.osr","version":4}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/codeLens","params":{"textDocument":{"uri":"file:///tmp/task161-inventory.test.osr","version":4}}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

@@ -117,8 +117,8 @@ func TestStructTupleCodecPreservesNominalMetadata(t *testing.T) {
 	}
 }
 
-func TestStructNativeCompileBoundaryIsExplicit(t *testing.T) {
-	prog, err := Parse("<struct-native>", "struct Point { x u64, y u64 }\nlet p = Point { x: u64(1), y: u64(2) }\nemit p.x\n")
+func TestStructNativeTypeAliasBoundaryIsExplicit(t *testing.T) {
+	prog, err := Parse("<struct-native>", "type Point = u64\nlet p = Point(1u64)\nemit p\n")
 	if err != nil {
 		t.Fatal(err)
 	}

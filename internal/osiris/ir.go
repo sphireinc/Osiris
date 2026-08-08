@@ -12,7 +12,21 @@ type IRProgram struct {
 	PackageName    string
 	PackageVersion string
 	Exports        []string
+	Products       []IRProductType
 	Functions      []*IRFunction
+}
+
+// IRProductType carries the declaration-order field contract needed by the
+// native product ABI. Product values remain nominal at the language level;
+// the emitter uses this metadata to preserve their name and field order.
+type IRProductType struct {
+	Name   string
+	Fields []IRProductField
+}
+
+type IRProductField struct {
+	Name string
+	Type string
 }
 
 type IRFunction struct {
@@ -43,12 +57,15 @@ type IRBlock struct {
 }
 
 type IRInstr struct {
-	Dest  string
-	Op    string
-	Args  []string
-	Text  string
-	Value Value
-	Span  sourceSpan
+	Dest string
+	Op   string
+	Args []string
+	// FieldNames is used by product construction/update instructions. Keeping
+	// names alongside values avoids encoding source metadata into Text.
+	FieldNames []string
+	Text       string
+	Value      Value
+	Span       sourceSpan
 }
 
 type IRTerminator interface {
@@ -281,6 +298,10 @@ func formatIRInstr(instr IRInstr) string {
 		return instr.Dest + " = list [" + strings.Join(instr.Args, ", ") + "]"
 	case "tuple":
 		return instr.Dest + " = tuple (" + strings.Join(instr.Args, ", ") + ")"
+	case "product":
+		return instr.Dest + " = product " + instr.Text + " { " + strings.Join(instr.FieldNames, ", ") + " }"
+	case "product_update":
+		return instr.Dest + " = product_update " + strings.Join(instr.Args, ", ") + " { " + strings.Join(instr.FieldNames, ", ") + " }"
 	case "index":
 		return instr.Dest + " = index " + strings.Join(instr.Args, ", ")
 	case "phi":
@@ -368,6 +389,18 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 		rt:       rt,
 		prog:     &IRProgram{SourceName: expanded.SourceName},
 		nextFunc: 0,
+		products: make(map[string]IRProductType),
+	}
+	for _, stmt := range expanded.Statements {
+		if st, ok := stmt.(structStmt); ok {
+			fields := make([]IRProductField, len(st.Fields))
+			for i, field := range st.Fields {
+				fields[i] = IRProductField{Name: field.Name, Type: field.Type}
+			}
+			product := IRProductType{Name: st.Name, Fields: fields}
+			pb.products[st.Name] = product
+			pb.prog.Products = append(pb.prog.Products, product)
+		}
 	}
 	if p, ok := firstPackage(expanded); ok {
 		pb.prog.PackageName = p.Name
@@ -414,6 +447,7 @@ type irProgramBuilder struct {
 	prog     *IRProgram
 	nextFunc int
 	enums    map[string]map[string]enumCase
+	products map[string]IRProductType
 }
 
 // newFunction operates on irProgramBuilder values and keeps the
@@ -767,12 +801,14 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			}
 		}
 		return false, nil
-	case structStmt, typeDeclStmt, newtypeStmt:
+	case structStmt:
+		// Product declarations are collected before lowering so every function
+		// can use the same nominal field contract. The declaration itself has no
+		// runtime instruction; struct literals carry the product constructor.
+		return false, nil
+	case typeDeclStmt, newtypeStmt:
 		return false, fmt.Errorf("native C backend: product-type declarations are not yet supported")
 	case letStmt:
-		if len(st.Names) > 0 {
-			return false, fmt.Errorf("native C backend: tuple destructuring is not yet supported")
-		}
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
 		if err != nil {
@@ -791,6 +827,22 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 			checked := b.newTemp()
 			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.Type, Args: []string{value}})
 			value = checked
+		}
+		if len(st.Names) > 0 {
+			// The interpreter and VM bind tuple destructuring from left to
+			// right. Lower each element through the existing index operation so
+			// Native C uses the same bounds/type errors as ordinary tuple access.
+			for index, name := range st.Names {
+				indexValue := b.newTemp()
+				b.emitInstr(IRInstr{Dest: indexValue, Op: "const", Value: uintValue(uint64(index), 64), Span: st.Span})
+				item := b.newTemp()
+				b.emitInstr(IRInstr{Dest: item, Op: "index", Args: []string{value, indexValue}, Span: st.Span})
+				dest := b.newBindName(name)
+				b.emitInstr(IRInstr{Dest: dest, Op: "copy", Text: name, Args: []string{item}, Span: st.Span})
+				b.env[name] = dest
+				b.locals[name] = struct{}{}
+			}
+			return false, nil
 		}
 		dest := b.newBindName(st.Name)
 		b.emitInstr(IRInstr{Dest: dest, Op: "copy", Text: st.Name, Args: []string{value}})
@@ -1579,8 +1631,55 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		tmp := b.newTemp()
 		b.emitInstr(IRInstr{Dest: tmp, Op: "index", Args: []string{object, index}, Span: n.Span})
 		return tmp, nil
-	case *structExpr, *structUpdateExpr:
-		return "", fmt.Errorf("native C backend: product-type expressions are not yet supported")
+	case *structExpr:
+		product, ok := b.pb.products[n.TypeName]
+		if !ok {
+			return "", fmt.Errorf("native C backend: unknown product type %q", n.TypeName)
+		}
+		values := make(map[string]string, len(n.Fields))
+		for _, field := range n.Fields {
+			child := b.fork()
+			value, err := child.evalExpr(field.Expr)
+			if err != nil {
+				return "", err
+			}
+			b.block = child.block
+			values[field.Name] = value
+		}
+		args := make([]string, len(product.Fields))
+		names := make([]string, len(product.Fields))
+		for i, field := range product.Fields {
+			value, ok := values[field.Name]
+			if !ok {
+				return "", fmt.Errorf("native C backend: product %s is missing field %q", n.TypeName, field.Name)
+			}
+			args[i], names[i] = value, field.Name
+		}
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "product", Text: n.TypeName, Args: args, FieldNames: names, Span: n.Span})
+		return tmp, nil
+	case *structUpdateExpr:
+		baseBuilder := b.fork()
+		base, err := baseBuilder.evalExpr(n.Base)
+		if err != nil {
+			return "", err
+		}
+		b.block = baseBuilder.block
+		args := make([]string, len(n.Fields)+1)
+		args[0] = base
+		names := make([]string, len(n.Fields))
+		for i, field := range n.Fields {
+			child := b.fork()
+			value, err := child.evalExpr(field.Expr)
+			if err != nil {
+				return "", err
+			}
+			b.block = child.block
+			args[i+1], names[i] = value, field.Name
+		}
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "product_update", Args: args, FieldNames: names, Span: n.Span})
+		return tmp, nil
 	case *blockExpr:
 		cleanupBase := len(b.cleanups)
 		for _, stmt := range n.stmts {

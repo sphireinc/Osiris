@@ -42,8 +42,27 @@ workspace symbols, diagnostics, and semantic tokens.
 - `TestTask160LSPVersionsCancellationAndTypeHierarchy` and the deterministic
   `task160-semantic.jsonl` fixture cover cancellation, stale versions, save
   revalidation, and type hierarchy behavior.
+- `documentAnalysis.members`, `addLSPMember`, and
+  `resolveCheckedMemberReferences` now index struct fields, trait methods, and
+  `impl` methods by nominal owner after shared type checking. The
+  `languageServer.completion`, `hover`, `definition`, and `references`
+  symbols use that index for checked receivers such as `user.render`, while
+  dynamic receivers retain the existing conservative fallback behavior.
+- `TestLanguageServerTypedMembersCompletionNavigationAndUTF16`,
+  `TestLanguageServerTypedMemberProtocolUsesUTF16AndRejectsStaleVersion`, and
+  `TestLanguageServerTypedMemberCompletionCancellation` cover field/method
+  completion, source-backed method navigation, framed protocol handling,
+  astral UTF-16 positions, stale versions, and canceled requests. The focused
+  normal and race runs both pass.
+- `indexLSPImportedModules` now indexes resolvable `std/*` exports with stable
+  module-member identities and virtual `osiris://stdlib/<module>` definition
+  URIs. `TestTask160StdlibExportsNavigateWithUTF16AndIdentity`,
+  `TestTask160StdlibExportsFramedUTF16AndStale`, and
+  `TestTask160StdlibExportsFramedCancellation` cover completion, hover,
+  definition, references, UTF-16 positions, stale versions, and cancellation.
 
 This evidence is incremental. The task remains **Ready** and is not complete;
-completion, hover, definitions/references, symbols, semantic tokens, module
-and macro spans, and the remaining advertised protocol/error fixtures still
-need full coverage before task 168 can close the LSP column.
+generic/macro/module navigation beyond resolvable standard-library exports,
+symbols, semantic tokens, diagnostics, generated spans, and the remaining
+advertised protocol/error fixtures still need full coverage before task 168
+can close the LSP column. Support-matrix statuses were not changed.

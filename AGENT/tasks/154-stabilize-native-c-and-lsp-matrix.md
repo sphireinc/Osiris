@@ -52,6 +52,14 @@ prove all rows, sanitizer/cross-platform execution, or the full ownership and
 cancellation contracts required by this task, so no matrix promotion or
 completion record is justified yet.
 
+The latest evidence extends the gate without changing its status: typed-member
+LSP navigation, cancellable colocated-test inventory/code lenses, Native C
+tuple destructuring, and portable SHA-512-family crypto now have focused
+normal/race or sanitizer-backed fixtures and granular documentation. The
+remaining rows still require full semantic/workspace coverage and the
+standard-library, host-resource, product-type, numeric, and cross-platform
+Native C surfaces listed in the dependent tasks.
+
 ## Explicitly deferred
 
 WASM lowering/import execution, GPU hardware/device execution, alternate-OS

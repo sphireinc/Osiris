@@ -260,6 +260,140 @@ func TestLanguageServerCompletionReferencesAndSignatureHelp(t *testing.T) {
 	}
 }
 
+func TestLanguageServerTypedMembersCompletionNavigationAndUTF16(t *testing.T) {
+	uri := pathToURI("/tmp/typed-members.osr")
+	source := "let emoji = \"😀\"\n" +
+		"struct User { name string }\n" +
+		"trait Render { func render() string }\n" +
+		"impl Render for User { func render() string => \"ok\" }\n" +
+		"let user = User{name: \"Ada\"}\n" +
+		"let result = user.render()\n" +
+		"emit result\n"
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	if err := server.upsertDocumentContext(context.Background(), uri, source, 11); err != nil {
+		t.Fatal(err)
+	}
+	state := server.document(uri)
+	if state == nil || state.analysis == nil {
+		t.Fatalf("typed member document was not analyzed: %#v", state)
+	}
+	callLine := "let result = user.render()"
+	dot := strings.Index(callLine, ".")
+	if dot < 0 {
+		t.Fatal("typed member fixture has no dot")
+	}
+	items, err := server.completion(uri, lspPosition{Line: 5, Character: utf16Units(callLine[:dot+1])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawMethod, sawField bool
+	for _, item := range items {
+		switch item.Label {
+		case "render":
+			sawMethod = item.Kind == 2 && strings.Contains(item.Detail, "func")
+		case "name":
+			sawField = item.Kind == 5 && strings.Contains(item.Detail, "string")
+		}
+	}
+	if !sawMethod || !sawField {
+		t.Fatalf("typed member completion = %#v, want render method and name field", items)
+	}
+	render := strings.Index(callLine, "render")
+	hover, err := server.hover(uri, lspPosition{Line: 5, Character: utf16Units(callLine[:render]) + 2})
+	if err != nil || hover == nil || !strings.Contains(hover.Contents.Value, "func (self User) render") {
+		t.Fatalf("typed method hover = %#v, %v", hover, err)
+	}
+	definition, err := server.definition(uri, lspPosition{Line: 5, Character: utf16Units(callLine[:render]) + 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, ok := definition.(lspLocation)
+	if !ok || location.URI != uri || location.Range.Start.Line != 3 {
+		t.Fatalf("typed method definition = %#v, want impl method on line 3", definition)
+	}
+	references, err := server.references(uri, lspPosition{Line: 5, Character: utf16Units(callLine[:render]) + 2})
+	if err != nil || len(references) != 2 {
+		t.Fatalf("typed method references = %#v, %v; want definition and call", references, err)
+	}
+}
+
+func TestLanguageServerTypedMemberProtocolUsesUTF16AndRejectsStaleVersion(t *testing.T) {
+	uri := pathToURI("/tmp/typed-members-protocol.osr")
+	source := "let emoji = \"😀\"\n" +
+		"struct User { name string }\n" +
+		"trait Render { func render() string }\n" +
+		"impl Render for User { func render() string => \"ok\" }\n" +
+		"let user = User{name: \"Ada\"}\n" +
+		"let result = user.render()\n" +
+		"emit result\n"
+	callLine := "let result = user.render()"
+	dot := strings.Index(callLine, ".")
+	position := fmt.Sprintf(`{"line":5,"character":%d}`, utf16Units(callLine[:dot+1]))
+	encodedSource, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+` +
+		fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":11,"text":%s}}}
+`, uri, encodedSource) +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":%q,"version":11},"position":%s}}
+`, uri, position) +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":10},"position":{"line":5,"character":%d}}}
+`, uri, utf16Units(callLine[:strings.Index(callLine, "render")])+2) +
+		`{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","method":"exit"}`
+	frames := decodeTask143Frames(t, runTask143ProtocolFixture(t, []byte(fixture)))
+	var sawCompletion, sawStale bool
+	for _, message := range frames {
+		id, _ := message["id"].(float64)
+		switch int(id) {
+		case 2:
+			encoded, err := json.Marshal(message["result"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var items []lspCompletionItem
+			if err := json.Unmarshal(encoded, &items); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range items {
+				if item.Label == "render" && item.Kind == 2 {
+					sawCompletion = true
+				}
+			}
+		case 3:
+			errObj, ok := message["error"].(map[string]any)
+			if ok {
+				if code, ok := errObj["code"].(float64); ok && int(code) == -32602 {
+					sawStale = true
+				}
+			}
+		}
+	}
+	if !sawCompletion || !sawStale {
+		t.Fatalf("typed member protocol frames = %#v; completion=%v stale=%v", frames, sawCompletion, sawStale)
+	}
+}
+
+func TestLanguageServerTypedMemberCompletionCancellation(t *testing.T) {
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	uri := pathToURI("/tmp/typed-members-cancel.osr")
+	if err := server.upsertDocumentContext(context.Background(), uri, "struct User { name string }\nlet user = User{name: \"Ada\"}\nemit user\n", 1); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, handled, err := server.handleIDERequest(ctx, "textDocument/completion", json.RawMessage(fmt.Sprintf(`{"textDocument":{"uri":%q,"version":1},"position":{"line":1,"character":10}}`, uri)))
+	if !handled || result != nil {
+		t.Fatalf("cancelled typed completion result = %#v, handled=%v", result, handled)
+	}
+	var coded interface{ LSPCode() int }
+	if !errors.As(err, &coded) || coded.LSPCode() != -32800 {
+		t.Fatalf("cancelled typed completion error = %v", err)
+	}
+}
+
 func TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion(t *testing.T) {
 	uri := pathToURI("/tmp/signature-help-unicode.osr")
 	source := "let emoji = \"😀\"\nfunc greet(name string, count u64) string => name\nlet value = greet(\"x\", 1)\nemit value\n"

@@ -198,7 +198,7 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
 			return nil, true, err
 		}
-		v, err := s.semanticTokens(p.TextDocument.URI)
+		v, err := s.semanticTokensContext(ctx, p.TextDocument.URI)
 		return v, true, err
 	case "textDocument/inlayHint":
 		var p lspRangeParams
@@ -268,7 +268,7 @@ func (s *languageServer) handleIDERequest(ctx context.Context, method string, ra
 		if err := checkVersion(p.TextDocument.URI, p.TextDocument.Version); err != nil {
 			return nil, true, err
 		}
-		v, err := s.codeLenses(p.TextDocument.URI)
+		v, err := s.codeLensesContext(ctx, p.TextDocument.URI)
 		return v, true, err
 	case "textDocument/prepareRename":
 		var p lspTextDocumentParams
@@ -641,11 +641,24 @@ func (s *languageServer) implementations(uri string, pos lspPosition) ([]lspLoca
 }
 
 func (s *languageServer) semanticTokens(uri string) (lspSemanticTokensResult, error) {
+	return s.semanticTokensContext(context.Background(), uri)
+}
+
+func (s *languageServer) semanticTokensContext(ctx context.Context, uri string) (lspSemanticTokensResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return lspSemanticTokensResult{}, lspRequestCancelled(err)
+	}
 	doc := s.document(uri)
 	if doc == nil {
 		return lspSemanticTokensResult{}, fmt.Errorf("document not open: %s", uri)
 	}
-	tokens := scanSemanticTokens(doc.text, doc.analysis)
+	tokens, err := scanSemanticTokensContext(ctx, doc.text, doc.analysis)
+	if err != nil {
+		return lspSemanticTokensResult{}, err
+	}
 	if len(tokens) > lspMaxSemanticTokens {
 		tokens = tokens[:lspMaxSemanticTokens]
 	}
@@ -877,21 +890,33 @@ func (s *languageServer) pullDiagnostics(uri string) (lspDiagnosticReport, error
 }
 
 func (s *languageServer) codeLenses(uri string) ([]lspCodeLens, error) {
-	doc := s.document(uri)
-	if doc == nil {
-		return nil, fmt.Errorf("document not open: %s", uri)
+	return s.codeLensesContext(context.Background(), uri)
+}
+
+func (s *languageServer) codeLensesContext(ctx context.Context, uri string) ([]lspCodeLens, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	entries, err := parseLanguageTestFile(doc.sourceName, doc.text)
+	inventory, err := s.testInventoryContext(ctx, uri)
 	if err != nil {
+		// A production document without a test sidecar is a valid empty lens
+		// result. Syntax errors in a test file are likewise reported by the
+		// ordinary diagnostics path rather than as a code-lens failure.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || isLSPRequestCancellation(err) {
+			return nil, err
+		}
 		return []lspCodeLens{}, nil
 	}
-	var out []lspCodeLens
-	for _, entry := range entries {
-		command := lspCommand{Title: "Run " + entry.name, Command: "osiris.test", Arguments: []any{entry.file, entry.name}}
-		if entry.benchmark != nil {
-			command = lspCommand{Title: "Benchmark " + entry.name, Command: "osiris.benchmark", Arguments: []any{entry.file, entry.name}}
+	out := make([]lspCodeLens, 0, len(inventory.Tests))
+	for _, entry := range inventory.Tests {
+		if err := ctx.Err(); err != nil {
+			return nil, lspRequestCancelled(err)
 		}
-		location := entry.location
+		command := lspCommand{Title: "Run " + entry.Name, Command: "osiris.test", Arguments: []any{entry.File, entry.Name}}
+		if entry.Benchmark {
+			command = lspCommand{Title: "Benchmark " + entry.Name, Command: "osiris.benchmark", Arguments: []any{entry.File, entry.Name}}
+		}
+		location := entry.Location
 		rng := lspRange{Start: lspPosition{Line: maxInt(0, location.Start.Line-1), Character: maxInt(0, location.Start.Column-1)}, End: lspPosition{Line: maxInt(0, location.End.Line-1), Character: maxInt(0, location.End.Column-1)}}
 		out = append(out, lspCodeLens{Range: rng, Command: &command})
 	}
@@ -899,6 +924,16 @@ func (s *languageServer) codeLenses(uri string) ([]lspCodeLens, error) {
 }
 
 func (s *languageServer) testInventory(uri string) (LanguageTestInventory, error) {
+	return s.testInventoryContext(context.Background(), uri)
+}
+
+func (s *languageServer) testInventoryContext(ctx context.Context, uri string) (LanguageTestInventory, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return LanguageTestInventory{}, lspRequestCancelled(err)
+	}
 	doc := s.document(uri)
 	if doc == nil {
 		return LanguageTestInventory{}, fmt.Errorf("document not open: %s", uri)
@@ -906,16 +941,30 @@ func (s *languageServer) testInventory(uri string) (LanguageTestInventory, error
 	file, source := doc.sourceName, doc.text
 	if !isLanguageTestFile(file) {
 		if companion := colocatedTestFile(file); companion != "" {
-			data, err := os.ReadFile(companion)
-			if err != nil {
-				return LanguageTestInventory{}, err
+			if !s.workspacePathAllowed(companion) {
+				return LanguageTestInventory{}, fmt.Errorf("test companion %q is outside configured workspace roots", companion)
 			}
-			file, source = companion, string(data)
+			file = companion
+			if overlay := s.document(pathToURI(companion)); overlay != nil {
+				source = overlay.text
+			} else {
+				data, err := os.ReadFile(companion)
+				if err != nil {
+					return LanguageTestInventory{}, err
+				}
+				source = string(data)
+			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return LanguageTestInventory{}, lspRequestCancelled(err)
 	}
 	entries, err := parseLanguageTestFile(file, source)
 	if err != nil {
 		return LanguageTestInventory{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return LanguageTestInventory{}, lspRequestCancelled(err)
 	}
 	out := LanguageTestInventory{SchemaVersion: 1, Files: []string{file}}
 	if doc.prog != nil {
@@ -926,13 +975,71 @@ func (s *languageServer) testInventory(uri string) (LanguageTestInventory, error
 			}
 		}
 	}
-	if manifest, err := LoadModuleManifest(ModuleRootFor(doc.sourceName)); err == nil {
+	if manifest, err := LoadModuleManifest(ModuleRootFor(file)); err == nil {
 		out.Module = manifest.Module
 	}
 	for _, entry := range entries {
 		out.Tests = append(out.Tests, LanguageTestEntry{Name: entry.name, File: entry.file, Location: entry.location, Skip: entry.skipReason != "", ExpectedFailure: entry.expectedFailure, Benchmark: entry.benchmark != nil, Fuzz: entry.fuzz != nil})
 	}
 	return out, nil
+}
+
+func isLSPRequestCancellation(err error) bool {
+	var coded interface{ LSPCode() int }
+	return errors.As(err, &coded) && coded.LSPCode() == -32800
+}
+
+// workspacePathAllowed is intentionally stricter than filepath.Rel alone:
+// lexical containment prevents ../ escapes, while EvalSymlinks prevents a
+// sidecar symlink from redirecting an inventory read outside a configured
+// workspace root. With no configured root, an explicitly opened document may
+// still use its neighboring sidecar, matching standalone LSP behavior.
+func (s *languageServer) workspacePathAllowed(path string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	abs = filepath.Clean(abs)
+	s.mu.RLock()
+	roots := append([]string(nil), s.workspaceRoots...)
+	if len(roots) == 0 && s.workspaceRoot != "" {
+		roots = []string{s.workspaceRoot}
+	}
+	s.mu.RUnlock()
+	if len(roots) == 0 {
+		return true
+	}
+	resolvedPath, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return false
+	}
+	resolvedPath, err = filepath.Abs(resolvedPath)
+	if err != nil {
+		return false
+	}
+	for _, root := range roots {
+		rootAbs, err := filepath.Abs(filepath.Clean(root))
+		if err != nil || !pathWithin(rootAbs, abs) {
+			continue
+		}
+		resolvedRoot, err := filepath.EvalSymlinks(rootAbs)
+		if err != nil {
+			continue
+		}
+		resolvedRoot, err = filepath.Abs(resolvedRoot)
+		if err == nil && pathWithin(resolvedRoot, resolvedPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathWithin(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (s *languageServer) prepareRename(uri string, pos lspPosition) (any, error) {
@@ -1471,75 +1578,135 @@ func wordBounds(text string, offset int) (int, int) {
 }
 
 func scanSemanticTokens(text string, analysis *documentAnalysis) []lspSemanticToken {
+	tokens, _ := scanSemanticTokensContext(context.Background(), text, analysis)
+	return tokens
+}
+
+func scanSemanticTokensContext(ctx context.Context, text string, analysis *documentAnalysis) ([]lspSemanticToken, error) {
 	if analysis == nil {
-		return nil
+		return nil, nil
 	}
 	var out []lspSemanticToken
 	lines := strings.Split(text, "\n")
 	for lineNo, line := range lines {
-		for i := 0; i < len(line); {
-			if line[i] == '#' || (line[i] == '/' && i+1 < len(line) && line[i+1] == '/') {
-				out = append(out, lspSemanticToken{Line: lineNo, Character: utf16Units(line[:i]), Length: utf16Units(line[i:]), TokenType: 15})
-				break
-			}
-			r, size := utf8.DecodeRuneInString(line[i:])
-			if r == '"' {
-				start := i
-				i += size
-				for i < len(line) {
-					rr, ss := utf8.DecodeRuneInString(line[i:])
-					i += ss
-					if rr == '"' {
-						break
-					}
-				}
-				out = append(out, lspSemanticToken{Line: lineNo, Character: utf16Units(line[:start]), Length: utf16Units(line[start:i]), TokenType: 16})
-				continue
-			}
-			if unicode.IsLetter(r) || r == '_' {
-				start := i
-				i += size
-				for i < len(line) {
-					rr, ss := utf8.DecodeRuneInString(line[i:])
-					if !(unicode.IsLetter(rr) || unicode.IsDigit(rr) || rr == '_') {
-						break
-					}
-					i += ss
-				}
-				name := line[start:i]
-				typ := 8
-				for _, def := range analysis.defs {
-					if def.name == name {
-						typ = semanticTokenType(def.kind)
-						break
-					}
-				}
-				for _, ref := range analysis.refs {
-					if ref.span.start.line == lineNo+1 && ref.span.start.col > start && ref.target != nil && ref.target.name == name {
-						typ = semanticTokenType(ref.target.kind)
-						break
-					}
-				}
-				out = append(out, lspSemanticToken{Line: lineNo, Character: utf16Units(line[:start]), Length: utf16Units(line[start:i]), TokenType: typ})
-				continue
-			}
-			if unicode.IsDigit(r) {
-				start := i
-				i += size
-				for i < len(line) {
-					rr, ss := utf8.DecodeRuneInString(line[i:])
-					if !(unicode.IsDigit(rr) || rr == '.' || rr == '_') {
-						break
-					}
-					i += ss
-				}
-				out = append(out, lspSemanticToken{Line: lineNo, Character: utf16Units(line[:start]), Length: utf16Units(line[start:i]), TokenType: 17})
-				continue
-			}
-			i += size
+		if err := ctx.Err(); err != nil {
+			return nil, lspRequestCancelled(err)
+		}
+		if start, ok := semanticCommentStart(line); ok {
+			out = append(out, lspSemanticToken{Line: lineNo, Character: utf16Units(line[:start]), Length: utf16Units(line[start:]), TokenType: 15})
 		}
 	}
-	return out
+
+	lex := newLexer(text)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, lspRequestCancelled(err)
+		}
+		tok, err := lex.nextToken()
+		if err != nil {
+			// Preserve useful tokens from a partially typed document. The
+			// parser owns syntax diagnostics; semantic tokens remain a
+			// best-effort editor feature while the source is incomplete.
+			break
+		}
+		if tok.kind == tokenEOF {
+			break
+		}
+		if tok.line < 1 || tok.line > len(lines) || tok.col < 1 {
+			continue
+		}
+		line := lines[tok.line-1]
+		start := tok.col - 1
+		if start > len(line) {
+			continue
+		}
+		raw := tok.raw
+		if raw == "" {
+			raw = tok.text
+		}
+		if raw == "" || start+len(raw) > len(line) {
+			continue
+		}
+		tokenType, ok := semanticTokenTypeForToken(tok, analysis, tok.line, start+1)
+		if !ok {
+			continue
+		}
+		out = append(out, lspSemanticToken{Line: tok.line - 1, Character: utf16Units(line[:start]), Length: utf16Units(line[start : start+len(raw)]), TokenType: tokenType})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Line != out[j].Line {
+			return out[i].Line < out[j].Line
+		}
+		if out[i].Character != out[j].Character {
+			return out[i].Character < out[j].Character
+		}
+		return out[i].TokenType < out[j].TokenType
+	})
+	return out, nil
+}
+
+func semanticCommentStart(line string) (int, bool) {
+	inString, escaped := false, false
+	for i, r := range line {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == '"' {
+				inString = false
+			}
+			continue
+		}
+		if r == '"' {
+			inString = true
+			continue
+		}
+		if r == '#' {
+			return i, true
+		}
+		if r == '/' && i+1 < len(line) && line[i+1] == '/' {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func semanticTokenTypeForToken(tok token, analysis *documentAnalysis, line, col int) (int, bool) {
+	switch tok.kind {
+	case tokenIdent:
+		for _, def := range analysis.defs {
+			if def != nil && def.span.start.line == line && def.span.start.col == col && def.name == tok.text {
+				return semanticTokenType(def.kind), true
+			}
+		}
+		for _, ref := range analysis.refs {
+			if ref == nil || ref.span.start.line != line || ref.span.start.col != col || ref.target == nil {
+				continue
+			}
+			return semanticTokenType(ref.target.kind), true
+		}
+		return 8, true
+	case tokenString, tokenTag:
+		return 16, true
+	case tokenNumber:
+		return 17, true
+	case tokenLet, tokenVar, tokenConst, tokenEmit, tokenMacro, tokenFunc,
+		tokenReturn, tokenTry, tokenCatch, tokenWhile, tokenFor, tokenIn,
+		tokenBreak, tokenContinue, tokenDefer, tokenPackage, tokenExport,
+		tokenEnum, tokenStruct, tokenType, tokenNewtype, tokenImport, tokenFFI,
+		tokenMatch, tokenSwitch, tokenAs, tokenWith, tokenTrue, tokenFalse, tokenNull:
+		return 13, true
+	case tokenDot, tokenComma, tokenColon, tokenSemicolon, tokenLParen, tokenRParen,
+		tokenLBrace, tokenRBrace, tokenLBracket, tokenRBracket:
+		return 18, false
+	default:
+		return 18, true
+	}
 }
 
 func semanticTokenType(kind string) int {

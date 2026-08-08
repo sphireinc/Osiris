@@ -57,6 +57,24 @@ definition detail where the analyzer has it. The request position is converted
 from UTF-16 before the module selector is inspected, so an astral character
 before the cursor does not shift the lookup boundary.
 
+When the selector is a checked nominal receiver such as `user.` and the
+binding has type `User`, completion enumerates only the members indexed for
+`User`. Struct fields use LSP kind `Field` and show `field <type>` detail;
+trait and implementation methods use kind `Method` and show their complete
+function signature. Member completion is intentionally type-directed: a
+dynamic or untyped receiver falls back to lexical/module completion and does
+not receive speculative members. The receiver type is taken from the shared
+checker, so completion remains consistent with the type used by navigation.
+
+The same checked member index powers `textDocument/hover`,
+`textDocument/definition`, and `textDocument/references`. A reference such as
+`user.render` targets the source declaration in `impl Render for User`, not the
+`user` binding. Trait methods are indexed under the trait name and concrete
+implementation methods under their target type; struct fields are indexed
+under their struct type. All returned source ranges are converted to UTF-16,
+and source-less or generated symbols continue to return no fabricated
+definition location.
+
 `textDocument/signatureHelp` identifies the innermost unterminated call at the
 cursor. Parentheses and commas inside nested calls are not counted as
 arguments of the outer call, and quoted strings are ignored while locating the
@@ -67,6 +85,68 @@ cursor after the final argument keeps the active parameter clamped to the last
 declared parameter. Both methods accept the optional
 `textDocument.version`; a duplicate or older version is rejected with
 JSON-RPC `-32602` before semantic data is returned.
+
+### Standard-library export navigation
+
+For a resolvable import such as `import "std/text" as text`, the semantic
+index includes the module's actual exported functions and constants. The
+completion item kind and detail are derived from the runtime module value, so
+the LSP does not maintain a second hand-written signature table. Completion,
+hover, definition, and references use the same stable identity for a member
+such as `text.trim`.
+
+Standard-library definitions use virtual URIs of the form
+`osiris://stdlib/<module>`, for example `osiris://stdlib/text`. These URIs are
+intentionally source-less: clients may display the symbol and its signature,
+but must not assume that a local filesystem document exists. Capability-gated
+or otherwise unresolved modules are omitted from semantic results rather than
+reported as speculative definitions. Requests still enforce UTF-16 positions,
+document versions, cancellation, and the normal `-32602`/`-32800` protocol
+errors.
+
+## Semantic tokens
+
+`textDocument/semanticTokens/full` returns exactly one object with a `data`
+array. The array uses the LSP five-integer encoding
+`[deltaLine, deltaStart, length, tokenType, tokenModifiers]`; token modifiers
+are currently always zero. Clients must use the legend advertised by
+`initialize`:
+
+| Index | Token type | Classification source |
+| ---: | --- | --- |
+| 0 | `namespace` | module and package definitions |
+| 1 | `type` | type aliases and newtypes |
+| 2 | `class` | enum cases |
+| 3 | `enum` | enum definitions |
+| 4 | `interface` | trait definitions |
+| 5 | `struct` | struct definitions |
+| 7 | `parameter` | function parameters |
+| 8 | `variable` | local bindings and unresolved identifiers |
+| 10 | `function` | function and builtin definitions |
+| 11 | `method` | trait and implementation methods |
+| 12 | `macro` | macro definitions |
+| 13 | `keyword` | declaration, control-flow, boolean, and null keywords |
+| 15 | `comment` | `#` and `//` comments outside string literals |
+| 16 | `string` | quoted strings and raw field tags |
+| 17 | `number` | numeric literals |
+| 18 | `operator` | arithmetic, comparison, assignment, and logical operators |
+
+Definition and resolved-reference classifications are matched by exact source
+line and byte column before conversion to UTF-16. This prevents a same-named
+definition elsewhere in the file from changing a token's class. String
+escapes, astral Unicode, and comments are measured from the original source
+spelling; a comment marker inside a quoted string is not classified as a
+comment. Delimiters such as parentheses and commas are intentionally omitted
+because they are punctuation rather than semantic operators.
+
+The result is deterministic: tokens are sorted by `(line, UTF-16 start,
+token type)`, capped at 10,000 entries, and returned with no implementation
+fields beyond `data`. Requests accept an optional document version and reject
+stale versions with `-32602`. Cancellation is checked before lexing and while
+walking source lines and lexer tokens; a cancelled request returns `-32800`
+without publishing a partial result. Incomplete source produces the tokens
+available before the lexer error while the normal diagnostics path reports the
+syntax error.
 
 ## Source analysis coverage
 
@@ -153,6 +233,10 @@ they do not execute test code inside the language server. Requests may target
 either a colocated `name.test.osr`/`name_test.osr` file or its neighboring
 production source; the latter resolves the sidecar using the same deterministic
 rule as `osiris test`, so an editor and the CLI select the same test file.
+When the sidecar is open, its current overlay takes precedence over disk. The
+inventory reports the selected sidecar path, package, module, test names,
+flags, and one-based source locations; code-lens commands use that same path
+and metadata.
 
 ## Request and response contract
 
@@ -167,7 +251,7 @@ methods and their result shapes are:
 | `textDocument/typeDefinition` | `Location` or `null` | checked binding type |
 | `textDocument/implementation` | `Location[]` | analyzed function/trait method definitions |
 | `textDocument/references` | `Location[]` | resolved reference targets |
-| `textDocument/completion` | completion item array | lexical scope and module exports |
+| `textDocument/completion` | completion item array | lexical scope, typed members, and module exports |
 | `textDocument/signatureHelp` | `SignatureHelp` or `null` | checked callable signature |
 | `textDocument/documentSymbol` | document symbol array | source definitions |
 | `workspace/symbol` | workspace symbol array | bounded workspace index |
@@ -192,7 +276,8 @@ methods and their result shapes are:
 The methods above are advertised by `initialize` and have framed protocol
 coverage in `internal/osiris/testdata/lsp/task143-protocol.jsonl`, with
 additional semantic and workspace fixtures in `task160-semantic.jsonl` and
-`task161-workspace.jsonl`. A method outside this table returns JSON-RPC
+`task161-workspace.jsonl`, `task161-import-actions.jsonl`,
+`task161-test-inventory.jsonl`, and `task161-semantic-tokens.jsonl`. A method outside this table returns JSON-RPC
 `-32601`; malformed parameters return `-32602`. An unsupported language or
 AST form produces a source-ranged diagnostic rather than an empty successful
 result.
@@ -242,7 +327,12 @@ For an ordinary source file it discovers the colocated `name.test.osr` or
 `name_test.osr` file using the same discovery rule as the CLI. The response
 contains the source file list, test locations and flags, the declared package,
 and the nearest `osiris.mod` module path. These fields are metadata only; test
-execution remains owned by the language-test runner.
+execution remains owned by the language-test runner. If workspace roots were
+provided, a discovered sidecar must be lexically and symlink-resolved inside
+one of those roots; a symlink pointing outside is rejected without reading the
+target. Canceled inventory and code-lens requests return JSON-RPC `-32800`.
+With no configured root, an explicitly opened document may use its neighboring
+sidecar, preserving standalone editor behavior.
 
 The support matrix remains conservative: LSP cells stay `partial` until the
 corresponding feature has a maintained fixture and documentation route. The

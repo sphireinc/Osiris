@@ -147,11 +147,11 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 			return BackendImplemented
 		}
 	case "std/crypto":
-		if member == "random" || member == "hash" {
+		if member == "random" || member == "hash" || member == "digest" || member == "digest_bytes" || member == "algorithm_supported" {
 			return BackendImplemented
 		}
 	case "std/list":
-		if member == "range" || member == "len" || member == "take" || member == "sum" || member == "product" || member == "reverse" || member == "at" || member == "index_of" || member == "last_index_of" || member == "contains" || member == "count" || member == "sort" || member == "unique" || member == "slice" || member == "chunks" || member == "windows" || member == "zip" || member == "concat" || member == "repeat" || member == "empty" || member == "all" || member == "any" || member == "none" || member == "enumerate" || member == "flatten" {
+		if member == "range" || member == "len" || member == "take" || member == "sum" || member == "product" || member == "reverse" || member == "at" || member == "index_of" || member == "last_index_of" || member == "contains" || member == "count" || member == "sort" || member == "unique" || member == "partition" || member == "slice" || member == "chunks" || member == "windows" || member == "zip" || member == "concat" || member == "repeat" || member == "empty" || member == "all" || member == "any" || member == "none" || member == "enumerate" || member == "flatten" {
 			return BackendImplemented
 		}
 	case "std/signal":

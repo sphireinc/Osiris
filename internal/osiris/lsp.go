@@ -51,6 +51,7 @@ type documentAnalysis struct {
 	defs        []*symbolDef
 	refs        []*symbolRef
 	enumCases   map[string]*symbolDef
+	members     map[string]map[string]*symbolDef
 	checked     *CheckedProgram
 }
 
@@ -756,6 +757,61 @@ type lspCompletionItem struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// typedMemberCompletions returns members for a checked local binding when the
+// cursor is immediately after its dot. It intentionally requires a proven
+// nominal type; dynamic receivers continue through the existing lexical and
+// module completion paths rather than presenting speculative members.
+func typedMemberCompletions(a *documentAnalysis, prefix string) []lspCompletionItem {
+	if a == nil || len(prefix) == 0 || prefix[len(prefix)-1] != '.' {
+		return nil
+	}
+	dot := len(prefix) - 1
+	start := dot
+	for start > 0 {
+		ch := prefix[start-1]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' {
+			start--
+			continue
+		}
+		break
+	}
+	base := prefix[start:dot]
+	if base == "" {
+		return nil
+	}
+	var typeName string
+	for i := len(a.defs) - 1; i >= 0; i-- {
+		def := a.defs[i]
+		if def != nil && def.name == base {
+			typeName = def.typeName
+			break
+		}
+	}
+	if typeName == "" {
+		// A nominal type expression such as User.render is useful even when
+		// the receiver is not a local binding.
+		typeName = base
+	}
+	members := a.members[typeName]
+	if len(members) == 0 {
+		return nil
+	}
+	items := make([]lspCompletionItem, 0, len(members))
+	for name, def := range members {
+		kind := 5 // field
+		if def.kind == "function" {
+			kind = 3 // function
+		} else if def.kind == "method" || def.kind == "trait method" {
+			kind = 2 // method
+		} else if def.kind == "constant" {
+			kind = 21 // constant
+		}
+		items = append(items, lspCompletionItem{Label: name, Kind: kind, Detail: def.detail})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+	return items
+}
+
 type lspSignatureParameter struct {
 	Label string `json:"label"`
 }
@@ -782,6 +838,9 @@ func (s *languageServer) completion(uri string, pos lspPosition) ([]lspCompletio
 	if offset, ok := lspUTF16Offset(state.text, pos); ok && offset > 0 && state.prog != nil {
 		prefix := state.text[:offset]
 		if strings.HasSuffix(prefix, ".") {
+			if items := typedMemberCompletions(state.analysis, prefix); items != nil {
+				return items, nil
+			}
 			aliasEnd := len(prefix) - 1
 			aliasStart := aliasEnd
 			for aliasStart > 0 {
@@ -1375,7 +1434,7 @@ func analyzeDocument(rt *Runtime, uri string, prog *Program) *documentAnalysis {
 }
 
 func analyzeDocumentContext(ctx context.Context, rt *Runtime, uri string, prog *Program) *documentAnalysis {
-	a := &documentAnalysis{enumCases: make(map[string]*symbolDef)}
+	a := &documentAnalysis{enumCases: make(map[string]*symbolDef), members: make(map[string]map[string]*symbolDef)}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1386,7 +1445,9 @@ func analyzeDocumentContext(ctx context.Context, rt *Runtime, uri string, prog *
 	for name := range rt.Builtins {
 		root.defs[name] = &symbolDef{name: name, kind: "builtin", detail: "builtin function", uri: "", span: sourceSpan{}}
 	}
-	_, _ = analyzeStmtSeq(a, root, uri, prog.Statements, false)
+	analysisScope, _ := analyzeStmtSeq(a, root, uri, prog.Statements, false)
+	indexLSPImportedModules(a, analysisScope, rt, prog.Statements)
+	resolveCheckedMemberReferences(a)
 	checked, checkErr := rt.CheckProgram(ctx, prog)
 	a.checked = checked
 	if checkErr != nil {
@@ -1411,8 +1472,29 @@ func analyzeDocumentContext(ctx context.Context, rt *Runtime, uri string, prog *
 				}
 			}
 		}
+		resolveCheckedMemberReferences(a)
 	}
 	return a
+}
+
+// resolveCheckedMemberReferences repairs member targets after the shared
+// checker has attached nominal types to local bindings. LSP analysis runs
+// before checking so it can still produce diagnostics for incomplete source;
+// this second pass upgrades only the member references that are now provably
+// tied to a struct or implementation method.
+func resolveCheckedMemberReferences(a *documentAnalysis) {
+	if a == nil || len(a.members) == 0 {
+		return
+	}
+	for _, ref := range a.refs {
+		if ref == nil || ref.target == nil || !strings.HasPrefix(ref.detail, "member ") || ref.target.typeName == "" {
+			continue
+		}
+		member := strings.TrimPrefix(ref.detail, "member ")
+		if def := a.members[ref.target.typeName][member]; def != nil {
+			ref.target = def
+		}
+	}
 }
 
 type lspScope struct {
@@ -1506,6 +1588,12 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 	case structStmt:
 		def := analysisNamedDefinition(scope, st.Name, "struct", fmt.Sprintf("struct with %d fields", len(st.Fields)), uri, st.NameSpan)
 		addAnalysisDefinition(a, def)
+		for _, field := range st.Fields {
+			addLSPMember(a, st.Name, &symbolDef{
+				name: field.Name, kind: "field", detail: "field " + field.Type,
+				uri: uri, span: field.NameSpan, typeName: field.Type,
+			})
+		}
 		return scope.push(def), nil
 	case typeDeclStmt:
 		def := analysisNamedDefinition(scope, st.Name, "type alias", "alias of "+st.Target, uri, st.NameSpan)
@@ -1554,13 +1642,14 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		def := analysisNamedDefinition(scope, st.Name, "trait", fmt.Sprintf("trait with %d methods", len(st.Methods)), uri, st.NameSpan)
 		addAnalysisDefinition(a, def)
 		for _, method := range st.Methods {
-			addAnalysisDefinition(a, &symbolDef{name: st.Name + "." + method.Name, kind: "trait method", detail: functionDetail(method), uri: uri, span: method.NameSpan})
+			addLSPMember(a, st.Name, &symbolDef{name: method.Name, kind: "trait method", detail: functionDetail(method), uri: uri, span: method.NameSpan})
 		}
 		return scope.push(def), nil
 	case implStmt:
 		analyzeTypeReference(a, scope, uri, st.Trait, st.TraitSpan, "trait")
 		analyzeTypeReference(a, scope, uri, st.Target, st.TargetSpan, "implementation target")
 		for _, method := range st.Methods {
+			addLSPMember(a, st.Target, &symbolDef{name: method.Name, kind: "method", detail: functionDetail(method), uri: uri, span: method.NameSpan, typeName: st.Target})
 			if _, err := analyzeStmt(a, scope, uri, method, inBlock); err != nil {
 				return nil, err
 			}
@@ -1569,6 +1658,12 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 	case funcStmt:
 		def := scope.lookup(st.Name)
 		predeclared := def != nil && def.kind == "function" && def.span == st.NameSpan
+		if st.ReceiverType != "" {
+			if member := a.members[st.ReceiverType][st.Name]; member != nil {
+				def = member
+				predeclared = true
+			}
+		}
 		if !predeclared {
 			def = &symbolDef{name: st.Name, kind: "function", detail: functionDetail(st), uri: uri, span: st.NameSpan}
 		}
@@ -1797,6 +1892,92 @@ func addAnalysisDefinition(a *documentAnalysis, def *symbolDef) {
 	a.defs = append(a.defs, def)
 }
 
+// addLSPMember indexes one source-backed member under its nominal owner. The
+// same symbol is also added to the document definition set so hover, go-to-
+// definition, and references all share one identity.
+func addLSPMember(a *documentAnalysis, owner string, def *symbolDef) {
+	if a == nil || owner == "" || def == nil || def.name == "" {
+		return
+	}
+	if a.members == nil {
+		a.members = make(map[string]map[string]*symbolDef)
+	}
+	if a.members[owner] == nil {
+		a.members[owner] = make(map[string]*symbolDef)
+	}
+	if existing := a.members[owner][def.name]; existing != nil {
+		return
+	}
+	a.members[owner][def.name] = def
+	addAnalysisDefinition(a, def)
+}
+
+// indexLSPImportedModules indexes exports from standard-library modules that
+// the runtime can resolve under its current capability profile. The generated
+// definition URI is intentionally virtual: stdlib exports do not have an
+// editable source file, but a stable URI and deterministic line for each
+// export let clients navigate to the exact registered symbol instead of
+// falling back to an alias or returning no definition.
+func indexLSPImportedModules(a *documentAnalysis, scope *lspScope, rt *Runtime, stmts []Stmt) {
+	if a == nil || scope == nil || rt == nil {
+		return
+	}
+	for _, stmt := range stmts {
+		st, ok := stmt.(importStmt)
+		if !ok {
+			continue
+		}
+		ref, selector := splitModuleRef(st.Path)
+		if !strings.HasPrefix(ref, "std/") {
+			continue
+		}
+		modValue, err := stdlibModule(rt, ref, selector)
+		if err != nil {
+			// Capability-gated or otherwise unavailable modules remain
+			// conservative: their exports must not be advertised as proven.
+			continue
+		}
+		mod, err := modValue.AsModule()
+		if err != nil {
+			continue
+		}
+		alias := scope.lookup(st.Alias)
+		if alias == nil || alias.kind != "module" {
+			continue
+		}
+		owner := "module:" + ref
+		alias.typeName = owner
+		names := make([]string, 0, len(mod.members))
+		for name := range mod.members {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for index, name := range names {
+			value := mod.members[name]
+			kind := "constant"
+			if value.Kind() == "function" {
+				kind = "function"
+			}
+			detail := ref + "." + name
+			if kind == "function" {
+				detail += " (standard-library function)"
+			} else {
+				detail += " : " + value.Kind()
+			}
+			addLSPMember(a, owner, &symbolDef{
+				name:   name,
+				kind:   kind,
+				detail: detail,
+				uri:    "osiris://stdlib/" + strings.TrimPrefix(ref, "std/"),
+				span: sourceSpan{
+					start: sourcePos{line: index + 1, col: 1},
+					end:   sourcePos{line: index + 1, col: utf8.RuneCountInString(name) + 1},
+				},
+			})
+		}
+	}
+}
+
 func analyzeTypeReference(a *documentAnalysis, scope *lspScope, uri, name string, span sourceSpan, detail string) {
 	if name == "" {
 		return
@@ -1953,7 +2134,24 @@ func resolveMemberTarget(a *documentAnalysis, scope *lspScope, expr Expr, member
 				return def
 			}
 		}
+		if a != nil && a.members != nil {
+			if receiver := scope.lookup(ident.name); receiver != nil && receiver.typeName != "" {
+				if def := a.members[receiver.typeName][member]; def != nil {
+					return def
+				}
+			}
+			if def := a.members[ident.name][member]; def != nil {
+				return def
+			}
+		}
 		return scope.lookup(ident.name)
+	}
+	if nested, ok := expr.(*memberExpr); ok {
+		if receiver := resolveMemberTarget(a, scope, nested.object, nested.name); receiver != nil && receiver.typeName != "" {
+			if def := a.members[receiver.typeName][member]; def != nil {
+				return def
+			}
+		}
 	}
 	return nil
 }

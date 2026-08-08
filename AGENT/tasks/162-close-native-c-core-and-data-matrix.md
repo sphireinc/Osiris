@@ -41,10 +41,22 @@ currently executable core/data slice in
 - The tuple witness passes the normal focused run, `go test -race -vet=off`,
   and the address-sanitized generated-C run using the installed LLVM clang.
   These are slice-level proofs, not full task closure evidence.
+- `irBuilder.lowerStmt` now lowers `let (a, b) = tuple` through the existing
+  `const`/`index`/`copy` IR sequence. `TestTask162NativeTupleDestructuringParity`
+  proves flat and nested bindings through the interpreter, VM, and generated-C
+  artifact (`oat` calls).
+- Named product lowering now carries declaration-order field metadata through
+  `IRProgram.Products`, `product`/`product_update` instructions, and a tagged
+  `O_PRODUCT` runtime representation. `TestTask162NativeNamedProductParity`
+  proves struct construction, dot-member reads, copy-on-write `with` updates,
+  and generated executable parity. Invalid field values remain source-spanned
+  diagnostics in `TestTask162NativeNamedProductDiagnostic`.
+- The tuple-destructuring slice was checked with the focused normal run and
+  `git diff --check`; no backend matrix status was changed.
 
 This evidence is intentionally incremental. The task remains **Ready** for
 the Native C priority lane, but is not complete:
-named product-type declarations and native lowering, remaining wide numeric
-and dual/complex-width surfaces, sanitizer/race evidence, and cross-platform
-generated-C evidence still require implementation or execution before any
-matrix cell can be changed.
+remaining product rendering/indexing and alias/newtype boundaries, wide numeric
+and dual/complex-width surfaces, sanitizer/race evidence for the new product
+path, and cross-platform generated-C evidence still require implementation or
+execution before any matrix cell can be changed.

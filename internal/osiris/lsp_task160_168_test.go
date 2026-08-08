@@ -4,11 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestTask161SemanticTokensHaveExactShapeUTF16ClassificationAndDeterminism(t *testing.T) {
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	uri := pathToURI("/tmp/task161-semantic-tokens.osr")
+	source := "let name = \"😀\" + 42\nemit name // comment\n"
+	if err := server.upsertDocumentContext(context.Background(), uri, source, 3); err != nil {
+		t.Fatal(err)
+	}
+	params := json.RawMessage(`{"textDocument":{"uri":"` + uri + `","version":3}}`)
+	first, handled, err := server.handleIDERequest(context.Background(), "textDocument/semanticTokens/full", params)
+	if err != nil || !handled {
+		t.Fatalf("semantic-token request = %#v, handled=%v, err=%v", first, handled, err)
+	}
+	second, _, err := server.handleIDERequest(context.Background(), "textDocument/semanticTokens/full", params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("semantic-token response is nondeterministic: %#v != %#v", first, second)
+	}
+	wire, err := json.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"data":[0,0,3,13,0,0,4,4,8,0,0,5,1,18,0,0,2,4,16,0,0,5,1,18,0,0,2,2,17,0,1,0,4,13,0,0,5,4,8,0,0,5,10,15,0]}`
+	if string(wire) != want {
+		t.Fatalf("semantic-token wire response = %s, want %s", wire, want)
+	}
+	if _, _, err := server.handleIDERequest(context.Background(), "textDocument/semanticTokens/full", json.RawMessage(`{"textDocument":{"uri":"`+uri+`","version":2}}`)); err == nil {
+		t.Fatal("stale semantic-token request was accepted")
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, handled, err := server.handleIDERequest(cancelled, "textDocument/semanticTokens/full", params)
+	if result != nil || !handled {
+		t.Fatalf("cancelled semantic-token result = %#v, handled=%v", result, handled)
+	}
+	var coded interface{ LSPCode() int }
+	if !errors.As(err, &coded) || coded.LSPCode() != -32800 {
+		t.Fatalf("cancelled semantic-token error = %v", err)
+	}
+}
 
 func TestTask160LSPVersionsCancellationAndTypeHierarchy(t *testing.T) {
 	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
@@ -50,6 +95,176 @@ emit User
 	if err != nil || len(supertypes) != 1 || supertypes[0].Name != trait.name || supertypes[0].URI != trait.uri {
 		t.Fatalf("User supertypes = %#v, err=%v", supertypes, err)
 	}
+}
+
+func TestTask160StdlibExportsNavigateWithUTF16AndIdentity(t *testing.T) {
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	uri := pathToURI("/tmp/task160-stdlib.osr")
+	source := "import \"std/text\" as text\n" +
+		"let prefix = \"😀\"\n" +
+		"let first = text.trim(\" x \")\n" +
+		"let second = text.trim(prefix)\n" +
+		"emit second\n"
+	if err := server.upsertDocumentContext(context.Background(), uri, source, 7); err != nil {
+		t.Fatal(err)
+	}
+	callLine := "let first = text.trim(\" x \")"
+	member := strings.Index(callLine, "trim")
+	position := lspPosition{Line: 2, Character: utf16Units(callLine[:member]) + 1}
+	items, err := server.completion(uri, lspPosition{Line: 2, Character: utf16Units("let first = text.")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundTrim bool
+	for _, item := range items {
+		if item.Label == "trim" && item.Kind == 3 && strings.Contains(item.Detail, "std/text.trim") {
+			foundTrim = true
+		}
+	}
+	if !foundTrim {
+		t.Fatalf("stdlib completion did not include proven trim export: %#v", items)
+	}
+	hover, err := server.hover(uri, position)
+	if err != nil || hover == nil || !strings.Contains(hover.Contents.Value, "std/text.trim") {
+		t.Fatalf("stdlib hover = %#v, %v", hover, err)
+	}
+	definition, err := server.definition(uri, position)
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, ok := definition.(lspLocation)
+	if !ok || location.URI != "osiris://stdlib/text" || location.Range == (lspRange{}) {
+		t.Fatalf("stdlib definition = %#v, want virtual std/text export location", definition)
+	}
+	references, err := server.references(uri, position)
+	if err != nil || len(references) != 2 {
+		t.Fatalf("stdlib references = %#v, %v; want both calls", references, err)
+	}
+	if got := toSourcePosInText(source, lspPosition{Line: 1, Character: utf16Units("let prefix = ") + 1}); got.col <= len("let prefix = ") {
+		t.Fatalf("UTF-16 source conversion did not preserve astral code point boundary: %#v", got)
+	}
+}
+
+func TestTask160StdlibExportsFramedUTF16AndStale(t *testing.T) {
+	uri := pathToURI("/tmp/task160-stdlib-framed.osr")
+	source := "import \"std/text\" as text\n" +
+		"let prefix = \"😀\"\n" +
+		"let value = text.trim(prefix)\n" +
+		"emit value\n"
+	encodedSource, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := "let value = text.trim(prefix)"
+	member := strings.Index(line, "trim")
+	position := fmt.Sprintf(`{"line":2,"character":%d}`, utf16Units(line[:member])+1)
+	fixture := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":7,"text":%s}}}`, uri, encodedSource) + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":%q,"version":7},"position":{"line":2,"character":%d}}}`, uri, utf16Units("let value = text.")+1) + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":7},"position":%s}}`, uri, position) + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"textDocument/definition","params":{"textDocument":{"uri":%q,"version":7},"position":%s}}`, uri, position) + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":5,"method":"textDocument/references","params":{"textDocument":{"uri":%q,"version":7},"position":%s}}`, uri, position) + "\n" +
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":6},"position":%s}}`, uri, position) + "\n" +
+		`{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","method":"exit"}`
+	frames := decodeTask143Frames(t, runTask143ProtocolFixture(t, []byte(fixture)))
+	seen := map[int]bool{}
+	for _, frame := range frames {
+		id, ok := task143FrameID(frame)
+		if !ok {
+			continue
+		}
+		seen[id] = true
+		if id == 6 {
+			task143AssertErrorCode(t, frame, -32602)
+		}
+	}
+	for _, id := range []int{2, 3, 4, 5, 6, 7} {
+		if !seen[id] {
+			t.Fatalf("stdlib framed request %d did not receive a response: %#v", id, frames)
+		}
+	}
+	var completions []lspCompletionItem
+	for _, frame := range frames {
+		if id, _ := task143FrameID(frame); id != 2 {
+			continue
+		}
+		data, err := json.Marshal(frame["result"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &completions); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var foundTrim bool
+	for _, item := range completions {
+		if item.Label == "trim" && strings.Contains(item.Detail, "std/text.trim") {
+			foundTrim = true
+		}
+	}
+	if !foundTrim {
+		t.Fatalf("stdlib framed completion = %#v", completions)
+	}
+}
+
+func TestTask160StdlibExportsFramedCancellation(t *testing.T) {
+	uri := pathToURI("/tmp/task160-stdlib-cancel.osr")
+	openText, err := json.Marshal("import \"std/text\" as text\nlet value = text.trim(\"x\")\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		fmt.Sprintf(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":1,"text":%s}}}`, uri, openText),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":1},"position":{"line":1,"character":22}}}`, uri),
+	}
+	var inputChunks [][]byte
+	for _, payload := range frames {
+		inputChunks = append(inputChunks, []byte(fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload)))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	reader := &cancelAfterLSPRead{chunks: inputChunks, cancel: cancel, cancelAfter: 2}
+	var output strings.Builder
+	server := NewLanguageServer(NewRuntime(), &output, io.Discard)
+	if err := server.Serve(ctx, reader); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled framed Serve error = %v", err)
+	}
+	responses := decodeTask143Frames(t, output.String())
+	var sawCancelled bool
+	for _, frame := range responses {
+		if id, ok := task143FrameID(frame); ok && id == 2 {
+			task143AssertErrorCode(t, frame, -32800)
+			sawCancelled = true
+		}
+	}
+	if !sawCancelled {
+		t.Fatalf("cancelled framed request produced no cancellation response: %#v", responses)
+	}
+}
+
+type cancelAfterLSPRead struct {
+	chunks      [][]byte
+	cancel      context.CancelFunc
+	cancelAfter int
+	reads       int
+}
+
+func (r *cancelAfterLSPRead) Read(p []byte) (int, error) {
+	if len(r.chunks) == 0 {
+		return 0, io.EOF
+	}
+	if r.reads == r.cancelAfter {
+		r.cancel()
+	}
+	r.reads++
+	chunk := r.chunks[0]
+	r.chunks = r.chunks[1:]
+	n := copy(p, chunk)
+	if n != len(chunk) {
+		panic("cancelAfterLSPRead buffer too small")
+	}
+	return n, nil
 }
 
 func TestTask160DidSaveRevalidatesOverlayWithoutAdvancingVersion(t *testing.T) {
@@ -176,6 +391,72 @@ func TestTask161OrganizeImportsProducesMinimalVersionedEdits(t *testing.T) {
 	}
 }
 
+func TestTask161ColocatedInventoryDrivesCodeLensesAndUsesOverlay(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "osiris.mod"), []byte("module example.com/acme/lsp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(dir, "greetings.osr")
+	testPath := filepath.Join(dir, "greetings.test.osr")
+	if err := os.WriteFile(sourcePath, []byte("package greetings 1.0.0\nfunc greet() string => \"hi\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(testPath, []byte("// osiris:test name=from-disk\nemit 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	server.configureWorkspace(initializeParams{RootPath: dir})
+	server.refreshWorkspace(context.Background())
+	sourceURI, testURI := pathToURI(sourcePath), pathToURI(testPath)
+	if err := server.upsertDocumentContext(context.Background(), sourceURI, "package greetings 1.0.0\nfunc greet() string => \"hi\"\n", 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.upsertDocumentContext(context.Background(), testURI, "// osiris:test name=overlay\n// osiris:benchmark warmup=0 samples=1\nemit 1\n", 3); err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := server.testInventoryContext(context.Background(), sourceURI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.Module != "example.com/acme/lsp" || len(inventory.Files) != 1 || inventory.Files[0] != testPath || len(inventory.Tests) != 1 || inventory.Tests[0].Name != "overlay" || !inventory.Tests[0].Benchmark {
+		t.Fatalf("colocated overlay inventory = %#v", inventory)
+	}
+	lenses, err := server.codeLensesContext(context.Background(), sourceURI)
+	if err != nil || len(lenses) != 1 || lenses[0].Command == nil || lenses[0].Command.Command != "osiris.benchmark" || lenses[0].Command.Arguments[0] != testPath {
+		t.Fatalf("colocated code lenses = %#v, err=%v", lenses, err)
+	}
+}
+
+func TestTask161TestInventoryHonorsCancellationAndSymlinkRootBoundary(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	sourcePath := filepath.Join(root, "main.osr")
+	companionPath := filepath.Join(root, "main.test.osr")
+	outsidePath := filepath.Join(outside, "outside.test.osr")
+	if err := os.WriteFile(sourcePath, []byte("emit 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsidePath, []byte("// osiris:test name=escaped\nemit 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, companionPath); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	server.configureWorkspace(initializeParams{RootPath: root})
+	server.upsertDocument(pathToURI(sourcePath), "emit 1\n")
+	if _, err := server.testInventoryContext(context.Background(), pathToURI(sourcePath)); err == nil || !strings.Contains(err.Error(), "outside configured workspace roots") {
+		t.Fatalf("symlink escape error = %v", err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := server.testInventoryContext(cancelled, pathToURI(sourcePath))
+	var coded interface{ LSPCode() int }
+	if !errors.As(err, &coded) || coded.LSPCode() != -32800 {
+		t.Fatalf("cancelled inventory error = %v", err)
+	}
+}
+
 func TestTask168StableLSPCellsRequireFixtureEvidence(t *testing.T) {
 	root, matrix := loadSupportMatrix(t)
 	for _, feature := range matrix.Features {
@@ -204,7 +485,7 @@ func TestTask168StableLSPCellsRequireFixtureEvidence(t *testing.T) {
 }
 
 func TestTask160And161ProtocolFixturesAreDeterministic(t *testing.T) {
-	for _, name := range []string{"task160-semantic.jsonl", "task161-workspace.jsonl", "task161-import-actions.jsonl"} {
+	for _, name := range []string{"task160-semantic.jsonl", "task161-workspace.jsonl", "task161-import-actions.jsonl", "task161-test-inventory.jsonl", "task161-semantic-tokens.jsonl"} {
 		fixture, err := os.ReadFile(filepath.Join("testdata", "lsp", name))
 		if err != nil {
 			t.Fatal(err)
