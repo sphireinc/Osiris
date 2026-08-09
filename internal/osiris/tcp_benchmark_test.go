@@ -9,21 +9,21 @@ import (
 	"time"
 )
 
-// BenchmarkTCPLoopbackRoundTrip64B is the low-latency baseline for task 049.
+// BenchmarkTCPLoopbackRoundTrip64B is the low-latency baseline.
 // It exercises Osiris's buffered TCP stream operations, rather than raw Go
 // net.Conn calls, over one established loopback connection.
 func BenchmarkTCPLoopbackRoundTrip64B(b *testing.B) {
 	benchmarkTCPLoopbackRoundTrip(b, 64, DefaultSocketConfig())
 }
 
-// BenchmarkTCPLoopbackRoundTrip64KiB is the throughput baseline for task 049.
+// BenchmarkTCPLoopbackRoundTrip64KiB is the throughput baseline.
 func BenchmarkTCPLoopbackRoundTrip64KiB(b *testing.B) {
 	benchmarkTCPLoopbackRoundTrip(b, 64<<10, DefaultSocketConfig())
 }
 
 // BenchmarkTCPLoopbackBulkRoundTrip64KiB compares the explicit bulk-transfer
 // override with the default low-latency configuration. It is intentionally a
-// separate workload: task 049 must not change defaults without matching-host
+// separate workload: defaults must not change without matching-host
 // evidence from this comparison.
 func BenchmarkTCPLoopbackBulkRoundTrip64KiB(b *testing.B) {
 	config := DefaultSocketConfig()

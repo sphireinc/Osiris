@@ -198,7 +198,7 @@ func requireStdOSCapability(rt *Runtime, capability, operation string) error {
 	if rt != nil && rt.hasCapability(capability) {
 		return nil
 	}
-	// Preserve the task-119 umbrella capabilities for existing applications.
+	// Preserve the legacy umbrella capabilities for existing applications.
 	aliases := map[string]string{
 		"os.file_read": "os.filesystem", "os.file_write": "os.filesystem",
 		"os.file_metadata": "os.filesystem", "os.file_mutate": "os.filesystem",

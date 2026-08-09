@@ -94,7 +94,7 @@ func CompileC(ctx context.Context, rt *Runtime, prog *Program) (*CArtifact, erro
 
 // CompileCWithOptions lowers a program with explicit native backend options.
 func CompileCWithOptions(ctx context.Context, rt *Runtime, prog *Program, options CCompileOptions) (*CArtifact, error) {
-	if err := rejectTask134FutureBackend(prog, "native C"); err != nil {
+	if err := rejectReservedTypeFutureBackend(prog, "native C"); err != nil {
 		return nil, err
 	}
 	if rt == nil {

@@ -6,7 +6,7 @@ import technicalReference from './technical-reference.json' with { type: 'json' 
 import constantReference from './constant-reference.json' with { type: 'json' };
 import cliReference from './cli-reference.json' with { type: 'json' };
 import stdOSReference from './std-os-reference.js';
-import { task120References, task121Reference, task122Reference, task123Reference, task126Reference, task137References } from './std-task-reference.js';
+import { stdlibReferences, databaseAPIReference, telemetryContractReference, languageTestReference, stdlibReferenceReference, extendedReferences, nativeListReference } from './std-task-reference.js';
 import { orderReferenceSections } from './reference-order.js';
 
 export const languageSections = orderReferenceSections(
@@ -86,9 +86,17 @@ function entryFromReference(groupID, item) {
 // This is the canonical React reference data. It is checked in so the app
 // never fetches or executes documentation data at runtime.
 const supplementalGroups = new Map(supplemental.groups.filter((group) => group.id !== 'constants').map((group) => [group.id, group]));
+// Manual entries provide the baseline; supplemental entries may refine them.
+// Merge by public name so a refined entry cannot reach the strict ordering
+// check twice and create duplicate routes/search identities.
+const mergeReferenceItems = (baseItems = [], supplementalItems = []) => {
+  const byName = new Map(baseItems.map((item) => [item.name, item]));
+  for (const item of supplementalItems) byName.set(item.name, item);
+  return [...byName.values()];
+};
 const combinedGroups = manual.groups.map((group) => ({
   ...group,
-  items: [...(group.items || []), ...(supplementalGroups.get(group.id)?.items || [])],
+  items: mergeReferenceItems(group.items || [], supplementalGroups.get(group.id)?.items || []),
 }));
 for (const group of supplemental.groups.filter((candidate) => candidate.id !== 'constants')) {
   if (!combinedGroups.some((candidate) => candidate.id === group.id)) combinedGroups.push(group);
@@ -96,12 +104,13 @@ for (const group of supplemental.groups.filter((candidate) => candidate.id !== '
 combinedGroups.push(timeReference);
 
 const generatedModuleReferenceGroups = [
-  ...task120References,
-  ...task137References,
-  task121Reference,
-  task122Reference,
-  task123Reference,
-  task126Reference,
+  ...stdlibReferences,
+  ...extendedReferences,
+  nativeListReference,
+  databaseAPIReference,
+  telemetryContractReference,
+  languageTestReference,
+  stdlibReferenceReference,
 ];
 for (const reference of generatedModuleReferenceGroups) {
   if (!combinedGroups.some((group) => group.id === reference.id)) {
@@ -275,29 +284,134 @@ const toolingModule = {
       name: 'osiris lsp',
       aliases: ['lsp'],
       signature: 'osiris lsp',
-      description: 'Starts the Osiris Language Server Protocol endpoint over standard input and output. It provides source-aware navigation, completion, signature help, symbols, semantic tokens, diagnostics, workspace queries, hierarchy queries, formatting, code actions, code lenses, test inventory, and refactoring for open documents.',
+      description: 'Starts the Osiris Language Server Protocol endpoint over standard input and output. It provides source-aware navigation, document highlights, completion, signature help, symbols, semantic tokens, diagnostics, workspace queries, hierarchy queries, formatting, code actions, code lenses, test inventory, and refactoring for open documents.',
       parameters: 'No command arguments. The client sends JSON-RPC 2.0 messages framed with Content-Length headers. Standard output is reserved for protocol messages; diagnostics and malformed-change notices use the server log stream.',
       returns: 'An LSP session advertising incremental synchronization plus the implemented semantic, workspace, refactoring, formatting, hierarchy, and test-tooling providers. Unknown methods return JSON-RPC -32601 rather than an empty success.',
       returnValue: 'All LSP positions and ranges use zero-based UTF-16 code units. The implementation converts these to the lexer’s UTF-8 byte-column source map, so astral Unicode characters have correct editor locations.',
       details: [
-        'Supported methods include document and workspace symbols, hover, definition and type definition, implementations, references, completion, signature help, rename, semantic tokens, inlay hints, folding and selection ranges, code actions, formatting, pull diagnostics, code lenses, call and type hierarchy, and osiris/testInventory. Exact result shapes are documented in docs/design/LSP.md.',
-        'didChange accepts LSP incremental changes in order; an omitted range replaces the complete document. Invalid ranges, including positions that split a UTF-16 surrogate pair, are rejected without corrupting the existing document. Duplicate or older non-zero versions are rejected before analysis results are published.',
+        'Supported methods include document and workspace symbols, hover, definition and type definition, implementations, references, completion, signature help, rename, semantic tokens, inlay hints, folding and selection ranges, code actions, formatting, pull diagnostics, code lenses, call and type hierarchy, and osiris/testInventory. textDocument/inlayHint returns checked type labels in a requested UTF-16 range; textDocument/foldingRange returns deterministic region and consecutive-comment folds; textDocument/selectionRange returns one identifier-or-point, line, and document selection tree per input position. All three validate document versions, malformed ranges/positions, UTF-16 boundaries, cancellation, and deterministic ordering. textDocument/diagnostic returns exactly {kind: "full", items: [...]} with sorted defensive snapshots, UTF-16 ranges, stale-version rejection, malformed-request errors, and cancellation behavior. Exact result shapes are documented in docs/design/LSP.md.',
+        'didChange is a notification with no JSON-RPC response. It applies multiple LSP incremental changes in order to a private snapshot; an omitted range replaces the complete document. Invalid ranges, cancellation, and duplicate or older non-zero versions reject the complete batch before publication, leaving the prior overlay and version unchanged.',
         'Optional textDocument.version assertions on version-sensitive requests reject stale edits with -32602. Rename and organize-import actions return versioned WorkspaceEdit.documentChanges sorted deterministically by URI and descending edit position.',
         'source.organizeImports sorts a leading import block by module path and alias, returns only the changed import spans, preserves the rest of the document, and refuses to move imports that follow another declaration. The action is versioned and UTF-16-correct; textDocument/formatting remains the whole-document formatter.',
         'Workspace roots are deduplicated and sorted; indexing is bounded, does not follow symlink directories, preserves malformed files with diagnostics, and gives open-document overlays precedence. Test inventory uses the shared colocated/default-root discovery parser and includes package/module ownership metadata.',
+        'Relative user-module imports are source-backed only when resolveModulePath finds a readable, parseable file inside a configured workspace root. Explicit export statements provide shared symbolDef identities across importer and defining documents for completion, hover, definition, and cross-document references. Virtual stdlib exports, unresolved repository modules, unparseable files, and out-of-root paths remain unclaimed. The user-module protocol fixture and LSP tests cover UTF-16, stale, malformed, cancellation, and deterministic framed behavior.',
+        'Repository imports may resolve through the runtime RepositoryProvider registry and its verified lock/cache boundary when a provider and selector are available. The LSP passes cancellation through resolution, parses selected source without executing it, indexes explicit exports, and uses deterministic osiris://repository virtual definition URIs. Provider failures, unavailable cached modules, malformed source, and canceled resolution remain explicit non-results; lsp-workspace-repository.jsonl and the provider-backed semantic test cover selector propagation and lock-state evidence.',
         'textDocument/codeLens and osiris/testInventory resolve the same name.test.osr/name_test.osr sidecar. An open sidecar overlay wins over disk, benchmark metadata selects osiris.benchmark, configured roots reject lexical or symlink-resolved escapes, and cancellation returns -32800 before partial metadata is published.',
-        'textDocument/semanticTokens/full returns exactly {data: number[]} using the advertised legend and LSP delta encoding. Keywords, operators, literals, comments, definitions, and resolved references receive stable classifications; source spelling preserves UTF-16 lengths for astral Unicode and escaped strings. Results are deterministic, capped at 10,000 tokens, version-checked, and cancellation-aware.',
-        'Malformed or partial source remains open and publishes a diagnostic. Definitions for builtins and generated symbols have no source location and return null rather than a fabricated zero range. Canceled requests use -32800 and canceled analysis cannot replace a newer document.',
+        'textDocument/semanticTokens/full returns exactly {data: number[]} using the advertised legend and LSP delta encoding. Keywords, operators, literals, comments, definitions, and resolved references receive stable classifications; source spelling preserves UTF-16 lengths for astral Unicode and escaped strings. Missing, malformed, unknown-document, and stale requests return -32602. Generated spans are validated against UTF-16 boundaries and legend indices before publication. Results are deterministic, capped at 10,000 tokens, and cancellation-aware through lexing, encoding, and final publication; cancellation returns -32800 without partial data.',
+        'textDocument/signatureHelp returns one deterministic checked signature with declared parameter labels and a zero-based activeParameter. It validates required textDocument and position fields, UTF-16 boundaries, and stale textDocument.version values with -32602; cancellation is checked before, during, and after the scan and returns -32800 without partial output or overlay mutation. lsp-signature-help.jsonl covers valid opening-parenthesis and argument positions, malformed and stale requests, and repeated framed-response equality.',
+        'textDocument/references requires a valid open-document URI and UTF-16 position, rejects missing, out-of-document, surrogate-splitting, and stale requests with -32602, and returns definition/reference locations ordered by URI and UTF-16 range. The context-aware scan checks cancellation before, during, and after collection and returns -32800 without partial locations. The exact contract is documented in docs/design/LSP-REFERENCES.md and exercised by lsp-references.jsonl.',
+        'textDocument/documentHighlight requires a strict textDocument object and UTF-16 position, rejects missing fields, out-of-document and surrogate-splitting positions, unknown documents, and stale versions with -32602, and returns only same-document occurrences of the shared analyzer identity. Definitions and assignment targets are write highlights; resolved reads are read highlights. Ranges are deduplicated, UTF-16-correct, and deterministically sorted. Cancellation returns -32800 before a private result is published. The exact contract is documented in docs/design/LSP-HIGHLIGHTS.md and exercised by lsp-document-highlight.jsonl.',
+        'Named product patterns are source-backed semantic nodes: Point { x: x, label: label } resolves the nominal Point type, each declared field, and each nested arm-local binding through shared analyzer identities. Enum patterns likewise resolve a narrow reference for Status and a qualified case reference for Status.Ready, so type and case cursors navigate independently. Unknown product types or fields produce source-spanned diagnostics; valid nested patterns preserve UTF-16 hover, definition, and reference ranges without executing code. Malformed or partial source remains open and publishes a diagnostic. Definitions for builtins and generated symbols have no source location and return null rather than a fabricated zero range. Canceled requests use -32800 and canceled analysis cannot replace a newer document.',
+        'Request lifecycle is concurrent at the input boundary: each request receives a private cancellation context and is registered by JSON-RPC id until its response is published. A $/cancelRequest notification cancels the matching active request, has no response of its own, and ignores unknown ids. Response frames remain serialized and are released in request order; shutdown waits for earlier requests, while exit and session cancellation drain active request goroutines. The exact lifecycle and transaction boundary are documented in docs/design/LSP.md.',
       ],
       example: 'osiris lsp\n# Client request (Content-Length framing omitted):\n{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n# Result capabilities: incremental sync, hover, definition, references, completion, signature help, rename',
     }, {
+      name: '$/cancelRequest',
+      signature: '$/cancelRequest { id }',
+      description: 'Cancels an active JSON-RPC request without creating a response for the cancellation notification.',
+      parameters: 'id is the exact JSON-RPC request identifier previously sent by the client. The notification is valid only for an active request; unknown identifiers are ignored and malformed parameters are logged.',
+      returns: 'No response. The canceled request, when it reaches a context-aware transaction boundary, returns JSON-RPC error -32800 with no partial result.',
+      returnValue: 'The stdio reader routes the notification to the active-request registry while request analysis may be running. The matching child context is canceled, response writes remain serialized and request-ordered, and shutdown/exit drain active request lifecycles before the session ends.',
+      details: ['Cancellation is cooperative: pure synchronous work is not interrupted in the middle of a mutation. Context-aware handlers check before lookup, during bounded traversal where applicable, and immediately before publishing a complete result.', 'The wire and lifecycle contract is covered by lsp_request_cancellation_test.go and documented in docs/design/LSP.md.'],
+      example: '{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":17}}',
+    }, {
+      name: 'textDocument/hover',
+      signature: 'textDocument/hover { textDocument.uri, position }',
+      description: 'Resolves the source-aware symbol or reference under a UTF-16 cursor position and returns Markdown hover content.',
+      parameters: 'textDocument.uri is required and must identify an open document. position is zero-based UTF-16; astral characters consume two code units and positions splitting a surrogate pair are invalid.',
+      returns: 'A Hover object with Markdown contents and an optional UTF-16 range, or null when no analyzed source identity is under the cursor.',
+      returnValue: 'The wire request uses languageServer.hoverContext. It checks cancellation before lookup, after analysis, and before publication. Cancellation returns -32800 with no partial Hover and does not mutate the document overlay.',
+      details: ['Definitions without a source-backed span, including generated builtins and virtual standard-library members, do not produce fabricated zero ranges. Hover identity is shared with definition, completion, and references.', 'The compatibility languageServer.hover wrapper uses a background context for existing in-process callers; LSP clients always receive the request context. The deterministic normal fixture and lsp_core_navigation_cancellation_test.go cover repeated results, UTF-16 conversion, and late cancellation.'],
+      example: '{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/demo.osr"},"position":{"line":2,"character":5}}}',
+    }, {
+      name: 'textDocument/definition',
+      signature: 'textDocument/definition { textDocument.uri, position }',
+      description: 'Returns the source-backed definition targeted by the analyzed symbol under a UTF-16 cursor position.',
+      parameters: 'textDocument.uri is required and must identify an open document. position is zero-based UTF-16 and must map to a valid source position.',
+      returns: 'A Location, or null when the analyzed target is unresolved, generated, virtual, or has no valid source span.',
+      returnValue: 'The wire request uses languageServer.definitionContext. Cross-document range conversion is completed in private storage before the final cancellation check; cancellation returns -32800 with no partial Location.',
+      details: ['The target URI and range use the defining document’s current open overlay when available, so UTF-16 conversion is correct across files. Definition identity comes from the analyzer rather than textual matching.', 'The compatibility languageServer.definition wrapper preserves direct internal callers while Serve passes its request context to definitionContext. The normal protocol fixture and lsp_core_navigation_cancellation_test.go cover deterministic results and canceled dispatch.'],
+      example: '{"jsonrpc":"2.0","id":7,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///tmp/demo.osr"},"position":{"line":3,"character":12}}}',
+    }, {
+      name: 'textDocument/typeDefinition',
+      signature: 'textDocument/typeDefinition { textDocument.uri, position, version? }',
+      description: 'Resolves the nominal source-backed type declaration for the symbol or reference under a UTF-16 cursor position.',
+      parameters: 'textDocument.uri is required and must identify an open document. An optional textDocument.version must match the current overlay. position is required, zero-based UTF-16, and may not be outside the document or split an astral-character surrogate pair.',
+      returns: 'A Location for the resolved struct, enum, trait, type alias, or newtype declaration, or null when no source-backed type identity is available.',
+      returnValue: 'The request is evaluated by languageServer.typeDefinitionContext. It validates the URI, stale version, and UTF-16 position before semantic lookup; cancellation is checked before lookup, after reference resolution, during candidate collection, after deterministic sorting, and immediately before returning the location. A canceled request returns -32800 with no partial result.',
+      details: ['A cursor directly on a source-backed nominal type reference returns that reference target’s declaration. A typed field or method result is resolved through its declared type name. Generated, virtual, unresolved, and invalid spans return null rather than a fabricated range.', 'The compatibility languageServer.typeDefinition wrapper uses a background context for direct internal callers; JSON-RPC requests always use the live request context. URI ordering and source-span ordering make duplicate declarations deterministic. Missing position, malformed parameters, stale versions, out-of-document positions, and surrogate-splitting positions return -32602.', 'TestLSPTypeNavigationContextResultsAreDeterministicAndUTF16Safe, TestLSPTypeNavigationCancellationIsTransactional, and TestLSPTypeNavigationRequestValidationAndContextDispatch cover normal, cancellation, malformed, stale, UTF-16, and repeated-request behavior.'],
+      example: '{"jsonrpc":"2.0","id":30,"method":"textDocument/typeDefinition","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":7},"position":{"line":4,"character":17}}}',
+    }, {
+      name: 'textDocument/implementation',
+      signature: 'textDocument/implementation { textDocument.uri, position, version? }',
+      description: 'Finds source-backed function and trait-method definitions implementing the analyzed callable under a UTF-16 cursor position.',
+      parameters: 'textDocument.uri is required and must identify an open document. An optional textDocument.version must match the current overlay. position is required, zero-based UTF-16, and must map to a valid source position without splitting an astral-character surrogate pair.',
+      returns: 'A deterministically ordered Location array. The array is empty when the cursor has no analyzed callable identity or no source-backed implementations.',
+      returnValue: 'The request is evaluated by languageServer.implementationsContext. It checks cancellation before document lookup, after reference resolution, during every document and definition traversal, after complete sorting, and before publication. Cancellation returns -32800 with no partial locations and does not mutate the document overlay.',
+      details: ['Results include only valid source spans whose definitions are classified as function or trait method. Duplicate URI/span identities are removed. Locations are ordered by URI, start line, start character, end line, and end character so repeated requests have byte-for-byte equivalent JSON results.', 'The compatibility languageServer.implementations wrapper uses a background context for direct internal callers; JSON-RPC requests use the live request context. Missing position, malformed parameters, stale versions, out-of-document positions, and surrogate-splitting positions return -32602.', 'TestLSPTypeNavigationContextResultsAreDeterministicAndUTF16Safe, TestLSPTypeNavigationCancellationIsTransactional, and TestLSPTypeNavigationRequestValidationAndContextDispatch cover normal, race, cancellation, malformed, stale, UTF-16, duplicate, and deterministic-order behavior.'],
+      example: '{"jsonrpc":"2.0","id":31,"method":"textDocument/implementation","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":7},"position":{"line":1,"character":20}}}',
+    }, {
+      name: 'textDocument/documentHighlight',
+      signature: 'textDocument/documentHighlight { textDocument: { uri, version? }, position: { line, character } }',
+      description: 'Returns deterministic read/write highlights for every occurrence of the analyzed symbol under the UTF-16 cursor in the current document.',
+      parameters: 'textDocument and position are required objects. textDocument.uri must identify an open document; an optional textDocument.version must equal the current overlay version. position.line and position.character are required non-negative integers in zero-based UTF-16 units and may not split an astral-character surrogate pair.',
+      returns: 'A DocumentHighlight array sorted by UTF-16 range. Each item contains range and kind, where kind is write for a definition or assignment target and read for a resolved use.',
+      returnValue: 'languageServer.documentHighlightsContext resolves the shared analyzer symbol identity, filters occurrences to the requested document, deduplicates ranges, converts UTF-8 source spans to UTF-16, checks cancellation during collection and before publication, and rechecks the optional version against the live overlay. No match returns an empty array; cancellation returns -32800 with no partial result.',
+      details: ['Malformed or missing required fields, unknown documents, stale versions, out-of-document positions, and surrogate-splitting positions return JSON-RPC -32602. Generated or virtual definitions never create fabricated ranges.', 'The direct documentHighlights wrapper uses a background context for in-process callers; JSON-RPC dispatch uses the live request context. TestLSPDocumentHighlightProtocolFixtureIsDeterministicAndValidatesRequests, TestLSPDocumentHighlightsAreDeterministicAndConcurrent, and TestLSPDocumentHighlightsCancellationAndStaleVersionAreTransactional cover capability advertisement, deterministic normal/race behavior, exact UTF-16 ranges, read/write kinds, malformed and stale validation, and cancellation. The full contract is documented in docs/design/LSP-HIGHLIGHTS.md.'],
+      example: '{"jsonrpc":"2.0","id":32,"method":"textDocument/documentHighlight","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":7},"position":{"line":3,"character":12}}}',
+    }, {
+      name: 'textDocument/completion',
+      signature: 'textDocument/completion { textDocument.uri, position }',
+      description: 'Returns deterministic source, typed-member, and standard-module completion items for a UTF-16 cursor position.',
+      parameters: 'textDocument.uri is required and must identify an open document. position is zero-based UTF-16. A cursor after a typed receiver dot requests checked members; other positions enumerate lexical definitions.',
+      returns: 'An alphabetically sorted completion-item array. Each item includes its label, LSP kind, optional detail, and source identity data when applicable.',
+      returnValue: 'The wire request uses languageServer.completionContext. Cancellation is checked around typed-member lookup, module statements and members, lexical definitions, sorting, and publication; a canceled request returns -32800 and a nil result rather than partial items.',
+      details: ['Completion uses the same analyzer identity as hover and definition. Standard-library module members are virtual and are not treated as editable source; source-backed user-module members may carry a data URI and name for client follow-up.', 'The compatibility languageServer.completion wrapper uses a background context for direct callers. Serve passes the live request context. Repeated normal calls and canceled framed dispatch are covered by lsp_core_navigation_cancellation_test.go and the deterministic LSP protocol fixture.'],
+      example: '{"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{"textDocument":{"uri":"file:///tmp/demo.osr"},"position":{"line":3,"character":4}}}',
+    }, {
+      name: 'textDocument/formatting',
+      signature: 'textDocument/formatting { textDocument.uri, version? }',
+      description: 'Formats one open Osiris document and returns a client-applied full-document edit.',
+      parameters: 'textDocument.uri is required. An optional textDocument.version is compared with the current open-document version before formatting.',
+      returns: 'An array containing zero edits when the document is already formatted, or one full-document TextEdit with UTF-16 range coordinates and the formatted source.',
+      returnValue: 'Formatting never mutates the server overlay. A stale version or malformed request returns -32602; cancellation returns -32800 without a partial edit. The pure formatter is checked for cancellation before and after its synchronous pass.',
+      details: ['The edit range spans the complete current document, so clients should apply it atomically. `textDocument/codeAction` is the narrower operation for import-only edits.', 'TestLSPFormattingCancellationIsTransactional covers cancellation, exact -32800 behavior, and the unchanged open document. The complete request/result/error contract is documented in docs/design/LSP.md.'],
+      example: '{"jsonrpc":"2.0","id":26,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":4}}}',
+    }, {
+      name: 'workspace/didChangeWatchedFiles',
+      signature: 'workspace/didChangeWatchedFiles { changes: [{ uri, type }] }',
+      description: 'Refreshes the bounded disk-backed workspace index after a client filesystem-watcher batch.',
+      parameters: 'Each change requires a valid file URI and type 1 (created), 2 (changed), or 3 (deleted). The complete batch is validated before refresh; this notification has no JSON-RPC response.',
+      returns: 'No result. Open-document overlays remain authoritative; created, changed, and deleted workspace source files are reflected by later navigation and workspace-symbol requests.',
+      returnValue: 'The server performs one cancellation-aware refresh and does not create a background watcher or retain operating-system file handles.',
+      details: ['Malformed entries are logged and do not cause a partial refresh. Symlink entries and files outside configured workspace roots remain excluded, and the refresh is bounded by the same workspace-file limits as initialize indexing.'],
+      example: '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles","params":{"changes":[{"uri":"file:///workspace/greetings.osr","type":2}]}}',
+    }, {
+      name: 'callHierarchy/incomingCalls',
+      signature: 'callHierarchy/incomingCalls { item: { name, uri, range, selectionRange } }',
+      description: 'Finds source-backed call sites that reach the selected function or trait method.',
+      parameters: 'item is required and must contain non-empty name and uri fields plus the ordinary call-hierarchy ranges. The item is normally returned by callHierarchy/prepare.',
+      returns: 'An array of incoming-call records, each with a from call-hierarchy item and UTF-16 fromRanges.',
+      returnValue: 'Only resolved function and trait-method references are returned. Results are deterministic and an unknown source document produces an empty array after the item identity has been validated.',
+      details: ['Malformed JSON or an absent/empty item name or uri returns JSON-RPC -32602; malformed identity is never converted into a successful empty result.', 'The server does not execute code or infer calls textually. It uses analyzer reference targets and source-backed ranges. The framed protocol fixture covers valid and malformed requests.'],
+      example: '{"jsonrpc":"2.0","id":21,"method":"callHierarchy/incomingCalls","params":{"item":{"name":"greet","uri":"file:///tmp/greetings.osr","range":{"start":{"line":2,"character":5},"end":{"line":2,"character":10}},"selectionRange":{"start":{"line":2,"character":5},"end":{"line":2,"character":10}}}}}',
+    }, {
+      name: 'textDocument/prepareRename',
+      signature: 'textDocument/prepareRename { textDocument.uri, position }',
+      description: 'Checks whether the UTF-16 position identifies a source-backed symbol that the analyzer can rename safely, including an exported member imported from a local workspace module.',
+      parameters: 'textDocument.uri is required; an optional textDocument.version rejects stale requests before analysis. position is zero-based UTF-16 and must land on the identifier occurrence to be renamed.',
+      returns: 'The exact occurrence range under the cursor, or null when the symbol is unresolved, virtual, generated, or not proven editable by the shared analyzer.',
+      returnValue: 'Local bindings, struct fields and methods, generic type parameters, macro declarations and parameters, imported module aliases, and members exported by source-backed local user modules are source-backed when their analyzer identity is known. Virtual osiris://stdlib exports are navigable but are not editable rename targets.',
+      details: ['Malformed positions and stale versions return JSON-RPC -32602. A canceled request returns -32800 and no partial result. The returned range is the cursor occurrence, so a reference in a different line or document is not incorrectly reported as the declaration range. Open documents overlay workspace-indexed module files.'],
+      example: '{"jsonrpc":"2.0","id":2,"method":"textDocument/prepareRename","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":4},"position":{"line":2,"character":5}}}\n# Result: {"start":{"line":2,"character":5},"end":{"line":2,"character":11}}',
+    }, {
       name: 'textDocument/rename',
       signature: 'textDocument/rename { textDocument.uri, position, newName }',
-      description: 'Produces a scope-aware, formatted dry-run rename edit for one open document.',
-      parameters: 'position is zero-based UTF-16 as required by LSP. newName must be a valid Osiris identifier. The selected definition and each reference resolved to that definition are renamed; shadowed bindings and unrelated member names are unchanged.',
-      returns: 'A WorkspaceEdit with versioned documentChanges for every document whose resolved definition or reference is included. The server does not mutate open-document text; the client chooses whether to apply the edit.',
-      returnValue: 'Builtins, generated symbols, unresolved names, and stale version assertions are not renameable. Cross-file edits are emitted only for references resolved by the shared analyzer; same-spelled unrelated symbols are never renamed by textual fallback.',
-      details: ['Rename uses the same lexical analysis as hover and go-to-definition, not a textual search. A local parameter named answer therefore remains untouched when renaming an outer answer binding.', 'Edits are UTF-16-correct, non-overlapping, and sorted from the end of each document toward the beginning. Clients should apply them atomically and then send their ordinary didChange notification.'],
+      description: 'Produces a source-backed, scope-aware, versioned WorkspaceEdit for every proven definition and reference of one symbol across the indexed workspace.',
+      parameters: 'textDocument.uri is required; an optional textDocument.version rejects stale requests. position is zero-based UTF-16. newName must be a valid Osiris identifier.',
+      returns: 'A WorkspaceEdit with deterministic, versioned documentChanges. The server does not mutate open-document text; the client chooses whether to apply the edit.',
+      returnValue: 'Builtins, generated symbols, unresolved names, virtual standard-library exports, and stale version assertions are not renameable. Same-spelled shadowed bindings and unrelated member names are never renamed by textual fallback. An exported member of a source-backed local user module is renameable from either its definition or an importer reference; the edit includes the explicit export and resolved references in both documents.',
+      details: ['Rename uses the same lexical analysis as hover and go-to-definition, not a textual search. A local parameter named answer therefore remains untouched when renaming an outer answer binding. Struct fields and methods, generic parameters, macro symbols and parameters, imported module aliases, and exported user-module members use the same proven symbol identity.', 'Edits are UTF-16-correct, deduplicated, non-overlapping, and sorted from the end of each document toward the beginning. documentChanges are sorted by URI and carry the captured document version; workspace-indexed files use their indexed version until an open overlay replaces them. Malformed identifiers or positions return -32602; cancellation returns -32800. Clients should apply edits atomically and then send their ordinary didChange notification.'],
       example: '{"jsonrpc":"2.0","id":2,"method":"textDocument/rename","params":{"textDocument":{"uri":"file:///tmp/demo.osr"},"position":{"line":2,"character":5},"newName":"result"}}\n# WorkspaceEdit: let answer = 42 / emit answer becomes let result = 42 / emit result',
     }, {
       name: 'textDocument/codeAction',
@@ -306,7 +420,7 @@ const toolingModule = {
       parameters: 'textDocument.uri is required. An optional textDocument.version is checked before producing edits; range is UTF-16 and diagnostics are the client-provided diagnostics for the requested span.',
       returns: 'An array of code actions. Deprecated diagnostics produce a quickfix; out-of-order imports produce one versioned WorkspaceEdit with one edit per changed import statement.',
       returnValue: 'Import edits are sorted by module path and alias, non-overlapping, UTF-16-correct, and ordered from the end of the document toward the beginning. Imports after another declaration are not moved. The server never mutates the open overlay.',
-      details: ['Use textDocument/formatting when the entire document should be reformatted. source.organizeImports intentionally changes only import statement spans so clients can apply it independently.', 'A stale optional version assertion returns JSON-RPC -32602 and no action.'],
+      details: ['The range is required and must be a valid, non-reversed UTF-16 range in the current open document; missing, reversed, or out-of-document ranges return JSON-RPC -32602 before edits are built.', 'Use textDocument/formatting when the entire document should be reformatted. source.organizeImports intentionally changes only import statement spans so clients can apply it independently.', 'Cancellation is checked before validation, during diagnostic/import scanning, and after edit assembly. A canceled request returns -32800 and no partial action or edit.', 'A stale optional version assertion returns JSON-RPC -32602 and no action. The framed boundary cases are recorded in lsp-workspace-code-actions.jsonl.'],
       example: '{"jsonrpc":"2.0","id":3,"method":"textDocument/codeAction","params":{"textDocument":{"uri":"file:///tmp/demo.osr","version":4},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}},"context":{"diagnostics":[]}}}',
     }, {
       name: 'textDocument/codeLens',
@@ -320,11 +434,11 @@ const toolingModule = {
     }, {
       name: 'osiris/testInventory',
       signature: 'osiris/testInventory { textDocument: { uri, version? } }',
-      description: 'Returns schema-versioned test metadata for a test file or its deterministic colocated sidecar.',
-      parameters: 'The URI may identify name.test.osr/name_test.osr directly or a neighboring production source. The optional version asserts the current open overlay before discovery.',
-      returns: 'An inventory containing schema_version, the selected test file, declaration names, one-based source locations, skip/expected-failure/benchmark/fuzz flags, package ownership, and nearest osiris.mod module ownership.',
+      description: 'Returns schema-versioned test metadata for a test file, its deterministic colocated sidecar, or every test below a configured workspace directory.',
+      parameters: 'The URI may identify name.test.osr/name_test.osr directly, a neighboring production source, or a configured workspace directory. The optional version asserts the current open overlay before single-file discovery; a workspace-directory URI has no document version.',
+      returns: 'An inventory containing schema_version, discovered test files, declaration names, one-based source locations, skip/expected-failure/benchmark/fuzz flags, package ownership for single-file requests, and nearest osiris.mod module ownership when available.',
       returnValue: 'Sidecar overlays take precedence over disk. Configured roots are enforced after symlink resolution; canceled requests return JSON-RPC -32800 and do not return partial metadata.',
-      details: ['This endpoint shares discovery rules with osiris test, including name.test.osr before name_test.osr and standalone default-root behavior when no workspace root is configured.', 'The language server reports metadata only; execution remains the responsibility of osiris test or a client command.'],
+      details: ['This endpoint shares discovery rules with osiris test, including name.test.osr before name_test.osr for a source file. A configured workspace-directory request recursively discovers both suffixes in sorted absolute-path order, skips hidden directories plus .git and .osiris, rejects symlink entries, and applies the workspace file and per-file-size limits.', 'An open test-file overlay wins over disk for both single-file and workspace-directory requests. Workspace-directory requests require the directory to be inside a configured root; an unconfigured or outside directory is rejected without reading it.', 'The language server reports metadata only; execution remains the responsibility of osiris test or a client command.'],
       example: '{"jsonrpc":"2.0","id":5,"method":"osiris/testInventory","params":{"textDocument":{"uri":"file:///tmp/greetings.osr","version":7}}}',
     }],
   }, {

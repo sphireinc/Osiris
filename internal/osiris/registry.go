@@ -76,7 +76,7 @@ func newModuleRegistry(root string, providers ...RepositoryProvider) *moduleRegi
 //
 // It returns string, string, error so callers can continue with the next stage
 // of the pipeline without re-deriving the same information.
-// materialize preserves the pre-task-124 internal helper contract used by
+// materialize preserves the legacy internal helper contract used by
 // existing tests and embedders. New resolution paths should use
 // materializeContext so cancellation and selectors are retained.
 func (r *moduleRegistry) materialize(ref, base string) (string, string, error) {

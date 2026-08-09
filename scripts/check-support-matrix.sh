@@ -11,3 +11,9 @@ go test ./internal/osiris -run '^(TestSupportMatrixSchema|TestSupportMatrixDocum
 if [ "${OSIRIS_REQUIRE_STABLE_MATRIX:-0}" = "1" ]; then
 	go test ./internal/osiris -run '^TestSupportMatrixStableReleaseGate$' -count=1
 fi
+
+# The release gate has a narrower scope for the current Native C/LSP priority
+# lane. WASM/GPU and alternate-platform evidence remain separate gates.
+if [ "${OSIRIS_REQUIRE_NATIVE_LSP_STABLE:-0}" = "1" ]; then
+	go test ./internal/osiris -run '^TestSupportMatrixNativeAndLSPReleaseGate$' -count=1
+fi

@@ -205,6 +205,13 @@ func clonePattern(pattern Pattern) Pattern {
 			items[i] = clonePattern(p.items[i])
 		}
 		return listPattern{items: items}
+	case structPattern:
+		fields := make([]structPatternField, len(p.fields))
+		for i, field := range p.fields {
+			fields[i] = structPatternField{name: field.name, pattern: clonePattern(field.pattern), Span: field.Span}
+		}
+		p.fields = fields
+		return p
 	default:
 		return pattern
 	}
@@ -670,6 +677,26 @@ func validateEnumPattern(pattern Pattern, env *scope, source string) error {
 				return err
 			}
 		}
+	case structPattern:
+		if env == nil {
+			return enumPatternError(source, p.Span, "undefined struct %q in pattern", p.typeName)
+		}
+		binding, ok := env.lookup(p.typeName)
+		if !ok {
+			return enumPatternError(source, p.Span, "undefined struct %q in pattern", p.typeName)
+		}
+		literal, ok := binding.expr.(*literalExpr)
+		if !ok || literal.value.kind != kindStruct || literal.value.structType == nil || literal.value.structType.newtype {
+			return enumPatternError(source, p.Span, "%q is not an ordinary struct in pattern", p.typeName)
+		}
+		for _, field := range p.fields {
+			if _, exists := literal.value.structType.byName[field.name]; !exists {
+				return enumPatternError(source, field.Span, "struct %s has no field %q in pattern", p.typeName, field.name)
+			}
+			if err := validateEnumPattern(field.pattern, env, source); err != nil {
+				return err
+			}
+		}
 	case listPattern:
 		for _, item := range p.items {
 			if err := validateEnumPattern(item, env, source); err != nil {
@@ -716,6 +743,12 @@ func validatePatternBindings(pattern Pattern, source string) error {
 				return err
 			}
 		}
+	case structPattern:
+		for _, field := range p.fields {
+			if err := validatePatternBindings(field.pattern, source); err != nil {
+				return err
+			}
+		}
 	case listPattern:
 		for _, item := range p.items {
 			if err := validatePatternBindings(item, source); err != nil {
@@ -750,6 +783,10 @@ func patternBindingSet(pattern Pattern) map[string]struct{} {
 		case listPattern:
 			for _, child := range p.items {
 				visit(child)
+			}
+		case structPattern:
+			for _, field := range p.fields {
+				visit(field.pattern)
 			}
 		case orPattern:
 			for _, child := range p.alternatives {
@@ -1358,6 +1395,13 @@ func (e *macroExpander) freshenPatternInto(pattern Pattern, renames map[string]s
 			items[i] = e.freshenPatternInto(p.items[i], renames)
 		}
 		return listPattern{items: items}
+	case structPattern:
+		fields := make([]structPatternField, len(p.fields))
+		for i, field := range p.fields {
+			fields[i] = structPatternField{name: field.name, pattern: e.freshenPatternInto(field.pattern, renames), Span: field.Span}
+		}
+		p.fields = fields
+		return p
 	default:
 		return pattern
 	}

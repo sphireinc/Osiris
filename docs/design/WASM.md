@@ -84,7 +84,8 @@ executions.
 This bounded slice is an ABI declaration and validation layer. In ABI v1 the
 logical host operation still resolves through the deterministic Osiris runtime
 and bounded value codec; the generated module does not yet declare a raw WASM
-engine import for every standard-library operation. Task 157 remains open for
+engine import for every standard-library operation. Instruction-level host
+imports remain open for
 instruction-level host import calls, per-import result/error records,
 cancellation handoff, and provider-owned resource cleanup.
 

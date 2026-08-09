@@ -1,6 +1,7 @@
 package osiris
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ defer { emit value }
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := analyzeOnlyForTask143(t, prog)
+	a := analyzeOnlyForLSPProtocol(t, prog)
 	if len(a.diagnostics) != 0 {
 		t.Fatalf("valid analyzer input produced diagnostics: %#v", a.diagnostics)
 	}
@@ -45,13 +46,38 @@ defer { emit value }
 	}
 }
 
+func TestLSPEnumPatternTypeNavigationUsesExactSourceSpan(t *testing.T) {
+	source := "enum Status { Ready, Done }\n" +
+		"func classify(value) => match value { Status.Ready => 1, _ => 0 }\n"
+	program, err := Parse("lsp-enum-pattern.osr", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	analysis := analyzeDocumentSourceContext(context.Background(), NewRuntime(), "file:///tmp/lsp-enum-pattern.osr", source, program)
+	var typeRef *symbolRef
+	for _, ref := range analysis.refs {
+		if ref != nil && ref.detail == "enum pattern type" {
+			typeRef = ref
+			break
+		}
+	}
+	if typeRef == nil || typeRef.target == nil || typeRef.target.name != "Status" {
+		t.Fatalf("enum pattern type reference = %#v, want Status definition", typeRef)
+	}
+	patternLine := strings.Split(source, "\n")[1]
+	patternColumn := strings.Index(patternLine, "Status.Ready") + 1
+	if typeRef.span.start.col != patternColumn || typeRef.span.end.col != typeRef.span.start.col+len("Status") {
+		t.Fatalf("enum pattern type span = %#v, want exact Status identifier", typeRef.span)
+	}
+}
+
 func TestLSPAnalyzerReportsUndefinedAssignmentWithTargetSpan(t *testing.T) {
 	source := "missing = 1\n"
 	prog, err := Parse("lsp-assignment.osr", source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := analyzeOnlyForTask143(t, prog)
+	a := analyzeOnlyForLSPProtocol(t, prog)
 	if len(a.diagnostics) != 1 {
 		t.Fatalf("diagnostics = %#v, want one analyzer diagnostic", a.diagnostics)
 	}
@@ -69,10 +95,10 @@ func TestLSPAnalyzerReportsUnsupportedNodesAtTheirSourceSpan(t *testing.T) {
 	a := &documentAnalysis{enumCases: make(map[string]*symbolDef)}
 	scope := &lspScope{defs: make(map[string]*symbolDef)}
 
-	if _, err := analyzeStmt(a, scope, "unsupported.osr", task143UnknownStmt{span: sp}, false); err != nil {
+	if _, err := analyzeStmt(a, scope, "unsupported.osr", lspProtocolUnknownStmt{span: sp}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := analyzeExpr(a, scope, "unsupported.osr", task143UnknownExpr{span: sp}); err != nil {
+	if err := analyzeExpr(a, scope, "unsupported.osr", lspProtocolUnknownExpr{span: sp}); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.diagnostics) != 2 {
@@ -88,7 +114,7 @@ func TestLSPAnalyzerReportsUnsupportedNodesAtTheirSourceSpan(t *testing.T) {
 	}
 }
 
-func analyzeOnlyForTask143(t *testing.T, prog *Program) *documentAnalysis {
+func analyzeOnlyForLSPProtocol(t *testing.T, prog *Program) *documentAnalysis {
 	t.Helper()
 	a := &documentAnalysis{enumCases: make(map[string]*symbolDef)}
 	scope := &lspScope{defs: make(map[string]*symbolDef)}
@@ -101,16 +127,18 @@ func analyzeOnlyForTask143(t *testing.T, prog *Program) *documentAnalysis {
 	return a
 }
 
-type task143UnknownStmt struct{ span sourceSpan }
+type lspProtocolUnknownStmt struct{ span sourceSpan }
 
-func (task143UnknownStmt) stmtNode() {}
+func (lspProtocolUnknownStmt) stmtNode() {}
 
-func (n task143UnknownStmt) lspAnalysisSpan() sourceSpan { return n.span }
+func (n lspProtocolUnknownStmt) lspAnalysisSpan() sourceSpan { return n.span }
 
-func (n task143UnknownStmt) String() string { return fmt.Sprintf("unknown statement at %v", n.span) }
+func (n lspProtocolUnknownStmt) String() string {
+	return fmt.Sprintf("unknown statement at %v", n.span)
+}
 
-type task143UnknownExpr struct{ span sourceSpan }
+type lspProtocolUnknownExpr struct{ span sourceSpan }
 
-func (task143UnknownExpr) exprNode() {}
+func (lspProtocolUnknownExpr) exprNode() {}
 
-func (n task143UnknownExpr) lspAnalysisSpan() sourceSpan { return n.span }
+func (n lspProtocolUnknownExpr) lspAnalysisSpan() sourceSpan { return n.span }

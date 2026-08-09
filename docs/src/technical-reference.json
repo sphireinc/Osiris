@@ -84,28 +84,28 @@
           "title": "JSON parser, limits, and compatibility symbols",
           "columns": ["Symbol", "Signature", "Parameters", "Returns", "Return value", "Details", "Example"],
           "rows": [
-            ["`Task120JSONVersion`", "`const Task120JSONVersion string`", "No parameters.", "`string`", "The host JSON contract version.", "The version names the bounded parser and RFC utility contract; it is independent of the Go runtime version.", "`version := Task120JSONVersion`"],
-            ["`Task120JSONLimits`", "`type Task120JSONLimits struct { ... }`", "`MaxBytes`, `MaxDepth`, `MaxNodes`, `MaxStringBytes`, `MaxObjectFields`, `MaxPointerTokens`, `MaxPatchOps`, and `MaxOutputBytes`; zero selects defaults.", "A limits value.", "A copyable resource-bound configuration.", "Limits apply to parsing, tree validation, pointer tokens, patch operations, and serialized output. Limits are enforced before a result escapes to the caller.", "`limits := Task120JSONLimits{MaxBytes: 1 << 20, MaxDepth: 32}`"],
-            ["`Task120JSONParse`", "`Task120JSONParse(ctx, data, limits) (Task120ConfigValue, error)`", "`ctx` is cancellation; `data` is UTF-8 JSON bytes; `limits` is `Task120JSONLimits`.", "`Task120ConfigValue, error`", "An ordered, duplicate-rejecting JSON value.", "Parses exactly one RFC 8259 value, preserves object member order and number spelling, and returns no partial value on syntax, limit, or cancellation failure.", "`value, err := Task120JSONParse(ctx, data, limits)`"],
-            ["`Task120ParseJSON`", "`Task120ParseJSON(ctx, data, limits) (Task120ConfigValue, error)`", "`limits` uses the legacy `Task120ConfigLimits` shape.", "`Task120ConfigValue, error`", "The same ordered value model as `Task120JSONParse`.", "Adapter-facing compatibility spelling for callers that still use the original task-120 limits type. New host code should use `Task120JSONParse`.", "`value, err := Task120ParseJSON(ctx, data, Task120ConfigLimits{})`"],
-            ["`Task120JSONStreamParse`", "`Task120JSONStreamParse(ctx, src, limits) (Task120ConfigValue, error)`", "`src` is a caller-owned `io.Reader`; `ctx` and `limits` bound the operation.", "`Task120ConfigValue, error`", "One parsed value; `src` is never closed.", "Reads at most the configured input bound, checks cancellation while reading, and rejects trailing data. The reader remains owned by the caller.", "`value, err := Task120JSONStreamParse(ctx, reader, limits)`"],
-            ["`Task120ParseJSONStream`", "`Task120ParseJSONStream(ctx, src, limits) (Task120ConfigValue, error)`", "The legacy `Task120ConfigLimits` adapter form of the stream contract.", "`Task120ConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `Task120JSONStreamParse`; it does not close or retain `src`.", "`value, err := Task120ParseJSONStream(ctx, reader, Task120ConfigLimits{})`"],
-            ["`Task120ParseJSONValue`", "`Task120ParseJSONValue(ctx, data, limits) (Task120ConfigValue, error)`", "JSON bytes and legacy limits.", "`Task120ConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `Task120ParseJSON` retained for imported host integrations.", "`value, err := Task120ParseJSONValue(ctx, data, limits)`"],
-            ["`Task120ParseJSONValueStream`", "`Task120ParseJSONValueStream(ctx, src, limits) (Task120ConfigValue, error)`", "A caller-owned reader and legacy limits.", "`Task120ConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `Task120ParseJSONStream`; the caller retains reader ownership.", "`value, err := Task120ParseJSONValueStream(ctx, reader, limits)`"],
-            ["`Task120JSONValidate`", "`Task120JSONValidate(ctx, data, limits) error`", "Context, JSON bytes, and `Task120JSONLimits`.", "`error`", "`nil` only for one valid bounded JSON value.", "Returns diagnostics for malformed JSON, duplicate keys, trailing data, resource limits, or cancellation. Invalid syntax wraps `ErrTask120Invalid`.", "`if err := Task120JSONValidate(ctx, data, limits); err != nil { return err }`"],
-            ["`Task120ValidJSON`", "`Task120ValidJSON(data[, limits]) bool`", "JSON bytes and optional `Task120JSONLimits`; no context.", "`bool`", "Whether the value is valid under the default or supplied bounds.", "Context-free predicate convenience wrapper. Use `Task120JSONValid` or `Task120JSONValidate` when callers need cancellation or diagnostics.", "`if !Task120ValidJSON(data) { return ErrTask120Invalid }`"],
-            ["`Task120JSONOptions`", "`type Task120JSONOptions struct { ... }`", "`Pretty`, `Indent`, `Prefix`, `Canonical`, and `Limits` select one serialization contract.", "An options value.", "A copyable serialization configuration.", "`Canonical` takes precedence over `Pretty`; an empty pretty indent selects two spaces. `Limits` still bounds the emitted bytes.", "`options := Task120JSONOptions{Pretty: true, Indent: \"  \"}`"],
-            ["`Task120JSONPretty`", "`Task120JSONPretty(value[, limits]) ([]byte, error)`", "An ordered JSON value and optional limits.", "`[]byte, error`", "Two-space-indented UTF-8 JSON.", "Presentation serializer that retains insertion order and enforces the same value and output bounds as compact serialization.", "`data, err := Task120JSONPretty(value)`"],
-            ["`Task120PrettyJSON`", "`Task120PrettyJSON(value, limits) ([]byte, error)` or the context-compatible form", "The value, optional limits, or context-compatible adapter arguments.", "`[]byte, error`", "Indented JSON bytes.", "Compatibility spelling for the pretty serializer; the language adapter uses `Task120JSONPrettyIndent` when a custom indent is supplied.", "`data, err := Task120PrettyJSON(value, Task120JSONLimits{})`"],
-            ["`Task120JSONPrettyIndent`", "`Task120JSONPrettyIndent(value, prefix, indent[, limits]) ([]byte, error)`", "Value, prefix, indentation string, and optional limits.", "`[]byte, error`", "Indented JSON bytes with the requested prefix and indentation.", "Uses `encoding/json`-compatible indentation after bounded compact serialization. An empty indentation string is accepted as compact output; the language adapter rejects it when a caller explicitly supplies an indent.", "`data, err := Task120JSONPrettyIndent(value, \"\", \"    \")`"],
-            ["`Task120StringifyJSONWithOptions`", "`Task120StringifyJSONWithOptions(value, options) ([]byte, error)`", "A value and `Task120JSONOptions`.", "`[]byte, error`", "Compact, pretty, or canonical JSON bytes.", "Central option-based serializer. Canonical output takes precedence, then pretty output, then compact output.", "`data, err := Task120StringifyJSONWithOptions(value, options)`"],
-            ["`Task120JSONCanonicalize`", "`Task120JSONCanonicalize(value[, limits]) ([]byte, error)` or the context-compatible form", "Value, optional limits, or context-compatible adapter arguments.", "`[]byte, error`", "Canonical compact JSON bytes.", "Supported finite-number RFC 8785/JCS subset: object names sort by UTF-16 code units and numbers are normalized to the portable binary64 form.", "`data, err := Task120JSONCanonicalize(value)`"],
-            ["`Task120JSONCanonical`", "`Task120JSONCanonical(value[, limits]) ([]byte, error)`", "An ordered JSON value and optional limits.", "`[]byte, error`", "Canonical JSON bytes.", "Compatibility alias for `Task120JSONCanonicalize`.", "`data, err := Task120JSONCanonical(value)`"],
-            ["`Task120JSONRemove`", "`Task120JSONRemove(value, tokens) (Task120ConfigValue, error)`", "A value and already-decoded pointer tokens.", "`Task120ConfigValue, error`", "A detached value with the selected member removed.", "Low-level patch helper for host integrations that already tokenized an RFC 6901 path. Public callers normally use `Task120JSONPointerRemove`.", "`updated, err := Task120JSONRemove(value, []string{\"metadata\"})`"],
-            ["`Task120ApplyJSONPatch`", "`Task120ApplyJSONPatch(ctx, document, operations, limits) (Task120ConfigValue, error)`", "Context, source document, typed RFC 6902 operations, and `Task120JSONLimits`.", "`Task120ConfigValue, error`", "A detached document after all operations, or no partial result on failure.", "Typed Go facade over add, remove, replace, move, copy, and test. The operation list is converted to an RFC 6902 patch array and applied transactionally.", "`patched, err := Task120ApplyJSONPatch(ctx, document, operations, limits)`"],
-            ["`Task120JSONPatchOperation`", "`type Task120JSONPatchOperation struct { Op, Path, From string; Value Task120ConfigValue }`", "`Value` is omitted when its kind is empty; `From` is required only by move/copy.", "An operation value.", "A typed representation of one RFC 6902 operation.", "The zero `Value` distinguishes operations that do not carry a value. Operation validation still occurs when the patch is applied.", "`operation := Task120JSONPatchOperation{Op: \"replace\", Path: \"/name\", Value: replacement}`"],
-            ["`Task120ApplyJSONMergePatch`", "`Task120ApplyJSONMergePatch(ctx, target, patch, limits) (Task120ConfigValue, error)`", "Context, target, RFC 7396 patch value, and limits.", "`Task120ConfigValue, error`", "A detached merge-patched document.", "Recursively merges objects, deletes object members whose patch value is null, and replaces the complete target for non-object patches. The input values are not mutated.", "`merged, err := Task120ApplyJSONMergePatch(ctx, target, patch, limits)`"],
-            ["`Task120JSONMergePatchContext`", "`Task120JSONMergePatchContext(ctx, target, patch, limits) (Task120ConfigValue, error)`", "Context, target, patch, and limits.", "`Task120ConfigValue, error`", "A detached merge-patched document.", "Context-aware compatibility alias for `Task120ApplyJSONMergePatch`.", "`merged, err := Task120JSONMergePatchContext(ctx, target, patch, limits)`"]
+            ["`StdlibJSONVersion`", "`const StdlibJSONVersion string`", "No parameters.", "`string`", "The host JSON contract version.", "The version names the bounded parser and RFC utility contract; it is independent of the Go runtime version.", "`version := StdlibJSONVersion`"],
+            ["`StdlibJSONLimits`", "`type StdlibJSONLimits struct { ... }`", "`MaxBytes`, `MaxDepth`, `MaxNodes`, `MaxStringBytes`, `MaxObjectFields`, `MaxPointerTokens`, `MaxPatchOps`, and `MaxOutputBytes`; zero selects defaults.", "A limits value.", "A copyable resource-bound configuration.", "Limits apply to parsing, tree validation, pointer tokens, patch operations, and serialized output. Limits are enforced before a result escapes to the caller.", "`limits := StdlibJSONLimits{MaxBytes: 1 << 20, MaxDepth: 32}`"],
+            ["`StdlibJSONParse`", "`StdlibJSONParse(ctx, data, limits) (StdlibConfigValue, error)`", "`ctx` is cancellation; `data` is UTF-8 JSON bytes; `limits` is `StdlibJSONLimits`.", "`StdlibConfigValue, error`", "An ordered, duplicate-rejecting JSON value.", "Parses exactly one RFC 8259 value, preserves object member order and number spelling, and returns no partial value on syntax, limit, or cancellation failure.", "`value, err := StdlibJSONParse(ctx, data, limits)`"],
+            ["`StdlibParseJSON`", "`StdlibParseJSON(ctx, data, limits) (StdlibConfigValue, error)`", "`limits` uses the legacy `StdlibConfigLimits` shape.", "`StdlibConfigValue, error`", "The same ordered value model as `StdlibJSONParse`.", "Adapter-facing compatibility spelling for callers that still use the original stdlib limits type. New host code should use `StdlibJSONParse`.", "`value, err := StdlibParseJSON(ctx, data, StdlibConfigLimits{})`"],
+            ["`StdlibJSONStreamParse`", "`StdlibJSONStreamParse(ctx, src, limits) (StdlibConfigValue, error)`", "`src` is a caller-owned `io.Reader`; `ctx` and `limits` bound the operation.", "`StdlibConfigValue, error`", "One parsed value; `src` is never closed.", "Reads at most the configured input bound, checks cancellation while reading, and rejects trailing data. The reader remains owned by the caller.", "`value, err := StdlibJSONStreamParse(ctx, reader, limits)`"],
+            ["`StdlibParseJSONStream`", "`StdlibParseJSONStream(ctx, src, limits) (StdlibConfigValue, error)`", "The legacy `StdlibConfigLimits` adapter form of the stream contract.", "`StdlibConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `StdlibJSONStreamParse`; it does not close or retain `src`.", "`value, err := StdlibParseJSONStream(ctx, reader, StdlibConfigLimits{})`"],
+            ["`StdlibParseJSONValue`", "`StdlibParseJSONValue(ctx, data, limits) (StdlibConfigValue, error)`", "JSON bytes and legacy limits.", "`StdlibConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `StdlibParseJSON` retained for imported host integrations.", "`value, err := StdlibParseJSONValue(ctx, data, limits)`"],
+            ["`StdlibParseJSONValueStream`", "`StdlibParseJSONValueStream(ctx, src, limits) (StdlibConfigValue, error)`", "A caller-owned reader and legacy limits.", "`StdlibConfigValue, error`", "One ordered JSON value.", "Compatibility alias for `StdlibParseJSONStream`; the caller retains reader ownership.", "`value, err := StdlibParseJSONValueStream(ctx, reader, limits)`"],
+            ["`StdlibJSONValidate`", "`StdlibJSONValidate(ctx, data, limits) error`", "Context, JSON bytes, and `StdlibJSONLimits`.", "`error`", "`nil` only for one valid bounded JSON value.", "Returns diagnostics for malformed JSON, duplicate keys, trailing data, resource limits, or cancellation. Invalid syntax wraps `ErrStdlibInvalid`.", "`if err := StdlibJSONValidate(ctx, data, limits); err != nil { return err }`"],
+            ["`StdlibValidJSON`", "`StdlibValidJSON(data[, limits]) bool`", "JSON bytes and optional `StdlibJSONLimits`; no context.", "`bool`", "Whether the value is valid under the default or supplied bounds.", "Context-free predicate convenience wrapper. Use `StdlibJSONValid` or `StdlibJSONValidate` when callers need cancellation or diagnostics.", "`if !StdlibValidJSON(data) { return ErrStdlibInvalid }`"],
+            ["`StdlibJSONOptions`", "`type StdlibJSONOptions struct { ... }`", "`Pretty`, `Indent`, `Prefix`, `Canonical`, and `Limits` select one serialization contract.", "An options value.", "A copyable serialization configuration.", "`Canonical` takes precedence over `Pretty`; an empty pretty indent selects two spaces. `Limits` still bounds the emitted bytes.", "`options := StdlibJSONOptions{Pretty: true, Indent: \"  \"}`"],
+            ["`StdlibJSONPretty`", "`StdlibJSONPretty(value[, limits]) ([]byte, error)`", "An ordered JSON value and optional limits.", "`[]byte, error`", "Two-space-indented UTF-8 JSON.", "Presentation serializer that retains insertion order and enforces the same value and output bounds as compact serialization.", "`data, err := StdlibJSONPretty(value)`"],
+            ["`StdlibPrettyJSON`", "`StdlibPrettyJSON(value, limits) ([]byte, error)` or the context-compatible form", "The value, optional limits, or context-compatible adapter arguments.", "`[]byte, error`", "Indented JSON bytes.", "Compatibility spelling for the pretty serializer; the language adapter uses `StdlibJSONPrettyIndent` when a custom indent is supplied.", "`data, err := StdlibPrettyJSON(value, StdlibJSONLimits{})`"],
+            ["`StdlibJSONPrettyIndent`", "`StdlibJSONPrettyIndent(value, prefix, indent[, limits]) ([]byte, error)`", "Value, prefix, indentation string, and optional limits.", "`[]byte, error`", "Indented JSON bytes with the requested prefix and indentation.", "Uses `encoding/json`-compatible indentation after bounded compact serialization. An empty indentation string is accepted as compact output; the language adapter rejects it when a caller explicitly supplies an indent.", "`data, err := StdlibJSONPrettyIndent(value, \"\", \"    \")`"],
+            ["`StdlibStringifyJSONWithOptions`", "`StdlibStringifyJSONWithOptions(value, options) ([]byte, error)`", "A value and `StdlibJSONOptions`.", "`[]byte, error`", "Compact, pretty, or canonical JSON bytes.", "Central option-based serializer. Canonical output takes precedence, then pretty output, then compact output.", "`data, err := StdlibStringifyJSONWithOptions(value, options)`"],
+            ["`StdlibJSONCanonicalize`", "`StdlibJSONCanonicalize(value[, limits]) ([]byte, error)` or the context-compatible form", "Value, optional limits, or context-compatible adapter arguments.", "`[]byte, error`", "Canonical compact JSON bytes.", "Supported finite-number RFC 8785/JCS subset: object names sort by UTF-16 code units and numbers are normalized to the portable binary64 form.", "`data, err := StdlibJSONCanonicalize(value)`"],
+            ["`StdlibJSONCanonical`", "`StdlibJSONCanonical(value[, limits]) ([]byte, error)`", "An ordered JSON value and optional limits.", "`[]byte, error`", "Canonical JSON bytes.", "Compatibility alias for `StdlibJSONCanonicalize`.", "`data, err := StdlibJSONCanonical(value)`"],
+            ["`StdlibJSONRemove`", "`StdlibJSONRemove(value, tokens) (StdlibConfigValue, error)`", "A value and already-decoded pointer tokens.", "`StdlibConfigValue, error`", "A detached value with the selected member removed.", "Low-level patch helper for host integrations that already tokenized an RFC 6901 path. Public callers normally use `StdlibJSONPointerRemove`.", "`updated, err := StdlibJSONRemove(value, []string{\"metadata\"})`"],
+            ["`StdlibApplyJSONPatch`", "`StdlibApplyJSONPatch(ctx, document, operations, limits) (StdlibConfigValue, error)`", "Context, source document, typed RFC 6902 operations, and `StdlibJSONLimits`.", "`StdlibConfigValue, error`", "A detached document after all operations, or no partial result on failure.", "Typed Go facade over add, remove, replace, move, copy, and test. The operation list is converted to an RFC 6902 patch array and applied transactionally.", "`patched, err := StdlibApplyJSONPatch(ctx, document, operations, limits)`"],
+            ["`StdlibJSONPatchOperation`", "`type StdlibJSONPatchOperation struct { Op, Path, From string; Value StdlibConfigValue }`", "`Value` is omitted when its kind is empty; `From` is required only by move/copy.", "An operation value.", "A typed representation of one RFC 6902 operation.", "The zero `Value` distinguishes operations that do not carry a value. Operation validation still occurs when the patch is applied.", "`operation := StdlibJSONPatchOperation{Op: \"replace\", Path: \"/name\", Value: replacement}`"],
+            ["`StdlibApplyJSONMergePatch`", "`StdlibApplyJSONMergePatch(ctx, target, patch, limits) (StdlibConfigValue, error)`", "Context, target, RFC 7396 patch value, and limits.", "`StdlibConfigValue, error`", "A detached merge-patched document.", "Recursively merges objects, deletes object members whose patch value is null, and replaces the complete target for non-object patches. The input values are not mutated.", "`merged, err := StdlibApplyJSONMergePatch(ctx, target, patch, limits)`"],
+            ["`StdlibJSONMergePatchContext`", "`StdlibJSONMergePatchContext(ctx, target, patch, limits) (StdlibConfigValue, error)`", "Context, target, patch, and limits.", "`StdlibConfigValue, error`", "A detached merge-patched document.", "Context-aware compatibility alias for `StdlibApplyJSONMergePatch`.", "`merged, err := StdlibJSONMergePatchContext(ctx, target, patch, limits)`"]
           ]
         }
       ]
@@ -872,8 +872,8 @@
       "title": "std/json Host API Extensions",
       "summary": "The bounded host-side JSON value contract extends the language module with serialization, validation, pointer navigation, patch application, and canonical output helpers.",
       "paragraphs": [
-        "These host functions operate on the ordered `Task120ConfigValue` representation behind the expanded `std/json` language exports. JSON Pointer follows [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901), JSON Patch follows [RFC 6902](https://www.rfc-editor.org/rfc/rfc6902), JSON Merge Patch follows [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396), and canonical output is the supported finite-number subset of [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785).",
-        "All mutating operations clone their input before applying a change. A failed pointer or patch operation returns no partially committed document. `Task120StringifyJSON` preserves insertion order by default; `Task120CanonicalizeJSON` sorts object keys and rejects values outside its portable finite-number contract."
+        "These host functions operate on the ordered `StdlibConfigValue` representation behind the expanded `std/json` language exports. JSON Pointer follows [RFC 6901](https://www.rfc-editor.org/rfc/rfc6901), JSON Patch follows [RFC 6902](https://www.rfc-editor.org/rfc/rfc6902), JSON Merge Patch follows [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396), and canonical output is the supported finite-number subset of [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785).",
+        "All mutating operations clone their input before applying a change. A failed pointer or patch operation returns no partially committed document. `StdlibStringifyJSON` preserves insertion order by default; `StdlibCanonicalizeJSON` sorts object keys and rejects values outside its portable finite-number contract."
       ],
       "tables": [
         {
@@ -881,76 +881,76 @@
           "columns": ["Symbol", "Signature", "Parameters", "Returns", "Return value", "Details", "Example"],
           "rows": [
             [
-              "`Task120StringifyJSON`",
-              "`Task120StringifyJSON(value[, limits]) ([]byte, error)` or `Task120StringifyJSON(ctx, value, limits)`",
-              "The value is a `Task120ConfigValue`; optional limits are `Task120JSONLimits`; the context form permits cancellation before serialization.",
+              "`StdlibStringifyJSON`",
+              "`StdlibStringifyJSON(value[, limits]) ([]byte, error)` or `StdlibStringifyJSON(ctx, value, limits)`",
+              "The value is a `StdlibConfigValue`; optional limits are `StdlibJSONLimits`; the context form permits cancellation before serialization.",
               "Compact UTF-8 JSON bytes, or an error.",
               "Valid JSON text with object insertion order preserved.",
               "Duplicate object keys, invalid UTF-8 strings, unsupported value kinds, and invalid JSON numbers fail before bytes are returned.",
-              "`bytes, err := Task120StringifyJSON(value, Task120JSONLimits{})`"
+              "`bytes, err := StdlibStringifyJSON(value, StdlibJSONLimits{})`"
             ],
             [
-              "`Task120JSONValid`",
-              "`Task120JSONValid(ctx, data, limits) (bool, error)`",
-              "`ctx` controls cancellation; `data` is a byte slice; `limits` is `Task120JSONLimits`.",
+              "`StdlibJSONValid`",
+              "`StdlibJSONValid(ctx, data, limits) (bool, error)`",
+              "`ctx` controls cancellation; `data` is a byte slice; `limits` is `StdlibJSONLimits`.",
               "`bool, error`",
               "`true` only when `data` is exactly one bounded JSON value accepted by the parser.",
               "Malformed JSON and duplicate names produce `false, nil`; cancellation and resource-limit failures return a non-nil error so callers can distinguish invalid input from an interrupted or constrained operation.",
-              "`valid, err := Task120JSONValid(ctx, data, limits)`"
+              "`valid, err := StdlibJSONValid(ctx, data, limits)`"
             ],
             [
-              "`Task120JSONPointerGet`",
-              "`Task120JSONPointerGet(document, pointer) (Task120ConfigValue, error)`",
+              "`StdlibJSONPointerGet`",
+              "`StdlibJSONPointerGet(document, pointer) (StdlibConfigValue, error)`",
               "`document` is an ordered JSON value; `pointer` is an empty string or an RFC 6901 slash-delimited pointer.",
               "A cloned JSON value, or an error.",
               "The value selected by the pointer; the empty pointer selects the complete document.",
               "Object names use `~0` and `~1` decoding. Array indexes are decimal, have no leading zeroes, and must be in range. The returned value does not alias the document.",
-              "`item, err := Task120JSONPointerGet(document, `/items/0`)`"
+              "`item, err := StdlibJSONPointerGet(document, `/items/0`)`"
             ],
             [
-              "`Task120JSONPointerSet`",
-              "`Task120JSONPointerSet(document, pointer, replacement) (Task120ConfigValue, error)`",
+              "`StdlibJSONPointerSet`",
+              "`StdlibJSONPointerSet(document, pointer, replacement) (StdlibConfigValue, error)`",
               "`document` and `replacement` are ordered JSON values; `pointer` is an RFC 6901 path.",
               "A cloned document with the replacement, or an error.",
               "The root pointer replaces the complete document; object members are replaced or added and array `-` appends.",
               "The original document and replacement remain unchanged. Missing intermediate members and invalid array positions are rejected.",
-              "`updated, err := Task120JSONPointerSet(document, `/meta/ready`, ready)`"
+              "`updated, err := StdlibJSONPointerSet(document, `/meta/ready`, ready)`"
             ],
             [
-              "`Task120JSONPointerRemove`",
-              "`Task120JSONPointerRemove(document, pointer) (Task120ConfigValue, error)`",
+              "`StdlibJSONPointerRemove`",
+              "`StdlibJSONPointerRemove(document, pointer) (StdlibConfigValue, error)`",
               "`document` is an ordered JSON value; `pointer` is an RFC 6901 path to an existing member or array item.",
               "A cloned document with the selected value removed, or an error.",
               "Removing the root is rejected because the single-value return type cannot represent an absent document; removing an object member or array item closes that gap while preserving remaining order.",
               "The path must resolve exactly. Scalar traversal, missing members, malformed escapes, and out-of-range indexes fail atomically.",
-              "`withoutMetadata, err := Task120JSONPointerRemove(document, `/metadata`)`"
+              "`withoutMetadata, err := StdlibJSONPointerRemove(document, `/metadata`)`"
             ],
             [
-              "`Task120JSONPatchApply`",
-              "`Task120JSONPatchApply(document, patch) (Task120ConfigValue, error)`",
+              "`StdlibJSONPatchApply`",
+              "`StdlibJSONPatchApply(document, patch) (StdlibConfigValue, error)`",
               "`document` is the source value; `patch` is an array of RFC 6902 operation objects with `op` and `path`, plus `value` or `from` as required.",
               "The atomically patched value, or an error.",
               "Supports `add`, `remove`, `replace`, `move`, `copy`, and `test`; a successful result contains every operation in array order.",
               "Each operation is validated before commit. A failed `test`, missing path, malformed pointer, unsupported operation, or missing operation member returns an error without a partial result.",
-              "`patched, err := Task120JSONPatchApply(document, patch)`"
+              "`patched, err := StdlibJSONPatchApply(document, patch)`"
             ],
             [
-              "`Task120JSONMergePatch`",
-              "`Task120JSONMergePatch(document, patch) Task120ConfigValue`",
+              "`StdlibJSONMergePatch`",
+              "`StdlibJSONMergePatch(document, patch) StdlibConfigValue`",
               "`document` is the source value; `patch` is an RFC 7396 merge-patch value.",
-              "`Task120ConfigValue`",
+              "`StdlibConfigValue`",
               "A cloned document after recursive object merge; a non-object patch replaces the complete document.",
               "Object members whose patch value is `null` are removed. The operation is deterministic and returns a new value, so callers can retain the source document.",
-              "`merged := Task120JSONMergePatch(document, patch)`"
+              "`merged := StdlibJSONMergePatch(document, patch)`"
             ],
             [
-              "`Task120CanonicalizeJSON`",
-              "`Task120CanonicalizeJSON(value) ([]byte, error)`",
+              "`StdlibCanonicalizeJSON`",
+              "`StdlibCanonicalizeJSON(value) ([]byte, error)`",
               "`value` is an ordered JSON value whose numbers fit the supported finite IEEE-754 contract.",
               "Canonical JSON bytes, or an error.",
               "A compact JSON representation with recursively sorted object keys and canonicalized finite numbers.",
               "This is the supported RFC 8785/JCS-compatible subset, not a promise that every arbitrary-precision Osiris number can be canonicalized. Duplicate keys and out-of-range or non-finite numbers fail.",
-              "`canonical, err := Task120CanonicalizeJSON(document)`"
+              "`canonical, err := StdlibCanonicalizeJSON(document)`"
             ]
           ]
         }
@@ -1659,10 +1659,10 @@
     "parse_json", "parse_properties", "schema_property_names", "validate", "version"
   ],
   "stdJsonExports": [
-    "canonicalize", "equal", "keys", "length", "merge", "merge_patch", "parse", "parse_json", "parse_lines", "parse_properties", "patch", "pointer_get", "pointer_remove", "pointer_set", "pretty", "query", "schema_property_names", "stringify", "stringify_lines", "task137_version", "type_of", "valid", "validate", "version"
+    "canonicalize", "equal", "extensions_version", "keys", "length", "merge", "merge_patch", "parse", "parse_json", "parse_lines", "parse_properties", "patch", "pointer_get", "pointer_remove", "pointer_set", "pretty", "query", "schema_property_names", "stringify", "stringify_lines", "type_of", "valid", "validate", "version"
   ],
   "stdI18nExports": [
-    "catalog_format", "data_version", "format_currency", "format_date", "format_date_style", "format_list", "format_message", "format_number", "format_percent", "format_relative", "locale", "plural_category", "supported_locales", "task137_version"
+    "catalog_format", "data_version", "extensions_version", "format_currency", "format_date", "format_date_style", "format_list", "format_message", "format_number", "format_percent", "format_relative", "locale", "plural_category", "supported_locales"
   ],
   "stdCryptoExports": [
     "algorithm_supported", "base64_decode", "base64_encode", "base64url_decode", "base64url_encode", "compare_digest", "derive_key", "digest", "digest_bytes", "hash", "hex_decode", "hex_encode", "hmac", "max_input_bytes", "max_key_bytes", "max_output_bytes", "max_token_bytes", "mix", "noise", "random", "random_bytes", "sha256", "sha512", "sha512_256", "token", "uuid_v5", "version"

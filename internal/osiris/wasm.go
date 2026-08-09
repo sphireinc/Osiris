@@ -145,7 +145,7 @@ func CompileWASMWithLimits(ctx context.Context, rt *Runtime, prog *Program, limi
 // profile. A profile cannot add an operation to the WASM runner; it can only
 // select a declared subset of the adapters implemented by this package.
 func CompileWASMWithProfile(ctx context.Context, rt *Runtime, prog *Program, profile WASMCapabilityProfile, limits WASMExecutionLimits) (*WASMArtifact, error) {
-	if err := rejectTask134FutureBackend(prog, "WASM"); err != nil {
+	if err := rejectReservedTypeFutureBackend(prog, "WASM"); err != nil {
 		return nil, err
 	}
 	profile = normalizeWASMProfile(profile)

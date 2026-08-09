@@ -1,6 +1,6 @@
 # Native C TLS and HTTP provider ABI
 
-This document describes the integrated TLS/HTTP component for task 148:
+This document describes the integrated TLS/HTTP component for deferred native host:
 `internal/osiris/cbackend_tls_http_runtime.go`. The shared emitter appends the
 resource, map, TLS-provider, and HTTP bridge components. A missing provider or
 bridge is an explicit capability error; there is no interpreter fallback or
@@ -90,7 +90,7 @@ verifies method conversion, relative URL resolution, credential stripping,
 intermediate stream closure, and the ten-hop bound.
 `TestNativeTLSHTTPRuntimeExecutesGeneratedClosureHandler` verifies direct
 generated closure invocation, response validation, handler errors, and
-connection cleanup. `TestTask148NativeTLSExecutesWithOpenSSLProvider`
+connection cleanup. `TestNativeHostTLSExecutesWithOpenSSLProvider`
 verifies a real TLS loopback certificate, configured PEM roots, hostname
 verification, payload read, and close. Plain HTTP is covered by
-`TestTask148NativeHTTPExecutesWithPortableTransport`.
+`TestNativeHostHTTPExecutesWithPortableTransport`.

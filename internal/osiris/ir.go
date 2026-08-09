@@ -12,6 +12,7 @@ type IRProgram struct {
 	PackageName    string
 	PackageVersion string
 	Exports        []string
+	Aliases        map[string]string
 	Products       []IRProductType
 	Functions      []*IRFunction
 }
@@ -20,8 +21,10 @@ type IRProgram struct {
 // native product ABI. Product values remain nominal at the language level;
 // the emitter uses this metadata to preserve their name and field order.
 type IRProductType struct {
-	Name   string
-	Fields []IRProductField
+	Name    string
+	Target  string
+	Newtype bool
+	Fields  []IRProductField
 }
 
 type IRProductField struct {
@@ -300,6 +303,8 @@ func formatIRInstr(instr IRInstr) string {
 		return instr.Dest + " = tuple (" + strings.Join(instr.Args, ", ") + ")"
 	case "product":
 		return instr.Dest + " = product " + instr.Text + " { " + strings.Join(instr.FieldNames, ", ") + " }"
+	case "newtype":
+		return instr.Dest + " = newtype " + instr.Text + "(" + strings.Join(instr.Args, ", ") + ")"
 	case "product_update":
 		return instr.Dest + " = product_update " + strings.Join(instr.Args, ", ") + " { " + strings.Join(instr.FieldNames, ", ") + " }"
 	case "index":
@@ -390,9 +395,23 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 		prog:     &IRProgram{SourceName: expanded.SourceName},
 		nextFunc: 0,
 		products: make(map[string]IRProductType),
+		aliases:  make(map[string]string),
 	}
+	pb.prog.Aliases = pb.aliases
 	for _, stmt := range expanded.Statements {
-		if st, ok := stmt.(structStmt); ok {
+		switch st := stmt.(type) {
+		case typeDeclStmt:
+			pb.prog.Aliases[st.Name] = st.Target
+		case newtypeStmt:
+			product := IRProductType{
+				Name:    st.Name,
+				Target:  st.Target,
+				Newtype: true,
+				Fields:  []IRProductField{{Name: "value", Type: st.Target}},
+			}
+			pb.products[st.Name] = product
+			pb.prog.Products = append(pb.prog.Products, product)
+		case structStmt:
 			fields := make([]IRProductField, len(st.Fields))
 			for i, field := range st.Fields {
 				fields[i] = IRProductField{Name: field.Name, Type: field.Type}
@@ -448,6 +467,7 @@ type irProgramBuilder struct {
 	nextFunc int
 	enums    map[string]map[string]enumCase
 	products map[string]IRProductType
+	aliases  map[string]string
 }
 
 // newFunction operates on irProgramBuilder values and keeps the
@@ -807,7 +827,10 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		// runtime instruction; struct literals carry the product constructor.
 		return false, nil
 	case typeDeclStmt, newtypeStmt:
-		return false, fmt.Errorf("native C backend: product-type declarations are not yet supported")
+		// Transparent aliases and nominal newtypes are collected before lowering.
+		// Their runtime declarations have no instruction of their own; constructor
+		// calls are lowered in evalExpr using the same product ABI as structs.
+		return false, nil
 	case letStmt:
 		child := b.fork()
 		value, err := child.evalExpr(st.Expr)
@@ -1497,6 +1520,36 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 				}
 			}
 		}
+		if ident, ok := n.callee.(*identExpr); ok {
+			if _, alias := b.pb.aliases[ident.name]; alias {
+				if len(n.args) != 1 {
+					return "", fmt.Errorf("native C backend: %s expects 1 argument", ident.name)
+				}
+				child := b.fork()
+				value, err := child.evalExpr(n.args[0])
+				if err != nil {
+					return "", err
+				}
+				b.block = child.block
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "copy", Text: ident.name, Args: []string{value}, Span: n.Span})
+				return tmp, nil
+			}
+			if product, newtype := b.pb.products[ident.name]; newtype && product.Newtype {
+				if len(n.args) != 1 {
+					return "", fmt.Errorf("native C backend: %s expects 1 argument", ident.name)
+				}
+				child := b.fork()
+				value, err := child.evalExpr(n.args[0])
+				if err != nil {
+					return "", err
+				}
+				b.block = child.block
+				tmp := b.newTemp()
+				b.emitInstr(IRInstr{Dest: tmp, Op: "newtype", Text: ident.name, Args: []string{value}, FieldNames: []string{"value"}, Span: n.Span})
+				return tmp, nil
+			}
+		}
 		if name, ok := specialFormName(n.callee); ok {
 			switch name {
 			case "if":
@@ -1561,7 +1614,7 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 			args = append(args, val)
 		}
 		tmp := b.newTemp()
-		b.emitInstr(IRInstr{Dest: tmp, Op: "call", Text: callee, Args: args})
+		b.emitInstr(IRInstr{Dest: tmp, Op: "call", Text: callee, Args: args, Span: n.Span})
 		return tmp, nil
 	case *memberExpr:
 		if object, ok := n.object.(*identExpr); ok {
@@ -1865,6 +1918,32 @@ func lowerNativeEnumPatternBranch(b *irBuilder, pattern Pattern, subject string,
 			itemBlock = next
 		}
 		return nil
+	case structPattern:
+		condition := b.newTemp()
+		fieldNames := make([]string, len(pattern.fields))
+		for i, field := range pattern.fields {
+			fieldNames[i] = field.name
+		}
+		b.emitInstr(IRInstr{Dest: condition, Op: "matchproduct", Text: pattern.typeName, Args: []string{subject}, FieldNames: fieldNames, Value: uintValue(uint64(len(fieldNames)), 64)})
+		fieldBlock := matched
+		if len(pattern.fields) != 0 {
+			fieldBlock = b.newBlock("match.product.field")
+		}
+		b.emitTerm(&irBranch{Cond: condition, TrueTarget: fieldBlock.Name, FalseTarget: failed.Name})
+		for index, field := range pattern.fields {
+			b.block = fieldBlock
+			value := b.newTemp()
+			b.emitInstr(IRInstr{Dest: value, Op: "productfield", Text: field.name, Args: []string{subject}})
+			next := matched
+			if index+1 < len(pattern.fields) {
+				next = b.newBlock("match.product.field")
+			}
+			if err := lowerNativeEnumPatternBranch(b, field.pattern, value, next, failed, bindings); err != nil {
+				return err
+			}
+			fieldBlock = next
+		}
+		return nil
 	case wildcardPattern:
 		b.emitTerm(&irJump{Target: matched.Name})
 		return nil
@@ -1939,7 +2018,7 @@ func validateNativeMatchPattern(pattern Pattern) error {
 	switch pattern := pattern.(type) {
 	case wildcardPattern, bindPattern, literalPattern, relationalPattern, typePattern:
 		return nil
-	case enumPattern, listPattern:
+	case enumPattern, listPattern, structPattern:
 		_, err := nativeEnumPatternBindingLayout(pattern, "")
 		return err
 	case andPattern:
@@ -2023,6 +2102,16 @@ func nativeEnumPatternBindingLayout(pattern Pattern, path string) ([]string, err
 			layout = append(layout, bindings...)
 		}
 		return layout, nil
+	case structPattern:
+		layout := make([]string, 0, len(pattern.fields))
+		for _, field := range pattern.fields {
+			bindings, err := nativeEnumPatternBindingLayout(field.pattern, fmt.Sprintf("%s.p.%s", path, field.name))
+			if err != nil {
+				return nil, err
+			}
+			layout = append(layout, bindings...)
+		}
+		return layout, nil
 	case andPattern:
 		left, err := nativeEnumPatternBindingLayout(pattern.left, path)
 		if err != nil {
@@ -2079,6 +2168,15 @@ func bindNativeEnumPatternValue(b *irBuilder, pattern Pattern, subject string) e
 			value := b.newTemp()
 			b.emitInstr(IRInstr{Dest: value, Op: "listitem", Args: []string{subject}, Value: uintValue(uint64(index), 64)})
 			if err := bindNativeEnumPatternValue(b, item, value); err != nil {
+				return err
+			}
+		}
+		return nil
+	case structPattern:
+		for _, field := range pattern.fields {
+			value := b.newTemp()
+			b.emitInstr(IRInstr{Dest: value, Op: "productfield", Text: field.name, Args: []string{subject}})
+			if err := bindNativeEnumPatternValue(b, field.pattern, value); err != nil {
 				return err
 			}
 		}

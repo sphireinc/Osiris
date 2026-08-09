@@ -1,6 +1,6 @@
 # `std/unsafe` bounded memory contract
 
-Task 126 adds an explicit, capability-gated low-level memory boundary. It is
+The language provides an explicit, capability-gated low-level memory boundary. It is
 called `std/unsafe` because it is intended for interoperability and systems
 code, but its first implementation deliberately exposes no raw pointer or
 address operation. A program must import the module explicitly and its host

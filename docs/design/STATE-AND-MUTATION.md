@@ -1,6 +1,6 @@
 # Deterministic state and mutation
 
-Task 114 introduces a deliberately small state model. The language remains
+A deliberately small state model keeps the language value-oriented. It remains
 value-oriented: `const` and `let` bindings, function parameters, structs,
 tuples, and collections are immutable values. A program may opt into
 sequential local state with `var` and a name assignment.

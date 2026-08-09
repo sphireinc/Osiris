@@ -23,21 +23,20 @@ all recorded dependencies satisfied and is the next selection candidate.
 
 ## Current selection
 
-- **Active focus:** Native C and LSP stabilization. Task 160 covers semantic
-  IDE parity and task 162 covers Native C core/data closure; task 163 and 168
-  follow their respective prerequisites. Task 154 is the Native C/LSP-only
-  gate.
-- **Ready:** tasks 160 and 162 are the independently assignable priority
-  slices for LSP and Native C.
+- **Active focus:** Native C and LSP stabilization. Task 160 semantic IDE
+  parity is complete; task 162 is the next independently assignable Native C
+  core/data slice, followed by tasks 161, 163, and 168. Task 154 is the
+  Native C/LSP-only gate.
+- **Ready:** task 162 is the independently assignable Native C priority slice.
 - **Blocked:** task 154 remains blocked until the Native C/LSP closure tasks
   complete. The all-backend gate is task 310; WASM/GPU/environment work is
   deliberately blocked in the 300-series queue.
 - **Deferred queue:** tasks 300–308 and 400 contain WASM, GPU, and
   alternate-platform work. They retain their implementation requirements and
   cannot promote support-matrix cells while deferred.
-- **Complete records:** tasks 001–049, 100–126, 134, and 138–153 have
-  completion records; Native C/LSP closure and the two release gates remain
-  open.
+- **Complete records:** tasks 001–049, 100–126, 134, 138–153, and 160 have
+  completion records; Native C/LSP closure and the remaining release gates
+  remain open.
 - **Complete (P2 native integration):** task 109 adds the exceptional/async
   IR, native value ABI, codecs, scheduler, and exact static-module slice
   required to compile the unchanged mission-control showcase into a

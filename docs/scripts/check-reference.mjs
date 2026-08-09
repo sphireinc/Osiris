@@ -19,20 +19,30 @@ const namedSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris
 const lexerSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'lexer.go'), 'utf8');
 const valueSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'value.go'), 'utf8');
 const cliSource = await readFile(resolve(here, '..', '..', 'cmd', 'osiris', 'main.go'), 'utf8');
-const task120Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_stdlib.go'), 'utf8');
-const task120JSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task120_json_stdlib.go'), 'utf8');
-const task121Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task121_stdlib.go'), 'utf8');
-const task122Source = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task122_stdlib.go'), 'utf8');
-const task137CryptoSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_crypto.go'), 'utf8');
-const task137I18nSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_i18n.go'), 'utf8');
-const task137JSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_json.go'), 'utf8');
-const task137ListSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_list.go'), 'utf8');
-const task137RegexSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_regex.go'), 'utf8');
-const task137SignalSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'task137_signal.go'), 'utf8');
+const stdlibSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'stdlib_module.go'), 'utf8');
+const stdlibJSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'stdlib_json_module.go'), 'utf8');
+const databaseAPISource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'database_module.go'), 'utf8');
+const telemetryContractSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'telemetry_module.go'), 'utf8');
+const extendedCryptoSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_crypto.go'), 'utf8');
+const extendedI18nSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_i18n.go'), 'utf8');
+const extendedJSONSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_json.go'), 'utf8');
+const extendedListSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_list.go'), 'utf8');
+const extendedRegexSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_regex.go'), 'utf8');
+const extendedSignalSource = await readFile(resolve(here, '..', '..', 'internal', 'osiris', 'extended_signal.go'), 'utf8');
 
 if (chapters.length !== 6) throw new Error(`Unexpected reference coverage: ${modules.length} API groups, ${chapters.length} chapters.`);
 const moduleIDs = modules.map((module) => module.id);
 if (new Set(moduleIDs).size !== moduleIDs.length) throw new Error(`Reference modules contain duplicate IDs: ${moduleIDs.join(', ')}.`);
+for (const module of modules) {
+  if (/task[- ]?\d+/i.test(module.id) || /task[- ]?\d+/i.test(module.label || '')) {
+    throw new Error(`Public reference module exposes internal task identity: ${module.id}.`);
+  }
+  for (const section of module.sections) for (const entry of section.entries) {
+    if (/task[- ]?\d+/i.test(entry.name) || (entry.aliases || []).some((alias) => /task[- ]?\d+/i.test(alias))) {
+      throw new Error(`Public reference entry exposes internal task identity: ${module.id}/${entry.name}.`);
+    }
+  }
+}
 for (const requiredModule of ['unsafe', 'testing']) {
   if (!moduleIDs.includes(requiredModule)) throw new Error(`Reference module ${requiredModule} is missing from canonical API data.`);
 }
@@ -45,6 +55,23 @@ for (const module of referenceModules) for (const section of module.sections) {
     if (compareReferenceNames(previous.name, current.name) >= 0) {
       throw new Error(`Reference entries are not strictly ordered on ${module.id}/${section.title}: ${previous.name}, ${current.name}.`);
     }
+  }
+}
+
+// Manual and supplemental records are intentionally allowed to overlap when a
+// supplemental record refines an existing entry. The public module must still
+// contain exactly one rendered entry for every merged source name; this guards
+// the merge boundary that feeds the strict ordering check above.
+for (const group of manual.groups) {
+  const supplementalGroup = supplemental.groups.find((candidate) => candidate.id === group.id);
+  const sourceNames = new Set([
+    ...(group.items || []).map((entry) => entry.name),
+    ...((supplementalGroup?.items || []).map((entry) => entry.name)),
+  ]);
+  const renderedNames = referenceModules.find((module) => module.id === group.id)?.sections
+    .flatMap((section) => section.entries.map((entry) => entry.name)) || [];
+  if (new Set(renderedNames).size !== renderedNames.length || [...sourceNames].some((name) => !renderedNames.includes(name))) {
+    throw new Error(`Merged reference entries are not one-to-one on ${group.id}.`);
   }
 }
 
@@ -150,19 +177,19 @@ function wrapperExports(source, functionName) {
     ...source.matchAll(/\["([^"\n]+)"\]\s*=/g),
   ].map((match) => match[1]));
 }
-stdlibTables.push([task120Source, 'std/regex', wrapperExports(task120Source, 'task120RegexModule')]);
-stdlibTables.push([task120Source, 'std/compress', [...new Set([...wrapperExports(task120Source, 'task120CompressionModule'), ...wrapperExports(task120Source, 'task120ArchiveModule')])]]);
-stdlibTables.push([task120Source, 'std/config', wrapperExports(task120Source, 'task120ConfigModule')]);
-stdlibTables.push([task120JSONSource, 'std/json', wrapperExports(task120JSONSource, 'task120JSONModule')]);
-stdlibTables.push([task120Source, 'std/i18n', wrapperExports(task120Source, 'task120I18nModule')]);
-stdlibTables.push([task121Source, 'std/db', wrapperExports(task121Source, 'task121DatabaseModule')]);
-stdlibTables.push([task122Source, 'std/telemetry', wrapperExports(task122Source, 'task122TelemetryModule')]);
-stdlibTables.push([task137CryptoSource, 'std/crypto', sortedUnique(['hash', 'mix', 'noise', 'random', ...wrapperExports(task137CryptoSource, 'task137CryptoModule')])]);
-stdlibTables.push([task137I18nSource, 'std/i18n', sortedUnique([...wrapperExports(task120Source, 'task120I18nModule'), ...wrapperExports(task137I18nSource, 'Task137I18nModule')])]);
-stdlibTables.push([task137JSONSource, 'std/json', sortedUnique([...wrapperExports(task120JSONSource, 'task120JSONModule'), ...wrapperExports(task137JSONSource, 'Task137JSONModuleExtensions')])]);
-stdlibTables.push([task137ListSource, 'std/list', sortedUnique(['len', 'range', 'take', 'sum', 'product', ...wrapperExports(task137ListSource, 'task137ListModule')])]);
-stdlibTables.push([task137RegexSource, 'std/regex', sortedUnique([...wrapperExports(task120Source, 'task120RegexModule'), ...wrapperExports(task137RegexSource, 'task137RegexModule'), 'is_match'])]);
-stdlibTables.push([task137SignalSource, 'std/signal', sortedUnique(['hann', 'convolve', ...wrapperExports(task137SignalSource, 'task137SignalModule')])]);
+stdlibTables.push([stdlibSource, 'std/regex', wrapperExports(stdlibSource, 'stdlibRegexModule')]);
+stdlibTables.push([stdlibSource, 'std/compress', [...new Set([...wrapperExports(stdlibSource, 'stdlibCompressionModule'), ...wrapperExports(stdlibSource, 'stdlibArchiveModule')])]]);
+stdlibTables.push([stdlibSource, 'std/config', wrapperExports(stdlibSource, 'stdlibConfigModule')]);
+stdlibTables.push([stdlibJSONSource, 'std/json', wrapperExports(stdlibJSONSource, 'stdlibJSONModule')]);
+stdlibTables.push([stdlibSource, 'std/i18n', wrapperExports(stdlibSource, 'stdlibI18nModule')]);
+stdlibTables.push([databaseAPISource, 'std/db', wrapperExports(databaseAPISource, 'databaseAPIDatabaseModule')]);
+stdlibTables.push([telemetryContractSource, 'std/telemetry', wrapperExports(telemetryContractSource, 'telemetryContractTelemetryModule')]);
+stdlibTables.push([extendedCryptoSource, 'std/crypto', sortedUnique(['hash', 'mix', 'noise', 'random', ...wrapperExports(extendedCryptoSource, 'extendedCryptoModule')])]);
+stdlibTables.push([extendedI18nSource, 'std/i18n', sortedUnique([...wrapperExports(stdlibSource, 'stdlibI18nModule'), ...wrapperExports(extendedI18nSource, 'ExtendedI18nModule')])]);
+stdlibTables.push([extendedJSONSource, 'std/json', sortedUnique([...wrapperExports(stdlibJSONSource, 'stdlibJSONModule'), ...wrapperExports(extendedJSONSource, 'ExtendedJSONModuleExtensions')])]);
+stdlibTables.push([extendedListSource, 'std/list', sortedUnique(['len', 'range', 'take', 'sum', 'product', ...wrapperExports(extendedListSource, 'extendedListModule')])]);
+stdlibTables.push([extendedRegexSource, 'std/regex', sortedUnique([...wrapperExports(stdlibSource, 'stdlibRegexModule'), ...wrapperExports(extendedRegexSource, 'extendedRegexModule'), 'is_match'])]);
+stdlibTables.push([extendedSignalSource, 'std/signal', sortedUnique(['hann', 'convolve', ...wrapperExports(extendedSignalSource, 'extendedSignalModule')])]);
 if (!stdlibTables.length) throw new Error('Cannot locate stdlib export tables for reference coverage.');
 const implementedStdlibExports = new Map();
 for (const [, moduleName, table] of stdlibTables) {

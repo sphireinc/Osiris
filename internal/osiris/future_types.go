@@ -1141,7 +1141,7 @@ func futurePolyEval(args []Value) (Value, error) {
 	return result, nil
 }
 
-func rejectTask134FutureBackend(prog *Program, backend string) error {
+func rejectReservedTypeFutureBackend(prog *Program, backend string) error {
 	if prog == nil {
 		return nil
 	}

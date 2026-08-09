@@ -1,6 +1,7 @@
 # Reserved numeric and sparse type contract
 
-Task 134 makes the five previously reserved names real shared-runtime values.
+The reserved-type design makes the five previously reserved names real
+shared-runtime values.
 This contract intentionally describes the portable interpreter/VM surface;
 artifact backends that do not carry these values must reject them explicitly.
 

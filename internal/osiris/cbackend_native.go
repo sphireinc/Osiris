@@ -495,14 +495,20 @@ func nativeStaticModuleMember(path, member string) (string, bool) {
 	}
 	supported := map[string]map[string]struct{}{
 		"std/net":    {"tcp_listen": {}, "tcp_accept": {}, "tcp_dial": {}, "udp_bind": {}, "udp_connect": {}, "udp_send": {}, "udp_receive": {}, "dns_lookup": {}, "tls_dial": {}, "tls_dial_config": {}, "tls_listen": {}, "http_get": {}, "http_request": {}, "http_request_stream": {}, "http_serve": {}},
-		"std/crypto": {"random": {}, "hash": {}, "digest": {}, "digest_bytes": {}, "hex_encode": {}, "hex_decode": {}, "compare_digest": {}, "algorithm_supported": {}},
+		"std/crypto": {"sha256": {}, "sha512": {}, "sha512_256": {}, "random": {}, "hash": {}, "digest": {}, "digest_bytes": {}, "hmac": {}, "hex_encode": {}, "hex_decode": {}, "compare_digest": {}, "base64_encode": {}, "base64_decode": {}, "base64url_encode": {}, "base64url_decode": {}, "algorithm_supported": {}},
 		"std/list":   {"range": {}, "len": {}, "take": {}, "sum": {}, "product": {}, "reverse": {}, "at": {}, "index_of": {}, "last_index_of": {}, "contains": {}, "count": {}, "sort": {}, "unique": {}, "partition": {}, "slice": {}, "chunks": {}, "windows": {}, "zip": {}, "concat": {}, "repeat": {}, "empty": {}, "all": {}, "any": {}, "none": {}, "enumerate": {}, "flatten": {}},
-		"std/signal": {"rectangular": {}, "hann": {}, "hamming": {}, "blackman": {}, "bartlett": {}, "convolve": {}, "correlate": {}, "filter_fir": {}, "mean": {}, "energy": {}, "variance": {}, "rms": {}, "fft": {}, "ifft": {}, "normalize": {}},
-		"std/text":   {"trim": {}, "trim_space": {}, "upper": {}, "lower": {}, "fields": {}, "join": {}, "slug": {}, "cat": {}, "replace": {}, "replace_n": {}, "split": {}, "split_after": {}, "split_n": {}, "split_after_n": {}, "chunks": {}, "compare": {}, "contains": {}, "has_prefix": {}, "has_suffix": {}, "equal_fold": {}, "count": {}, "index": {}, "last_index": {}, "index_any": {}, "last_index_any": {}, "cut": {}, "cut_prefix": {}, "cut_suffix": {}, "trim_left": {}, "trim_right": {}, "trim_prefix": {}, "trim_suffix": {}, "repeat": {}},
+		"std/signal": {"rectangular": {}, "hann": {}, "hamming": {}, "blackman": {}, "bartlett": {}, "convolve": {}, "correlate": {}, "filter_fir": {}, "resample": {}, "mean": {}, "energy": {}, "variance": {}, "rms": {}, "fft": {}, "ifft": {}, "normalize": {}},
+		"std/text":   {"trim": {}, "trim_space": {}, "upper": {}, "lower": {}, "fields": {}, "join": {}, "slug": {}, "cat": {}, "replace": {}, "replace_n": {}, "split": {}, "split_after": {}, "split_n": {}, "split_after_n": {}, "chunks": {}, "compare": {}, "contains": {}, "contains_any": {}, "has_prefix": {}, "has_suffix": {}, "equal_fold": {}, "count": {}, "index": {}, "last_index": {}, "index_any": {}, "last_index_any": {}, "cut": {}, "cut_prefix": {}, "cut_suffix": {}, "trim_left": {}, "trim_right": {}, "trim_prefix": {}, "trim_suffix": {}, "repeat": {}},
 		"std/time": {
-			"add": {}, "add_date": {}, "date": {}, "duration_string": {},
-			"format": {}, "parse_duration": {}, "rfc3339": {}, "sub": {},
-			"utc_location": {},
+			"duration": {}, "add": {}, "add_date": {}, "date": {}, "duration_string": {},
+			"unix": {}, "unix_milli": {}, "unix_micro": {},
+			"format": {}, "parse_duration": {}, "rfc3339": {}, "rfc3339_nano": {}, "sub": {},
+			"round": {}, "truncate": {},
+			"compare": {}, "equal": {}, "before": {}, "after": {},
+			"year": {}, "month": {}, "day": {}, "hour": {}, "minute": {},
+			"second": {}, "nanosecond": {}, "weekday": {}, "year_day": {},
+			"microsecond": {}, "millisecond": {},
+			"utc_location": {}, "utc": {},
 		},
 		"std/os": {"is_path_separator": {}, "read_file": {}, "write_file": {}, "getenv": {}, "env_names": {}, "environ": {}, "setenv": {}, "unsetenv": {}, "hostname": {}, "getpid": {}, "getppid": {}, "getuid": {}, "geteuid": {}, "getgid": {}, "getegid": {}, "getpagesize": {}, "process_spawn": {}, "start_process": {}, "find_process": {}, "process_wait": {}, "process_state": {}, "process_kill": {}, "process_signal": {}, "process_release": {}, "process_stdin": {}, "process_stdout": {}, "process_stderr": {}, "open": {}, "create": {}, "open_file": {}, "pipe": {}, "stdin": {}, "stdout": {}, "stderr": {}, "fd": {}, "name": {}, "new_file": {}, "with_handle": {}, "syscall_conn": {}, "signal_subscribe": {}, "close": {}, "read": {}, "write": {}, "write_string": {}, "read_at": {}, "write_at": {}, "seek_file": {}, "sync": {}, "set_deadline": {}, "set_read_deadline": {}, "set_write_deadline": {}, "open_root": {}, "root_create": {}, "root_open": {}, "root_open_file": {}, "root_read_file": {}, "root_write_file": {}, "root_stat": {}, "root_lstat": {}, "root_chown": {}, "root_lchown": {}, "root_chtimes": {}, "root_fs": {}, "root_readlink": {}, "root_mkdir": {}, "root_mkdir_all": {}, "root_remove": {}, "root_remove_all": {}, "root_rename": {}, "root_link": {}, "root_symlink": {}, "root_chmod": {}, "root_close": {}, "stat": {}, "lstat": {}, "read_dir": {}, "mkdir": {}, "mkdir_all": {}, "remove": {}, "remove_all": {}, "truncate": {}, "rename": {}, "link": {}, "symlink": {}, "chmod": {}, "readlink": {}, "watch": {}},
 	}
@@ -517,6 +523,26 @@ func nativeStaticModuleMember(path, member string) (string, bool) {
 		return member, true
 	}
 	return path + "." + member, true
+}
+
+func nativeDirectTimeBuiltin(builtin string, argc int) bool {
+	switch builtin {
+	case "std/time.duration", "std/time.unix", "std/time.unix_milli", "std/time.unix_micro":
+		return true
+	case "std/time.hour", "std/time.minute", "std/time.second", "std/time.nanosecond":
+		// Preserve the runtime error path for wrong-arity calls, including calls
+		// inside try/catch. The direct component lowering is only used for the
+		// valid one-argument shape.
+		return argc == 1
+	case "std/time.utc":
+		// Native datetimes carry an instant and normalized nanoseconds by value;
+		// the native ABI has no non-UTC location payload, so valid utc calls are
+		// a checked value-preserving conversion. Wrong arity stays on dispatch so
+		// try/catch observes the runtime error contract.
+		return argc == 1
+	default:
+		return false
+	}
 }
 
 // nativeResourceProducer describes the capability family owned by a resource
@@ -1334,7 +1360,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		}
 		fmt.Fprintf(b, "  %s = %s;\n", vars[in.Dest], v)
 	case "global":
-		if in.Value.kind == kindQuantity && in.Text != "meter" {
+		if in.Value.kind == kindQuantity && in.Text != "meter" && in.Text != "Second" {
 			return fmt.Errorf("native C backend: named quantity %q is not supported", in.Text)
 		}
 		v, err := cLiteral(in.Value)
@@ -1460,10 +1486,30 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			fmt.Fprintf(b, "  %s = ofloat(0x1.921fb54442d18p+1);\n", vars[in.Dest])
 		case "tau":
 			fmt.Fprintf(b, "  %s = ofloat(0x1.921fb54442d18p+2);\n", vars[in.Dest])
+		case "std/crypto.sha256":
+			fmt.Fprintf(b, "  %s = ostring(\"sha256\");\n", vars[in.Dest])
+		case "std/crypto.sha512":
+			fmt.Fprintf(b, "  %s = ostring(\"sha512\");\n", vars[in.Dest])
+		case "std/crypto.sha512_256":
+			fmt.Fprintf(b, "  %s = ostring(\"sha512_256\");\n", vars[in.Dest])
 		case "std/time.utc_location":
 			fmt.Fprintf(b, "  %s = ostring(\"UTC\");\n", vars[in.Dest])
 		case "std/time.rfc3339":
 			fmt.Fprintf(b, "  %s = ostring(\"2006-01-02T15:04:05Z07:00\");\n", vars[in.Dest])
+		case "std/time.rfc3339_nano":
+			fmt.Fprintf(b, "  %s = ostring(\"2006-01-02T15:04:05.999999999Z07:00\");\n", vars[in.Dest])
+		case "std/time.nanosecond":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(1));\n", vars[in.Dest])
+		case "std/time.microsecond":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(1000));\n", vars[in.Dest])
+		case "std/time.millisecond":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(1000000));\n", vars[in.Dest])
+		case "std/time.second":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(1000000000));\n", vars[in.Dest])
+		case "std/time.minute":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(60000000000));\n", vars[in.Dest])
+		case "std/time.hour":
+			fmt.Fprintf(b, "  %s = ostd_time_duration_value(INT64_C(3600000000000));\n", vars[in.Dest])
 		case "std/os.stdin":
 			fmt.Fprintf(b, "  %s = osiris_host_standard_stream(0);\n", vars[in.Dest])
 		case "std/os.stdout":
@@ -1547,6 +1593,16 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		}
 		fmt.Fprintf(b, "}, %d);\n", len(in.Args))
 		return nil
+	case "newtype":
+		if len(in.Args) != 1 || in.Text == "" {
+			return fmt.Errorf("native C backend: newtype instruction has invalid payload")
+		}
+		value, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = onewtype(\"%s\", %s);\n", vars[in.Dest], cEscapeString(in.Text), value)
+		return nil
 	case "product_update":
 		if len(in.Args) != len(in.FieldNames)+1 {
 			return fmt.Errorf("native C backend: product update has mismatched fields")
@@ -1587,7 +1643,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(b, "  %s = oat(%s, %s);\n", vars[in.Dest], object, index)
+		fmt.Fprintf(b, "  %s = oat_product_or_value(%s, %s);\n", vars[in.Dest], object, index)
 		return nil
 	case "enum":
 		typeName, caseName, ok := strings.Cut(in.Text, ".")
@@ -1645,6 +1701,27 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		}
 		fmt.Fprintf(b, "  %s = olistis(%s, %du);\n", vars[in.Dest], subject, in.Value.u)
 		return nil
+	case "matchproduct":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: product match expects one subject")
+		}
+		subject, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		if len(in.FieldNames) == 0 {
+			fmt.Fprintf(b, "  %s = oproductis(%s, \"%s\", NULL, 0);\n", vars[in.Dest], subject, cEscapeString(in.Text))
+			return nil
+		}
+		fmt.Fprintf(b, "  %s = oproductis(%s, \"%s\", (const char*[]){", vars[in.Dest], subject, cEscapeString(in.Text))
+		for i, field := range in.FieldNames {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(b, "\"%s\"", cEscapeString(field))
+		}
+		fmt.Fprintf(b, "}, %d);\n", len(in.FieldNames))
+		return nil
 	case "listitem":
 		if len(in.Args) != 1 {
 			return fmt.Errorf("native C backend: list item read expects one subject")
@@ -1654,6 +1731,16 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			return err
 		}
 		fmt.Fprintf(b, "  %s = olistitem(%s, %du);\n", vars[in.Dest], subject, in.Value.u)
+		return nil
+	case "productfield":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: product field read expects one subject")
+		}
+		subject, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = oproductfield(%s, \"%s\");\n", vars[in.Dest], subject, cEscapeString(in.Text))
 		return nil
 	case "matchtype":
 		if len(in.Args) != 1 {
@@ -1860,7 +1947,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				return diagnostic("native capability %q is not granted for %s producer %q", capability, genericBuiltin, producer)
 			}
 		} else if capability := nativeBuiltinCapability(builtin); capability != "" && !nativeCapabilityGranted(ffiPlan, capability) {
-			return fmt.Errorf("native C backend: native capability %q is not granted for %s", capability, builtin)
+			return diagnostic("native capability %q is not granted for %s", capability, builtin)
 		}
 		if fn == nil && builtin == "map_new" {
 			fmt.Fprintf(b, "  %s = omapnew((OValue[]){", vars[in.Dest])
@@ -1887,7 +1974,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		if nativeComplexMathBuiltin(builtin) {
 			for _, arg := range in.Args {
 				if complexValues[arg] {
-					return fmt.Errorf("native C backend: complex %s is not supported yet", builtin)
+					return diagnostic("complex %s is not supported yet", builtin)
 				}
 			}
 		}
@@ -1895,9 +1982,27 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			if strings.HasPrefix(builtin, "std/") && !strings.HasPrefix(builtin, "std/math.") {
 				module, member, ok := strings.Cut(builtin, ".")
 				if ok {
-					if _, supported := nativeStaticModuleMember(module, member); supported {
+					if _, supported := nativeStaticModuleMember(module, member); supported && builtin != "std/text.chunks" && !nativeDirectTimeBuiltin(builtin, len(in.Args)) {
 						if capability := nativeModuleCapability(module, member); !nativeCapabilityGranted(ffiPlan, capability) {
 							return fmt.Errorf("native C backend: native capability %q is not granted for %s.%s", capability, module, member)
+						}
+						if builtin == "std/crypto.random" {
+							if len(in.Args) != 2 {
+								return fmt.Errorf("native C backend: std/crypto.random expects 2 arguments")
+							}
+							fmt.Fprintf(b, "  %s = ocrypto_random(%s, %s);\n", vars[in.Dest], vars[in.Args[0]], vars[in.Args[1]])
+							return nil
+						}
+						if builtin == "std/crypto.hash" {
+							fmt.Fprintf(b, "  %s = ocrypto_hash((OValue[]){", vars[in.Dest])
+							for i, arg := range in.Args {
+								if i > 0 {
+									b.WriteString(", ")
+								}
+								b.WriteString(vars[arg])
+							}
+							fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+							return nil
 						}
 						fmt.Fprintf(b, "  %s = ostd_dispatch(\"%s\", \"%s\", (OValue[]){", vars[in.Dest], cEscapeString(module), cEscapeString(member))
 						for i, arg := range in.Args {
@@ -1912,6 +2017,53 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				}
 			}
 			switch builtin {
+			case "std/time.duration":
+				if len(in.Args) != 1 {
+					return fmt.Errorf("native C backend: std/time.duration expects 1 argument")
+				}
+				fmt.Fprintf(b, "  %s = ostd_time_duration(%s);\n", vars[in.Dest], vars[in.Args[0]])
+				return nil
+			case "std/time.unix":
+				if len(in.Args) != 1 && len(in.Args) != 2 {
+					return fmt.Errorf("native C backend: std/time.unix expects seconds and optional nanoseconds")
+				}
+				fmt.Fprintf(b, "  %s = ostd_time_unix((OValue[]){", vars[in.Dest])
+				for i, arg := range in.Args {
+					if i > 0 {
+						b.WriteString(", ")
+					}
+					b.WriteString(vars[arg])
+				}
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
+				return nil
+			case "std/time.unix_milli", "std/time.unix_micro":
+				if len(in.Args) != 1 {
+					return fmt.Errorf("native C backend: %s expects 1 integer argument", builtin)
+				}
+				scale := "1000000"
+				if builtin == "std/time.unix_micro" {
+					scale = "1000"
+				}
+				fmt.Fprintf(b, "  %s = ostd_time_unix_scaled(%s, INT64_C(%s));\n", vars[in.Dest], vars[in.Args[0]], scale)
+				return nil
+			case "std/time.hour", "std/time.minute", "std/time.second", "std/time.nanosecond":
+				if len(in.Args) != 1 {
+					return fmt.Errorf("native C backend: %s expects 1 datetime argument", builtin)
+				}
+				component := map[string]int{
+					"std/time.hour":       5,
+					"std/time.minute":     6,
+					"std/time.second":     7,
+					"std/time.nanosecond": 8,
+				}[builtin]
+				fmt.Fprintf(b, "  %s = ostd_time_component(%s, \"%s\", %d);\n", vars[in.Dest], vars[in.Args[0]], strings.TrimPrefix(builtin, "std/time."), component)
+				return nil
+			case "std/time.utc":
+				if len(in.Args) != 1 {
+					return fmt.Errorf("native C backend: std/time.utc expects 1 datetime argument")
+				}
+				fmt.Fprintf(b, "  %s = ostd_time_utc(%s);\n", vars[in.Dest], vars[in.Args[0]])
+				return nil
 			case "std/crypto.random":
 				if len(in.Args) != 2 {
 					return fmt.Errorf("native C backend: std/crypto.random expects 2 arguments")
@@ -1943,6 +2095,20 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				helper := strings.NewReplacer("/", "_", ".", "_").Replace(builtin)
 				fmt.Fprintf(b, "  %s = o%s(%s, %s);\n", vars[in.Dest], helper, vars[in.Args[0]], vars[in.Args[1]])
 				return nil
+			case "std/text.chunks":
+				if len(in.Args) != 2 {
+					return fmt.Errorf("native C backend: std/text.chunks expects 2 arguments")
+				}
+				textValue, err := name(in.Args[0])
+				if err != nil {
+					return err
+				}
+				widthValue, err := name(in.Args[1])
+				if err != nil {
+					return err
+				}
+				fmt.Fprintf(b, "  %s = ostd_text_chunks(%s, %s);\n", vars[in.Dest], textValue, widthValue)
+				return nil
 			case "std/time.add_date":
 				if len(in.Args) != 4 {
 					return fmt.Errorf("native C backend: std/time.add_date expects 4 arguments")
@@ -1950,8 +2116,8 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				fmt.Fprintf(b, "  %s = ostd_time_add_date(%s, %s, %s, %s);\n", vars[in.Dest], vars[in.Args[0]], vars[in.Args[1]], vars[in.Args[2]], vars[in.Args[3]])
 				return nil
 			case "std/time.date":
-				if len(in.Args) != 8 {
-					return fmt.Errorf("native C backend: std/time.date expects 8 arguments")
+				if len(in.Args) != 7 && len(in.Args) != 8 {
+					return fmt.Errorf("native C backend: std/time.date expects 7 fields and an optional location")
 				}
 				fmt.Fprintf(b, "  %s = ostd_time_date((OValue[]){", vars[in.Dest])
 				for i, arg := range in.Args {
@@ -1960,7 +2126,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 					}
 					b.WriteString(vars[arg])
 				}
-				b.WriteString("});\n")
+				fmt.Fprintf(b, "}, %d);\n", len(in.Args))
 				return nil
 			case "rotl", "bxor", "band":
 				if len(in.Args) != 2 {
@@ -2065,7 +2231,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		if fn == nil && (builtin == "dual" || builtin == "primal" || builtin == "tangent") {
 			if builtin == "dual" {
 				if len(in.Args) != 2 {
-					return fmt.Errorf("native C backend: dual expects 2 arguments")
+					return diagnostic("dual expects 2 arguments")
 				}
 				fmt.Fprintf(b, "  %s = odualcall((OValue[]){%s, %s}, 2);\n", vars[in.Dest], vars[in.Args[0]], vars[in.Args[1]])
 				return nil
@@ -2077,7 +2243,33 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			fmt.Fprintf(b, "  %s = %s(%s);\n", vars[in.Dest], helper, vars[in.Args[0]])
 			return nil
 		}
-		if fn == nil && (builtin == "abs" || builtin == "uint" || builtin == "byte" || builtin == "bytes" || builtin == "u8" || builtin == "u16" || builtin == "u32" || builtin == "u64" || builtin == "i8" || builtin == "i16" || builtin == "i32" || builtin == "i64" || builtin == "f32" || builtin == "f64" || builtin == "number" || builtin == "complex" || builtin == "real" || builtin == "imag" || builtin == "conjugate" || builtin == "magnitude" || builtin == "sqrt" || builtin == "exp" || builtin == "pow" || builtin == "expt" || builtin == "log" || builtin == "log10" || builtin == "log2" || builtin == "sin" || builtin == "cos" || builtin == "tan" || builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" || builtin == "expm1" || builtin == "log1p" || builtin == "cbrt" || builtin == "erf" || builtin == "erfc" || builtin == "gamma" || builtin == "lgamma" || builtin == "floor" || builtin == "ceil" || builtin == "round" || builtin == "hypot" || builtin == "min" || builtin == "max" || builtin == "clamp" || builtin == "mean" || builtin == "std" || builtin == "quantile" || builtin == "phase" || builtin == "vector" || builtin == "vec" || builtin == "zeros" || builtin == "ones" || builtin == "full" || builtin == "identity" || builtin == "eye" || builtin == "arange" || builtin == "linspace" || builtin == "logspace" || builtin == "len" || builtin == "take" || builtin == "slice" || builtin == "at" || builtin == "setat" || builtin == "tensor" || builtin == "matrix" || builtin == "reshape" || builtin == "transpose" || builtin == "matmul" || builtin == "outer" || builtin == "trace" || builtin == "det" || builtin == "solve" || builtin == "inv" || builtin == "cholesky" || builtin == "qr" || builtin == "eig" || builtin == "eigh" || builtin == "svd" || builtin == "shape" || builtin == "flatten" || builtin == "sum" || builtin == "product" || builtin == "dot" || builtin == "norm") {
+		if fn == nil && (builtin == "divmod" || builtin == "gcd" || builtin == "lcm") {
+			if len(in.Args) != 2 {
+				return fmt.Errorf("native C backend: %s expects 2 arguments", builtin)
+			}
+			helper := map[string]string{"divmod": "ostd_math_divmod", "gcd": "ostd_math_gcd", "lcm": "ostd_math_lcm"}[builtin]
+			fmt.Fprintf(b, "  %s = %s(%s, %s);\n", vars[in.Dest], helper, vars[in.Args[0]], vars[in.Args[1]])
+			return nil
+		}
+		if fn == nil && (builtin == "count_ones" || builtin == "count_zeros" || builtin == "leading_zeros" || builtin == "trailing_zeros" || builtin == "bit_width" || builtin == "bit_floor" || builtin == "bit_ceil" || builtin == "has_single_bit" || builtin == "byte_swap") {
+			if len(in.Args) != 1 {
+				return fmt.Errorf("native C backend: %s expects 1 argument", builtin)
+			}
+			helper := map[string]string{
+				"count_ones":     "ostd_math_count_ones",
+				"count_zeros":    "ostd_math_count_zeros",
+				"leading_zeros":  "ostd_math_leading_zeros",
+				"trailing_zeros": "ostd_math_trailing_zeros",
+				"bit_width":      "ostd_math_bit_width",
+				"bit_floor":      "ostd_math_bit_floor",
+				"bit_ceil":       "ostd_math_bit_ceil",
+				"has_single_bit": "ostd_math_has_single_bit",
+				"byte_swap":      "ostd_math_byte_swap",
+			}[builtin]
+			fmt.Fprintf(b, "  %s = %s(%s);\n", vars[in.Dest], helper, vars[in.Args[0]])
+			return nil
+		}
+		if fn == nil && (builtin == "abs" || builtin == "uint" || builtin == "byte" || builtin == "bytes" || builtin == "u8" || builtin == "u16" || builtin == "u32" || builtin == "u64" || builtin == "i8" || builtin == "i16" || builtin == "i32" || builtin == "i64" || builtin == "f32" || builtin == "f64" || builtin == "number" || builtin == "complex" || builtin == "real" || builtin == "imag" || builtin == "conjugate" || builtin == "magnitude" || builtin == "sqrt" || builtin == "exp" || builtin == "exp2" || builtin == "atan2" || builtin == "trunc" || builtin == "fmod" || builtin == "remainder" || builtin == "fma" || builtin == "pow" || builtin == "expt" || builtin == "log" || builtin == "log10" || builtin == "log2" || builtin == "sin" || builtin == "cos" || builtin == "tan" || builtin == "asin" || builtin == "acos" || builtin == "atan" || builtin == "sinh" || builtin == "cosh" || builtin == "tanh" || builtin == "asinh" || builtin == "acosh" || builtin == "atanh" || builtin == "expm1" || builtin == "log1p" || builtin == "cbrt" || builtin == "erf" || builtin == "erfc" || builtin == "gamma" || builtin == "lgamma" || builtin == "floor" || builtin == "ceil" || builtin == "round" || builtin == "hypot" || builtin == "min" || builtin == "max" || builtin == "clamp" || builtin == "mean" || builtin == "std" || builtin == "quantile" || builtin == "phase" || builtin == "vector" || builtin == "vec" || builtin == "zeros" || builtin == "ones" || builtin == "full" || builtin == "identity" || builtin == "eye" || builtin == "arange" || builtin == "linspace" || builtin == "logspace" || builtin == "len" || builtin == "take" || builtin == "slice" || builtin == "at" || builtin == "setat" || builtin == "tensor" || builtin == "matrix" || builtin == "reshape" || builtin == "transpose" || builtin == "matmul" || builtin == "outer" || builtin == "trace" || builtin == "det" || builtin == "solve" || builtin == "inv" || builtin == "cholesky" || builtin == "qr" || builtin == "eig" || builtin == "eigh" || builtin == "svd" || builtin == "shape" || builtin == "flatten" || builtin == "sum" || builtin == "product" || builtin == "dot" || builtin == "norm") {
 			expected := 1
 			if builtin == "at" || builtin == "take" || builtin == "dot" || builtin == "reshape" || builtin == "matmul" || builtin == "outer" || builtin == "solve" {
 				expected = 2
@@ -2102,6 +2294,15 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			}
 			if builtin == "log" && len(in.Args) == 2 {
 				expected = 2
+			}
+			if builtin == "atan2" {
+				expected = 2
+			}
+			if builtin == "fmod" || builtin == "remainder" {
+				expected = 2
+			}
+			if builtin == "fma" {
+				expected = 3
 			}
 			if builtin == "pow" || builtin == "expt" {
 				expected = 2
@@ -2172,6 +2373,9 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 				// power relies on a libm contract that is not bit-exact with Go.
 				// The scalar specializer admits only proven f32 operands.
 				return fmt.Errorf("native C backend: %s requires proven f32 scalar inputs; exact and f64 lowering is not parity-safe", builtin)
+			}
+			if builtin == "fmod" || builtin == "remainder" || builtin == "fma" {
+				return fmt.Errorf("native C backend: %s requires matching-width floating scalar inputs; dynamic, mixed-width, integer, and complex lowering is not supported", builtin)
 			}
 			if builtin == "min" || builtin == "max" {
 				fmt.Fprintf(b, "  %s = ominmax((OValue[]){", vars[in.Dest])
@@ -2479,8 +2683,8 @@ func cLiteral(v Value) (string, error) {
 		}
 		return fmt.Sprintf("ofloat(%.17g)", v.num), nil
 	case kindComplex:
-		if v.fbits == 32 {
-			return "", fmt.Errorf("native C backend: complex<f32> lowering is not implemented; use complex<f64> or the default complex family")
+		if v.fbits != 0 {
+			return fmt.Sprintf("ocomplexbits(%.17g, %.17g, %d)", real(v.cx), imag(v.cx), v.fbits), nil
 		}
 		return fmt.Sprintf("ocomplex(%.17g, %.17g)", real(v.cx), imag(v.cx)), nil
 	case kindString:
@@ -2752,7 +2956,16 @@ func nativeScalarResultKind(op string, a, b nativeScalarKind) nativeScalarKind {
 // unboxed scalar emitter. A builtin is admitted only when its result cannot
 // change into a tagged language value at runtime.
 func nativeScalarBuiltinResultKind(name string, args []nativeScalarKind) nativeScalarKind {
-	if (name == "abs" || name == "sqrt" || name == "cbrt" || name == "exp" || name == "log" || name == "log10" || name == "log2" || name == "expm1" || name == "log1p" || name == "erf" || name == "erfc" || name == "sin" || name == "cos" || name == "tan" || name == "floor" || name == "ceil" || name == "round") && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+	if (name == "abs" || name == "sqrt" || name == "cbrt" || name == "exp" || name == "exp2" || name == "trunc" || name == "log" || name == "log10" || name == "log2" || name == "expm1" || name == "log1p" || name == "erf" || name == "erfc" || name == "sin" || name == "cos" || name == "tan" || name == "floor" || name == "ceil" || name == "round") && len(args) == 1 && nativeScalarIsFloat(args[0]) {
+		return args[0]
+	}
+	if name == "atan2" && len(args) == 2 && nativeScalarIsFloat(args[0]) && args[0] == args[1] {
+		return args[0]
+	}
+	if (name == "fmod" || name == "remainder") && len(args) == 2 && nativeScalarIsFloat(args[0]) && args[0] == args[1] {
+		return args[0]
+	}
+	if name == "fma" && len(args) == 3 && nativeScalarIsFloat(args[0]) && args[0] == args[1] && args[1] == args[2] {
 		return args[0]
 	}
 	if name == "log" && len(args) == 2 && args[0] == nativeScalarF32 && args[1] == nativeScalarF32 {
@@ -3283,6 +3496,44 @@ func emitScalarBuiltin(b *strings.Builder, dest, name string, args []string, kin
 			fmt.Fprintf(b, "  %s = atan(%s);\n", dest, args[0])
 		}
 		return true
+	case "atan2":
+		if len(args) != 2 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)atan2((double)%s, (double)%s);\n", dest, args[0], args[1])
+		} else {
+			fmt.Fprintf(b, "  %s = atan2(%s, %s);\n", dest, args[0], args[1])
+		}
+		return true
+	case "fmod", "remainder":
+		if len(args) != 2 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		// The reference functions reject zero, including signed zero, before
+		// applying the IEEE operation. Use double libm inputs for f32 and narrow
+		// exactly once at the language result boundary.
+		fmt.Fprintf(b, "  if ((double)%s == 0.0) return onativefail(\"%s divisor must be non-zero\");\n", args[1], name)
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)%s((double)%s, (double)%s);\n", dest, name, args[0], args[1])
+		} else {
+			fmt.Fprintf(b, "  %s = %s(%s, %s);\n", dest, name, args[0], args[1])
+		}
+		return true
+	case "fma":
+		if len(args) != 3 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		// Calling the C fma operation preserves the single-rounding contract.
+		// For f32, evaluate the three already-rounded inputs in double and
+		// narrow only after the fused result, matching math.FMA plus the Osiris
+		// result-width conversion.
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)fma((double)%s, (double)%s, (double)%s);\n", dest, args[0], args[1], args[2])
+		} else {
+			fmt.Fprintf(b, "  %s = fma(%s, %s, %s);\n", dest, args[0], args[1], args[2])
+		}
+		return true
 	case "asin", "acos":
 		if len(args) != 1 || !nativeScalarIsFloat(kind) {
 			return false
@@ -3343,6 +3594,16 @@ func emitScalarBuiltin(b *strings.Builder, dest, name string, args []string, kin
 			fmt.Fprintf(b, "  %s = (float)%s((double)%s);\n", dest, name, args[0])
 		} else {
 			fmt.Fprintf(b, "  %s = %s(%s);\n", dest, name, args[0])
+		}
+		return true
+	case "trunc":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "  %s = (float)trunc((double)%s);\n", dest, args[0])
+		} else {
+			fmt.Fprintf(b, "  %s = trunc(%s);\n", dest, args[0])
 		}
 		return true
 	case "min", "max":
@@ -3424,6 +3685,24 @@ func emitScalarBuiltin(b *strings.Builder, dest, name string, args []string, kin
 			fmt.Fprintf(b, "    %s = (float)%s_exp;\n", dest, dest)
 		} else {
 			fmt.Fprintf(b, "    %s = %s_exp;\n", dest, dest)
+		}
+		b.WriteString("  }\n")
+		return true
+	case "exp2":
+		if len(args) != 1 || !nativeScalarIsFloat(kind) {
+			return false
+		}
+		// Match the reference overflow order: finite inputs overflow only when
+		// the mathematical result, or the explicit f32 narrowing, becomes inf.
+		// NaN and infinite inputs retain IEEE behavior.
+		b.WriteString("  {\n")
+		fmt.Fprintf(b, "    double %s_exp2 = exp2((double)%s);\n", dest, args[0])
+		fmt.Fprintf(b, "    if (!isinf((double)%s) && isinf(%s_exp2)) return onativefail(\"exp2 overflow\");\n", args[0], dest)
+		if kind == nativeScalarF32 {
+			fmt.Fprintf(b, "    %s = (float)%s_exp2;\n", dest, dest)
+			fmt.Fprintf(b, "    if (!isinf((double)%s) && isinf((double)%s)) return onativefail(\"exp2 overflow\");\n", args[0], dest)
+		} else {
+			fmt.Fprintf(b, "    %s = %s_exp2;\n", dest, dest)
 		}
 		b.WriteString("  }\n")
 		return true
@@ -4094,12 +4373,13 @@ func emitCScalarMain(b *strings.Builder, fn *IRFunction, functions map[string]*I
 }
 
 func cRuntimePrelude() string {
-	return strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(`#include <stdio.h>
+	source := strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(strings.Replace(`#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
 #include <limits.h>
+#include <stdarg.h>
 #if !defined(_WIN32)
 #include <sys/stat.h>
 #endif
@@ -4118,7 +4398,7 @@ typedef struct { double real; double imag; } OComplex;
 typedef struct { double primal; double tangent; } ODual;
 typedef struct { OValue *items; size_t len; } OList;
 typedef struct OMap OMap;
-typedef struct { OString type_name; OMap *fields; } OProduct;
+typedef struct { OString type_name; OMap *fields; int newtype; } OProduct;
 typedef struct { OString type_name; OString case_name; OList payload; } OEnum;
 typedef struct {
   OString kind;
@@ -4140,6 +4420,7 @@ typedef struct { double *data; size_t len; size_t *shape; size_t rank; unsigned 
 typedef struct { OComplex *data; size_t len; size_t *shape; size_t rank; } OComplexTensor;
 typedef struct { OCall call; OValue *captures; size_t capture_count; const char *signature; } OClosure;
 typedef struct { double magnitude; OString unit; } OQuantity;
+typedef struct { int64_t seconds; int32_t nanosecond; } ODatetime;
 typedef struct { OValue *value; } OBox;
 typedef struct { void *handle; } OFFILibrary;
 typedef struct OAlloc { void *ptr; struct OAlloc *next; } OAlloc;
@@ -4147,7 +4428,7 @@ typedef enum { O_LINALG_OK = 0, O_LINALG_INVALID_ARGUMENT, O_LINALG_NOT_CONVERGE
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); } OLinalgProviderV1;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); OLinalgStatus (*eig_f64)(size_t, double *, OComplex *, OComplex *); } OLinalgProviderV2;
 extern const OLinalgProviderV1 *osiris_linalg_provider_v1(void);
-struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OCell *cell; OEnum en; OError error; OQuantity quantity; OBox box; OTask *task; OMap *map; OProduct product; OFFILibrary ffi; void *resource; } as; };
+struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OCell *cell; OEnum en; OError error; OQuantity quantity; ODatetime datetime; OBox box; OTask *task; OMap *map; OProduct product; OFFILibrary ffi; void *resource; } as; };
 typedef struct { OString key; OValue value; } OMapEntry;
 struct OMap { OMapEntry *entries; size_t len; };
 struct OCell { OValue value; };
@@ -4328,8 +4609,8 @@ static int otruthy(OValue x) { switch(x.kind) { case O_BOOL:return x.as.b; case 
 static int onum(OValue x, double *out) { switch(x.kind) { case O_FLOAT:*out=x.as.f; return 1; case O_INT:*out=(double)x.as.i; return 1; case O_UINT:*out=(double)x.as.u; return 1; case O_BOOL:*out=(double)x.as.b; return 1; default:return 0; } }
 static int ocomplexnum(OValue x, OComplex *out) { if(x.kind==O_COMPLEX) { *out=x.as.cx; return 1; } double real; if(!onum(x,&real)) return 0; out->real=real; out->imag=0; return 1; }
 static OValue ocomplexcall(const OValue *args, size_t argc) { OComplex value; if(argc==1) { if(!ocomplexnum(args[0],&value)) return ofail("complex expects numeric arguments"); return ocomplexbits(value.real,value.imag,args[0].kind==O_FLOAT||args[0].kind==O_COMPLEX?args[0].fbits:0); } if(argc==2) { double real,imag; if(!onum(args[0],&real)||!onum(args[1],&imag)) return ofail("complex expects numeric arguments"); uint16_t width=args[0].kind==O_FLOAT?args[0].fbits:0; if(args[1].kind==O_FLOAT&&args[1].fbits>width) width=args[1].fbits; return ocomplexbits(real,imag,width); } return ofail("complex expects 1 or 2 arguments"); }
-static OValue oreal(OValue x) { OComplex value; return ocomplexnum(x,&value)?ofloat(value.real):ofail("real expects a complex-compatible value"); }
-static OValue oimag(OValue x) { OComplex value; return ocomplexnum(x,&value)?ofloat(value.imag):ofail("imag expects a complex-compatible value"); }
+static OValue oreal(OValue x) { OComplex value; if(!ocomplexnum(x,&value)) return ofail("real expects a complex-compatible value"); return ofloatbits(value.real,x.kind==O_FLOAT||x.kind==O_COMPLEX?x.fbits:0); }
+static OValue oimag(OValue x) { OComplex value; if(!ocomplexnum(x,&value)) return ofail("imag expects a complex-compatible value"); return ofloatbits(value.imag,x.kind==O_FLOAT||x.kind==O_COMPLEX?x.fbits:0); }
 static OValue oconjugate(OValue x) { if(x.kind==O_COMPLEX) return ocomplexbits(x.as.cx.real,-x.as.cx.imag,x.fbits); if(x.kind==O_COMPLEX_TENSOR) { size_t n=x.as.ctensor.len; OComplex *data=n?(OComplex *)malloc(n*sizeof(OComplex)):NULL; if(n&&!data) return ofail("out of memory"); for(size_t i=0;i<n;i++) data[i]=(OComplex){x.as.ctensor.data[i].real,-x.as.ctensor.data[i].imag}; return ocomplextensordata(data,n,x.as.ctensor.shape,x.as.ctensor.rank); } double ignored; return onum(x,&ignored)?x:ofail("conjugate expects a complex-compatible value"); }
 static OValue omagnitude(OValue x) { OComplex value; return ocomplexnum(x,&value)?ofloat(hypot(value.real,value.imag)):ofail("magnitude expects a complex-compatible value"); }
 static OValue odoubledualbin(const char *op, OValue a, OValue b) {
@@ -4367,7 +4648,7 @@ static OValue ogt(OValue a, OValue b) { return obin(">",a,b); }
 static OValue oge(OValue a, OValue b) { return obin(">=",a,b); }
 static OValue oequal(OValue a, OValue b) { return obin("==",a,b); }
 static OValue onotequal(OValue a, OValue b) { return obin("!=",a,b); }
-static OValue ounary(const char *op, OValue x) { double n; if(!strcmp(op,"!")) return obool(!otruthy(x)); if(!strcmp(op,"-")) { if(x.kind==O_COMPLEX) return ocomplexbits(-x.as.cx.real,-x.as.cx.imag,x.fbits); if(x.kind==O_INT) return ointbits((int64_t)(UINT64_C(0)-(uint64_t)x.as.i),x.fbits); if(!onum(x,&n)) return ofail("unary - expects a numeric value"); return x.kind==O_FLOAT?ofloatbits(-x.as.f,x.fbits):oint(-(int64_t)n); } return x; }
+static OValue ounary(const char *op, OValue x) { double n; if(!strcmp(op,"!")) return obool(!otruthy(x)); if(!strcmp(op,"-")) { if(x.kind==O_COMPLEX) return ocomplexbits(-x.as.cx.real,-x.as.cx.imag,x.fbits); if(x.kind==O_DUAL) return odual(-x.as.dual.primal,-x.as.dual.tangent); if(x.kind==O_INT) return ointbits((int64_t)(UINT64_C(0)-(uint64_t)x.as.i),x.fbits); if(!onum(x,&n)) return ofail("unary - expects a numeric value"); return x.kind==O_FLOAT?ofloatbits(-x.as.f,x.fbits):oint(-(int64_t)n); } return x; }
 static OValue oabs(OValue x) { if(x.kind==O_COMPLEX) return ofloatbits(hypot(x.as.cx.real,x.as.cx.imag),x.fbits); if(x.kind==O_FLOAT) return ofloatbits(x.as.f<0?-x.as.f:x.as.f,x.fbits); if(x.kind==O_INT) return ointbits(x.as.i<0?-x.as.i:x.as.i,x.fbits); return x; }
 static OValue ouintcast(OValue x) { double n; return onum(x,&n)?ouintbits((uint64_t)n,64):ofail("expected unsigned integer, got string"); }
 static OValue ouintwidthcast(OValue x, uint16_t bits, const char *name) { double n; return onum(x,&n)?ouintbits((uint64_t)n,bits):ofail(name); }
@@ -4429,7 +4710,7 @@ static OValue otensorproduct(OValue x) { if(x.kind==O_TENSOR) { double total=1; 
 static OValue otensordot(OValue a, OValue b) { if((a.kind!=O_TENSOR&&a.kind!=O_COMPLEX_TENSOR)||(b.kind!=O_TENSOR&&b.kind!=O_COMPLEX_TENSOR)) return ofail("dot expects tensors"); size_t an=a.kind==O_TENSOR?a.as.tensor.len:a.as.ctensor.len,bn=b.kind==O_TENSOR?b.as.tensor.len:b.as.ctensor.len; if(an!=bn) return ofail("dot expects tensors with the same length"); uint16_t bits=(a.fbits>b.fbits)?a.fbits:b.fbits; if(a.kind==O_TENSOR&&b.kind==O_TENSOR) { double total=0; for(size_t i=0;i<an;i++) total+=a.as.tensor.data[i]*b.as.tensor.data[i]; return ofloatbits(total,bits); } OComplex total={0,0}; for(size_t i=0;i<an;i++) { OComplex left=a.kind==O_TENSOR?(OComplex){a.as.tensor.data[i],0}:a.as.ctensor.data[i],right=b.kind==O_TENSOR?(OComplex){b.as.tensor.data[i],0}:b.as.ctensor.data[i]; total.real+=left.real*right.real-left.imag*right.imag; total.imag+=left.real*right.imag+left.imag*right.real; } return ocomplexbits(total.real,total.imag,bits); }
 static OValue otensornorm(OValue x) { if(x.kind==O_TENSOR) { double total=0; for(size_t i=0;i<x.as.tensor.len;i++) total+=x.as.tensor.data[i]*x.as.tensor.data[i]; return ofloatbits(sqrt(total),x.fbits); } if(x.kind==O_COMPLEX_TENSOR) { double total=0; for(size_t i=0;i<x.as.ctensor.len;i++) total+=x.as.ctensor.data[i].real*x.as.ctensor.data[i].real+x.as.ctensor.data[i].imag*x.as.ctensor.data[i].imag; return ofloatbits(sqrt(total),x.fbits); } return ofail("norm expects a tensor"); }
 static void oprintfloat(double x) { if(isnan(x)) { fputs("NaN",stdout); return; } if(isinf(x)) { fputs(signbit(x)?"-Inf":"+Inf",stdout); return; } if(trunc(x)==x&&x>=-9223372036854775808.0&&x<=9223372036854775807.0) { printf("%lld",(long long)x); return; } char text[64], *end=NULL; for(int precision=1;precision<=17;precision++) { snprintf(text,sizeof(text),"%.*g",precision,x); double roundtrip=strtod(text,&end); if(end&&*end==0&&roundtrip==x&&!(x==0&&signbit(roundtrip)!=signbit(x))) { fputs(text,stdout); return; } } printf("%.17g",x); }
-static void oprintvalue(OValue x) { switch(x.kind) { case O_NULL: fputs("null",stdout); break; case O_BOOL: fputs(x.as.b?"true":"false",stdout); break; case O_UINT: printf("%lluu%u",(unsigned long long)x.as.u,(unsigned)(x.fbits?x.fbits:64)); break; case O_INT: printf("%lldi%u",(long long)x.as.i,(unsigned)(x.fbits?x.fbits:64)); break; case O_FLOAT: oprintfloat(x.as.f); if(x.fbits) printf("f%u",(unsigned)x.fbits); break; case O_COMPLEX: if(x.as.cx.imag==0) { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("+0",stdout); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else if(x.as.cx.real==0) { oprintfloat(x.as.cx.imag); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); if(signbit(x.as.cx.imag)) { putchar('-'); oprintfloat(-x.as.cx.imag); } else { putchar('+'); oprintfloat(x.as.cx.imag); } if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } break; case O_DUAL: oprintfloat(x.as.dual.primal); fputs("+",stdout); oprintfloat(x.as.dual.tangent); fputs("ε",stdout); break; case O_STRING: printf("\"%.*s\"",(int)x.as.s.len,x.as.s.data); break; case O_LIST: putchar('['); for(size_t i=0;i<x.as.list.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.list.items[i]); } putchar(']'); break; case O_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.tensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.tensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.tensor.len;i++) { if(i) fputs(", ",stdout); oprintfloat(x.as.tensor.data[i]); if(x.fbits) printf("f%u",(unsigned)x.fbits); } fputs("])",stdout); break; case O_COMPLEX_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.ctensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.ctensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.ctensor.len;i++) { if(i) fputs(", ",stdout); oprintvalue(ocomplexbits(x.as.ctensor.data[i].real,x.as.ctensor.data[i].imag,x.fbits)); } fputs("])",stdout); break; case O_CLOSURE: fputs("<function>",stdout); break; case O_ENUM: printf("%.*s.%.*s",(int)x.as.en.type_name.len,x.as.en.type_name.data,(int)x.as.en.case_name.len,x.as.en.case_name.data); if(x.as.en.payload.len) { putchar('('); for(size_t i=0;i<x.as.en.payload.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.en.payload.items[i]); } putchar(')'); } break; case O_DECIMAL: printf("%.*sd",(int)x.as.s.len,x.as.s.data); break; case O_BIGINT: printf("%.*sn",(int)x.as.s.len,x.as.s.data); break; case O_QUANTITY: oprintfloat(x.as.quantity.magnitude); printf("*%.*s",(int)x.as.quantity.unit.len,x.as.quantity.unit.data); break; case O_DATETIME: oprintdatetime(x); break; case O_DURATION: printf("duration(%lld)",(long long)x.as.i); break; case O_ERROR: printf("error(%.*s, %.*s)",(int)x.as.error.kind.len,x.as.error.kind.data,(int)x.as.error.message.len,x.as.error.message.data); break; case O_RESULT: if(x.fbits&&x.as.box.value) { fputs("ok(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else if(x.as.box.value) { fputs("err(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else fputs(x.fbits?"ok":"err",stdout); break; case O_OPTION: if(!x.fbits) fputs("none",stdout); else { fputs("some(",stdout); if(x.as.box.value) oprintvalue(*x.as.box.value); fputs(")",stdout); } break; case O_TASK: fputs("<task>",stdout); break; case O_BYTES: fputs("bytes",stdout); break; case O_MAP: putchar('{'); for(size_t i=0;i<x.as.map->len;i++) { if(i) fputs(", ",stdout); printf("%.*s: ",(int)x.as.map->entries[i].key.len,x.as.map->entries[i].key.data); oprintvalue(x.as.map->entries[i].value); } putchar('}'); break; case O_CELL: fputs("<cell>",stdout); break; case O_FFI: fputs("<ffi>",stdout); break; case O_RESOURCE: fputs("<host-resource>",stdout); break; } }
+static void oprintvalue(OValue x) { switch(x.kind) { case O_NULL: fputs("null",stdout); break; case O_BOOL: fputs(x.as.b?"true":"false",stdout); break; case O_UINT: printf("%lluu%u",(unsigned long long)x.as.u,(unsigned)(x.fbits?x.fbits:64)); break; case O_INT: printf("%lldi%u",(long long)x.as.i,(unsigned)(x.fbits?x.fbits:64)); break; case O_FLOAT: oprintfloat(x.as.f); if(x.fbits) printf("f%u",(unsigned)x.fbits); break; case O_COMPLEX: if(x.as.cx.imag==0) { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("+0",stdout); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else if(x.as.cx.real==0) { oprintfloat(x.as.cx.imag); if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } else { oprintfloat(x.as.cx.real); if(x.fbits) printf("f%u",(unsigned)x.fbits); if(signbit(x.as.cx.imag)) { putchar('-'); oprintfloat(-x.as.cx.imag); } else { putchar('+'); oprintfloat(x.as.cx.imag); } if(x.fbits) printf("f%u",(unsigned)x.fbits); fputs("i",stdout); } break; case O_DUAL: oprintfloat(x.as.dual.primal); fputs("+",stdout); oprintfloat(x.as.dual.tangent); fputs("ε",stdout); break; case O_STRING: printf("\"%.*s\"",(int)x.as.s.len,x.as.s.data); break; case O_LIST: putchar('['); for(size_t i=0;i<x.as.list.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.list.items[i]); } putchar(']'); break; case O_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.tensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.tensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.tensor.len;i++) { if(i) fputs(", ",stdout); oprintfloat(x.as.tensor.data[i]); if(x.fbits) printf("f%u",(unsigned)x.fbits); } fputs("])",stdout); break; case O_COMPLEX_TENSOR: fputs("tensor[",stdout); for(size_t i=0;i<x.as.ctensor.rank;i++) { if(i) putchar('x'); printf("%zu",x.as.ctensor.shape[i]); } fputs("]([",stdout); for(size_t i=0;i<x.as.ctensor.len;i++) { if(i) fputs(", ",stdout); oprintvalue(ocomplexbits(x.as.ctensor.data[i].real,x.as.ctensor.data[i].imag,x.fbits)); } fputs("])",stdout); break; case O_CLOSURE: fputs("<function>",stdout); break; case O_ENUM: printf("%.*s.%.*s",(int)x.as.en.type_name.len,x.as.en.type_name.data,(int)x.as.en.case_name.len,x.as.en.case_name.data); if(x.as.en.payload.len) { putchar('('); for(size_t i=0;i<x.as.en.payload.len;i++) { if(i) fputs(", ",stdout); oprintvalue(x.as.en.payload.items[i]); } putchar(')'); } break; case O_DECIMAL: printf("%.*sd",(int)x.as.s.len,x.as.s.data); break; case O_BIGINT: printf("%.*sn",(int)x.as.s.len,x.as.s.data); break; case O_QUANTITY: oprintfloat(x.as.quantity.magnitude); printf("*%.*s",(int)x.as.quantity.unit.len,x.as.quantity.unit.data); break; case O_DATETIME: oprintdatetime(x); break; case O_DURATION: printf("duration(%lld)",(long long)x.as.i); break; case O_ERROR: fputs("error[",stdout); printf("%.*s",(int)x.as.error.kind.len,x.as.error.kind.data); fputs("](\"",stdout); for(size_t i=0;i<x.as.error.message.len;i++) { unsigned char c=(unsigned char)x.as.error.message.data[i]; if(c=='\"'||c=='\\') { putchar('\\'); putchar(c); } else if(c=='\n') fputs("\\n",stdout); else if(c=='\r') fputs("\\r",stdout); else if(c=='\t') fputs("\\t",stdout); else putchar(c); } fputs("\")",stdout); break; case O_RESULT: if(x.fbits&&x.as.box.value) { fputs("ok(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else if(x.as.box.value) { fputs("err(",stdout); oprintvalue(*x.as.box.value); fputs(")",stdout); } else fputs(x.fbits?"ok":"err",stdout); break; case O_OPTION: if(!x.fbits) fputs("none",stdout); else { fputs("some(",stdout); if(x.as.box.value) oprintvalue(*x.as.box.value); fputs(")",stdout); } break; case O_TASK: fputs("<task>",stdout); break; case O_BYTES: fputs("bytes",stdout); break; case O_MAP: putchar('{'); for(size_t i=0;i<x.as.map->len;i++) { if(i) fputs(", ",stdout); printf("%.*s: ",(int)x.as.map->entries[i].key.len,x.as.map->entries[i].key.data); oprintvalue(x.as.map->entries[i].value); } putchar('}'); break; case O_CELL: fputs("<cell>",stdout); break; case O_FFI: fputs("<ffi>",stdout); break; case O_RESOURCE: fputs("<host-resource>",stdout); break; } }
 static void oprint(OValue x) {
 #ifdef OSIRIS_PUBLIC_EMIT_SPACING
 if(oprinted) putchar('\n');
@@ -4437,16 +4718,55 @@ if(oprinted) putchar('\n');
 oprintvalue(x); putchar('\n'); oprinted=1;
 }
 `, "static OValue oat(", "static OValue oat_real(", 1), "static OValue oreshape(", "static OValue oreshape_real(", 1), "static OValue osetat(", "static OValue osetat_real(", 1), "static OValue obin(const char *op, OValue a, OValue b) {", "static OValue obin_real(const char *op, OValue a, OValue b) {", 1), "static OValue otake(", "static OValue otake_real(", 1), "static OValue oslice(", "static OValue oslice_real(", 1), "static OValue osliceaxis(", "static OValue osliceaxis_real(", 1), "static OValue otranspose(", "static OValue otranspose_real(", 1), "static OValue omatmul(", "static OValue omatmul_real(", 1), "static OValue otrace(", "static OValue otrace_real(", 1), "static OValue odet(", "static OValue odet_real(", 1), "static OValue osolve(", "static OValue osolve_real(", 1), "static OValue oinv(", "static OValue oinv_real(", 1), "static OValue ocholesky(", "static OValue ocholesky_real(", 1), "static OValue oqr(", "static OValue oqr_real(", 1), "provider&&provider->abi_version==1&&provider->eigh_f64", "provider&&provider->abi_version>=1&&provider->eigh_f64", 1), "provider&&provider->abi_version==1&&provider->svd_f64", "provider&&provider->abi_version>=1&&provider->svd_f64", 1) + cRuntimeComplexTensorComponent + cRuntimePortableComponent + strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(cRuntimeStdlibComponent, "ostd_text_join", "o147_text_join"), "ostd_text_fields", "o147_text_fields"), "ostd_list_range", "o147_list_range") + cRuntimeFFIComponent
+	return strings.Replace(source,
+		`case O_DUAL: oprintfloat(x.as.dual.primal); fputs("+",stdout); oprintfloat(x.as.dual.tangent); fputs("ε",stdout); break;`,
+		`case O_DUAL: fputs("dual(",stdout); oprintfloat(x.as.dual.primal); fputs(", ",stdout); oprintfloat(x.as.dual.tangent); fputs(")",stdout); break;`,
+		1)
 }
 
 const cRuntimeFFIComponent = `
 static OValue omember_any(OValue value, const char *name) { if(value.kind==O_PRODUCT) { OValue *found=omapget(value,name); return found?*found:ofail("member is not available on this product"); } return omember(value,name); }
 
+static OValue oat_product_or_value(OValue value, OValue index) {
+  if (value.kind == O_PRODUCT && index.kind != O_STRING) return ofail("product index expects a string field name");
+  if (value.kind == O_PRODUCT && index.kind == O_STRING) {
+    char *key = (char *)malloc(index.as.s.len + 1);
+    if (!key) return ofail("out of memory");
+    memcpy(key, index.as.s.data, index.as.s.len);
+    key[index.as.s.len] = 0;
+    OValue *found = omapget(value, key);
+    free(key);
+    return found ? *found : ofail("product field not found");
+  }
+  return oat(value, index);
+}
+
+static OValue oproductis(OValue value, const char *type_name, const char **keys, size_t len) {
+  if (value.kind != O_PRODUCT || !value.as.product.fields ||
+      value.as.product.type_name.len != strlen(type_name) ||
+      memcmp(value.as.product.type_name.data, type_name, value.as.product.type_name.len) != 0) {
+    return obool(0);
+  }
+  for (size_t i = 0; i < len; i++) {
+    if (!omapget(value, keys[i])) return obool(0);
+  }
+  return obool(1);
+}
+
+static OValue oproductfield(OValue value, const char *key) {
+  if (value.kind != O_PRODUCT || !value.as.product.fields) return ofail("product field read requires a constructed product");
+  OValue *found = omapget(value, key);
+  return found ? *found : ofail("product field not found");
+}
+
 /* Named products have a nominal tag plus map-like fields. The field storage
    deliberately reuses OMap's ownership-independent entries, while the
    product tag keeps member access and generated output distinct from maps. */
-static OValue oproduct(const char *type_name, const char **keys, const OValue *values, size_t len) { OValue map=omap(keys,values,len); if(map.kind!=O_MAP) return map; return (OValue){O_PRODUCT,0,{.product={{type_name,strlen(type_name)},map.as.map}}}; }
-static OValue oproductupdate(OValue base, const char **keys, const OValue *values, size_t len) { if(base.kind!=O_PRODUCT||!base.as.product.fields) return ofail("product update requires a product value"); OMap *old=base.as.product.fields; OMap *map=(OMap *)malloc(sizeof(OMap)); if(!map) return ofail("out of memory"); map->entries=(OMapEntry *)calloc(old->len+len,sizeof(OMapEntry)); if(!map->entries) { free(map); return ofail("out of memory"); } map->len=old->len; for(size_t i=0;i<old->len;i++) map->entries[i]=old->entries[i]; for(size_t i=0;i<len;i++) { size_t at=0; while(at<map->len&&strcmp(map->entries[at].key.data,keys[i])) at++; if(at==map->len) { map->entries[map->len].key=(OString){keys[i],strlen(keys[i])}; map->len++; } map->entries[at].value=values[i]; } return (OValue){O_PRODUCT,0,{.product={base.as.product.type_name,map}}}; }
+static OValue oproduct(const char *type_name, const char **keys, const OValue *values, size_t len) { OValue map=omap(keys,values,len); if(map.kind!=O_MAP) return map; return (OValue){O_PRODUCT,0,{.product={{type_name,strlen(type_name)},map.as.map,0}}}; }
+static OValue onewtype(const char *type_name, OValue value) { const char *key="value"; OValue map=omap(&key,&value,1); if(map.kind!=O_MAP) return map; return (OValue){O_PRODUCT,0,{.product={{type_name,strlen(type_name)},map.as.map,1}}}; }
+static OValue oproductupdate(OValue base, const char **keys, const OValue *values, size_t len) { if(base.kind!=O_PRODUCT||!base.as.product.fields) return ofail("product update requires a product value"); OMap *old=base.as.product.fields; OMap *map=(OMap *)malloc(sizeof(OMap)); if(!map) return ofail("out of memory"); map->entries=(OMapEntry *)calloc(old->len+len,sizeof(OMapEntry)); if(!map->entries) { free(map); return ofail("out of memory"); } map->len=old->len; for(size_t i=0;i<old->len;i++) map->entries[i]=old->entries[i]; for(size_t i=0;i<len;i++) { size_t at=0; while(at<map->len&&strcmp(map->entries[at].key.data,keys[i])) at++; if(at==map->len) { map->entries[map->len].key=(OString){keys[i],strlen(keys[i])}; map->len++; } map->entries[at].value=values[i]; } return (OValue){O_PRODUCT,0,{.product={base.as.product.type_name,map,base.as.product.newtype}}}; }
+
+static void oprint_product_value(OValue value);
 
 /* Tuples use the existing bounded aggregate storage, with fbits=1 as the
    tuple discriminator. Lists never set fbits, so the representation remains
@@ -4454,6 +4774,7 @@ static OValue oproductupdate(OValue base, const char **keys, const OValue *value
    distinct from list values at the backend boundary. */
 static OValue otuple(const OValue *items, size_t len) { OValue out=olist(items,len); if(out.kind==O_LIST) out.fbits=1; return out; }
 static void oprint_tuple_value(OValue value) {
+  if (value.kind == O_PRODUCT) { oprint_product_value(value); return; }
   if (value.kind != O_LIST) { oprintvalue(value); return; }
   putchar(value.fbits ? '(' : '[');
   for (size_t i = 0; i < value.as.list.len; i++) {
@@ -4461,6 +4782,23 @@ static void oprint_tuple_value(OValue value) {
     oprint_tuple_value(value.as.list.items[i]);
   }
   putchar(value.fbits ? ')' : ']');
+}
+static void oprint_product_value(OValue value) {
+  if (value.kind != O_PRODUCT || !value.as.product.fields) { oprintvalue(value); return; }
+  if (value.as.product.newtype && value.as.product.fields->len == 1 &&
+      !strcmp(value.as.product.fields->entries[0].key.data, "value")) {
+    printf("%.*s(", (int)value.as.product.type_name.len, value.as.product.type_name.data);
+    oprint_tuple_value(value.as.product.fields->entries[0].value);
+    putchar(')');
+    return;
+  }
+  printf("%.*s {", (int)value.as.product.type_name.len, value.as.product.type_name.data);
+  for (size_t i = 0; i < value.as.product.fields->len; i++) {
+    fputs(i ? ", " : " ", stdout);
+    printf("%.*s: ", (int)value.as.product.fields->entries[i].key.len, value.as.product.fields->entries[i].key.data);
+    oprint_tuple_value(value.as.product.fields->entries[i].value);
+  }
+  fputs(" }", stdout);
 }
 static void oprint_tuple_aware(OValue value) {
 #ifdef OSIRIS_PUBLIC_EMIT_SPACING

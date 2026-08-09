@@ -47,6 +47,17 @@ func TestBackendCapabilityInventoryIsCompleteAndUnique(t *testing.T) {
 			}
 		}
 	}
+	for module, members := range map[string][]string{
+		"std/net": {"tcp_listen", "tcp_accept", "tcp_dial", "udp_bind", "udp_connect", "udp_send", "udp_receive", "dns_lookup", "tls_dial", "tls_dial_config", "tls_listen", "http_get", "http_request", "http_request_stream", "http_serve"},
+		"std/os":  {"open", "create", "open_file", "pipe", "read", "write", "read_at", "write_at", "seek_file", "sync", "open_root", "root_open", "root_open_file", "root_read_file", "root_write_file", "root_stat", "root_lstat", "root_fs", "root_readlink", "root_mkdir", "root_mkdir_all", "root_remove", "root_remove_all", "root_rename", "root_link", "root_symlink", "root_chmod", "root_close", "stat", "lstat", "read_dir", "mkdir", "mkdir_all", "remove", "remove_all", "truncate", "rename", "link", "symlink", "chmod", "readlink", "watch"},
+	} {
+		for _, member := range members {
+			entry, ok := findBackendCapability(entries, "module/"+module+"/"+member)
+			if !ok || entry.Native != BackendImplemented {
+				t.Fatalf("%s.%s inventory entry = %+v, want implemented native lowering", module, member, entry)
+			}
+		}
+	}
 	if entry, ok := findBackendCapability(entries, "syntax/defer"); !ok || entry.Native != BackendImplemented {
 		t.Fatalf("defer inventory entry = %+v, want native cleanup-edge support", entry)
 	}

@@ -678,6 +678,84 @@
           "example": "emit text.lower(\"ΟΣΙΡΙΣ\") # \"οσιρισ\""
         },
         {
+          "name": "fields",
+          "syntax": "text.fields(value)",
+          "parameters": "`value` is one UTF-8 `string`.",
+          "returns": "`list<string>`",
+          "summary": "Split text around runs of Unicode whitespace.",
+          "details": [
+            "Empty fields are discarded, and Unicode whitespace includes spaces, tabs, and non-ASCII whitespace code points.",
+            "The result is a newly owned list of newly owned strings. This member is part of the parity-tested Native C slice."
+          ],
+          "errors": "Wrong arity, a non-string argument, malformed UTF-8, or an allocation failure produces a structured error.",
+          "example": "emit text.fields(\"  alpha\\u2003beta\\t\") # [\"alpha\", \"beta\"]"
+        },
+        {
+          "name": "compare",
+          "syntax": "text.compare(left, right)",
+          "parameters": "`left` and `right` are UTF-8 strings.",
+          "returns": "`i64`",
+          "summary": "Compare two strings lexicographically.",
+          "details": [
+            "The result is exactly `-1`, `0`, or `1`, using UTF-8 byte ordering with code-point boundaries preserved by valid input.",
+            "The Native C implementation compares only the common prefix before applying length ordering, so a shorter string is not always smaller."
+          ],
+          "errors": "Wrong arity, a non-string argument, or malformed UTF-8 produces a structured error.",
+          "example": "emit text.compare(\"z\", \"aa\") # 1i64"
+        },
+        {
+          "name": "equal_fold",
+          "syntax": "text.equal_fold(left, right)",
+          "parameters": "`left` and `right` are UTF-8 strings.",
+          "returns": "`bool`",
+          "summary": "Compare strings using Unicode simple case folding.",
+          "details": [
+            "The operation is locale-independent and recognizes the compact portable equivalence table, including final sigma, Kelvin sign, and long s mappings.",
+            "It returns a scalar and never retains either input."
+          ],
+          "errors": "Wrong arity, a non-string argument, or malformed UTF-8 produces a structured error.",
+          "example": "emit text.equal_fold(\"Σ\", \"ς\") # true"
+        },
+        {
+          "name": "count",
+          "syntax": "text.count(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`u64`",
+          "summary": "Count non-overlapping occurrences of a substring.",
+          "details": [
+            "Matches advance by the complete needle, so `text.count(\"aaaa\", \"aa\")` is `2` rather than `3`.",
+            "An empty needle counts code-point boundaries plus one."
+          ],
+          "errors": "Wrong arity, a non-string argument, or malformed UTF-8 produces a structured error.",
+          "example": "emit text.count(\"aaaa\", \"aa\") # 2u64"
+        },
+        {
+          "name": "index",
+          "syntax": "text.index(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`option<u64>`",
+          "summary": "Return the first matching code-point index.",
+          "details": [
+            "The index counts Unicode code points rather than UTF-8 bytes. A missing match returns `none`; an empty needle returns `some(0)`.",
+            "The option is newly owned and does not expose a pointer into the input string."
+          ],
+          "errors": "Wrong arity, a non-string argument, or malformed UTF-8 produces a structured error.",
+          "example": "emit text.index(\"a世b\", \"b\") # some(2u64)"
+        },
+        {
+          "name": "last_index",
+          "syntax": "text.last_index(value, needle)",
+          "parameters": "`value` and `needle` are UTF-8 strings.",
+          "returns": "`option<u64>`",
+          "summary": "Return the final matching code-point index.",
+          "details": [
+            "Matches are searched from the end without overlapping result ownership. A missing match returns `none`; an empty needle returns the text length in code points.",
+            "The Native C implementation handles an empty needle before scanning so it never advances past the string terminator."
+          ],
+          "errors": "Wrong arity, a non-string argument, or malformed UTF-8 produces a structured error.",
+          "example": "emit text.last_index(\"é-é\", \"é\") # some(2u64)"
+        },
+        {
           "name": "replace",
           "syntax": "text.replace(value, old, replacement)",
           "parameters": "`value`, `old`, and `replacement` are UTF-8 strings.",
@@ -698,7 +776,7 @@
           "summary": "Repeat a `string` a fixed number of times.",
           "details": [
             "A zero count or an empty input returns an empty string.",
-            "The result remains immutable UTF-8 text."
+            "The result remains immutable UTF-8 text. Native C checks the 1 MiB result bound before allocation and returns an owned string."
           ],
           "errors": "Wrong arity, invalid kinds, a negative count, or a result too large for the host allocation limit produces a structured error.",
           "example": "emit text.repeat(\"世\", 3) # \"世世世\""
@@ -738,7 +816,8 @@
           "summary": "Break text into fixed-width pieces.",
           "details": [
             "Chunk widths count Unicode code points, never UTF-8 bytes. The final chunk may be shorter.",
-            "An empty input returns an empty list."
+            "An empty input returns an empty list.",
+            "Native C directly lowers this bounded pure operation, copies each chunk into an owned string, and requires no host capability."
           ],
           "errors": "Wrong arity, invalid kinds, a non-positive size, or an out-of-range size produces a structured error.",
           "example": "emit text.chunks(\"a世界b\", 2) # [\"a世\", \"界b\"]"
@@ -2714,7 +2793,9 @@
           "returns": "`bytes`",
           "summary": "Serialize an Osiris value.",
           "details": [
-            "This is the round-trip codec path for value snapshots and binary interchange."
+            "Returns an OSR1 byte string beginning with the four-byte OSR1 header.",
+            "Result uses tag 0x16, Option uses tag 0x17, and structured Error uses tag 0x0a with version 1 and the documented field order.",
+            "Nested values are bounded by the runtime recursion and 64 MiB resource limits; map keys are encoded in deterministic lexical order."
           ],
           "example": "emit encode([1u8, 2u16, \"go\"])"
         },
@@ -2724,7 +2805,9 @@
           "returns": "value",
           "summary": "Restore an Osiris value from encoded bytes.",
           "details": [
-            "This is the inverse of `encode` for supported value trees."
+            "Accepts an OSR1 string or byte-compatible list and validates its header, tags, lengths, presence bytes, recursion depth, and trailing bytes.",
+            "The inverse path reconstructs Result, Option, and structured Error values, including nested causes and bounded metadata/stack records.",
+            "Decoded storage is owned by the result and is not borrowed from the input byte list."
           ],
           "example": "emit decode(encode([1u8, 2u16, \"go\"]))"
         }
@@ -2742,7 +2825,8 @@
           "summary": "Hash values into a stable text digest.",
           "details": [
             "These are the current crypto-flavored helpers exposed through `std/crypto`.",
-            "Native C supports SHA-256 `hash` for its parity-tested scalar, string, list, enum, complex, and time value families; other value families remain explicit compile-time boundaries."
+            "Native C supports SHA-256 `hash` for its parity-tested scalar, string, list, enum, complex, and time value families; other value families remain explicit compile-time boundaries.",
+            "The host-independent `hex_encode`, `hex_decode`, and `compare_digest` members have individual interpreter, VM, generated-C, native-executable, ownership, error, and capability evidence. The documented Base64 members remain outside this native slice until their static native admission is added."
           ],
           "example": "emit hash(\"osiris\")"
         },
@@ -3082,7 +3166,7 @@
     {
       "id": "list",
       "title": "std/list",
-      "summary": "Length, range generation, slicing, and simple reducers.",
+      "summary": "Bounded list length, construction, indexing, transforms, grouping, and predicates.",
       "items": [
         {
           "name": "len",
@@ -3145,6 +3229,145 @@
             "This is the standard multiplicative reducer for numeric collections."
           ],
           "example": "emit product([1, 2, 3, 4])"
+        },
+        {
+          "name": "reverse",
+          "syntax": "reverse(values)",
+          "returns": "`list`",
+          "summary": "Return a reversed copy of a list.",
+          "details": ["The source list is not mutated and the result owns its element array."],
+          "example": "import \"std/list\" as list\nemit list.reverse([1, 2, 3])"
+        },
+        {
+          "name": "at",
+          "syntax": "at(values, index)",
+          "returns": "value",
+          "summary": "Read one zero-based list element.",
+          "details": ["The index must be a non-negative integer in range; invalid access returns a structured error."],
+          "example": "import \"std/list\" as list\nemit list.at([10, 20], 1)"
+        },
+        {
+          "name": "index_of",
+          "syntax": "index_of(values, target)",
+          "returns": "`i64`",
+          "summary": "Return the first matching index or -1.",
+          "details": ["Equality follows the language value comparison contract and the input remains unchanged."],
+          "example": "import \"std/list\" as list\nemit list.index_of([1, 2, 1], 1)"
+        },
+        {
+          "name": "last_index_of",
+          "syntax": "last_index_of(values, target)",
+          "returns": "`i64`",
+          "summary": "Return the last matching index or -1.",
+          "details": ["The search is deterministic and bounded by the list item limit."],
+          "example": "import \"std/list\" as list\nemit list.last_index_of([1, 2, 1], 1)"
+        },
+        {
+          "name": "contains",
+          "syntax": "contains(values, target)",
+          "returns": "`bool`",
+          "summary": "Test whether a list contains a value.",
+          "details": ["The scan short-circuits on the first equal element and allocates no result list."],
+          "example": "import \"std/list\" as list\nemit list.contains([1, 2], 2)"
+        },
+        {
+          "name": "count",
+          "syntax": "count(values, target)",
+          "returns": "`u64`",
+          "summary": "Count equal values in a list.",
+          "details": ["The bounded equality scan returns an unsigned count without mutating the source."],
+          "example": "import \"std/list\" as list\nemit list.count([1, 1, 2], 1)"
+        },
+        {
+          "name": "sort",
+          "syntax": "sort(values)",
+          "returns": "`list`",
+          "summary": "Return a stable ascending copy.",
+          "details": ["Values must be mutually orderable; incomparable values return a structured error and the input remains unchanged."],
+          "example": "import \"std/list\" as list\nemit list.sort([3, 1, 2])"
+        },
+        {
+          "name": "unique",
+          "syntax": "unique(values)",
+          "returns": "`list`",
+          "summary": "Remove duplicates while preserving first occurrence order.",
+          "details": ["The result is independently owned and uses the shared equality contract."],
+          "example": "import \"std/list\" as list\nemit list.unique([1, 1, 2])"
+        },
+        {
+          "name": "chunks",
+          "syntax": "chunks(values, width)",
+          "returns": "`list<list>`",
+          "summary": "Split a list into fixed-width chunks.",
+          "details": [
+            "`values` is bounded and `width` is a positive integer no greater than the list item limit.",
+            "Each chunk owns a copied element array, the final chunk may be shorter, and invalid input produces a structured error without mutating the source or requiring a host capability."
+          ],
+          "example": "import \"std/list\" as list\nemit list.chunks([1, 2, 3, 4, 5], 2)"
+        },
+        {
+          "name": "zip",
+          "syntax": "zip(left, right)",
+          "returns": "`list<tuple>`",
+          "summary": "Pair values at matching positions.",
+          "details": ["The result stops at the shorter list and each pair is a tuple with newly owned storage."],
+          "example": "import \"std/list\" as list\nemit list.zip([1, 2], [\"a\", \"b\"])"
+        },
+        {
+          "name": "concat",
+          "syntax": "concat(lists...)",
+          "returns": "`list`",
+          "summary": "Concatenate zero or more lists.",
+          "details": ["The total result size is checked before allocation and inputs are never mutated."],
+          "example": "import \"std/list\" as list\nemit list.concat([1], [2, 3])"
+        },
+        {
+          "name": "repeat",
+          "syntax": "repeat(value, count)",
+          "returns": "`list`",
+          "summary": "Create count copies of a value.",
+          "details": ["Count must be non-negative and within the list item bound; allocation happens only after validation."],
+          "example": "import \"std/list\" as list\nemit list.repeat(\"x\", 3)"
+        },
+        {
+          "name": "empty",
+          "syntax": "empty()",
+          "returns": "`list`",
+          "summary": "Create an empty list.",
+          "details": ["The result is a pure owned value and the function accepts no arguments."],
+          "example": "import \"std/list\" as list\nemit list.empty()"
+        },
+        {
+          "name": "all",
+          "syntax": "all(values)",
+          "returns": "`bool`",
+          "summary": "Test whether every list value is truthy.",
+          "details": ["Empty input returns true and evaluation short-circuits on the first false value."],
+          "example": "import \"std/list\" as list\nemit list.all([true, true])"
+        },
+        {
+          "name": "any",
+          "syntax": "any(values)",
+          "returns": "`bool`",
+          "summary": "Test whether any list value is truthy.",
+          "details": ["Empty input returns false and evaluation short-circuits on the first true value."],
+          "example": "import \"std/list\" as list\nemit list.any([false, true])"
+        },
+        {
+          "name": "none",
+          "syntax": "none(values)",
+          "returns": "`bool`",
+          "summary": "Test whether no list value is truthy.",
+          "details": ["Empty input returns true and evaluation stops at the first true value."],
+          "example": "import \"std/list\" as list\nemit list.none([false, false])"
+        },
+        {
+          "name": "enumerate",
+          "syntax": "enumerate(values)",
+          "returns": "`list<tuple<u64,value>>`",
+          "summary": "Pair each value with its zero-based index.",
+          "details": ["Pairs are emitted in source order and each pair is represented as a tuple."],
+          "example": "import \"std/list\" as list\nemit list.enumerate([\"a\", \"b\"])"
         }
       ]
     },

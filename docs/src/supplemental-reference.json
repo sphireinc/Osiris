@@ -274,8 +274,8 @@
           "returns": "`string`",
           "summary": "Remove a Unicode code-point set from the start of a string.",
           "details": [
-            "`code_points` is a character set, not a prefix, substring, byte set, or regular expression.",
-            "An empty set leaves the value unchanged."
+            "`code_points` is a Unicode character set, not a prefix, substring, byte set, or regular expression.",
+            "An empty set leaves the value unchanged. Native C uses the same decoded code-point membership rule and returns a newly owned string."
           ],
           "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
           "example": "emit text.trim_left(\"¡¡hola!!\", \"¡\") # \"hola!!\""
@@ -287,8 +287,8 @@
           "returns": "`string`",
           "summary": "Remove a Unicode code-point set from the end of a string.",
           "details": [
-            "`code_points` is a character set, not a suffix, substring, byte set, or regular expression.",
-            "An empty set leaves the value unchanged."
+            "`code_points` is a Unicode character set, not a suffix, substring, byte set, or regular expression.",
+            "An empty set leaves the value unchanged. Native C uses the same decoded code-point membership rule and returns a newly owned string."
           ],
           "errors": "Wrong arity or a non-string argument produces a structured `invalid_argument` or `type_error`.",
           "example": "emit text.trim_right(\"¡¡hola!!\", \"!\") # \"¡¡hola\""
@@ -362,6 +362,7 @@
             "IEEE signed zeros, infinities, and NaNs determine the quadrant and exceptional result without host error text."
           ],
           "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32` and `f64` scalar arguments with the platform `atan2` operation and one explicit result-width conversion. Mixed-width, complex, and dynamic shapes remain native compile diagnostics; the direct path allocates no storage and requires no host capability.",
           "example": "emit math.atan2(0.0, -1.0) # 3.141592653589793"
         },
         {
@@ -375,6 +376,7 @@
             "NaN and infinite inputs follow IEEE behavior; a finite input whose result overflows its retained width is rejected."
           ],
           "errors": "Finite overflow produces structured `out_of_range`; wrong arity or kind also produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32` and `f64` scalar inputs. It checks finite-input overflow before and after the `f32` narrowing boundary, preserves IEEE NaN/infinity behavior, allocates no storage, and requires no host capability. Complex, mixed-width, and dynamic shapes remain native compile diagnostics.",
           "example": "emit math.exp2(10.0) # 1024"
         },
         {
@@ -388,6 +390,7 @@
             "Signed zero, NaN, and infinity are preserved according to IEEE arithmetic."
           ],
           "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32` and `f64` scalar inputs through `trunc`, preserving the result width and signed-zero/IEEE behavior without allocation or host capability. Complex, mixed-width, and dynamic shapes remain native compile diagnostics.",
           "example": "emit math.trunc(-3.75) # -3"
         },
         {
@@ -401,6 +404,7 @@
             "NaN and infinity otherwise follow IEEE remainder behavior."
           ],
           "errors": "A zero divisor produces structured `invalid_argument`; wrong arity or kind also produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32`, `f64`, and default floating scalar pairs through `fmod`, checks the divisor before the call, and narrows an `f32` result once. The inputs are borrowed, no allocation or host capability is used, and complex, mixed-width, integer, and dynamic shapes remain native compile diagnostics.",
           "example": "emit math.fmod(5.5, 2.0) # 1.5"
         },
         {
@@ -414,6 +418,7 @@
             "The result uses the promoted floating width and can differ in sign from `fmod`."
           ],
           "errors": "A zero divisor produces structured `invalid_argument`; wrong arity or kind also produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32`, `f64`, and default floating scalar pairs through `remainder`, checks the divisor before the call, and narrows an `f32` result once. The inputs are borrowed, no allocation or host capability is used, and complex, mixed-width, integer, and dynamic shapes remain native compile diagnostics.",
           "example": "emit math.remainder(5.5, 2.0) # -0.5"
         },
         {
@@ -427,6 +432,7 @@
             "Overflow, NaN, infinity, and signed-zero results remain IEEE floating values."
           ],
           "errors": "Wrong arity or a non-floating argument produces a structured error.",
+          "native": "Native C directly lowers matching-width `f32`, `f64`, and default floating scalar triples through the fused `fma` operation. For `f32`, inputs are evaluated in double and narrowed after the fused result, preserving one-rounding semantics. The inputs are borrowed, no allocation or host capability is used, and complex, mixed-width, integer, and dynamic shapes remain native compile diagnostics.",
           "example": "emit math.fma(2.0, 3.0, 4.0) # 10"
         },
         {
@@ -805,6 +811,456 @@
           ],
           "errors": "Wrong arity or a non-complex value produces a structured error.",
           "example": "emit math.phase(complex(0.0, 1.0)) # 1.5707963267948966"
+        },
+        {
+          "name": "uint",
+          "syntax": "math.uint(value)",
+          "parameters": "One numeric value.",
+          "returns": "A width-tagged unsigned integer.",
+          "summary": "Convert a numeric value to the default unsigned family.",
+          "details": [
+            "The conversion is checked before the result is represented."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C uses the direct `ouintcast` path for the admitted numeric subset; the result is returned by value without a host capability.",
+          "example": "emit math.uint(7) # 7u64",
+          "returnValue": "A width-tagged unsigned integer."
+        },
+        {
+          "name": "byte",
+          "syntax": "math.byte(value)",
+          "parameters": "One numeric value.",
+          "returns": "An unsigned byte value.",
+          "summary": "Convert a numeric value to the byte family.",
+          "details": [
+            "The byte-width result remains an explicit numeric value rather than a host integer."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C selects `obytecast` and does not retain the input value.",
+          "example": "emit math.byte(7)",
+          "returnValue": "An unsigned byte value."
+        },
+        {
+          "name": "complex",
+          "syntax": "math.complex(value)  math.complex(real, imag)",
+          "parameters": "One complex-compatible value, or real and imaginary numeric components.",
+          "returns": "An inline complex scalar.",
+          "summary": "Construct a complex value.",
+          "details": [
+            "The component width and signed-zero behavior are preserved by the language numeric contract."
+          ],
+          "errors": "Wrong arity or a non-numeric component produces a structured error.",
+          "native": "Native C uses `ocomplexcall` and the tagged inline `OComplex` ABI; no host capability is required.",
+          "example": "emit math.complex(3, 4)",
+          "returnValue": "An inline complex scalar."
+        },
+        {
+          "name": "dual",
+          "syntax": "math.dual(primal, tangent)",
+          "parameters": "Two numeric values.",
+          "returns": "An inline dual scalar.",
+          "summary": "Construct a dual value for derivative propagation.",
+          "details": [
+            "The value stores its primal and tangent components independently."
+          ],
+          "errors": "Wrong arity or a non-numeric component produces a structured error.",
+          "native": "Native C uses `odualcall`; both components are copied into the inline ABI and no input storage is retained.",
+          "example": "emit math.dual(3, 1) # dual(3, 1)",
+          "returnValue": "An inline dual scalar."
+        },
+        {
+          "name": "primal",
+          "syntax": "math.primal(value)",
+          "parameters": "One numeric or dual value.",
+          "returns": "The primal numeric component.",
+          "summary": "Project the primal component of a dual value.",
+          "details": [
+            "An ordinary numeric value is returned unchanged."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C uses the direct `oprimal` projection by value.",
+          "example": "emit math.primal(math.dual(3, 1)) # 3",
+          "returnValue": "The primal numeric component."
+        },
+        {
+          "name": "tangent",
+          "syntax": "math.tangent(value)",
+          "parameters": "One numeric or dual value.",
+          "returns": "The tangent numeric component.",
+          "summary": "Project the tangent component of a dual value.",
+          "details": [
+            "An ordinary numeric value has a zero tangent."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C uses the direct `otangent` projection by value.",
+          "example": "emit math.tangent(math.dual(3, 1)) # 1",
+          "returnValue": "The tangent numeric component."
+        },
+        {
+          "name": "conjugate",
+          "syntax": "math.conjugate(value)",
+          "parameters": "One complex-compatible scalar or tensor.",
+          "returns": "The complex conjugate.",
+          "summary": "Negate the imaginary component of a complex value.",
+          "details": [
+            "Real numeric values are already self-conjugate."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C selects `oconjugate`; scalar values stay inline and complex tensor results own their copied data.",
+          "example": "emit math.conjugate(math.complex(2, 3))",
+          "returnValue": "The complex conjugate."
+        },
+        {
+          "name": "magnitude",
+          "syntax": "math.magnitude(value)",
+          "parameters": "One complex-compatible or admitted scalar numeric value.",
+          "returns": "A floating magnitude.",
+          "summary": "Return the magnitude of a numeric value.",
+          "details": [
+            "Complex magnitudes use both components; scalar magnitudes preserve the numeric boundary."
+          ],
+          "errors": "Wrong arity or an incompatible value produces a structured error.",
+          "native": "Native C uses `omagnitude` or its proven unboxed scalar specialization without a host capability.",
+          "example": "emit math.magnitude(math.complex(3, 4)) # 5",
+          "returnValue": "A floating magnitude."
+        },
+        {
+          "name": "sign",
+          "syntax": "math.sign(value)",
+          "parameters": "One floating scalar.",
+          "returns": "A scalar sign value.",
+          "summary": "Return the sign of a floating value.",
+          "native": "Native C emits the direct scalar branch for the proven floating subset.",
+          "example": "emit math.sign(-2.0) # -1",
+          "returnValue": "A scalar sign value.",
+          "details": [
+            "Return the sign of a floating value.."
+          ]
+        },
+        {
+          "name": "step",
+          "syntax": "math.step(value)",
+          "parameters": "One floating scalar.",
+          "returns": "Zero or one.",
+          "summary": "Return the positive-step predicate as a numeric scalar.",
+          "native": "Native C emits the direct scalar branch for the proven floating subset.",
+          "example": "emit math.step(2.0) # 1",
+          "returnValue": "Zero or one.",
+          "details": [
+            "Return the positive-step predicate as a numeric scalar.."
+          ]
+        },
+        {
+          "name": "heaviside",
+          "syntax": "math.heaviside(value)",
+          "parameters": "One floating scalar.",
+          "returns": "A scalar in the Heaviside convention.",
+          "summary": "Return zero, one-half, or one according to the input sign.",
+          "native": "Native C emits the direct scalar branch for the proven floating subset.",
+          "example": "emit math.heaviside(0.0) # 0.5",
+          "returnValue": "A scalar in the Heaviside convention.",
+          "details": [
+            "Return zero, one-half, or one according to the input sign.."
+          ]
+        },
+        {
+          "name": "relu",
+          "syntax": "math.relu(value)",
+          "parameters": "One floating scalar.",
+          "returns": "The scalar with negative values clamped to zero.",
+          "summary": "Apply the rectified-linear operation.",
+          "native": "Native C emits the direct scalar branch for the proven floating subset.",
+          "example": "emit math.relu(-2.0) # 0",
+          "returnValue": "The scalar with negative values clamped to zero.",
+          "details": [
+            "Apply the rectified-linear operation.."
+          ]
+        },
+        {
+          "name": "sigmoid",
+          "syntax": "math.sigmoid(value)",
+          "parameters": "One `f32` scalar for the native direct subset.",
+          "returns": "An `f32` scalar in `(0, 1)`.",
+          "summary": "Compute the numerically stable logistic function.",
+          "native": "Native C emits the branch-stable direct scalar expression for the proven `f32` subset.",
+          "example": "emit math.sigmoid(0.0f32) # 0.5f32",
+          "returnValue": "An `f32` scalar in `(0, 1)`.",
+          "details": [
+            "Compute the numerically stable logistic function.."
+          ]
+        },
+        {
+          "name": "softplus",
+          "syntax": "math.softplus(value)",
+          "parameters": "One `f32` scalar for the native direct subset.",
+          "returns": "An `f32` scalar.",
+          "summary": "Compute the stable softplus activation.",
+          "native": "Native C emits the direct `f32` branch with the language cutoff and no host capability.",
+          "example": "emit math.softplus(0.0f32)",
+          "returnValue": "An `f32` scalar.",
+          "details": [
+            "Compute the stable softplus activation.."
+          ]
+        },
+        {
+          "name": "mean",
+          "syntax": "math.mean(values)",
+          "parameters": "One bounded numeric list or tensor.",
+          "returns": "A numeric mean.",
+          "summary": "Compute the arithmetic mean.",
+          "native": "Native C selects `omean`; result storage is owned by the value boundary and input storage is borrowed only during the call.",
+          "example": "emit math.mean([1, 2, 3])",
+          "returnValue": "A numeric mean.",
+          "details": [
+            "Compute the arithmetic mean.."
+          ]
+        },
+        {
+          "name": "std",
+          "syntax": "math.std(values)",
+          "parameters": "One bounded numeric list or tensor.",
+          "returns": "A numeric standard deviation.",
+          "summary": "Compute the standard deviation.",
+          "native": "Native C selects `ostd` for the admitted numeric collection subset.",
+          "example": "emit math.std([1, 2, 3])",
+          "returnValue": "A numeric standard deviation.",
+          "details": [
+            "Compute the standard deviation.."
+          ]
+        },
+        {
+          "name": "var",
+          "syntax": "math.var(values)",
+          "parameters": "One bounded numeric list or tensor.",
+          "returns": "A numeric variance.",
+          "summary": "Compute the variance.",
+          "native": "Native C selects `ovar` for the admitted numeric collection subset.",
+          "example": "emit math.var([1, 2, 3])",
+          "returnValue": "A numeric variance.",
+          "details": [
+            "Compute the variance.."
+          ]
+        },
+        {
+          "name": "median",
+          "syntax": "math.median(values)",
+          "parameters": "One bounded numeric list or tensor.",
+          "returns": "A numeric median.",
+          "summary": "Compute the median.",
+          "native": "Native C selects `omedian` for the admitted numeric collection subset.",
+          "example": "emit math.median([1, 3, 2])",
+          "returnValue": "A numeric median.",
+          "details": [
+            "Compute the median.."
+          ]
+        },
+        {
+          "name": "quantile",
+          "syntax": "math.quantile(values, probability)",
+          "parameters": "A bounded numeric list or tensor and a probability.",
+          "returns": "A numeric quantile.",
+          "summary": "Compute a quantile of a numeric collection.",
+          "native": "Native C selects `oquantile`; invalid probabilities and collection shapes remain structured failures.",
+          "example": "emit math.quantile([1, 2, 3, 4], 0.5)",
+          "returnValue": "A numeric quantile.",
+          "details": [
+            "Compute a quantile of a numeric collection.."
+          ]
+        },
+        {
+          "name": "percentile",
+          "syntax": "math.percentile(values, percentile)",
+          "parameters": "A bounded numeric list or tensor and a percentile value.",
+          "returns": "A numeric percentile.",
+          "summary": "Compute a percentile of a numeric collection.",
+          "native": "Native C selects `opercentile` for the admitted collection subset.",
+          "example": "emit math.percentile([1, 2, 3, 4], 50)",
+          "returnValue": "A numeric percentile.",
+          "details": [
+            "Compute a percentile of a numeric collection.."
+          ]
+        },
+        {
+          "name": "argmin",
+          "syntax": "math.argmin(values)",
+          "parameters": "One bounded comparable collection.",
+          "returns": "The index of the minimum value.",
+          "summary": "Find the first minimum index.",
+          "native": "Native C selects `oargmin` and returns the index through the tagged value ABI.",
+          "example": "emit math.argmin([3, 1, 2])",
+          "returnValue": "The index of the minimum value.",
+          "details": [
+            "Find the first minimum index.."
+          ]
+        },
+        {
+          "name": "argmax",
+          "syntax": "math.argmax(values)",
+          "parameters": "One bounded comparable collection.",
+          "returns": "The index of the maximum value.",
+          "summary": "Find the first maximum index.",
+          "native": "Native C selects `oargmax` and returns the index through the tagged value ABI.",
+          "example": "emit math.argmax([3, 1, 2])",
+          "returnValue": "The index of the maximum value.",
+          "details": [
+            "Find the first maximum index.."
+          ]
+        },
+        {
+          "name": "any",
+          "syntax": "math.any(values)",
+          "parameters": "One collection.",
+          "returns": "`bool`.",
+          "summary": "Test whether any collection element is truthy.",
+          "native": "Native C selects `oany` without a host capability.",
+          "example": "emit math.any([0, 0, 1])",
+          "returnValue": "`bool`.",
+          "details": [
+            "Test whether any collection element is truthy.."
+          ]
+        },
+        {
+          "name": "all",
+          "syntax": "math.all(values)",
+          "parameters": "One collection.",
+          "returns": "`bool`.",
+          "summary": "Test whether every collection element is truthy.",
+          "native": "Native C selects `oall` without a host capability.",
+          "example": "emit math.all([1, 2, 3])",
+          "returnValue": "`bool`.",
+          "details": [
+            "Test whether every collection element is truthy.."
+          ]
+        },
+        {
+          "name": "cumsum",
+          "syntax": "math.cumsum(values)",
+          "parameters": "One numeric list or tensor.",
+          "returns": "A cumulative-sum collection.",
+          "summary": "Compute cumulative sums.",
+          "native": "Native C selects `ocumsum` and returns an owned aggregate.",
+          "example": "emit math.cumsum([1, 2, 3])",
+          "returnValue": "A cumulative-sum collection.",
+          "details": [
+            "Compute cumulative sums.."
+          ]
+        },
+        {
+          "name": "cumprod",
+          "syntax": "math.cumprod(values)",
+          "parameters": "One numeric list or tensor.",
+          "returns": "A cumulative-product collection.",
+          "summary": "Compute cumulative products.",
+          "native": "Native C selects `ocumprod` and returns an owned aggregate.",
+          "example": "emit math.cumprod([1, 2, 3])",
+          "returnValue": "A cumulative-product collection.",
+          "details": [
+            "Compute cumulative products.."
+          ]
+        },
+        {
+          "name": "zeros",
+          "syntax": "math.zeros(shape...) ",
+          "parameters": "One shape list or one or more dimensions.",
+          "returns": "A zero-filled tensor.",
+          "summary": "Construct a zero-filled tensor.",
+          "native": "Native C uses `ozeros`; dimensions are checked before owned allocation.",
+          "example": "emit math.zeros([2, 2])",
+          "returnValue": "A zero-filled tensor.",
+          "details": [
+            "Construct a zero-filled tensor.."
+          ]
+        },
+        {
+          "name": "ones",
+          "syntax": "math.ones(shape...)",
+          "parameters": "One shape list or one or more dimensions.",
+          "returns": "A one-filled tensor.",
+          "summary": "Construct a one-filled tensor.",
+          "native": "Native C uses `oones` and owns the resulting tensor data.",
+          "example": "emit math.ones(2, 2)",
+          "returnValue": "A one-filled tensor.",
+          "details": [
+            "Construct a one-filled tensor.."
+          ]
+        },
+        {
+          "name": "full",
+          "syntax": "math.full(shape..., value)",
+          "parameters": "Shape dimensions and a numeric fill value.",
+          "returns": "A filled tensor.",
+          "summary": "Construct a tensor filled with one value.",
+          "native": "Native C uses `ofull` after checking the dimensions and fill value.",
+          "example": "emit math.full([2, 2], 3)",
+          "returnValue": "A filled tensor.",
+          "details": [
+            "Construct a tensor filled with one value.."
+          ]
+        },
+        {
+          "name": "identity",
+          "syntax": "math.identity(rows[, columns])",
+          "parameters": "One square size or row and column sizes.",
+          "returns": "An identity matrix.",
+          "summary": "Construct an identity matrix.",
+          "native": "Native C uses `oidentity` with checked dimensions and owned matrix storage.",
+          "example": "emit math.identity(2)",
+          "returnValue": "An identity matrix.",
+          "details": [
+            "Construct an identity matrix.."
+          ]
+        },
+        {
+          "name": "eye",
+          "syntax": "math.eye(rows[, columns])",
+          "parameters": "One square size or row and column sizes.",
+          "returns": "An identity matrix.",
+          "summary": "Construct an identity matrix using the short spelling.",
+          "native": "Native C uses the same direct `oidentity` ABI as `identity`.",
+          "example": "emit math.eye(2)",
+          "returnValue": "An identity matrix.",
+          "details": [
+            "Construct an identity matrix using the short spelling.."
+          ]
+        },
+        {
+          "name": "arange",
+          "syntax": "math.arange(stop)  math.arange(start, stop[, step])",
+          "parameters": "Numeric bounds and an optional non-zero step.",
+          "returns": "A rank-one numeric tensor.",
+          "summary": "Construct an arithmetic range.",
+          "native": "Native C uses `oarange` with a bounded output and structured zero-step failure.",
+          "example": "emit math.arange(3)",
+          "returnValue": "A rank-one numeric tensor.",
+          "details": [
+            "Construct an arithmetic range.."
+          ]
+        },
+        {
+          "name": "linspace",
+          "syntax": "math.linspace(start, stop[, count])",
+          "parameters": "Numeric bounds and an optional count.",
+          "returns": "A rank-one numeric tensor.",
+          "summary": "Construct evenly spaced values.",
+          "native": "Native C uses `olinspace` with checked count and allocation limits.",
+          "example": "emit math.linspace(0.0, 1.0, 3)",
+          "returnValue": "A rank-one numeric tensor.",
+          "details": [
+            "Construct evenly spaced values.."
+          ]
+        },
+        {
+          "name": "logspace",
+          "syntax": "math.logspace(start, stop, count[, base])",
+          "parameters": "Numeric bounds, count, and an optional positive base.",
+          "returns": "A rank-one numeric tensor.",
+          "summary": "Construct logarithmically spaced values.",
+          "native": "Native C uses `ologspace`; invalid bases, counts, and sizes produce structured failures.",
+          "example": "emit math.logspace(0.0, 2.0, 3)",
+          "returnValue": "A rank-one numeric tensor.",
+          "details": [
+            "Construct logarithmically spaced values.."
+          ]
         }
       ]
     },
@@ -834,6 +1290,266 @@
           ],
           "errors": "Exactly one `tensor` argument is required.",
           "example": "emit view(tensor([1, 2, 3]))\n# tensor[3]([1u64, 2u64, 3u64])"
+        },
+        {
+          "name": "tensor",
+          "syntax": "tensor(data[, shape])",
+          "parameters": "Nested numeric data, optionally followed by an explicit shape.",
+          "returns": "A tensor value.",
+          "summary": "Construct a tensor from data and optional dimensions.",
+          "native": "Native C uses `otensorcall`; rectangularity, shape, and element-family validation happen at the generated ABI boundary.",
+          "example": "emit tensor([2, 2], [1, 2, 3, 4])",
+          "returnValue": "A tensor value.",
+          "details": [
+            "Construct a tensor from data and optional dimensions.."
+          ]
+        },
+        {
+          "name": "matrix",
+          "syntax": "matrix(rows, columns, data)",
+          "parameters": "Row count, column count, and numeric data.",
+          "returns": "A rank-two tensor.",
+          "summary": "Construct a matrix-shaped tensor.",
+          "native": "Native C uses `omatrixcall` and checks the matrix shape before constructing owned storage.",
+          "example": "emit matrix(2, 2, [1, 2, 3, 4])",
+          "returnValue": "A rank-two tensor.",
+          "details": [
+            "Construct a matrix-shaped tensor.."
+          ]
+        },
+        {
+          "name": "at",
+          "syntax": "at(value, index)",
+          "parameters": "A list or tensor and a scalar or tensor index.",
+          "returns": "The selected value.",
+          "summary": "Read an element or slice at an index.",
+          "native": "Native C uses `oat` with explicit bounds and shape checks; invalid indexes are structured failures.",
+          "example": "emit at(tensor([10, 20]), 1) # 20u64",
+          "returnValue": "The selected value.",
+          "details": [
+            "Read an element or slice at an index.."
+          ]
+        },
+        {
+          "name": "setat",
+          "syntax": "setat(value, index, replacement)",
+          "parameters": "An aggregate, index, and replacement value.",
+          "returns": "The updated aggregate/value.",
+          "summary": "Produce an aggregate with one indexed value replaced.",
+          "native": "Native C uses `osetat`; the generated helper owns the updated result and does not retain the input pointer.",
+          "example": "emit setat(tensor([10, 20]), 1, 30)",
+          "returnValue": "The updated aggregate/value.",
+          "details": [
+            "Produce an aggregate with one indexed value replaced.."
+          ]
+        },
+        {
+          "name": "reshape",
+          "syntax": "reshape(value, shape)",
+          "parameters": "A tensor and a compatible dimension list.",
+          "returns": "A tensor with the requested shape.",
+          "summary": "Change tensor dimensions without changing element order.",
+          "native": "Native C uses `oreshape`; element count and dimensions are checked before the owned copy is returned.",
+          "example": "emit reshape(tensor([1, 2, 3, 4]), [2, 2])",
+          "returnValue": "A tensor with the requested shape.",
+          "details": [
+            "Change tensor dimensions without changing element order.."
+          ]
+        },
+        {
+          "name": "transpose",
+          "syntax": "transpose(matrix)",
+          "parameters": "One rank-two tensor.",
+          "returns": "The transposed matrix.",
+          "summary": "Swap the two matrix axes.",
+          "native": "Native C uses `otranspose` and returns newly owned matrix data.",
+          "example": "emit transpose(matrix(2, 2, [1, 2, 3, 4]))",
+          "returnValue": "The transposed matrix.",
+          "details": [
+            "Swap the two matrix axes.."
+          ]
+        },
+        {
+          "name": "matmul",
+          "syntax": "matmul(left, right)",
+          "parameters": "Two compatible rank-two tensors.",
+          "returns": "Their matrix product.",
+          "summary": "Multiply two matrices.",
+          "native": "Native C uses `omatmul`; incompatible ranks or inner dimensions produce structured failures.",
+          "example": "emit matmul(matrix(2, 2, [1, 2, 3, 4]), matrix(2, 2, [5, 6, 7, 8]))",
+          "returnValue": "Their matrix product.",
+          "details": [
+            "Multiply two matrices.."
+          ]
+        },
+        {
+          "name": "outer",
+          "syntax": "outer(left, right)",
+          "parameters": "Two numeric or complex vectors/tensors.",
+          "returns": "An outer-product tensor.",
+          "summary": "Form all pairwise products between two vectors.",
+          "native": "Native C uses `oouter`; numeric and complex results have separate owned aggregate paths.",
+          "example": "emit outer(tensor([1, 2]), tensor([3, 4]))",
+          "returnValue": "An outer-product tensor.",
+          "details": [
+            "Form all pairwise products between two vectors.."
+          ]
+        },
+        {
+          "name": "trace",
+          "syntax": "trace(matrix)",
+          "parameters": "One rank-two tensor.",
+          "returns": "The diagonal sum.",
+          "summary": "Compute a matrix trace.",
+          "native": "Native C uses `otrace` and returns a scalar by value.",
+          "example": "emit trace(matrix(2, 2, [1, 2, 3, 4])) # 5",
+          "returnValue": "The diagonal sum.",
+          "details": [
+            "Compute a matrix trace.."
+          ]
+        },
+        {
+          "name": "det",
+          "syntax": "det(matrix)",
+          "parameters": "One square rank-two tensor.",
+          "returns": "The determinant scalar.",
+          "summary": "Compute a matrix determinant.",
+          "native": "Native C uses `odet`; pivoting buffers are temporary and singular matrices return structured failures or zero as defined by the runtime contract.",
+          "example": "emit det(matrix(2, 2, [1, 2, 3, 4])) # -2",
+          "returnValue": "The determinant scalar.",
+          "details": [
+            "Compute a matrix determinant.."
+          ]
+        },
+        {
+          "name": "solve",
+          "syntax": "solve(matrix, right)",
+          "parameters": "A square matrix and a compatible vector or matrix right-hand side.",
+          "returns": "The solution tensor.",
+          "summary": "Solve a linear system.",
+          "native": "Native C uses `osolve`; dimension, singularity, and size checks happen before the owned solution is returned.",
+          "example": "emit solve(matrix(2, 2, [1, 0, 0, 1]), [2, 3])",
+          "returnValue": "The solution tensor.",
+          "details": [
+            "Solve a linear system.."
+          ]
+        },
+        {
+          "name": "inv",
+          "syntax": "inv(matrix)",
+          "parameters": "One non-empty square matrix.",
+          "returns": "The inverse matrix.",
+          "summary": "Compute a matrix inverse.",
+          "native": "Native C uses `oinv`, which shares the generated solve boundary and its singularity errors.",
+          "example": "emit inv(matrix(2, 2, [1, 0, 0, 1]))",
+          "returnValue": "The inverse matrix.",
+          "details": [
+            "Compute a matrix inverse.."
+          ]
+        },
+        {
+          "name": "cholesky",
+          "syntax": "cholesky(matrix)",
+          "parameters": "One positive-definite square matrix.",
+          "returns": "A lower-triangular factor.",
+          "summary": "Compute a Cholesky factorization.",
+          "native": "Native C uses `ocholesky`; non-positive pivots become structured failures and the result owns its data.",
+          "example": "emit cholesky(matrix(2, 2, [4, 0, 0, 9]))",
+          "returnValue": "A lower-triangular factor.",
+          "details": [
+            "Compute a Cholesky factorization.."
+          ]
+        },
+        {
+          "name": "qr",
+          "syntax": "qr(matrix)",
+          "parameters": "One rank-two matrix.",
+          "returns": "A two-element value containing `Q` and `R`.",
+          "summary": "Compute a QR factorization.",
+          "native": "Native C uses `oqr`; temporary orthogonalization buffers are released before the owned result is returned.",
+          "example": "emit qr(matrix(2, 2, [1, 0, 0, 1]))",
+          "returnValue": "A two-element value containing `Q` and `R`.",
+          "details": [
+            "Compute a QR factorization.."
+          ]
+        },
+        {
+          "name": "shape",
+          "syntax": "shape(value)",
+          "parameters": "One tensor or shape-bearing aggregate.",
+          "returns": "A dimension list.",
+          "summary": "Read tensor dimensions.",
+          "native": "Native C uses `oshape` and returns a newly represented dimension list.",
+          "example": "emit shape(matrix(2, 2, [1, 2, 3, 4]))",
+          "returnValue": "A dimension list.",
+          "details": [
+            "Read tensor dimensions.."
+          ]
+        },
+        {
+          "name": "flatten",
+          "syntax": "flatten(value)",
+          "parameters": "One tensor or aggregate.",
+          "returns": "A flattened aggregate.",
+          "summary": "Flatten nested tensor data into one dimension.",
+          "native": "Native C uses `oflatten` and owns the returned aggregate storage.",
+          "example": "emit flatten(matrix(2, 2, [1, 2, 3, 4]))",
+          "returnValue": "A flattened aggregate.",
+          "details": [
+            "Flatten nested tensor data into one dimension.."
+          ]
+        },
+        {
+          "name": "sum",
+          "syntax": "sum(value)",
+          "parameters": "One numeric tensor.",
+          "returns": "A numeric scalar.",
+          "summary": "Reduce tensor elements by addition.",
+          "native": "Native C uses `otensorsum` and preserves the input numeric family and floating width.",
+          "example": "emit sum(tensor([1, 2, 3])) # 6u64",
+          "returnValue": "A numeric scalar.",
+          "details": [
+            "Reduce tensor elements by addition.."
+          ]
+        },
+        {
+          "name": "product",
+          "syntax": "product(value)",
+          "parameters": "One numeric tensor.",
+          "returns": "A numeric scalar.",
+          "summary": "Reduce tensor elements by multiplication.",
+          "native": "Native C uses `otensorproduct` and preserves the input numeric family and floating width.",
+          "example": "emit product(tensor([1, 2, 3])) # 6u64",
+          "returnValue": "A numeric scalar.",
+          "details": [
+            "Reduce tensor elements by multiplication.."
+          ]
+        },
+        {
+          "name": "dot",
+          "syntax": "dot(left, right)",
+          "parameters": "Two compatible one-dimensional tensors.",
+          "returns": "A numeric scalar.",
+          "summary": "Compute a vector dot product.",
+          "native": "Native C uses `otensordot`; the result width is the wider operand width and complex inputs retain complex results.",
+          "example": "emit dot(tensor([1, 2]), tensor([3, 4])) # 11u64",
+          "returnValue": "A numeric scalar.",
+          "details": [
+            "Compute a vector dot product.."
+          ]
+        },
+        {
+          "name": "norm",
+          "syntax": "norm(value)",
+          "parameters": "One numeric tensor.",
+          "returns": "A numeric norm scalar.",
+          "summary": "Compute the Euclidean norm.",
+          "native": "Native C uses `otensornorm` and preserves the tensor floating width without a host capability.",
+          "example": "emit norm(tensor([3.0, 4.0])) # 5",
+          "returnValue": "A numeric norm scalar.",
+          "details": [
+            "Compute the Euclidean norm.."
+          ]
         }
       ]
     },
@@ -1792,7 +2508,9 @@
           "parameters": "Keys and values may use the existing runtime value families.",
           "returns": "A `map` value.",
           "returnValue": "Map iteration yields keys in insertion order.",
-          "details": ["Use map_new, map_set, map_get, map_keys, and map_values for explicit construction and access."],
+          "details": [
+            "Use map_new, map_set, map_get, map_keys, and map_values for explicit construction and access."
+          ],
           "example": "emit map_new()"
         },
         {
@@ -1803,7 +2521,9 @@
           "parameters": "Values use the existing equality contract.",
           "returns": "A `set` value.",
           "returnValue": "Set iteration yields unique values in insertion order.",
-          "details": ["Use set_new, set_add, set_has, and set_values for explicit construction and access."],
+          "details": [
+            "Use set_new, set_add, set_has, and set_values for explicit construction and access."
+          ],
           "example": "emit set_new()"
         },
         {
@@ -1813,7 +2533,9 @@
           "parameters": "No arguments.",
           "returns": "`map`.",
           "returnValue": "A new empty map with deterministic insertion order.",
-          "details": ["Map entries retain deterministic insertion order."],
+          "details": [
+            "Map entries retain deterministic insertion order."
+          ],
           "errors": "Wrong arity is an error.",
           "example": "emit map_new()",
           "exampleStatus": "checked"
@@ -1825,7 +2547,9 @@
           "parameters": "A map, key, and value.",
           "returns": "The updated `map`.",
           "returnValue": "Existing keys retain their position; new keys append in insertion order.",
-          "details": ["Updating a key does not move it."],
+          "details": [
+            "Updating a key does not move it."
+          ],
           "errors": "Wrong arity or a non-map first argument is an error.",
           "example": "let values = map_set(map_new(), \"a\", 1)\nemit values",
           "exampleStatus": "checked"
@@ -1837,7 +2561,9 @@
           "parameters": "A map and key.",
           "returns": "The stored value or `null`.",
           "returnValue": "Missing keys return `null`.",
-          "details": ["Lookup does not mutate the map."],
+          "details": [
+            "Lookup does not mutate the map."
+          ],
           "errors": "Wrong arity or a non-map first argument is an error.",
           "example": "emit map_get(map_set(map_new(), \"a\", 1), \"a\")",
           "exampleStatus": "checked"
@@ -1849,7 +2575,9 @@
           "parameters": "One map.",
           "returns": "An ordered `list`.",
           "returnValue": "Keys follow insertion order.",
-          "details": ["The returned list is a snapshot of the key order."],
+          "details": [
+            "The returned list is a snapshot of the key order."
+          ],
           "errors": "Wrong arity or a non-map argument is an error.",
           "example": "emit map_keys(map_new())",
           "exampleStatus": "checked"
@@ -1861,7 +2589,9 @@
           "parameters": "One map.",
           "returns": "An ordered `list`.",
           "returnValue": "Values follow their corresponding key order.",
-          "details": ["The returned list is a snapshot of the value order."],
+          "details": [
+            "The returned list is a snapshot of the value order."
+          ],
           "errors": "Wrong arity or a non-map argument is an error.",
           "example": "emit map_values(map_new())",
           "exampleStatus": "checked"
@@ -1873,7 +2603,9 @@
           "parameters": "No arguments.",
           "returns": "`set`.",
           "returnValue": "A new empty set with deterministic insertion order.",
-          "details": ["Set membership uses the value equality contract."],
+          "details": [
+            "Set membership uses the value equality contract."
+          ],
           "errors": "Wrong arity is an error.",
           "example": "emit set_new()",
           "exampleStatus": "checked"
@@ -1885,7 +2617,9 @@
           "parameters": "A set and value.",
           "returns": "The updated `set`.",
           "returnValue": "Duplicate values do not create another entry.",
-          "details": ["New values append in insertion order."],
+          "details": [
+            "New values append in insertion order."
+          ],
           "errors": "Wrong arity or a non-set first argument is an error.",
           "example": "emit set_add(set_new(), 1)",
           "exampleStatus": "checked"
@@ -1897,7 +2631,9 @@
           "parameters": "A set and value.",
           "returns": "`bool`.",
           "returnValue": "Returns true when the value is present.",
-          "details": ["Membership does not change set order."],
+          "details": [
+            "Membership does not change set order."
+          ],
           "errors": "Wrong arity or a non-set first argument is an error.",
           "example": "emit set_has(set_new(), 1)",
           "exampleStatus": "checked"
@@ -1909,7 +2645,9 @@
           "parameters": "One set.",
           "returns": "An ordered `list`.",
           "returnValue": "Values follow insertion order.",
-          "details": ["The returned list is a snapshot of the set order."],
+          "details": [
+            "The returned list is a snapshot of the set order."
+          ],
           "errors": "Wrong arity or a non-set argument is an error.",
           "example": "emit set_values(set_new())",
           "exampleStatus": "checked"

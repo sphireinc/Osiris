@@ -116,7 +116,7 @@ func BackendCapabilityInventory() []BackendCapability {
 func nativeBuiltinStatus(name string) BackendStatus {
 	// These are host-independent primitive lowerings in cbackend_native.go.
 	switch name {
-	case "cat", "upper", "lower", "trim", "replace", "repeat", "split", "chunks", "join", "len", "take", "slice", "range", "sum", "product", "json", "format", "slug", "noise", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "number", "real", "imag", "abs", "exp", "log", "log10", "log2", "pow", "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "hypot", "norm", "vector", "vec", "clone", "view", "tensor", "matrix", "shape", "flatten", "squeeze", "expand_dims", "concat", "stack", "tile", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "transpose", "dot", "matmul":
+	case "cat", "upper", "lower", "trim", "replace", "repeat", "split", "chunks", "join", "len", "take", "slice", "at", "setat", "range", "sum", "product", "divmod", "gcd", "lcm", "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "bit_width", "bit_floor", "bit_ceil", "has_single_bit", "byte_swap", "encode", "decode", "json", "format", "slug", "noise", "uint", "byte", "bytes", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "number", "complex", "dual", "primal", "tangent", "real", "imag", "conjugate", "magnitude", "abs", "sqrt", "exp", "exp2", "atan2", "trunc", "fmod", "remainder", "fma", "log", "log10", "log2", "pow", "expt", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "floor", "ceil", "round", "hypot", "norm", "min", "max", "clamp", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "mean", "std", "var", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "cumsum", "cumprod", "phase", "vector", "vec", "zeros", "ones", "full", "identity", "eye", "arange", "linspace", "logspace", "tensor", "matrix", "reshape", "shape", "flatten", "squeeze", "expand_dims", "concat", "stack", "tile", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "transpose", "dot", "matmul", "outer", "trace", "det", "solve", "inv", "cholesky", "qr", "clone", "view":
 		return BackendImplemented
 	default:
 		return BackendUnsupported
@@ -136,18 +136,24 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 			return BackendImplemented
 		}
 		switch member {
-		case "zeros", "ones", "full", "arange", "linspace", "logspace", "outer", "trace", "det", "solve", "inv", "cholesky", "qr", "reshape":
+		case "gcd", "lcm", "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "bit_width", "bit_floor", "bit_ceil", "has_single_bit", "byte_swap", "zeros", "ones", "full", "arange", "linspace", "logspace", "outer", "trace", "det", "solve", "inv", "cholesky", "qr", "reshape":
 			return BackendImplemented
 		}
 		return BackendUnsupported
 	}
 	switch module {
+	case "std/net":
+		switch member {
+		case "tcp_listen", "tcp_accept", "tcp_dial", "udp_bind", "udp_connect", "udp_send", "udp_receive", "dns_lookup", "tls_dial", "tls_dial_config", "tls_listen", "http_get", "http_request", "http_request_stream", "http_serve":
+			return BackendImplemented
+		}
 	case "std/os":
-		if member == "is_path_separator" || member == "read_file" || member == "write_file" || member == "getenv" || member == "env_names" || member == "environ" || member == "setenv" || member == "unsetenv" || member == "hostname" || member == "getpid" || member == "getppid" || member == "getuid" || member == "geteuid" || member == "getgid" || member == "getegid" || member == "getpagesize" {
+		switch member {
+		case "is_path_separator", "read_file", "write_file", "getenv", "env_names", "environ", "setenv", "unsetenv", "hostname", "getpid", "getppid", "getuid", "geteuid", "getgid", "getegid", "getpagesize", "process_spawn", "start_process", "find_process", "process_wait", "process_state", "process_kill", "process_signal", "process_release", "process_stdin", "process_stdout", "process_stderr", "pipe", "stdin", "stdout", "stderr", "fd", "name", "new_file", "with_handle", "syscall_conn", "signal_subscribe", "close", "read", "write", "write_string", "read_at", "write_at", "seek_file", "sync", "set_deadline", "set_read_deadline", "set_write_deadline", "open", "create", "open_file", "open_root", "root_create", "root_open", "root_open_file", "root_read_file", "root_write_file", "root_stat", "root_lstat", "root_chown", "root_lchown", "root_chtimes", "root_fs", "root_readlink", "root_mkdir", "root_mkdir_all", "root_remove", "root_remove_all", "root_rename", "root_link", "root_symlink", "root_chmod", "root_close", "stat", "lstat", "read_dir", "mkdir", "mkdir_all", "remove", "remove_all", "truncate", "rename", "link", "symlink", "chmod", "readlink", "watch":
 			return BackendImplemented
 		}
 	case "std/crypto":
-		if member == "random" || member == "hash" || member == "digest" || member == "digest_bytes" || member == "algorithm_supported" {
+		if member == "sha256" || member == "sha512" || member == "sha512_256" || member == "random" || member == "hash" || member == "digest" || member == "digest_bytes" || member == "hmac" || member == "hex_encode" || member == "hex_decode" || member == "compare_digest" || member == "base64_encode" || member == "base64_decode" || member == "base64url_encode" || member == "base64url_decode" || member == "algorithm_supported" {
 			return BackendImplemented
 		}
 	case "std/list":
@@ -155,17 +161,21 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 			return BackendImplemented
 		}
 	case "std/signal":
-		if member == "hann" || member == "convolve" {
+		switch member {
+		case "rectangular", "hann", "hamming", "blackman", "bartlett",
+			"convolve",
+			"correlate", "filter_fir", "resample", "mean", "variance", "energy", "rms",
+			"normalize", "fft", "ifft":
 			return BackendImplemented
 		}
 	case "std/text":
 		switch member {
-		case "trim", "trim_space", "lower", "contains", "has_prefix", "has_suffix", "fields", "join", "slug", "upper":
+		case "trim", "trim_space", "trim_left", "trim_right", "lower", "contains", "contains_any", "has_prefix", "has_suffix", "fields", "join", "slug", "upper", "compare", "equal_fold", "count", "index", "last_index", "index_any", "last_index_any", "cut", "cut_prefix", "cut_suffix", "trim_prefix", "trim_suffix", "replace", "replace_n", "split", "split_after", "split_n", "split_after_n", "chunks", "repeat":
 			return BackendImplemented
 		}
 	case "std/time":
 		switch member {
-		case "add", "add_date", "date", "duration_string", "format", "parse_duration", "rfc3339", "sub", "utc_location":
+		case "duration", "add", "add_date", "date", "duration_string", "unix", "unix_milli", "unix_micro", "format", "parse_duration", "rfc3339", "rfc3339_nano", "sub", "round", "truncate", "utc_location", "utc", "compare", "equal", "before", "after", "year", "month", "day", "hour", "minute", "second", "nanosecond", "microsecond", "millisecond", "weekday", "year_day":
 			return BackendImplemented
 		}
 	}

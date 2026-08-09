@@ -135,7 +135,7 @@ func TestUnsafeMemoryRejectsBoundsAlignmentAndSerializationEscape(t *testing.T) 
 	if strings.Contains(string(encoded), "0x") || strings.Contains(string(encoded), "address") || strings.Contains(string(encoded), "unsafe_memory_buffer") == false {
 		t.Fatalf("opaque handle serialization = %s", encoded)
 	}
-	if _, err := task120ValueToConfig(buffer); err == nil {
+	if _, err := stdlibValueToConfig(buffer); err == nil {
 		t.Fatal("unsafe handle unexpectedly became a JSON/config value")
 	}
 	release, err := unsafeMemoryModuleMember(t, rt, "release").AsFunction()

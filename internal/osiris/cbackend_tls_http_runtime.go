@@ -1,6 +1,6 @@
 package osiris
 
-// cRuntimeTLSHTTPComponent is the native-C TLS/HTTP ABI for task 148.
+// cRuntimeTLSHTTPComponent is the native-C TLS/HTTP host-resource ABI.
 //
 // The generated C value ABI must not silently reuse O_FFI for network resources. This
 // component consequently exposes a small, explicit provider boundary. A

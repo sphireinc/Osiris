@@ -1,7 +1,7 @@
 # Native C host-resource ABI
 
 This document specifies the integrated POSIX and Windows native host-resource
-components for task 148. The capability table, direct dispatch lowering, owned
+components for deferred native host. The capability table, direct dispatch lowering, owned
 cleanup, and platform policy are implemented together in
 `internal/osiris/cbackend_process_runtime.go` and
 `internal/osiris/cbackend_native.go`; the guarded Windows HANDLE/Winsock
@@ -231,7 +231,7 @@ capability denial deterministic and prevents a file or process stream from
 silently depending on an unrelated socket grant.
 
 The focused coverage is in
-`internal/osiris/task148b_native_capability_test.go` and includes producer
+`internal/osiris/native_host_deferred_capability_test.go` and includes producer
 aliases, process members, watches, signals, sockets, TLS, HTTP bodies, and
 denial diagnostics.
 

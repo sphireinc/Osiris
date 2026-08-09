@@ -5,14 +5,16 @@ human shortcut and must agree with it.
 
 ## Now — stabilize Native C and LSP
 
-1. Task 160: complete semantic LSP parity.
-2. Task 162: close Native C core, numeric, and data rows.
-3. Task 161: complete workspace, refactoring, and colocated-test tooling after
+1. Task 162: close Native C core, numeric, and data rows.
+2. Task 161: complete workspace, refactoring, and colocated-test tooling after
    task 160.
-4. Task 163: close Native C standard-library and host rows after task 162.
-5. Task 168: close the LSP support-matrix column after tasks 160 and 161.
-6. Task 154: promote only the Native C and LSP matrix columns after tasks
-   160–163 and 168 have complete evidence.
+3. Task 163: close Native C standard-library and host rows after task 162.
+4. Task 168: close the LSP support-matrix column after tasks 160 and 161.
+5. Task 154: promote only the Native C and LSP matrix columns after tasks
+   161–163 and 168 have complete evidence.
+
+Task 160 semantic LSP parity is complete and has moved to
+`tasks/completed/160-complete-lsp-semantic-ide-parity.md`.
 
 Native C and LSP work must preserve the existing support-matrix states until
 the focused gate has executable evidence. The global all-backend release gate

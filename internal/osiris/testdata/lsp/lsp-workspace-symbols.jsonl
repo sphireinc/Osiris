@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-symbols.osr","languageId":"osiris","version":4,"text":"let café = \"😀\"\nstruct User { name string }\nfunc greet(name string) string => name\nlet answer = greet(café)\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-symbols.osr","version":4}}}
+{"jsonrpc":"2.0","id":3,"method":"workspace/symbol","params":{"query":" greet "}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-symbols.osr","version":3}}}
+{"jsonrpc":"2.0","id":5,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","method":"exit"}

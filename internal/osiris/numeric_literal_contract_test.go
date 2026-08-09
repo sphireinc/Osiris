@@ -125,24 +125,38 @@ emit imag(constructed)
 			t.Fatalf("inference missing %q:\n%s", want, gotInfer)
 		}
 	}
-	if _, err := CompileC(context.Background(), rt, prog); err == nil || !strings.Contains(err.Error(), "complex<f32>") {
-		t.Fatalf("native complex<f32> boundary error = %v", err)
+	artifact, err := CompileC(context.Background(), rt, prog)
+	if err != nil {
+		t.Fatalf("native complex width compile = %v", err)
+	}
+	if !strings.Contains(artifact.Source, "ocomplexbits(") {
+		t.Fatal("native complex width artifact does not use the width-preserving constructor")
 	}
 }
 
 func TestDualScalarContractAcrossRuntimeVMInferenceAndCodec(t *testing.T) {
-	prog, err := Parse("<dual>", `
+	const source = `
 let x = dual(3, 1)
 let y = dual(2, 0.5)
 let sum = x + y
 let product = x * y
 let quotient = x / y
+let negated = -x
+let mixed_left = x + 2
+let mixed_right = 2 + x
+let mixed_quotient = x / 2
 emit sum
 emit product
 emit quotient
+emit negated
+emit mixed_left
+emit mixed_right
+emit mixed_quotient
 emit primal(product)
 emit tangent(product)
-`)
+
+`
+	prog, err := Parse("<dual>", source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +169,11 @@ emit tangent(product)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"dual(5, 1.5)", "dual(6, 3.5)", "dual(1.5, 0.125)", "6", "3.5"}
+	want := []string{
+		"dual(5, 1.5)", "dual(6, 3.5)", "dual(1.5, 0.125)",
+		"dual(-3, -1)", "dual(5, 1)", "dual(5, 1)", "dual(1.5, 0.5)",
+		"6", "3.5",
+	}
 	for i := range want {
 		if got := interpreter[i].String(); got != want[i] {
 			t.Fatalf("interpreter output %d = %s, want %s", i, got, want[i])
@@ -182,9 +200,7 @@ emit tangent(product)
 	if got := FormatInferProgram(inferred); !strings.Contains(got, "main.product: dual") {
 		t.Fatalf("inference missing dual binding:\n%s", got)
 	}
-	if _, err := CompileC(context.Background(), rt, prog); err == nil || !strings.Contains(err.Error(), "dual") {
-		t.Fatalf("native dual boundary error = %v", err)
-	}
+	runDifferentialFixture(t, differentialFixture{Name: "dual-scalar-contract", Source: source})
 }
 
 func TestSeededRandomIsReproducibleAcrossRuntimeAndVM(t *testing.T) {

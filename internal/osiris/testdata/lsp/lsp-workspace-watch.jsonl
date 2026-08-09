@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file:///tmp/osiris-lsp-watch"}}
+{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles","params":{"changes":[{"uri":"file:///tmp/osiris-lsp-watch/created.osr","type":1},{"uri":"file:///tmp/osiris-lsp-watch/changed.osr","type":2},{"uri":"file:///tmp/osiris-lsp-watch/deleted.osr","type":3}]}}
+{"jsonrpc":"2.0","id":2,"method":"workspace/symbol","params":{"query":"created"}}
+{"jsonrpc":"2.0","method":"exit"}

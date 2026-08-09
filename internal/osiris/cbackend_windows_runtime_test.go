@@ -56,7 +56,7 @@ func TestNativeWindowsRuntimeComponentOwnsWindowsBoundaries(t *testing.T) {
 			t.Fatalf("Windows runtime component missing %q", marker)
 		}
 	}
-	for _, forbidden := range []string{"fork()", "execvp(", "openat(", "waitpid(", "poll(&pfd", "path_length", "Windows process environment overlay is deferred to task 148B", "Process groups and environment-overlay semantics remain explicit deferred boundaries"} {
+	for _, forbidden := range []string{"fork()", "execvp(", "openat(", "waitpid(", "poll(&pfd", "path_length", "Windows process environment overlay remains deferred", "Process groups and environment-overlay semantics remain explicit deferred boundaries"} {
 		if strings.Contains(component, forbidden) {
 			t.Fatalf("Windows runtime component contains POSIX implementation marker %q", forbidden)
 		}

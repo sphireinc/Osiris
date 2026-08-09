@@ -130,9 +130,19 @@ func TestSupportMatrixDocumentationPage(t *testing.T) {
 
 func TestSupportMatrixStableReleaseGate(t *testing.T) {
 	_, matrix := loadSupportMatrix(t)
+	assertSupportMatrixBackendsStable(t, matrix, matrix.Backends, "support matrix release gate")
+}
+
+func TestSupportMatrixNativeAndLSPReleaseGate(t *testing.T) {
+	_, matrix := loadSupportMatrix(t)
+	assertSupportMatrixBackendsStable(t, matrix, []string{"native_c", "lsp"}, "Native C/LSP release gate")
+}
+
+func assertSupportMatrixBackendsStable(t *testing.T, matrix supportMatrix, backends []string, label string) {
+	t.Helper()
 	var nonStable []string
 	for _, feature := range matrix.Features {
-		for _, backend := range matrix.Backends {
+		for _, backend := range backends {
 			state := feature.Support[backend]
 			if state != "stable" {
 				nonStable = append(nonStable, feature.ID+"/"+backend+"="+state)
@@ -140,6 +150,6 @@ func TestSupportMatrixStableReleaseGate(t *testing.T) {
 		}
 	}
 	if len(nonStable) != 0 {
-		t.Fatalf("support matrix release gate found %d non-stable cells: %s", len(nonStable), strings.Join(nonStable, ", "))
+		t.Fatalf("%s found %d non-stable cells: %s", label, len(nonStable), strings.Join(nonStable, ", "))
 	}
 }

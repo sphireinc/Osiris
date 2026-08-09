@@ -4,7 +4,7 @@ import "sync"
 
 var repositoryProvidersByRuntime sync.Map
 
-// SetRepositoryProviders installs task-124 repository providers for
+// SetRepositoryProviders installs repository providers for
 // subsequent module loads without coupling the runtime core to repository
 // transport or supply-chain policy.
 func (r *Runtime) SetRepositoryProviders(providers ...RepositoryProvider) {

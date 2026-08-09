@@ -57,9 +57,9 @@ set -- "$@" "$image" sh -eu -c '
 		cc --version | head -n 1
 		printf "%s\n" "C evidence compiler: $CC (adds -D_GNU_SOURCE for POSIX declarations)"
 		printf "%s\n" "--- deterministic generated-C parity ---"
-		go test ./internal/osiris -run "^TestTask148BLinuxGeneratedCDeterministicParity$" -count=1 -timeout=600s
+		go test ./internal/osiris -run "^TestNativeHostDeferredLinuxGeneratedCDeterministicParity$" -count=1 -timeout=600s
 		printf "%s\n" "--- AddressSanitizer generated-C parity ---"
-		OSIRIS_C_SANITIZERS=address go test ./internal/osiris -run "^TestTask148BLinuxSanitizerContract$" -count=1 -timeout=600s
+		OSIRIS_C_SANITIZERS=address go test ./internal/osiris -run "^TestNativeHostDeferredLinuxSanitizerContract$" -count=1 -timeout=600s
 		printf "%s\n" "Linux generated-C evidence passed."
 	'
 "$@"

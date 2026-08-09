@@ -66,7 +66,7 @@ parser surface and the checked fixture that owns it:
 | Behavior | generic `trait`, contextual `interface`, `impl`, methods, receiver and signature metadata |
 | Control and cleanup | expression/block functions, `return` with and without a value, `while`, `for`, `break`, `continue`, `defer` |
 | Expressions | literals, calls, generic calls, blocks, lists, tuples, struct literals, members, indexes, `with`, unary/binary operators, `try`/`catch`, propagation, `match`, `switch` |
-| Patterns | wildcard, binding, enum payload, list, literal, relational, type-binding, conjunction, negation, and grouped alternatives with nested bindings |
+| Patterns | wildcard, binding, enum payload, named-product/struct fields, list, literal, relational, type-binding, conjunction, negation, and grouped alternatives with nested bindings |
 | Types and values | every current built-in parser type name, function types, nested generic type arguments, width/base/decimal/complex numeric forms |
 | Library surface | representative `std/text`, `std/math`, option/result, and tensor expressions as ordinary parsed calls |
 | Source robustness | comments, semicolons, irregular whitespace, malformed expression/lexer/tag/enum/match input, and diagnostic locations |

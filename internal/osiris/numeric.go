@@ -2230,6 +2230,19 @@ func atValue(args []Value) (Value, error) {
 		nextData := append([]Value(nil), args[0].data[offset:offset+blockLen]...)
 		return newTensorValue(nextShape, nextData), nil
 	}
+	if args[0].kind == kindStruct && args[1].kind == kindString {
+		if args[0].structType == nil || args[0].structValue == nil {
+			return nullValue(), fmt.Errorf("at expects a constructed struct value")
+		}
+		field, ok := args[0].structType.byName[args[1].str]
+		if !ok || field < 0 || field >= len(args[0].structValue.fields) {
+			return nullValue(), fmt.Errorf("product field not found: %s", args[1].str)
+		}
+		return args[0].structValue.fields[field], nil
+	}
+	if args[0].kind == kindStruct {
+		return nullValue(), fmt.Errorf("product index expects a string field name")
+	}
 	idx, err := args[1].Int()
 	if err != nil {
 		return nullValue(), err

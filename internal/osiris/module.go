@@ -493,7 +493,7 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			"noise":  functionValueOf("std/crypto.noise", func(args []Value) (Value, error) { return builtinNoise(args) }),
 			"random": functionValueOf("std/crypto.random", seededRandomValue),
 		}
-		for key, value := range task137CryptoModule() {
+		for key, value := range extendedCryptoModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -512,7 +512,7 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			"hann":     functionValueOf("std/signal.hann", hannValue),
 			"convolve": functionValueOf("std/signal.convolve", convolveValue),
 		}
-		for key, value := range task137SignalModule() {
+		for key, value := range extendedSignalModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -556,7 +556,7 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 			"sum":     functionValueOf("std/list.sum", func(args []Value) (Value, error) { return builtinSum(args) }),
 			"product": functionValueOf("std/list.product", func(args []Value) (Value, error) { return builtinProduct(args) }),
 		}
-		for key, value := range task137ListModule() {
+		for key, value := range extendedListModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -565,8 +565,8 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		mod := task120RegexModule()
-		for key, value := range task137RegexModule() {
+		mod := stdlibRegexModule()
+		for key, value := range extendedRegexModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -575,8 +575,8 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		mod := task120CompressionModule()
-		for key, value := range task120ArchiveModule() {
+		mod := stdlibCompressionModule()
+		for key, value := range stdlibArchiveModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -585,8 +585,8 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		mod := task120JSONModule()
-		for key, value := range Task137JSONModule() {
+		mod := stdlibJSONModule()
+		for key, value := range ExtendedJSONModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -595,17 +595,17 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		// Compatibility alias for the original task-120 configuration parser.
+		// Compatibility alias for the original stdlib configuration parser.
 		// New code should import std/json; properties parsing remains available
 		// here until a dedicated configuration format module is introduced.
-		return makeModule(name, version, task120ConfigModule()), nil
+		return makeModule(name, version, stdlibConfigModule()), nil
 	case "std/i18n":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		mod := task120I18nModule()
-		for key, value := range Task137I18nModule() {
+		mod := stdlibI18nModule()
+		for key, value := range ExtendedI18nModule() {
 			mod[key] = value
 		}
 		return makeModule(name, version, mod), nil
@@ -614,13 +614,13 @@ func stdlibModule(rt *Runtime, name, selector string) (Value, error) {
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, task121DatabaseModule()), nil
+		return makeModule(name, version, databaseAPIDatabaseModule()), nil
 	case "std/telemetry", "std/log":
 		version := "1.0.0"
 		if !versionMatchesSelector(version, selector) {
 			return nullValue(), fmt.Errorf("stdlib module %s version %s does not satisfy %q", name, version, selector)
 		}
-		return makeModule(name, version, task122TelemetryModule(rt)), nil
+		return makeModule(name, version, telemetryContractTelemetryModule(rt)), nil
 	default:
 		return nullValue(), fmt.Errorf("unknown stdlib module %s", name)
 	}

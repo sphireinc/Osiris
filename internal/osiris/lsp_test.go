@@ -343,7 +343,7 @@ func TestLanguageServerTypedMemberProtocolUsesUTF16AndRejectsStaleVersion(t *tes
 `, uri, utf16Units(callLine[:strings.Index(callLine, "render")])+2) +
 		`{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}
 {"jsonrpc":"2.0","method":"exit"}`
-	frames := decodeTask143Frames(t, runTask143ProtocolFixture(t, []byte(fixture)))
+	frames := decodeLSPProtocolFrames(t, runLSPProtocolFixture(t, []byte(fixture)))
 	var sawCompletion, sawStale bool
 	for _, message := range frames {
 		id, _ := message["id"].(float64)
@@ -413,7 +413,7 @@ func TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion(t *t
 		fmt.Sprintf("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/signatureHelp\",\"params\":{\"textDocument\":{\"uri\":%q,\"version\":6},\"position\":%s}}\n", uri, position) +
 		"{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"shutdown\",\"params\":{}}\n" +
 		"{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}"
-	frames := decodeTask143Frames(t, runTask143ProtocolFixture(t, []byte(fixture)))
+	frames := decodeLSPProtocolFrames(t, runLSPProtocolFixture(t, []byte(fixture)))
 	var help lspSignatureHelp
 	var sawHelp, sawStale bool
 	for _, message := range frames {
@@ -449,6 +449,89 @@ func TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion(t *t
 	}
 	if !sawStale {
 		t.Fatal("stale signature-help request was accepted")
+	}
+}
+
+func TestLanguageServerSignatureHelpValidatesMalformedRequestsAndCancellation(t *testing.T) {
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	uri := pathToURI("/tmp/signature-help-validation.osr")
+	source := "func greet(name string, count u64) string => name\nlet value = greet(\"x\", 1)\nemit value\n"
+	if err := server.upsertDocumentContext(context.Background(), uri, source, 9); err != nil {
+		t.Fatal(err)
+	}
+
+	request := func(ctx context.Context, raw string) (any, error) {
+		result, handled, err := server.handleIDERequest(ctx, "textDocument/signatureHelp", json.RawMessage(raw))
+		if !handled {
+			t.Fatal("signature-help request was not handled")
+		}
+		return result, err
+	}
+	position := `{"line":1,"character":24}`
+	result, err := request(context.Background(), fmt.Sprintf(`{"textDocument":{"uri":%q,"version":9},"position":%s}`, uri, position))
+	if err != nil || result == nil {
+		t.Fatalf("valid signature-help request = %#v, %v", result, err)
+	}
+
+	for name, raw := range map[string]string{
+		"missing position": fmt.Sprintf(`{"textDocument":{"uri":%q,"version":9}}`, uri),
+		"invalid position": fmt.Sprintf(`{"textDocument":{"uri":%q,"version":9},"position":{"line":99,"character":0}}`, uri),
+		"stale version":    fmt.Sprintf(`{"textDocument":{"uri":%q,"version":8},"position":%s}`, uri, position),
+	} {
+		_, err := request(context.Background(), raw)
+		var coded interface{ LSPCode() int }
+		if !errors.As(err, &coded) || coded.LSPCode() != -32602 {
+			t.Errorf("%s error = %v, want -32602", name, err)
+		}
+	}
+
+	before := server.document(uri)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err = request(ctx, fmt.Sprintf(`{"textDocument":{"uri":%q,"version":9},"position":%s}`, uri, position))
+	var coded interface{ LSPCode() int }
+	if result != nil || !errors.As(err, &coded) || coded.LSPCode() != -32800 {
+		t.Fatalf("cancelled signature-help request = %#v, %v; want nil/-32800", result, err)
+	}
+	if after := server.document(uri); after.text != before.text || after.version != before.version || after.analysis != before.analysis {
+		t.Fatal("cancelled signature-help request changed the open document")
+	}
+}
+
+func TestLanguageServerSignatureHelpIsDeterministicAndConcurrent(t *testing.T) {
+	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})
+	uri := pathToURI("/tmp/signature-help-concurrent.osr")
+	source := "func greet(name string, count u64) string => name\nlet value = greet(\"x\", 1)\nemit value\n"
+	if err := server.upsertDocumentContext(context.Background(), uri, source, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	const workers = 16
+	results := make(chan string, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			result, err := server.signatureHelpContext(context.Background(), uri, lspPosition{Line: 1, Character: 24}, nil)
+			if err != nil {
+				results <- fmt.Sprintf("error: %v", err)
+				return
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				results <- fmt.Sprintf("marshal error: %v", err)
+				return
+			}
+			results <- string(encoded)
+		}()
+	}
+	var want string
+	for i := 0; i < workers; i++ {
+		got := <-results
+		if i == 0 {
+			want = got
+		}
+		if got != want {
+			t.Fatalf("concurrent signature-help response %q differs from %q", got, want)
+		}
 	}
 }
 

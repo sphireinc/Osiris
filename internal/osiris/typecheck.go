@@ -1514,6 +1514,10 @@ func patternBindingNames(pattern Pattern) []string {
 			for _, child := range p.items {
 				walk(child)
 			}
+		case structPattern:
+			for _, field := range p.fields {
+				walk(field.pattern)
+			}
 		case andPattern:
 			walk(p.left)
 			walk(p.right)

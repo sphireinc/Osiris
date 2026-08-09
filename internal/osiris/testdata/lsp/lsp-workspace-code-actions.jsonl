@@ -1,0 +1,8 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-code-action-fixture.osr","languageId":"osiris","version":4,"text":"import \"std/time\" as time\nimport \"std/math\" as math\nlet answer = 1\nemit answer\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/codeAction","params":{"textDocument":{"uri":"file:///tmp/lsp-code-action-fixture.osr","version":4},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":0}},"context":{"diagnostics":[]}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/codeAction","params":{"textDocument":{"uri":"file:///tmp/lsp-code-action-fixture.osr","version":4},"context":{"diagnostics":[]}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/codeAction","params":{"textDocument":{"uri":"file:///tmp/lsp-code-action-fixture.osr","version":4},"range":{"start":{"line":1,"character":4},"end":{"line":1,"character":1}},"context":{"diagnostics":[]}}}
+{"jsonrpc":"2.0","id":5,"method":"textDocument/codeAction","params":{"textDocument":{"uri":"file:///tmp/lsp-code-action-fixture.osr","version":4},"range":{"start":{"line":99,"character":0},"end":{"line":99,"character":0}},"context":{"diagnostics":[]}}}
+{"jsonrpc":"2.0","id":6,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

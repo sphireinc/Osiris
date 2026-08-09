@@ -800,6 +800,10 @@ func bindPatternAliases(pattern Pattern, subject aliasInfo, scope *aliasScope, o
 		for _, item := range p.items {
 			bindPatternAliases(item, subject, scope, out)
 		}
+	case structPattern:
+		for _, field := range p.fields {
+			bindPatternAliases(field.pattern, subject, scope, out)
+		}
 	case typePattern:
 		if p.binding != "" && p.binding != "_" {
 			scope.bindLocal(p.binding, subject, out, false)

@@ -36,7 +36,7 @@ const gpuArtifactSchemaVersion = 2
 // It returns GPUArtifact and an error. Callers should only trust the value
 // when the error is nil.
 func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
-	if err := rejectTask134FutureBackend(prog, "GPU"); err != nil {
+	if err := rejectReservedTypeFutureBackend(prog, "GPU"); err != nil {
 		return GPUArtifact{}, err
 	}
 	if prog == nil {

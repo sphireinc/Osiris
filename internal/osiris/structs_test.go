@@ -117,12 +117,16 @@ func TestStructTupleCodecPreservesNominalMetadata(t *testing.T) {
 	}
 }
 
-func TestStructNativeTypeAliasBoundaryIsExplicit(t *testing.T) {
+func TestStructNativeTypeAliasNativeParity(t *testing.T) {
 	prog, err := Parse("<struct-native>", "type Point = u64\nlet p = Point(1u64)\nemit p\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CompileC(context.Background(), NewRuntime(), prog); err == nil || !strings.Contains(err.Error(), "product-type declarations") {
-		t.Fatalf("native compile error = %v", err)
+	artifact, err := CompileC(context.Background(), NewRuntime(), prog)
+	if err != nil {
+		t.Fatalf("native alias compile error = %v", err)
+	}
+	if strings.Contains(artifact.Source, "product-type declarations") {
+		t.Fatal("native alias retained the old unsupported declaration boundary")
 	}
 }

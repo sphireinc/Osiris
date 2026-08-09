@@ -146,6 +146,21 @@ func matchPattern(pattern Pattern, value Value, state *matchState) (bool, error)
 			}
 		}
 		return true, nil
+	case structPattern:
+		if value.kind != kindStruct || value.structType == nil || value.structValue == nil || value.structType.name != p.typeName {
+			return false, nil
+		}
+		for _, field := range p.fields {
+			index, exists := value.structType.byName[field.name]
+			if !exists || index < 0 || index >= len(value.structValue.fields) {
+				return false, nil
+			}
+			ok, err := matchPattern(field.pattern, value.structValue.fields[index], state)
+			if err != nil || !ok {
+				return false, err
+			}
+		}
+		return true, nil
 	default:
 		return false, fmt.Errorf("unknown pattern %T", pattern)
 	}

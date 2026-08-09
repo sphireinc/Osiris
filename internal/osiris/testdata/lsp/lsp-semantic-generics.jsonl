@@ -1,0 +1,9 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-semantic-generics-fixture.osr","languageId":"osiris","version":7,"text":"func identity<T>(value T) T => value\nfunc wrap<T>(value T) T => identity<T>(value)\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/lsp-semantic-generics-fixture.osr","version":7},"position":{"line":0,"character":23}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///tmp/lsp-semantic-generics-fixture.osr","version":7},"position":{"line":0,"character":23}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/references","params":{"textDocument":{"uri":"file:///tmp/lsp-semantic-generics-fixture.osr","version":7},"position":{"line":0,"character":23}}}
+{"jsonrpc":"2.0","id":5,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///tmp/lsp-semantic-generics-fixture.osr","version":6},"position":{"line":0,"character":23}}}
+{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":{"textDocument":"malformed"}}
+{"jsonrpc":"2.0","id":7,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

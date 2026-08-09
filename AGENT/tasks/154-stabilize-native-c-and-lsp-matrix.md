@@ -42,9 +42,10 @@ this gate.
 ## Current gate evidence
 
 The focused Native C/LSP parity suites pass, including the task-160 semantic
-and task-161 workspace fixtures, task-162 tuple/data differential coverage,
-and task-163 text/stdlib boundary coverage. The support-matrix checker also
-passes its schema and documentation checks.
+and task-161 workspace fixtures, task-162 tuple/data/product-pattern
+differential coverage, and task-163 text/signal/time/crypto stdlib boundary
+coverage. The support-matrix checker also passes its schema and documentation
+checks.
 
 The release gate remains blocked: the matrix currently contains 28 `partial`
 Native C cells and 28 `partial` LSP cells. The bounded slices above do not
@@ -52,13 +53,23 @@ prove all rows, sanitizer/cross-platform execution, or the full ownership and
 cancellation contracts required by this task, so no matrix promotion or
 completion record is justified yet.
 
+The repository now exposes a priority-lane gate independent of the deferred
+backends: `OSIRIS_REQUIRE_NATIVE_LSP_STABLE=1 ./scripts/check-support-matrix.sh`
+runs `TestSupportMatrixNativeAndLSPReleaseGate` and checks only the Native C and
+LSP columns. The all-backend `OSIRIS_REQUIRE_STABLE_MATRIX=1` gate remains
+separate so WASM/GPU evidence cannot mask or block the Native C/LSP closure
+audit.
+
 The latest evidence extends the gate without changing its status: typed-member
-LSP navigation, cancellable colocated-test inventory/code lenses, Native C
-tuple destructuring, and portable SHA-512-family crypto now have focused
-normal/race or sanitizer-backed fixtures and granular documentation. The
-remaining rows still require full semantic/workspace coverage and the
-standard-library, host-resource, product-type, numeric, and cross-platform
-Native C surfaces listed in the dependent tasks.
+and generic/macro LSP navigation, cancellable colocated-test inventory/code
+lenses, deterministic semantic tokens, pull diagnostics, inlay hints, folding
+and selection ranges, Native C tuple destructuring, named products,
+aliases/newtypes, product patterns, portable SHA-512-family crypto, signal
+transforms, and pure text operations now have focused normal/race or
+sanitizer-backed fixtures and granular documentation. The remaining rows still
+require complete semantic/workspace/refactoring coverage and the
+standard-library, host-resource, wider numeric, and cross-platform Native C
+surfaces listed in the dependent tasks.
 
 ## Explicitly deferred
 

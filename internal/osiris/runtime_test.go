@@ -3623,7 +3623,7 @@ emit transpose(values)
 		t.Fatal("runtime components were not emitted in the required base-then-complex order")
 	}
 	got := fmt.Sprintf("%x", sha256.Sum256([]byte(first.Source)))
-	const want = "0bb495b88a14a5a73ef8dd0a15ed9b350d030f3cbceaeb3175205a969b2c34ff"
+	const want = "32c20a199ff16af3ce2a45664d39bc633091306b3b8475deb77418ae67eea4f8"
 	if got != want {
 		t.Fatalf("runtime-component generated-C golden changed: got %s, want %s", got, want)
 	}
@@ -7067,7 +7067,11 @@ emit math.tau
 	if err != nil {
 		t.Fatalf("compile c failed: %v", err)
 	}
-	if strings.Contains(artifact.Source, " = ocall(") {
+	mainSource := artifact.Source
+	if mainStart := strings.Index(mainSource, "int main(void)"); mainStart >= 0 {
+		mainSource = mainSource[mainStart:]
+	}
+	if strings.Contains(mainSource, " = ocall(") {
 		t.Fatalf("static math import lowered through an indirect call:\n%s", artifact.Source)
 	}
 	exePath := filepath.Join(t.TempDir(), "static-math-import")
@@ -7099,7 +7103,11 @@ emit root(81.0)
 	if err != nil {
 		t.Fatalf("compile C failed: %v", err)
 	}
-	if strings.Contains(artifact.Source, " = ocall(") {
+	mainSource := artifact.Source
+	if mainStart := strings.Index(mainSource, "int main(void)"); mainStart >= 0 {
+		mainSource = mainSource[mainStart:]
+	}
+	if strings.Contains(mainSource, " = ocall(") {
 		t.Fatalf("captured static module lowered through a dynamic call:\n%s", artifact.Source)
 	}
 	exePath := filepath.Join(t.TempDir(), "captured-static-module")

@@ -83,7 +83,7 @@ func TestNativeHostResourceComponentCompilesAsC(t *testing.T) {
 
 	// The component is intentionally compiled against the current generated
 	// prelude without wiring it into the shared emitter. This catches ABI drift
-	// while preserving the integrator-only boundary requested by task 148.
+	// while preserving the integrator-only native host boundary.
 	source := cRuntimePrelude() + "\n" + nativeHostResourceRuntimeComponent + "\n"
 	path := t.TempDir() + "/host_resources.c"
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {

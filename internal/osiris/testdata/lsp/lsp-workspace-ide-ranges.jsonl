@@ -1,0 +1,9 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","languageId":"osiris","version":12,"text":"// first 😀 comment\n// second comment\n\nfunc greet(name string) string {\n  let café = name; café\n}\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","version":12},"range":{"start":{"line":0,"character":0},"end":{"line":6,"character":0}}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","version":12}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/selectionRange","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","version":12},"positions":[{"line":4,"character":7},{"line":4,"character":12}]}}
+{"jsonrpc":"2.0","id":5,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","version":12}}}
+{"jsonrpc":"2.0","id":6,"method":"textDocument/foldingRange","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-ide-ranges.osr","version":11}}}
+{"jsonrpc":"2.0","id":7,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","method":"exit"}

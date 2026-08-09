@@ -1,6 +1,6 @@
 # Native C networking boundary
 
-This document records the integrated native networking adapter for task 148.
+This document records the integrated native networking adapter for deferred native host.
 The hosted `std/net` contract remains the semantic reference; generated C opts
 into each host resource explicitly and uses `O_RESOURCE` ownership rather than
 the FFI library representation.
@@ -100,11 +100,11 @@ free of an ambient TLS dependency and makes the provider part of the build
 environment rather than silently loading a library at runtime.
 
 The focused checks are `TestNativeNetworkRuntimeCompilesAsCComponent`,
-`TestTask148NativeTCPResourceExecutes`,
-`TestTask148NativeUDPDNSResourcesExecute`,
-`TestTask148NativeHTTPExecutesWithPortableTransport`,
+`TestNativeHostTCPResourceExecutes`,
+`TestNativeHostUDPDNSResourcesExecute`,
+`TestNativeHostHTTPExecutesWithPortableTransport`,
 `TestNativeTLSHTTPRuntimeFollowsBoundedRedirects`,
 `TestNativeTLSHTTPRuntimeExecutesGeneratedClosureHandler`, and
-`TestTask148NativeTLSExecutesWithOpenSSLProvider`. Loopback execution requires
+`TestNativeHostTLSExecutesWithOpenSSLProvider`. Loopback execution requires
 the test environment to permit local sockets; the TLS test also requires
 OpenSSL's `pkg-config` metadata.

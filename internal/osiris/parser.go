@@ -642,6 +642,24 @@ type listPattern struct {
 // effects or through a separate error path when one exists.
 func (listPattern) patternNode() {}
 
+// structPattern matches a named product/struct by nominal type and by the
+// explicitly listed fields. Omitted fields are intentionally unconstrained;
+// each listed field is matched recursively using the same pattern language as
+// enum and list payloads.
+type structPattern struct {
+	typeName string
+	fields   []structPatternField
+	Span     sourceSpan
+}
+
+type structPatternField struct {
+	name    string
+	pattern Pattern
+	Span    sourceSpan
+}
+
+func (structPattern) patternNode() {}
+
 // Parse parses the supplied work and returns the structured form that the
 // evaluator, optimizer, or analyzer expects to work on.
 //
@@ -2194,6 +2212,11 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 		if tok.text == "_" {
 			return wildcardPattern{Span: parserSpanFromToken(tok)}, nil
 		}
+		if p.peek().kind == tokenLBrace {
+			if _, known := p.knownStructs[tok.text]; known {
+				return p.parseStructPattern(tok)
+			}
+		}
 		if p.match(tokenDot) {
 			caseTok, err := p.expect(tokenIdent)
 			if err != nil {
@@ -2295,6 +2318,44 @@ func (p *parser) parsePatternAtom() (Pattern, error) {
 	}
 }
 
+func (p *parser) parseStructPattern(typeTok token) (Pattern, error) {
+	if _, err := p.expect(tokenLBrace); err != nil {
+		return nil, err
+	}
+	fields := make([]structPatternField, 0, 4)
+	seen := make(map[string]struct{})
+	for p.peek().kind != tokenRBrace {
+		fieldTok, err := p.expect(tokenIdent)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[fieldTok.text]; exists {
+			return nil, p.errorf(fieldTok, "struct pattern repeats field %q", fieldTok.text)
+		}
+		seen[fieldTok.text] = struct{}{}
+		if _, err := p.expect(tokenColon); err != nil {
+			return nil, err
+		}
+		child, err := p.parsePattern()
+		if err != nil {
+			return nil, err
+		}
+		fields = append(fields, structPatternField{
+			name:    fieldTok.text,
+			pattern: child,
+			Span:    spanCover(parserSpanFromToken(fieldTok), patternSpan(child)),
+		})
+		if !p.match(tokenComma) && !p.match(tokenSemicolon) && p.peek().kind != tokenRBrace {
+			return nil, p.errorf(p.peek(), "expected , ; or } after struct pattern field")
+		}
+	}
+	end, err := p.expect(tokenRBrace)
+	if err != nil {
+		return nil, err
+	}
+	return structPattern{typeName: typeTok.text, fields: fields, Span: parserSpanFromTokens(typeTok, end)}, nil
+}
+
 func patternSpan(pattern Pattern) sourceSpan {
 	switch p := pattern.(type) {
 	case bindPattern:
@@ -2304,6 +2365,8 @@ func patternSpan(pattern Pattern) sourceSpan {
 	case literalPattern:
 		return p.Span
 	case listPattern:
+		return p.Span
+	case structPattern:
 		return p.Span
 	case orPattern:
 		return p.Span

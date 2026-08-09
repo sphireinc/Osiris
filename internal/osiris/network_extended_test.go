@@ -24,7 +24,7 @@ func TestNativeRejectsHostedNetworkingWithSourceSpan(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = CompileC(context.Background(), NewRuntime(), prog)
-	if err == nil || !strings.Contains(err.Error(), "network.osr:1:6: native C backend: networking builtin") {
+	if err == nil || !strings.Contains(err.Error(), "network.osr:1:6: native C backend: native capability \"net.http_client\"") {
 		t.Fatalf("error = %v, want source-spanned native networking diagnostic", err)
 	}
 }

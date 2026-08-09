@@ -11,6 +11,7 @@
       "parameters": "One `duration`, integral numeric value interpreted as nanoseconds, or exact `quantity[Second]` whose magnitude is an integral number of nanoseconds.",
       "details": ["The range is signed 64-bit nanoseconds: approximately ±290 years.", "This pure operation reports `OutOfRange` instead of wrapping and rejects fractional nanoseconds."],
       "errors": "`TypeError` for incompatible values, `InvalidArgument` for non-integral nanoseconds, and `OutOfRange` outside signed 64-bit nanoseconds.",
+      "native": "Native C accepts an existing duration, an exact signed integer, or a value-owned `Second` quantity whose nanosecond product is exactly representable. The result is returned by value without a capability or retained input pointer.",
       "example": "emit time.duration_string(time.duration(1500000000)) # \"1.5s\""
     },
     {
@@ -41,6 +42,7 @@
       "parameters": "Seven integral fields and an optional `location`; omission means UTC. Years are `1..9999`, months `1..12`, seconds `0..59`, and nanoseconds `0..999999999`.",
       "details": ["Invalid days and clock fields fail instead of normalizing. Leap seconds are rejected.", "IANA timezone gaps fail; a repeated wall time in a DST fold selects the earlier instant. This operation is deterministic."],
       "errors": "`TypeError`, `InvalidArgument`, or `OutOfRange` for invalid fields or location values.",
+      "native": "Native C accepts seven exact integral civil fields or those fields plus the UTC location value. It stores a normalized value-owned `ODatetime`; non-UTC locations are an explicit source-spanned boundary because the native ABI has no location slot.",
       "example": "emit time.format(time.date(2024, 2, 29, 12, 30, 0, 0), time.rfc3339) # \"2024-02-29T12:30:00Z\""
     },
     {
@@ -51,6 +53,7 @@
       "parameters": "Signed integral seconds and an optional integral nanosecond adjustment; the adjustment is normalized into the second field.",
       "details": ["Negative timestamps use floor-based Unix semantics with a non-negative stored nanosecond field.", "The resulting civil year must remain in `1..9999`; this operation is pure."],
       "errors": "`TypeError` for non-integral values and `OutOfRange` for an unsupported result.",
+      "native": "Native C uses checked signed-integer arithmetic, normalizes an optional nanosecond adjustment with floor semantics, and stores the result in the repaired value-owned `ODatetime { seconds, nanosecond }` ABI. No clock or host capability is consulted.",
       "example": "emit time.format(time.unix(-1, 500000000), time.rfc3339_nano) # \"1969-12-31T23:59:59.5Z\""
     },
     {
@@ -61,6 +64,7 @@
       "parameters": "One signed integral millisecond count.",
       "details": ["Conversion uses integer arithmetic; negative sub-second epochs retain their exact fraction.", "The resulting civil year must remain in `1..9999`; no clock is read."],
       "errors": "`TypeError` for non-integral input and `OutOfRange` for an unsupported result.",
+      "native": "Native C multiplies the exact signed millisecond count with checked arithmetic, normalizes it into seconds plus a non-negative nanosecond field, and returns a UTC `ODatetime` by value.",
       "example": "emit time.format(time.unix_milli(-1), time.rfc3339_nano) # \"1969-12-31T23:59:59.999Z\""
     },
     {
@@ -71,6 +75,7 @@
       "parameters": "One signed integral microsecond count.",
       "details": ["Conversion uses integer arithmetic and retains microsecond precision exactly.", "The resulting civil year must remain in `1..9999`; no clock is read."],
       "errors": "`TypeError` for non-integral input and `OutOfRange` for an unsupported result.",
+      "native": "Native C multiplies the exact signed microsecond count with checked arithmetic, normalizes it into seconds plus a non-negative nanosecond field, and returns a UTC `ODatetime` by value.",
       "example": "emit time.format(time.unix_micro(-1), time.rfc3339_nano) # \"1969-12-31T23:59:59.999999Z\""
     },
     {
@@ -91,6 +96,7 @@
       "parameters": "One `datetime` and one layout `string`.",
       "details": ["Write the desired layout using fields from `Mon Jan 2 15:04:05 MST 2006`; for example, `2006-01-02` selects an ISO-style date.", "Formatting is pure, does not change the datetime, and never consults the host locale or clock."],
       "errors": "`TypeError` for incompatible values or `InvalidArgument` for wrong arity.",
+      "native": "Native C formats UTC datetimes through a bounded reference-layout subset, including civil fields, month/weekday names, fractional seconds, and UTC offset tokens. It returns one newly owned string and rejects unsupported values without a capability.",
       "example": "emit time.format(time.date(2024, 7, 8, 9, 10, 11, 0), \"2006-01-02 15:04:05\") # \"2024-07-08 09:10:11\""
     },
     {
@@ -121,6 +127,7 @@
       "parameters": "One `datetime` and three integral deltas.",
       "details": ["Calendar normalization follows Go `AddDate`; for example, January 31 plus one month may normalize into March.", "A calendar day follows local civil time and can therefore be 23 or 25 elapsed hours across DST."],
       "errors": "`TypeError` for non-integral arguments and `OutOfRange` when the result leaves years `1..9999`.",
+      "native": "Native C applies checked year/month/day offsets to UTC `ODatetime` values, preserves the time-of-day and nanoseconds, and returns a value-owned datetime without host capability. Negative offsets and years outside `1..9999` are handled explicitly.",
       "example": "emit time.format(time.add_date(time.date(2024, 1, 31, 0, 0, 0, 0), 0, 1, 0), \"2006-01-02\") # \"2024-03-02\""
     },
     {
@@ -131,6 +138,7 @@
       "parameters": "A `duration` or `datetime` followed by a non-negative `duration` quantum.",
       "details": ["Duration ties round away from zero. Datetimes round from the zero time while retaining their location.", "A zero quantum returns the input. Every result is range-checked and the operation is pure."],
       "errors": "`TypeError`, `InvalidArgument` for a negative quantum, or `OutOfRange` for an unrepresentable result.",
+      "native": "Native C provides this pure-value contract for duration and UTC datetime values. Checked integer helpers preserve the year-1 zero-time anchor for arbitrary quanta, require no host capability, allocate no result storage, and retain no input pointer.",
       "example": "emit time.duration_string(time.round(time.duration(1500000000), time.second)) # \"2s\""
     },
     {
@@ -141,6 +149,7 @@
       "parameters": "A `duration` or `datetime` followed by a non-negative `duration` quantum.",
       "details": ["Negative durations truncate toward zero. Datetimes retain their location.", "A zero quantum returns the input; the operation is pure and checked."],
       "errors": "`TypeError`, `InvalidArgument` for a negative quantum, or `OutOfRange` for an unsupported result.",
+      "native": "Native C provides this pure-value contract for duration and UTC datetime values. Checked integer helpers preserve the year-1 zero-time anchor for arbitrary quanta, require no host capability, allocate no result storage, and retain no input pointer.",
       "example": "emit time.duration_string(time.truncate(time.duration(-1500000000), time.second)) # \"-1s\""
     },
     {
@@ -151,6 +160,7 @@
       "parameters": "Two durations or two datetimes of the same kind.",
       "details": ["Datetime equality compares the instant, not location identity.", "The ordinary `==` operator uses the same value rule; this function makes time-specific intent explicit."],
       "errors": "`TypeError` for mixed or unsupported kinds.",
+      "native": "Native C provides this pure-value contract: compares `duration` and UTC `datetime` values without a host capability or allocation.",
       "example": "emit time.equal(time.unix(0), time.utc(time.unix(0))) # true"
     },
     {
@@ -161,6 +171,7 @@
       "parameters": "Two durations or two datetimes of the same kind.",
       "details": ["Datetime ordering uses the represented instant rather than local wall fields.", "This operation is deterministic and pure."],
       "errors": "`TypeError` for mixed or unsupported kinds.",
+      "native": "Native C provides this pure-value contract: compares `duration` and UTC `datetime` values without a host capability or allocation.",
       "example": "emit time.before(time.unix(0), time.unix(1)) # true"
     },
     {
@@ -171,6 +182,7 @@
       "parameters": "Two durations or two datetimes of the same kind.",
       "details": ["Datetime ordering uses the represented instant rather than local wall fields.", "This operation is deterministic and pure."],
       "errors": "`TypeError` for mixed or unsupported kinds.",
+      "native": "Native C provides this pure-value contract: compares `duration` and UTC `datetime` values without a host capability or allocation.",
       "example": "emit time.after(time.unix(1), time.unix(0)) # true"
     },
     {
@@ -181,6 +193,7 @@
       "parameters": "Two durations or two datetimes of the same kind.",
       "details": ["The result is `-1i64`, `0i64`, or `1i64`.", "Datetime comparison ignores display location and compares the exact instant."],
       "errors": "`TypeError` for mixed or unsupported kinds.",
+      "native": "Native C provides this pure-value contract: compares `duration` and UTC `datetime` values and returns `-1i64`, `0i64`, or `1i64` without a host capability or allocation.",
       "example": "emit time.compare(time.unix(0), time.unix(1)) # -1i64"
     },
     {
@@ -191,6 +204,7 @@
       "parameters": "One `datetime`.",
       "details": ["The result is in `1..9999`.", "Component access is pure and does not alter the instant."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C provides this pure-value contract: UTC civil year extraction returns a value-owned `u64` and requires no host capability.",
       "example": "emit time.year(time.date(2024, 2, 29, 0, 0, 0, 0)) # 2024u64"
     },
     {
@@ -201,6 +215,7 @@
       "parameters": "One `datetime`.",
       "details": ["January is `1u64` and December is `12u64`.", "This operation is pure."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C provides this pure-value contract: UTC civil month extraction returns a value-owned `u64` and requires no host capability.",
       "example": "emit time.month(time.date(2024, 2, 29, 0, 0, 0, 0)) # 2u64"
     },
     {
@@ -211,6 +226,7 @@
       "parameters": "One `datetime`.",
       "details": ["The result is in `1..31` and reflects the local civil representation.", "This operation is pure."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C provides this pure-value contract: UTC civil day extraction returns a value-owned `u64` and requires no host capability.",
       "example": "emit time.day(time.date(2024, 2, 29, 0, 0, 0, 0)) # 29u64"
     },
     {
@@ -222,6 +238,7 @@
       "parameters": "No call in value position; one `datetime` in call position.",
       "details": ["The constant is exactly `3600000000000` nanoseconds. The component result is in `0..23`.", "The shared spelling is resolved by value versus call position and remains deterministic after codec round trips."],
       "errors": "`TypeError` when called with a non-datetime.",
+      "native": "Native C lowers the value-position spelling to an exact one-hour duration and lowers call-position use to UTC hour extraction returning a value-owned `u64` in `0..23`; neither path requires a host capability.",
       "example": "emit time.hour(time.date(2024, 1, 1, 23, 0, 0, 0)) # 23u64"
     },
     {
@@ -233,6 +250,7 @@
       "parameters": "No call in value position; one `datetime` in call position.",
       "details": ["The constant is exactly `60000000000` nanoseconds. The component result is in `0..59`.", "The shared spelling is resolved by value versus call position."],
       "errors": "`TypeError` when called with a non-datetime.",
+      "native": "Native C lowers the value-position spelling to an exact one-minute duration and lowers call-position use to UTC minute extraction returning a value-owned `u64` in `0..59`; neither path requires a host capability.",
       "example": "emit time.minute(time.date(2024, 1, 1, 0, 42, 0, 0)) # 42u64"
     },
     {
@@ -244,6 +262,7 @@
       "parameters": "No call in value position; one `datetime` in call position.",
       "details": ["The constant is exactly `1000000000` nanoseconds. The component result is in `0..59`; leap seconds are not represented.", "The shared spelling is resolved by value versus call position."],
       "errors": "`TypeError` when called with a non-datetime.",
+      "native": "Native C lowers the value-position spelling to an exact one-second duration and lowers call-position use to UTC second extraction returning a value-owned `u64` in `0..59`; neither path requires a host capability.",
       "example": "emit time.second(time.date(2024, 1, 1, 0, 0, 42, 0)) # 42u64"
     },
     {
@@ -255,6 +274,7 @@
       "parameters": "No call in value position; one `datetime` in call position.",
       "details": ["The constant is exactly one nanosecond. The component result is in `0..999999999`.", "The shared spelling is resolved by value versus call position."],
       "errors": "`TypeError` when called with a non-datetime.",
+      "native": "Native C lowers the value-position spelling to an exact one-nanosecond duration and lowers call-position use to UTC nanosecond extraction returning a value-owned `u64` in `0..999999999`; neither path requires a host capability.",
       "example": "emit time.nanosecond(time.unix(0, 123)) # 123u64"
     },
     {
@@ -265,6 +285,7 @@
       "parameters": "One `datetime`.",
       "details": ["The stable values are `Sunday` through `Saturday`.", "This is not locale-sensitive and does not read the clock."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C provides this pure-value contract: UTC weekday extraction returns one of seven static English strings and requires no host capability.",
       "example": "emit time.weekday(time.date(2024, 2, 29, 0, 0, 0, 0)) # \"Thursday\""
     },
     {
@@ -275,6 +296,7 @@
       "parameters": "One `datetime`.",
       "details": ["The result is `1..365` or `1..366` in a leap year.", "This operation is pure."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C provides this pure-value contract: UTC one-based year-day extraction returns a value-owned `u64` and requires no host capability.",
       "example": "emit time.year_day(time.date(2024, 2, 29, 0, 0, 0, 0)) # 60u64"
     },
     {
@@ -295,6 +317,7 @@
       "parameters": "One `datetime`.",
       "details": ["The instant and nanosecond are unchanged; only retained location identity changes.", "This operation is pure."],
       "errors": "`TypeError` for a non-datetime.",
+      "native": "Native C validates one `datetime` and returns the value-owned UTC `ODatetime` unchanged; the native ABI has no non-UTC location slot, so no host capability, allocation, or input-pointer retention is involved.",
       "example": "emit time.format(time.utc(time.unix(0)), time.rfc3339) # \"1970-01-01T00:00:00Z\""
     },
     {
@@ -371,6 +394,7 @@
       "returns": "`duration`",
       "summary": "An exact one-microsecond duration constant.",
       "details": ["The value is `1000` nanoseconds.", "It is qualified and does not add or shadow a global measurement-unit name."],
+      "native": "Native C emits the duration payload as a compile-time `INT64_C(1000)` value; it allocates no storage and requires no capability.",
       "example": "emit time.duration_string(time.microsecond) # \"1µs\""
     },
     {
@@ -380,6 +404,7 @@
       "returns": "`duration`",
       "summary": "An exact one-millisecond duration constant.",
       "details": ["The value is `1000000` nanoseconds.", "It is qualified and does not add or shadow a global measurement-unit name."],
+      "native": "Native C emits the duration payload as a compile-time `INT64_C(1000000)` value; it allocates no storage and requires no capability.",
       "example": "emit time.duration_string(time.millisecond) # \"1ms\""
     }
   ]

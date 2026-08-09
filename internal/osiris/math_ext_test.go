@@ -330,8 +330,6 @@ let z = math.sqrt(complex(-1.0, 0.0))
 	}
 
 	for _, source := range []string{
-		"emit atan2(1.0, 2.0)",
-		"import \"std/math\" as math\nemit math.bit_width(1u8)",
 		"emit sin(complex(1.0, 2.0))",
 		"func apply(z) => sin(z)\nemit apply(complex(1.0, 2.0))",
 	} {

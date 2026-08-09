@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-diagnostics.osr","languageId":"osiris","version":9,"text":"emit \"😀\" + missing\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-diagnostics.osr","version":9}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/diagnostic","params":{"textDocument":{}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/diagnostic","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-diagnostics.osr","version":8}}}
+{"jsonrpc":"2.0","id":5,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

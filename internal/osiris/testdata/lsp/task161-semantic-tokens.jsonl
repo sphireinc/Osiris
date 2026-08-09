@@ -1,5 +1,0 @@
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
-{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/task161-semantic-tokens.osr","languageId":"osiris","version":3,"text":"let name = \"😀\" + 42\nemit name // comment\n"}}}
-{"jsonrpc":"2.0","id":2,"method":"textDocument/semanticTokens/full","params":{"textDocument":{"uri":"file:///tmp/task161-semantic-tokens.osr","version":3}}}
-{"jsonrpc":"2.0","id":3,"method":"shutdown"}
-{"jsonrpc":"2.0","method":"exit"}

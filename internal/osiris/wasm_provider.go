@@ -473,7 +473,7 @@ func wasmProfileAllowsMember(profile WASMCapabilityProfile, module, member strin
 		return false
 	}
 	// The deterministic profile exposes every member of pure modules, while
-	// future math families remain protected by the existing Task 134 gate.
+	// future math families remain protected by the existing reserved-type gate.
 	if module == "std/math" {
 		switch member {
 		case "poly", "poly_degree", "poly_eval", "quat", "quat_conjugate", "quat_norm", "quat_inverse",

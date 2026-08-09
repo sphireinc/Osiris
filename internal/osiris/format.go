@@ -574,6 +574,20 @@ func formatPatternAt(p Pattern, parentPrec int) string {
 		}
 		b.WriteByte(']')
 		formatted = b.String()
+	case structPattern:
+		var b strings.Builder
+		b.WriteString(n.typeName)
+		b.WriteString(" { ")
+		for i, field := range n.fields {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(field.name)
+			b.WriteString(": ")
+			b.WriteString(formatPatternAt(field.pattern, patternPrecLowest))
+		}
+		b.WriteString(" }")
+		formatted = b.String()
 	default:
 		formatted = "<pattern>"
 	}

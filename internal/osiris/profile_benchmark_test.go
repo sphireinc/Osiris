@@ -6,7 +6,7 @@ import (
 )
 
 // BenchmarkRuntimeNativeLoop is the stable in-process profiling target for
-// task 044. CLI/process startup is intentionally excluded; bench.sh measures
+// workloads. CLI/process startup is intentionally excluded; bench.sh measures
 // those separately.
 func BenchmarkRuntimeNativeLoop(b *testing.B) {
 	prog, err := Parse("benchmarks/native-loop.osr", `
