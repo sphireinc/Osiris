@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-test-lens-positions.test.osr","languageId":"osiris","version":7,"text":"// osiris:test name=sm😀ke\nemit 1\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/codeLens","params":{"textDocument":{"uri":"file:///tmp/lsp-test-lens-positions.test.osr","version":7}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/codeLens","params":{"textDocument":{"uri":"file:///tmp/lsp-test-lens-positions.test.osr","version":6}}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

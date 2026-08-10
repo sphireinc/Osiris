@@ -1,0 +1,11 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lspFormatting.osr","languageId":"osiris","version":4,"text":"let greeting=\"😀\"\nemit greeting\n"}}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lspAlreadyFormatted.osr","languageId":"osiris","version":2,"text":"let answer = 1u64\nemit answer\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///tmp/lspFormatting.osr","version":4}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///tmp/lspFormatting.osr","version":4}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///tmp/lspAlreadyFormatted.osr","version":2}}}
+{"jsonrpc":"2.0","id":5,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///tmp/lspFormatting.osr","version":3}}}
+{"jsonrpc":"2.0","id":6,"method":"textDocument/formatting","params":{"textDocument":"invalid"}}
+{"jsonrpc":"2.0","id":7,"method":"textDocument/formatting","params":{}}
+{"jsonrpc":"2.0","id":8,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

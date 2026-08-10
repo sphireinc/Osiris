@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -210,6 +211,14 @@ func TestLSPWorkspaceDocumentAndWorkspaceSymbolsHaveExactShapeUTF16StaleCancella
 	if workspaceSymbols[0].Location.URI != uri || workspaceSymbols[0].Location.Range.Start.Line != 2 {
 		t.Fatalf("workspace-symbol location = %#v, want source line 2", workspaceSymbols[0].Location)
 	}
+	parameterQuery, handled, err := server.handleIDERequest(context.Background(), "workspace/symbol", json.RawMessage(`{"query":"name"}`))
+	if err != nil || !handled {
+		t.Fatalf("parameter-name workspace-symbol request = %#v, handled=%v, err=%v", parameterQuery, handled, err)
+	}
+	parameterSymbols, ok := parameterQuery.([]lspWorkspaceSymbol)
+	if !ok || len(parameterSymbols) != 1 || parameterSymbols[0].Name != "name" || parameterSymbols[0].Detail != "field string" {
+		t.Fatalf("parameter-name workspace symbols = %#v, want only the struct field declaration", parameterQuery)
+	}
 	stale := json.RawMessage(fmt.Sprintf(`{"textDocument":{"uri":%q,"version":3}}`, uri))
 	if _, _, err := server.handleIDERequest(context.Background(), "textDocument/documentSymbol", stale); err == nil {
 		t.Fatal("stale document-symbol request was accepted")
@@ -236,7 +245,7 @@ func TestLSPWorkspaceSymbolsProtocolFixtureHasExactResultsAndStaleError(t *testi
 		t.Fatal(err)
 	}
 	frames := decodeLSPProtocolFrames(t, runLSPProtocolFixture(t, fixture))
-	var sawDocument, sawWorkspace, sawStale bool
+	var sawDocument, sawWorkspace, sawParameterFilter, sawStale bool
 	for _, frame := range frames {
 		id, ok := lspProtocolFrameID(frame)
 		if !ok {
@@ -269,13 +278,23 @@ func TestLSPWorkspaceSymbolsProtocolFixtureHasExactResultsAndStaleError(t *testi
 				t.Fatalf("fixture workspace symbol location = %#v", symbols[0])
 			}
 			sawWorkspace = true
+		case 5:
+			data, err := json.Marshal(frame["result"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var symbols []lspWorkspaceSymbol
+			if err := json.Unmarshal(data, &symbols); err != nil || len(symbols) != 1 || symbols[0].Name != "name" || symbols[0].Detail != "field string" {
+				t.Fatalf("fixture parameter-name workspace symbols = %s, err=%v", data, err)
+			}
+			sawParameterFilter = true
 		case 4:
 			lspProtocolAssertErrorCode(t, frame, -32602)
 			sawStale = true
 		}
 	}
-	if !sawDocument || !sawWorkspace || !sawStale {
-		t.Fatalf("symbols fixture frames = %#v; document=%v workspace=%v stale=%v", frames, sawDocument, sawWorkspace, sawStale)
+	if !sawDocument || !sawWorkspace || !sawParameterFilter || !sawStale {
+		t.Fatalf("symbols fixture frames = %#v; document=%v workspace=%v parameter-filter=%v stale=%v", frames, sawDocument, sawWorkspace, sawParameterFilter, sawStale)
 	}
 }
 
@@ -793,6 +812,143 @@ func TestLSPSemanticStdlibExportsFramedUTF16AndStale(t *testing.T) {
 	}
 	if !foundTrim {
 		t.Fatalf("stdlib framed completion = %#v", completions)
+	}
+}
+
+func TestLSPStdlibTextExportInventoryMatchesRuntimeModule(t *testing.T) {
+	moduleValue, err := stdlibModule(NewRuntime(), "std/text", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, err := moduleValue.AsModule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make(map[string]bool, len(module.members))
+	for name := range module.members {
+		expected[name] = true
+	}
+
+	uri := pathToURI("/tmp/lsp-stdlib-text-inventory.osr")
+	source := "import \"std/text\" as text\nlet value = text.trim(\"x\")\nemit value\n"
+	encodedSource, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":2,"text":%s}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":%q,"version":2},"position":{"line":1,"character":%d}}}
+{"jsonrpc":"2.0","id":3,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}`,
+		uri, encodedSource, uri, utf16Units("let value = text."))
+	first := runLSPProtocolFixture(t, []byte(fixture))
+	second := runLSPProtocolFixture(t, []byte(fixture))
+	if first != second {
+		t.Fatalf("stdlib export inventory output is not deterministic")
+	}
+	frames := decodeLSPProtocolFrames(t, first)
+	var completions []lspCompletionItem
+	for _, frame := range frames {
+		id, ok := lspProtocolFrameID(frame)
+		if !ok || id != 2 {
+			continue
+		}
+		payload, err := json.Marshal(frame["result"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(payload, &completions); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := make(map[string]bool, len(completions))
+	for _, item := range completions {
+		if expected[item.Label] && strings.Contains(item.Detail, "std/text.") {
+			got[item.Label] = true
+		}
+	}
+	for name := range expected {
+		if !got[name] {
+			t.Fatalf("stdlib text export %q missing from completion inventory: %#v", name, completions)
+		}
+	}
+}
+
+func TestLSPStdlibExportInventoriesMatchRuntimeModules(t *testing.T) {
+	modules := []struct {
+		path  string
+		alias string
+	}{
+		{path: "std/math", alias: "math"},
+		{path: "std/crypto", alias: "crypto"},
+		{path: "std/signal", alias: "signal"},
+		{path: "std/list", alias: "list"},
+		{path: "std/time", alias: "time"},
+		{path: "std/net", alias: "net"},
+		{path: "std/os", alias: "os"},
+	}
+	for _, moduleSpec := range modules {
+		t.Run(moduleSpec.alias, func(t *testing.T) {
+			moduleValue, err := stdlibModule(NewRuntime(), moduleSpec.path, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			module, err := moduleValue.AsModule()
+			if err != nil {
+				t.Fatal(err)
+			}
+			names := make([]string, 0, len(module.members))
+			for name := range module.members {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			if len(names) == 0 {
+				t.Fatal("stdlib module has no exported members")
+			}
+			uri := pathToURI("/tmp/lsp-stdlib-" + moduleSpec.alias + "-inventory.osr")
+			source := fmt.Sprintf("import %q as %s\nlet value = %s.%s\nemit value\n", moduleSpec.path, moduleSpec.alias, moduleSpec.alias, names[0])
+			encodedSource, err := json.Marshal(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":2,"text":%s}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":%q,"version":2},"position":{"line":1,"character":%d}}}
+{"jsonrpc":"2.0","id":3,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}`,
+				uri, encodedSource, uri, utf16Units("let value = "+moduleSpec.alias+"."))
+			first := runLSPProtocolFixture(t, []byte(fixture))
+			second := runLSPProtocolFixture(t, []byte(fixture))
+			if first != second {
+				t.Fatalf("stdlib export inventory is not deterministic")
+			}
+			frames := decodeLSPProtocolFrames(t, first)
+			var completions []lspCompletionItem
+			for _, frame := range frames {
+				id, ok := lspProtocolFrameID(frame)
+				if !ok || id != 2 {
+					continue
+				}
+				payload, err := json.Marshal(frame["result"])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := json.Unmarshal(payload, &completions); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := make(map[string]bool, len(completions))
+			for _, item := range completions {
+				if strings.Contains(item.Detail, moduleSpec.path+".") {
+					got[item.Label] = true
+				}
+			}
+			for _, name := range names {
+				if !got[name] {
+					t.Fatalf("stdlib %s export %q missing from completion inventory", moduleSpec.path, name)
+				}
+			}
+		})
 	}
 }
 

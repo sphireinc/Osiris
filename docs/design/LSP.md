@@ -11,7 +11,7 @@ protocol values.
 The initialize response advertises only the methods implemented by the server:
 
 - incremental open/change/save/close synchronization;
-- diagnostics, hover, document/workspace symbols, definitions, type
+- diagnostics, hover, document/workspace symbols, declarations, definitions, type
   definitions, implementations, references, completion, signature help, and
   rename;
 - semantic tokens, inlay hints, folding ranges, selection ranges, code actions,
@@ -183,6 +183,25 @@ reported as speculative definitions. Requests still enforce UTF-16 positions,
 document versions, cancellation, and the normal `-32602`/`-32800` protocol
 errors.
 
+The `std/text` export inventory is independently covered by
+`TestLSPStdlibTextExportInventoryMatchesRuntimeModule`. It obtains the module's
+actual exported member set from the runtime, requests completion through the
+framed protocol, and requires every member to be present with its
+`std/text.<member>` detail. This prevents the LSP reference surface from
+silently drifting when a text function is added or renamed. The focused
+stdlib fixtures additionally cover Unicode/UTF-16 positions, definition and
+reference identity, stale versions, malformed requests, cancellation, and
+deterministic framing.
+
+The same runtime-derived inventory contract is maintained for `std/math`,
+`std/crypto`, `std/signal`, `std/list`, and `std/time` by
+`TestLSPStdlibExportInventoriesMatchRuntimeModules`. Each subtest obtains the
+actual module member set, opens a valid source-backed import, requests framed
+completion twice, and requires every exported member to appear with the module
+qualified detail. This keeps additions to these standard modules from being
+silently omitted by the editor surface; individual hover/definition and
+request-boundary tests continue to govern representative navigation behavior.
+
 ### User-module navigation
 
 For a relative import such as `import "./greetings.osr" as greetings`, the
@@ -250,6 +269,44 @@ stale versions, malformed parameters, and the normal protocol lifecycle; the
 focused lsp-semantic test additionally exercises UTF-16 positions and a canceled
 framed request.
 
+The typed-function support boundary is stable for this complete editor surface.
+Typed declarations, callable parameters and results, generic type parameters,
+typed struct fields, and trait methods are sourced from the shared checker
+rather than an LSP-only signature table. Member completion, hover, definition,
+and references preserve the checked receiver and method identity; signature help
+returns checked parameter labels in declaration order and selects the active
+parameter from the UTF-16 protocol position. Malformed requests, stale document
+versions, and cancellation return their documented errors before any partial
+result is published. The maintained tests
+`TestLanguageServerTypedMembersCompletionNavigationAndUTF16`,
+`TestLanguageServerTypedMemberProtocolUsesUTF16AndRejectsStaleVersion`,
+`TestLanguageServerTypedMemberCompletionCancellation`,
+`TestLanguageServerSignatureHelpProtocolUsesUTF16AndRejectsStaleVersion`,
+`TestLanguageServerSignatureHelpValidatesMalformedRequestsAndCancellation`, and
+`TestLanguageServerSignatureHelpIsDeterministicAndConcurrent` cover this
+contract alongside the generic type-parameter fixtures above.
+
+### Binding mutability and assignment diagnostics
+
+The analyzer preserves the language's three binding contracts. A `const` name
+is indexed with detail `constant binding`, a `let` name with detail
+`immutable binding`, and a `var` name with detail `mutable binding`. Tuple
+bindings carry the same qualifier. These details are derived from the parsed
+declaration rather than inferred from a later assignment, so hover and
+completion remain deterministic even when the initializer is runtime-valued.
+
+An assignment still creates a reference to its resolved binding for navigation.
+If the target is a `const` or `let`, the analyzer additionally emits a
+source-spanned `cannot assign to immutable binding` diagnostic; an undefined
+target retains the separate `undefined assignment target` diagnostic. The
+framed contract is covered by
+`TestLSPBindingContractsProtocolIsDeterministicAndReportsImmutableAssignments`,
+which runs the same request sequence twice, verifies the three binding hover
+details, and checks that immutable-assignment diagnostics are published without
+changing the document overlay. Cancellation, stale versions, malformed
+parameters, and UTF-16 position validation remain enforced by the shared
+document request boundary.
+
 ### Macro source navigation
 
 Macro declarations are lexical definitions with LSP symbol kind `macro` and
@@ -303,6 +360,15 @@ qualified pattern that navigates to `Status.Ready`. This keeps cursor behavior
 unambiguous: a request on the enum name resolves the enum, while a request on
 the case resolves the case. `TestLSPEnumPatternTypeNavigationUsesExactSourceSpan`
 checks the byte-column span before it is converted to UTF-16 for the protocol.
+
+The pattern-navigation support boundary is stable for these enum and named
+product forms. `TestLSPPatternProtocolFixtureIsDeterministicAndValidatesStaleRequests`
+exercises framed definition requests twice, verifies source-backed pattern type
+and field navigation, and checks stale and malformed request errors. The same
+analyzer identity is retained for nested bindings and references; no definition
+is fabricated for an unknown field or enum case. More exotic runtime-provider
+patterns remain governed by the shared checker and retain their explicit backend
+status in the support matrix.
 
 ## Semantic tokens
 
@@ -439,12 +505,18 @@ cancellation before and during traversal.
 Document and workspace symbols
 
 `textDocument/documentSymbol` returns a JSON array of flat `DocumentSymbol`
-objects for definitions owned by the requested open document. Each item has
-`name`, numeric `kind`, `range`, and `selectionRange`; `detail` is included
-only when the analyzer has a declaration detail. Ranges are converted from
-Osiris source spans to LSP UTF-16 line/character coordinates, and the
-selection range identifies the declaration span. Results are sorted by source
-range and then name, so repeated requests have identical response order.
+objects for declaration-level definitions owned by the requested open
+document. Each item has `name`, numeric `kind`, `range`, and `selectionRange`;
+`detail` is included only when the analyzer has a declaration detail. Function
+parameters are intentionally omitted from this flat provider: they remain
+source-backed lexical targets for hover, definition, references, completion,
+rename, and signature help, but are not repeated as document-level symbols.
+`workspace/symbol` applies the same declaration-level filter, so a query for a
+parameter name returns only matching fields/functions/types/etc., not the
+parameter declaration itself. Ranges are converted from Osiris source spans
+to LSP UTF-16 line/character coordinates, and the selection range identifies
+the declaration span. Results are sorted by source range and then name, so
+repeated requests have identical response order.
 The request may include `textDocument.version`; a version other than the
 open-document version is rejected with JSON-RPC `-32602` before analysis.
 Cancellation returns JSON-RPC `-32800` and never returns a partial array.
@@ -503,7 +575,37 @@ rule as `osiris test`, so an editor and the CLI select the same test file.
 When the sidecar is open, its current overlay takes precedence over disk. The
 inventory reports the selected sidecar path, package, module, test names,
 flags, and one-based source locations; code-lens commands use that same path
-and metadata.
+and metadata. `textDocument/codeLens` converts those one-based rune columns to
+zero-based UTF-16 positions before emitting the wire range, including test
+directives containing astral characters. The request may include an optional
+document version; a stale assertion returns `-32602` and no lenses. The
+`internal/osiris/testdata/lsp/lsp-test-lens-positions.jsonl` fixture verifies
+the exact UTF-16 range, stale-version rejection, deterministic repeated output,
+and wire-level cancellation (`-32800` without a partial result).
+
+`osiris/testResults` uses the same inventory and executes the selected tests
+against the current open-document overlays. Its request shape is
+`{textDocument: {uri, version?}, backend?, filter?}`. `backend` may be
+`interpreter`, `vm`, or `native`; an omitted backend uses the language-test
+runner default. `filter` is passed to the runner's deterministic test filter.
+The response is an array of result records with the exact fields `name`,
+`file`, `backend`, `status`, `passed`, `skipped?`, `expectedFailure?`,
+`unexpectedPass?`, `outputs?`, `assertions?`, `logs?`, `location`, `error?`,
+and `durationNS`. Assertions contain `expression`, `passed`, `location`, and
+an optional `message`. Locations use zero-based UTF-16 LSP ranges and result
+files are absolute paths.
+
+The endpoint executes open sidecar overlays rather than rereading stale disk
+contents, supports colocated and default-root discovery, and publishes no
+partial array when the request is canceled. A stale version, unsupported
+backend, malformed document parameter, or discovery failure returns a
+structured invalid-params or runner error; cancellation returns `-32800`.
+`durationNS` is a runtime measurement and may vary between runs; clients
+comparing result snapshots should treat that field as non-deterministic.
+`lsp-test-results.jsonl` and
+`TestLSPTestResultsExecutesOverlayWithStableFailureProjection` cover passing,
+skipped, overlay, location, stale-version, cancellation, and unsupported
+backend behavior.
 
 ## Request and response contract
 
@@ -514,6 +616,7 @@ methods and their result shapes are:
 | Method | Result shape | Source of truth |
 | --- | --- | --- |
 | `textDocument/hover` | `Hover` or `null` | analyzed definition/reference |
+| `textDocument/declaration` | `Location` or `null` | source-backed declaration identity |
 | `textDocument/definition` | `Location`, `Location[]`, or `null` | analyzed definition |
 | `textDocument/typeDefinition` | `Location` or `null` | checked binding type |
 | `textDocument/implementation` | `Location[]` | analyzed function/trait method definitions |
@@ -532,6 +635,7 @@ methods and their result shapes are:
 | `textDocument/formatting` | text edit array | `FormatSource` |
 | `textDocument/diagnostic` | `{kind: "full", items: [...]}` | stored document diagnostics |
 | `textDocument/codeLens` | code-lens array | shared language-test inventory |
+| `osiris/testResults` | test-result array | shared language-test runner and open overlays |
 | `textDocument/prepareRename` | range or `null` | resolved rename target |
 | `textDocument/rename` | versioned `WorkspaceEdit` | resolved definitions/references |
 | `callHierarchy/prepare` | call-hierarchy item array | function definitions |
@@ -559,6 +663,18 @@ selects the deterministic URI/source-span minimum. Generated, virtual,
 unresolved, and invalid-span identities return `null`; no fabricated source
 range is emitted.
 
+Type-reference indexing is source-span exact for ordinary typed signatures and
+struct fields as well as generic signatures. `type` aliases and `newtype`
+declarations are indexed as nominal source definitions; parameter and return
+annotations, field annotations, and generic type parameters retain references
+to those definitions without treating numeric literals (`u8(1)`, `f64(1.0)`,
+and similar constructors) as unresolved symbols. The maintained
+`TestLSPSourceBackedTypeReferencesCoverAliasesNewtypesAndTypedSignatures`
+fixture checks alias/newtype identity and reference spans, while
+`TestLSPTypesAndNumericFamiliesProtocolIsDeterministicAndValidatesRequests`
+checks deterministic type-definition responses, UTF-16 surrogate boundaries,
+malformed requests, stale versions, and cancellation.
+
 `languageServer.typeDefinitionContext` checks the request context before
 lookup, after reference resolution, during candidate traversal, after sorting,
 and immediately before publishing the complete `Location`. Cancellation
@@ -566,6 +682,30 @@ returns `-32800` and never publishes a partial result. The legacy
 `languageServer.typeDefinition` wrapper supplies a background context for
 in-process callers; JSON-RPC dispatch always supplies the live request
 context.
+
+### Synchronous control flow and lexical bindings
+
+The analyzer keeps source identity through the synchronous control-flow
+constructs that can contain ordinary expressions and declarations. Function
+declarations and typed parameters are definitions; `const`, `let`, and `var`
+bindings are distinguished by their declaration contract; assignments are
+references to the original binding and retain the binding's mutability for
+diagnostics. `while` conditions and `for` iterables are analyzed in their
+containing scope, while each loop body receives its own source-backed iterator
+or nested binding scope. Block expressions, `defer` bodies, `return` values,
+function calls, and explicit `break`/`continue` statements are traversed
+without inventing a second runtime control-flow model.
+
+The bounded stable surface is defined by
+`TestLSPCoreSynchronousControlFlowTracksLexicalTargets`: every definition and
+resolved reference has a non-empty source span, and the fixture checks
+function, parameter, binding, loop-item, call, condition, and assignment
+identities. The framed
+`TestLSPCoreSynchronousControlFlowProtocolIsDeterministicAndValidatesRequests`
+fixture checks repeatable UTF-16 definition locations, malformed request
+rejection, stale document-version rejection, and pre-cancelled requests.
+Asynchronous task bodies, streams, and host I/O are not included in this row;
+they remain explicit boundaries of the broader task/stream matrix row.
 
 ### `textDocument/implementation`
 
@@ -576,9 +716,12 @@ malformed, stale, unknown, out-of-document, or surrogate-splitting request
 returns `-32602`.
 
 `languageServer.implementationsContext` traverses the sorted open/workspace
-document set and considers only valid source definitions classified as
-`function` or `trait method`. Duplicate URI/source-span identities are
-discarded. The complete result is sorted by URI, start line, start character,
+document set and considers valid source definitions classified as `function`
+for callable implementations or `method` when the cursor identifies a trait
+or implementation method. Concrete implementation methods are indexed with
+the `method` kind, so a trait-method request returns the implementing method
+rather than the trait declaration itself. Duplicate URI/source-span identities
+are discarded. The complete result is sorted by URI, start line, start character,
 end line, and end character before publication. Cancellation is checked before
 lookup, after semantic resolution, during every document and definition
 iteration, after sorting, and before return; it returns `-32800` with a nil
@@ -594,9 +737,12 @@ requests, mid-request cancellation, and context-aware dispatch.
 Call hierarchy uses the definition identity carried by the prepared item, not
 just its display name. `callHierarchy/prepare` accepts a text-document URI,
 an LSP position, and an optional document version; both the URI and position
-are required. It returns one item only when the position resolves to a
-function, macro, or trait method. Missing parameters or a stale version return
-`-32602`, and cancellation returns `-32800` before or during analysis.
+are required. The wire decoder preserves missing `line` and `character`
+components instead of treating them as zero, and rejects negative,
+out-of-document, and UTF-16-surrogate-splitting positions with `-32602` before
+the analyzer is queried. It returns one item only when the position resolves
+to a function, macro, or trait method. A stale version also returns `-32602`,
+while cancellation returns `-32800` before validation or during analysis.
 
 `callHierarchy/incomingCalls` requires an `item` object with non-empty `name`
 and `uri` fields, plus the ordinary LSP call-hierarchy item ranges. The item’s
@@ -622,13 +768,39 @@ The framed `lsp-call-hierarchy.jsonl` fixture covers prepare, incoming, and
 outgoing results, a malformed item, exact identity data, and deterministic
 Content-Length framing. The semantic call-hierarchy test additionally checks
 an astral Unicode argument: the call-site range remains the exact UTF-16
-range reported to the client.
+range reported to the client. The focused
+`lsp-navigation-validation.jsonl` fixture exercises both prepare methods with
+valid positions, omitted or partial coordinates, negative and out-of-document
+coordinates, surrogate-split coordinates, and stale document versions; its
+companion tests also verify pre-cancelled requests return `-32800` without a
+partial result.
 
 `typeHierarchy/supertypes` and
 `typeHierarchy/subtypes` apply the same required-item identity rule. Missing or
 empty `name` or `uri` fields return `-32602` before the analyzer is queried;
 valid but unresolved identities may return an empty result according to the
 corresponding hierarchy contract.
+
+`typeHierarchy/prepare` accepts `textDocument.uri`, an optional document
+`version`, and a required zero-based UTF-16 `position`. An absent position,
+malformed position value, out-of-document position, or position between the
+two UTF-16 code units of an astral character returns JSON-RPC `-32602` before
+the analyzer is queried. A valid nominal type cursor returns an array
+containing one item with exactly `name`, numeric `kind`, `uri`, `range`,
+`selectionRange`, and `data`; the two ranges are identical and the data value
+is the source definition name. A cursor on a non-nominal value, including a
+cursor on an astral-character literal at a valid boundary, returns `[]`.
+Returned ranges and traversal results use UTF-16 coordinates, and repeated
+requests return byte-identical JSON.
+
+The framed `lsp-type-hierarchy.jsonl` fixture covers trait preparation,
+struct preparation, a deterministic `impl Render for Type` supertype result,
+alphabetically ordered subtype results, repeated requests, stale versions,
+malformed JSON parameter types, a surrogate-split astral-character position,
+an omitted position, and malformed hierarchy item identities.
+`TestLSPTypeHierarchyCancellationReturnsNoPartialResult` also verifies `-32800`
+cancellation for all three hierarchy methods and that no partial array is
+returned.
 
 Hierarchy traversal is context-aware and transactional. The server checks
 cancellation before resolving the item, between indexed documents and
@@ -643,16 +815,20 @@ request context through `prepareTypeHierarchyContext`,
 ### Source-backed rename
 
 `textDocument/prepareRename` accepts `textDocument.uri`, an optional document
-`version`, and a UTF-16 `position`. The server returns the exact range of the
-identifier at that position, not automatically the declaration range. A
+`version`, and a required UTF-16 `position`. The wire decoder preserves missing
+`line` and `character` components instead of treating them as zero. Negative,
+out-of-document, and UTF-16-surrogate-splitting positions are rejected with
+`-32602`; stale document versions are rejected before analysis. The server
+returns the exact range of the identifier at that position, not automatically
+the declaration range. A
 position on a resolved local binding, function or method, struct field,
 generic type parameter, macro declaration or parameter, imported module alias,
 or a member imported from a source-backed user module returns a source range.
 The request may target either an open document or a workspace-indexed `.osr`
 file; open-document overlays take precedence. A position on an unresolved
-name, a virtual standard-library export (`osiris://stdlib/...`), an invalid
-UTF-16 boundary, or a symbol whose identity cannot be proven returns `null`
-(invalid request data still returns `-32602`).
+name, a virtual standard-library export (`osiris://stdlib/...`), or a symbol
+whose identity cannot be proven returns `null` (invalid request data still
+returns `-32602`). Cancellation returns `-32800` without publishing a range.
 
 `textDocument/rename` accepts the same document/version/position fields plus
 the required identifier `newName`. The result is a versioned
@@ -668,14 +844,25 @@ ordered by URI and carry the document version captured when the edit was
 built; workspace-indexed files use their indexed version until an open overlay
 provides a newer version.
 
+The multi-document result is transactional over the analyzed document
+generation. `languageServer.renameWorkspaceEditContext` captures the merged
+open-overlay/workspace index once, uses that snapshot for source ranges and
+versions, and performs a locked final identity/version check for every affected
+URI. If a module, importer, or other affected document is replaced while the
+request is scanning, the server returns `-32602` and no `WorkspaceEdit`; an
+unaffected document changing does not invalidate the result. This prevents a
+client from receiving edits assembled from mixed overlay generations.
+
 Rename requests reject stale versions and malformed identifiers with
 `-32602`. Cancellation is checked before analysis, while scanning definitions
-and references, and before the result is returned; canceled requests use
-`-32800` and never return a partial edit. The analyzer identity boundary is
+and references, before the final transaction check, and before the result is
+returned; canceled requests use `-32800` and never return a partial edit. The
+analyzer identity boundary is
 implemented by `documentAnalysis.findAt`, `sourceBackedRenameTarget`,
 `languageServer.sourceBackedRenameOccurrence`, `sameRenameDefinition`,
 `languageServer.prepareRenameContext`, and
-`languageServer.renameWorkspaceEditContext`.
+`languageServer.renameWorkspaceEditContext`; the transaction check is
+`languageServer.validateRenameDocumentSnapshot`.
 
 The methods above are advertised by `initialize` and have framed protocol
 coverage in `internal/osiris/testdata/lsp/lsp-protocol.jsonl`, with
@@ -684,7 +871,14 @@ additional semantic and workspace fixtures in `lsp-semantic.jsonl` and
 `lsp-workspace-test-inventory.jsonl`, `lsp-workspace-code-actions.jsonl`,
 `lsp-workspace-semantic-tokens.jsonl`,
 `lsp-workspace-symbols.jsonl`, `lsp-workspace-diagnostics.jsonl`,
-`lsp-workspace-ide-ranges.jsonl`, and `lsp-workspace-rename.jsonl`; the focused
+`lsp-workspace-ide-ranges.jsonl`, `lsp-workspace-rename.jsonl`, and
+`lsp-workspace-rename-transaction.jsonl`; the focused
+`TestLSPWorkspaceRenameTransactionProtocolFixtureIsDeterministic`,
+`TestLSPWorkspaceRenameTransactionRejectsChangedAffectedDocument`,
+`TestLSPWorkspaceRenameTransactionConcurrentMutation`, and
+`TestLSPWorkspaceRenameTransactionCancellationIsWireLevel` tests verify
+normal versioned output, stale rejection, concurrent affected-document
+replacement, and wire-level cancellation. The existing
 `TestLSPWorkspaceSourceBackedUserModuleRenameFromImporter` test verifies a
 cross-document prepare/rename from an importer reference and from the indexed
 definition. A method outside this table returns JSON-RPC
@@ -813,6 +1007,15 @@ publishing a partial edit. The synchronous formatter is intentionally not
 interrupted in the middle of its pure formatting pass; the post-pass check is
 the transaction boundary. `TestLSPFormattingCancellationIsTransactional`
 covers the canceled request, unchanged overlay, and exact protocol error.
+The framed `lsp-formatting.jsonl` fixture additionally proves the exact
+`TextEdit[]` wire shape, the complete-document range ending after an astral
+character using UTF-16 units, deterministic repeated responses, the empty
+array for an already formatted document, stale-version rejection, and
+malformed-parameter rejection. The formatting dispatch requires a
+`textDocument` object with a non-empty URI before checking the optional
+version or reading the document; a wrong-typed or omitted `textDocument`
+returns `-32602`. `TestLSPFormattingCancellationReturnsNoPartialEdit`
+verifies that cancellation returns `-32800` without changing the open overlay.
 
 ## Workspace roots and test ownership
 

@@ -22,14 +22,17 @@ is intentionally separate.
 
 ## Deferred — WASM, GPU, and environment-gated evidence
 
-Tasks 300–308 and 400 are deliberately lower priority while Native C and LSP are
+Tasks 300–308 and 400–403 are deliberately lower priority while Native C and LSP are
 stabilized:
 
 - 300–302: WASM scalar, aggregate/closure, and host-import execution.
 - 303–304: GPU device provider and device execution.
 - 305–306: WASM matrix closure.
 - 307–308: GPU matrix closure.
-- 400: Windows/Linux/real-device evidence unavailable on the current machine.
+- 400: umbrella coordination for platform evidence.
+- 401: Linux generated-C and sanitizer evidence unavailable on the current machine.
+- 402: Windows HANDLE/Winsock execution unavailable on the current machine.
+- 403: real GPU-device execution unavailable because no MTLDevice is exposed.
 
 ## Final release gate
 

@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-test-results-fixture.test.osr","languageId":"osiris","version":9,"text":"// osiris:test name=passing\n// osiris:expect \"3u64\"\nemit 1 + 2\n\n// osiris:test name=skipped skip=\"not today\"\nemit missing_name\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"osiris/testResults","params":{"textDocument":{"uri":"file:///tmp/lsp-test-results-fixture.test.osr","version":9},"backend":"interpreter"}}
+{"jsonrpc":"2.0","id":3,"method":"osiris/testResults","params":{"textDocument":{"uri":"file:///tmp/lsp-test-results-fixture.test.osr","version":8},"backend":"interpreter"}}
+{"jsonrpc":"2.0","id":4,"method":"osiris/testResults","params":{"textDocument":{"uri":"file:///tmp/lsp-test-results-fixture.test.osr","version":9},"backend":"unknown"}}
+{"jsonrpc":"2.0","id":5,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

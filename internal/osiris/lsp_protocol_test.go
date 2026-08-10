@@ -27,13 +27,13 @@ func TestLSPProtocolFixtureAdvertisesAndExercisesAllLSPMethods(t *testing.T) {
 
 	frames := decodeLSPProtocolFrames(t, first)
 	expectedIDs := map[int]bool{}
-	for id := 1; id <= 35; id++ {
+	for id := 1; id <= 36; id++ {
 		if id != 2 {
 			expectedIDs[id] = false
 		}
 	}
 	capabilityKeys := []string{
-		"hoverProvider", "definitionProvider", "typeDefinitionProvider", "implementationProvider",
+		"hoverProvider", "declarationProvider", "definitionProvider", "typeDefinitionProvider", "implementationProvider",
 		"referencesProvider", "completionProvider", "signatureHelpProvider", "renameProvider",
 		"documentSymbolProvider", "workspaceSymbolProvider", "semanticTokensProvider", "inlayHintProvider",
 		"foldingRangeProvider", "selectionRangeProvider", "callHierarchyProvider", "typeHierarchyProvider",

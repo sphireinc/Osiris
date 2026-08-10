@@ -31,7 +31,7 @@ all recorded dependencies satisfied and is the next selection candidate.
 - **Blocked:** task 154 remains blocked until the Native C/LSP closure tasks
   complete. The all-backend gate is task 310; WASM/GPU/environment work is
   deliberately blocked in the 300-series queue.
-- **Deferred queue:** tasks 300–308 and 400 contain WASM, GPU, and
+- **Deferred queue:** tasks 300–308 and 400–403 contain WASM, GPU, and
   alternate-platform work. They retain their implementation requirements and
   cannot promote support-matrix cells while deferred.
 - **Complete records:** tasks 001–049, 100–126, 134, 138–153, and 160 have
@@ -75,7 +75,7 @@ reviewable increments rather than one open-ended language rewrite:
    cleanup, state, and backend foundations.
 6. **REPL and backend parity:** 138–153 established the initial parity
   streams. Tasks 160–163 and 168 are the current Native C/LSP stabilization
-  lane, with task 154 as its focused gate. Tasks 300–308 and 400 defer WASM, GPU, and
+  lane, with task 154 as its focused gate. Tasks 300–308 and 400–403 defer WASM, GPU, and
   environment-gated evidence; task 310 remains the final all-backend
   `stable` gate.
 

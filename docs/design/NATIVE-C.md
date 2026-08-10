@@ -1,5 +1,28 @@
 # Native C backend contract
 
+## Native synchronous scope-bound cleanup
+
+The Native C backend lowers the synchronous `defer { ... }` surface through
+owned cleanup thunks. `irBuilder.lowerStmt` registers a cleanup edge,
+`irBuilder.lowerDeferredExpr` lowers its body, `irBuilder.emitCleanupsTo`
+closes early `break` and `continue` exits, and `emitCInstr` emits the cleanup
+operation in the generated control-flow path. `BuildIR` and `lowerFuncStmt`
+preserve the same edge for ordinary scope exit and function return; optimizer
+passes retain the thunk ownership metadata.
+
+The supported contract is deterministic registration-order reversal (LIFO),
+exactly-once execution, captured registration-time lexical values, and
+preservation of the body result or error when cleanup succeeds or fails. The
+maintained Native C fixtures
+`TestNativeDeferLowersCleanupEdge`,
+`TestNativeDeferExecutesOnNormalAndReturnEdges`,
+`TestCleanupIRAndOptimizerPreserveThunkOwnership`, and
+`TestDeferControlFlowMatrixAndCapturedValues` cover generated cleanup edges,
+normal and return exits, loop control flow, captured values, and optimized IR.
+This bounded row does not claim asynchronous task cancellation, task
+termination cleanup, or every platform-specific host-resource close adapter;
+those remain explicit boundaries in the aggregate cleanup contract.
+
 ## Host capability contract
 
 `CCompileOptions.NativeCapabilities` is the only native-build capability grant.
@@ -55,6 +78,23 @@ the interpreter or VM as a fallback. Every IR operation that is outside the
 generated-C ABI fails during compilation with the source file and span that
 introduced it.
 
+## Reproducible sanitizer builds
+
+Sanitized generated-C executables use the same `-O3 -flto` optimization
+boundary as production native executables, in addition to debug symbols,
+frame pointers, and the requested `-fsanitize` flags. LTO is part of the
+sanitizer cache-manifest identity and is intentional: the generated numeric
+ABI must retain the production floating-point contraction behavior while ASan
+or UBSan instruments memory and arithmetic checks. The manifest therefore
+must not treat sanitizer builds as a lower-optimization substitute.
+
+Portable linear algebra uses explicit `fma` for Gaussian-elimination updates
+in `osolve`. This makes the fused rounding step part of the generated-C
+contract instead of depending on an individual compiler's optimization
+heuristics. The result is stable across normal, race, ASan, and UBSan runs;
+sanitizer instrumentation does not change the observable solution text by one
+floating-point unit.
+
 ## Result and Option ABI
 
 Generated values use a tagged `OValue`. `O_RESULT` and `O_OPTION` each own a
@@ -70,7 +110,66 @@ The shared `oresultbind` helper handles both Result and Option. Successful
 values are returned from the box; failed Results preserve their error record,
 and empty Options produce a `not_found` error. The same ABI supports
 `unwrap`, `expect`, `or_else`, `to_option`, `to_result`, `collect`,
-`issome`, and `isnone` for the parity-tested forms.
+`isok`, `iserr`, `issome`, and `isnone` for the parity-tested forms.
+
+### Native Result combinators and try/catch (bounded slice)
+
+The Native C emitter lowers the pure special forms `map`, `map_error`, and
+`flat_map` directly from their `async` IR tag to `omapresult`, `omaperror`, and
+`oflatmap`. The `async` tag is shared by language-level deferred forms, but
+these three operations do not create a task or consult a scheduler: they call
+the supplied owned closure synchronously and preserve the Result contract.
+
+- `map(ok(value), callback)` calls the callback once and returns `ok` around
+  its value. A failed input returns an independent `err` box without calling
+  the callback.
+- `map_error(err(error), callback)` calls the callback only for a failed
+  Result. The callback may return an Error, which becomes the new error, or a
+  string, which becomes an `unknown_error`; successful inputs remain `ok`.
+- `flat_map(ok(value), callback)` accepts a Result callback directly. It also
+  accepts an Option callback, converting `some(value)` to `ok(value)` and
+  `none()` to `err(error[not_found]("option is empty"))`. Failed inputs and
+  callback failures propagate without invoking a generic dispatcher.
+
+The callback boundary is synchronous and uses `ocall`; callback errors set the
+same structured native error state consumed by `try`/`catch`. Result and Option
+payloads are boxed through `oresultbox`/`ooptionbox` and registered with
+`otrack`; combinator outputs do not retain callback argument pointers. Invalid
+input kinds, callback result kinds, and arities are explicit native failures.
+`otry` clears and restores the nested error state, passes an owned structured
+Error value to the handler, and restores an outer error state when the handler
+completes successfully.
+
+`TestNativeResultOptionCombinatorAndTryParity` compares constructors,
+predicates, all three combinators, short-circuit behavior, Option conversion,
+and caught `unwrap`/`let?` failures across the interpreter, VM, and generated C
+executable. `TestNativeResultOptionCombinatorMalformedAndCallbackErrors`
+covers source-level arity rejection and callback failures. The lowering test
+`TestNativeResultOptionCombinatorLoweringOwnershipAndNoFallback` checks direct
+helper selection, tracked boxes, try/resultbind presence, and absence of
+`ostd_dispatch` and capability macros. This slice is host-independent and
+does not claim `wrap`, metadata/error-cause mutation, asynchronous task
+failure, or dynamic callback ABI parity beyond the represented closure shape.
+
+### Native structured-error wrapping (bounded slice)
+
+The Native C backend directly lowers `wrap(cause, kind, message)` for a
+structured Error or `null` cause. The `owrap` helper validates all three
+arguments, creates a new owned outer Error, and tracks an independent copy of
+the cause value so the outer record can expose `cause.kind` and
+`cause.message` without borrowing a temporary argument. Invalid causes, kinds,
+messages, and arities produce structured native failures; no capability or
+generic dispatcher is involved. This slice intentionally does not claim the
+full `withmeta`, `withdebug`, redaction, source-location, or mutable error
+field contract. The pure `cause(error)` accessor is lowered to `ocause`; it
+returns the tracked cause by value or `null` when the error has no cause, and
+rejects non-error inputs without invoking a dispatcher.
+
+`TestNativeStructuredErrorWrapParity` compares nested cause construction and
+invalid-input handling across the interpreter, VM, generated C, and native
+executable. `TestNativeStructuredErrorWrapLoweringOwnsCauseWithoutFallback`
+checks the direct `owrap` call, tracked cause ownership, and the absence of
+capability and dispatcher boundaries.
 
 ## Native OSR1 codec for tagged values
 
@@ -169,7 +268,7 @@ interpreter/VM/native differential fixtures, malformed and unsupported
 diagnostics, cleanup edges, task failure/cancellation, and undefined-behavior
 sanitizer runs.
 
-## Core and data parity witnesses (tasks 162 and 163)
+## Core and data parity witnesses
 
 The following native C symbols are part of the executable parity surface and
 are documented individually here because they have different contracts:
@@ -365,6 +464,9 @@ retain input pointers after construction and do not define a host capability.
 | `inv(matrix)` | Non-empty square matrix | Inverse matrix | `oinv`, using the native solve boundary. |
 | `cholesky(matrix)` | Positive-definite square matrix | Lower-triangular matrix | `ocholesky`; invalid definiteness is a structured failure. |
 | `qr(matrix)` | Rank-two matrix | `[Q, R]` result | `oqr`; orthogonalization buffers are owned and released by the helper. |
+| `eig(matrix)` | Square real matrix and configured ABI v2 provider | `[eigenvalues, eigenvectors]` complex tensors | `oeig`; provider version and callback availability are checked before the owned result list is returned. |
+| `eigh(matrix)` | Square symmetric real matrix and configured ABI v1 provider | `[eigenvalues, eigenvectors]` real tensors | `oeigh`; symmetry, provider status, allocation, and convergence failures are structured errors. |
+| `svd(matrix)` | Rank-two real matrix and configured ABI v1 provider | `[U, singular_values, Vt]` real tensors | `osvd`; input and result buffers are owned by the generated runtime and released on every provider failure path. |
 | `shape(value)` | Tensor or shape-bearing aggregate | Dimension list | `oshape` |
 | `flatten(value)` | Tensor/aggregate | Flattened aggregate | `oflatten` |
 | `sum(value)` | Numeric tensor | Numeric scalar | `otensorsum` |
@@ -375,9 +477,55 @@ retain input pointers after construction and do not define a host capability.
 The emitter rejects malformed arity and statically unsupported shapes rather
 than routing them through the interpreter or VM. The portable operations above
 are ledgered individually because each helper has a different shape and
-ownership contract. `eig`, `eigh`, and `svd` remain outside this slice: their
-emitter branches require configured numerical-provider ABIs and need separate
-provider-backed execution evidence before they can be recorded as implemented.
+ownership contract. `eig`, `eigh`, and `svd` are provider-backed rather than
+bundled solvers: generated C requires the configured ABI-compatible provider,
+checks the version and callback set, copies the input into owned provider
+buffers, and converts successful outputs into owned tensors inside an owned
+result list. Missing providers, ABI mismatches, allocation failures, and
+non-convergence return structured failures and release intermediate buffers.
+The portable diagonal provider fixtures and native executable parity tests
+cover the bounded contract; a deployment must still supply an appropriate
+production provider for its platform.
+
+### Native tensor shape and value operations (bounded slice)
+
+The generated C backend directly lowers the following real numeric tensor
+operations. Each operation has its own argument contract; they are not a
+generic module-dispatch fallback:
+
+| Symbol | Parameters | Result | Direct helper and contract |
+| --- | --- | --- | --- |
+| `squeeze(value)` | One real numeric tensor, rectangular numeric list, or numeric scalar | Tensor with every singleton dimension removed | `otensor_squeeze`; copies values into a newly owned tensor and preserves element-kind and floating-width metadata. A rank-zero result is valid. |
+| `expand_dims(value[, axis])` | One real numeric tensor-like value and an optional integral axis | Tensor with one dimension of length one inserted | `otensor_expand_dims`; default axis is zero, negative axes count from the end of the new rank, and out-of-range or non-integral axes return structured failures. |
+| `broadcast_to(value, shape)` | One real numeric tensor-like value and a target shape | Newly owned tensor with the requested broadcast shape | `otensor_broadcast_to`; validates trailing-dimension compatibility, checks the element bound before allocation, and repeats row-major values without retaining input storage. |
+| `clip(value, lower, upper)` | Real numeric tensor-like value and two scalar numeric bounds | Newly owned tensor with each value limited to the inclusive interval | `otensor_clip`; rejects non-scalar bounds and `lower > upper`, and preserves the input tensor's width metadata. |
+| `where(condition, when_true, when_false)` | Three broadcast-compatible real numeric tensor-like values | Newly owned selected-value tensor | `otensor_where`; broadcasts all three operands, selects element by element, and rejects incompatible shapes before publishing partial output. |
+| `concat(left, right[, axis])` | Two real numeric tensor-like values and an optional integral axis | Concatenated owned tensor | `otensor_concat`; normalizes scalar inputs as rank-one values, validates equal non-concatenated dimensions, supports negative axes, and releases temporary shape/data storage on every path. |
+| `stack(left, right[, axis])` | Two real numeric tensor-like values and an optional integral axis | Owned tensor with a new length-two dimension | `otensor_stack`; requires equal input shapes, supports insertion axes including negative axes, and copies both operands into deterministic row-major storage. |
+| `repeat(value, count)` / `tile(value, count)` | Real numeric tensor and a non-negative integral count | Tensor repeated along its leading dimension; scalar tensors become rank-one | `otensor_repeat` / `otensor_tile`; checks shape and allocation overflow, copies source data into newly owned storage, and preserves floating-width metadata. |
+| `split(value, chunk)` | Real numeric tensor and a positive integral leading-dimension chunk | Owned list of tensor chunks; the final chunk may be shorter | `otensor_split`; copies every chunk and its shape, returns an empty list for a zero-length leading dimension, and rejects invalid chunk sizes before partial publication. |
+| `gather(value, indices)` | Real numeric tensor and numeric scalar/list/tensor indices | Tensor with the index tensor's shape | `otensor_gather`; validates integral in-range indices before returning a newly owned copy and does not retain the index or source buffers. |
+| `scatter(value, indices, values)` | Real numeric tensor, numeric indices, and a scalar or index-count-matched numeric value tensor | Copy of the input tensor with indexed elements replaced | `otensor_scatter`; validates index bounds and value cardinality before publishing the owned result; repeated indices are applied in input order. |
+| `pad(value, left, right[, fill])` | Real numeric tensor, non-negative integral leading-dimension widths, and an optional scalar numeric fill | Newly owned tensor padded along its leading dimension | `otensor_pad`; defaults fill to zero, checks size overflow before allocation, and copies both source and fill regions into independent storage. |
+
+The portable helpers are intentionally limited to real numeric tensors and
+rectangular numeric lists. Complex tensors retain their separate complex
+runtime contract until equivalent complex lowering is implemented. The new
+repeat/tile/split/gather/scatter/pad helpers are likewise a documented real
+tensor subset; string repeat/split and `clone`/`view` remain explicit Native C
+boundaries. The emitter validates arity in `emitCInstr`; `nativeBuiltinStatus`
+and `nativeModuleMemberStatus` agree with the helper inventory. Every generated
+call uses owned `OValue` results and does not retain pointers into source
+values.
+
+`TestNativeTensorShapeValueOperationsParity` compares interpreter, VM, and
+generated-C results for the original supported operations. The tensor data
+fixtures `TestNativeTensorShapeDataParity`,
+`TestNativeTensorShapeDataInvalidShapes`, and
+`TestNativeTensorShapeDataLoweringOwnershipAndNoDispatch` cover the
+new data-shape cluster, invalid bounds/cardinality, ownership markers, and
+the no-dispatch boundary. The remaining tensor-shape operations are not
+promoted by this slice.
 
 ### Native scalar extrema (bounded slice)
 
@@ -464,6 +612,32 @@ the direct C calls, inventory, ownership, allocation, dispatcher, and
 capability boundaries. The zero-divisor contract test checks structured errors
 on all three executable layers, and the arity test verifies source-level
 malformed-call diagnostics.
+
+### Native scalar classification and angle conversion
+
+The Native C backend also directly lowers these pure floating-point members of
+`std/math`:
+
+| Symbol | Parameters | Return value | Native behavior and failure contract |
+| --- | --- | --- | --- |
+| `std/math.copysign(magnitude, sign)` | Two floating scalars of the same width | Same floating width | Copies the sign bit from `sign` to `magnitude`, including signed zero. |
+| `std/math.nextafter(from, toward)` | Two floating scalars of the same width | Same floating width | Returns the next representable value toward `toward`, using the width-specific C operation for `f32` and `f64`. |
+| `std/math.isfinite(value)` | One floating scalar | `bool` | Reports whether the value is neither infinite nor NaN. |
+| `std/math.isinf(value)` | One floating scalar | `bool` | Reports whether the value is positive or negative infinity. |
+| `std/math.isnan(value)` | One floating scalar | `bool` | Reports whether the value is a NaN. |
+| `std/math.isnormal(value)` | One floating scalar | `bool` | Reports whether the value is finite, non-zero, and not subnormal, using `FLT_MIN`/`DBL_MIN` for width-correct classification. |
+| `std/math.signbit(value)` | One floating scalar | `bool` | Reports the IEEE sign bit, including the sign of negative zero and negative NaN values. |
+| `std/math.degrees(radians)` | One floating scalar | Same floating width | Converts radians to degrees with the language's floating width preserved. |
+| `std/math.radians(degrees)` | One floating scalar | Same floating width | Converts degrees to radians with the language's floating width preserved. |
+
+`nativeScalarBuiltinResultKind` proves the width and result family before
+`emitScalarBuiltin` emits the operation. Mixed-width, integer, complex, and
+dynamically unproven calls remain source-spanned Native C compile errors.
+These unboxed paths borrow scalar locals, allocate no aggregate storage, do
+not retain pointers, and do not require a host capability or generic
+dispatcher. `TestNativeCoreMathClassificationAndAngleParity` compares the
+interpreter, VM, generated C, and native executable; its boundary cases cover
+signed zero, infinities, NaN, normal/subnormal values, and f32 narrowing.
 
 ### Native fixed-width integer math (bounded slice)
 
@@ -590,6 +764,16 @@ runtime and the generated executable.
 
 ## Native `std/list` reduction contracts
 
+The qualified pure range and reduction calls are lowered directly. This is a
+separate path from host-backed list or resource operations and does not use a
+module-dispatch callback.
+
+| Symbol | Signature | Result and exact contract | Ownership, errors, and capability |
+| --- | --- | --- | --- |
+| `std/list.range` | `range(stop: integer) -> list<number>` | Produces the floating-point sequence `0, 1, ..., stop - 1`; `stop` must be a non-negative integral value no greater than `10,000,000`. | The result list owns its item array; invalid kinds, fractional values, negative values, and oversized counts return structured native errors. No capability is defined and the input is not retained. |
+| `std/list.sum` | `sum(values: list<numeric>) -> number \| complex` | Returns the additive identity for an empty list (`0` at the default floating width), otherwise sums real or complex elements. | The result preserves the widest explicit floating width and complex family. Non-lists, non-numeric elements, and wrong arity return structured native errors; no capability or input storage is retained. |
+| `std/list.product` | `product(values: list<numeric>) -> number \| complex` | Returns the multiplicative identity for an empty list (`1` at the default floating width), otherwise multiplies real or complex elements. | The result preserves the widest explicit floating width and complex family. Non-lists, non-numeric elements, and wrong arity return structured native errors; no capability or input storage is retained. |
+
 `std/list.sum(values)` accepts one list of numeric or complex values and returns
 the additive identity for an empty list (`0` at the default floating width).
 `std/list.product(values)` accepts the same shape and returns the multiplicative
@@ -599,16 +783,18 @@ failure; neither calls back into the interpreter or VM.
 
 The C implementation is split into these symbols:
 
-- `nativeStaticModuleMember` admits `std/list.sum` and
+- `nativeStaticModuleMember` admits `std/list.range`, `std/list.sum`, and
   `std/list.product` during native compilation.
+- `emitCInstr` selects `ostd_list_range`, `ostd_list_sum`, and
+  `ostd_list_product` before the general module-dispatch path.
 - `nativeModuleMemberStatus` and `BackendCapabilityInventory` expose the
   individual member status used by support audits.
 - `ostd_list_fold` performs the shared numeric/complex fold and preserves the
   maximum floating-point width observed in its input list.
-- `ostd_list_sum` and `ostd_list_product` provide the named runtime entry
-  points used by the standard-library dispatcher.
-- `ostd_dispatch` validates the argument count and routes the two members to
-  their dedicated fold operation.
+- `ostd_list_range`, `ostd_list_sum`, and `ostd_list_product` are the named
+  runtime entry points used by the direct generated calls.
+- `ostd_dispatch` remains available for the other qualified `std/list`
+  members; these three pure operations do not enter it.
 
 `TestNativeLibraryListReductionParity` in
 `internal/osiris/native_core_library_parity_test.go` compares integer, `f64`,
@@ -617,6 +803,13 @@ paths. The broader standard-library witnesses remain in
 `internal/osiris/native_option_parity_test.go`,
 `internal/osiris/native_numeric_parity_test.go`, and
 `internal/osiris/native_stdlib_parity_test.go`.
+
+`TestNativeListRangeAndReductionParity` and
+`TestNativeListRangeAndReductionUseOwnedDirectHelpers` in
+`internal/osiris/native_list_range_reduction_test.go` additionally prove the
+qualified range path, empty identities, complex values, structured failures,
+direct helper selection, dispatcher absence at the call site, and the
+no-capability boundary.
 
 ### `std/list.flatten`
 
@@ -773,7 +966,7 @@ with its zero-based `u64` index. Pair values are marked as tuples, emitted in
 source order, and stored in newly tracked list allocations.
 
 `TestNativeLibraryListPureParity` in
-`internal/osiris/native_library_list_test.go` compares all sixteen members across the
+`internal/osiris/native_library_list_test.go` compares all twenty-five members across the
 interpreter, VM, generated C, and native executable. The companion
 `TestNativeLibraryListPureOwnershipErrorAndCapabilityContract` checks the C
 entry points, individual backend inventory records, invalid-input behavior,
@@ -804,6 +997,29 @@ across the interpreter, VM, generated C, and native executable. The companion
 `TestNativeLibraryListChunksOwnershipErrorAndCapabilityContract` checks the
 generated helper and dispatcher symbols, tracked list construction, structured
 error strings, capability absence, and the individual inventory record.
+
+### `std/list.windows`
+
+`windows(values: list, width: i64, step: i64) -> list<list>` validates a
+bounded list and two positive bounded integers. It returns only complete,
+overlapping windows in source order; the first window starts at zero and each
+subsequent window advances by `step`. Every nested list is a newly tracked
+copy, and `width` may be greater than `step` because overlap is the purpose of
+this operation.
+
+The generated-C implementation uses `ostd_list_shape` in window mode. Slice
+validation is deliberately separate from window validation: slice requires
+`start <= end`, while windows require positive width and step independently.
+This prevents a valid overlapping request such as `windows(values, 3, 2)` from
+being rejected as if it were a slice. Invalid kinds, arity, zero or negative
+parameters, bounds, and allocation failures return structured errors before a
+partial outer list is published. The operation is pure and capability-free.
+
+`TestNativeLibraryListPureParity` covers normal overlapping and invalid-width
+execution across the interpreter, VM, generated C, and native executable;
+`TestNativeLibraryListCompleteOwnershipAndCapabilityContract` checks the
+dispatcher/helper symbols, individual inventory entry, owned nested output,
+and absence of `OSIRIS_CAP_*` definitions.
 
 ## Native tuple construction and indexing (bounded slice)
 
@@ -967,7 +1183,8 @@ alone.
 
 ## Native `std/text` boundary contracts
 
-The following bounded, host-independent members are a native C slice:
+The following bounded, host-independent members are the complete exported
+`std/text` Native C surface:
 
 | Symbol | Signature | Capability | Result and ownership |
 | --- | --- | --- | --- |
@@ -982,6 +1199,8 @@ The following bounded, host-independent members are a native C slice:
 | `std/text.upper` | `upper(value: string) -> string` | none | New owned UTF-8 string using the locale-independent native case table; one-to-one mappings preserve `ß`, matching the reference runtime. |
 | `std/text.fields` | `fields(value: string) -> list<string>` | none | New owned list of non-empty fields split on Unicode whitespace; field strings do not retain the input allocation. |
 | `std/text.join` | `join(separator: string, values: list<value>) -> string` | none | New owned string formed from rendered list values and separators; inputs remain caller-owned. |
+| `std/text.slug` | `slug(value: string) -> string` | none | New owned lowercase ASCII-friendly slug with deterministic separator and punctuation rules. |
+| `std/text.cat` | `cat(values: value...) -> string` | none | New owned concatenation of the canonical rendering of each argument; arguments remain caller-owned. |
 | `std/text.compare` | `compare(left: string, right: string) -> i64` | none | Lexicographic UTF-8 byte comparison returning exactly `-1`, `0`, or `1`. |
 | `std/text.equal_fold` | `equal_fold(left: string, right: string) -> bool` | none | Unicode simple-fold equality for the portable case-equivalence table; no result allocation escapes. |
 | `std/text.contains_any` | `contains_any(value: string, code_points: string) -> bool` | none | Return whether any decoded character in `value` occurs in `code_points`; an empty set returns `false`. |
@@ -1021,16 +1240,16 @@ exact width, decodes UTF-8 by code point, and copies every chunk through
 `oownedstring` before constructing the tracked result list. Since this slice
 performs no host I/O, it does not accept or infer an OS capability.
 `TestNativeLibraryTextParity` compares the interpreter, VM, generated C, and
-generated executable for the existing text members; the focused
+generated executable for every exported text member; the focused
 `TestNativeLibraryTextChunksParity` covers Unicode widths, empty input, and
 caught invalid arguments, while
 `TestNativeLibraryTextChunksOwnershipErrorAndCapabilityContract` checks the
 direct call site, ownership boundary, error strings, capability absence, and
 inventory entry.
 
-## Native `std/signal` pure-value contracts (bounded slice)
+## Native `std/signal` pure-value contracts
 
-This section documents the portable Native C subset for the bounded,
+This section documents the complete portable Native C surface for the bounded,
 host-independent signal operations listed below. Each operation accepts the
 same rank-one numeric signal contract as the interpreter/VM implementation;
 the Native C runtime copies list or tensor samples into temporary `double`
@@ -1084,15 +1303,19 @@ inverse results; `TestNativeLibrarySignalOwnershipCapabilityAndErrorContract`
 checks the helper symbols, complex-tensor ownership, exact invalid-input error,
 capability absence, and individual inventory entries.
 
-The broader `std/signal` row remains partial because other provider-independent
-additions and the aggregate standard-library evidence requirements are outside
-this bounded slice.
+The Native C `std/signal` matrix cell is stable for the full exported module
+surface. The four module values (`version`, `max_samples`,
+`max_transform_samples`, and `pi`) use direct value lowering, while every
+operation has an individual dispatcher/admission entry and the resampler has
+separate differential and ownership evidence. No member silently falls back to
+the interpreter or a host signal provider.
 
-## Native `std/crypto` SHA-512 contracts (bounded slice)
+## Native `std/crypto` digest contracts
 
-This slice closes the pure, host-independent digest members for the standard
-SHA-512 family. HMAC is documented separately below; random bytes, key
-derivation, and other host/provider surfaces remain outside this slice.
+The Native C backend closes the pure, host-independent digest members for the
+standard SHA family. HMAC, deterministic byte derivation, seeded byte output,
+tokens, and UUID v5 are documented in the adjacent contracts below; none of
+these operations consults a host provider.
 
 | Symbol | Signature | Capability | Result and ownership |
 | --- | --- | --- | --- |
@@ -1123,6 +1346,52 @@ generated C, and generated executable. `TestNativeLibraryCryptoSHA512OwnershipCa
 checks the generated ownership symbols, pure-capability boundary, error
 messages, and individual backend-inventory entries.
 
+## Native `std/crypto.mix` contract
+
+`std/crypto.mix(value...) -> text` is a pure, variadic deterministic mixer.
+Each argument is rendered with the canonical Osiris value representation used by
+the interpreter's `Value.String` method: strings retain their quoted form,
+numeric width suffixes remain significant, lists and tuples retain their
+delimiters, and arguments are separated by the fixed `0xff` step. The mixer
+starts at `0xcbf29ce484222325`; each rendered byte is XORed, multiplied by
+`0x100000001b3`, rotated left by 13, and XORed with its seven-bit right shift.
+After each argument, the state is XORed with `0xff`, rotated left by 17, and
+incremented by `0x9e3779b97f4a7c15`. The final state is returned as exactly 16
+lowercase hexadecimal characters. The zero-argument call is valid and returns
+the initial mixer seed because no post-argument step is applied.
+
+The generated-C path calls `ocrypto_mix`, which uses `orender` into a
+temporary buffer, releases that buffer after each argument, and copies the
+final hexadecimal result into a tracked owned string with `oownedstring`. No
+argument storage or pointer escapes the helper, no host capability macro is
+defined, and allocation failure is returned as a structured native error.
+`TestNativeLibraryCryptoMixParity` compares zero-argument, mixed scalar, byte
+list, and tuple inputs across the interpreter, VM, generated C, and executable.
+`TestNativeLibraryCryptoMixContract` checks direct admission, the renderer and
+owned-result symbols, capability absence, and the individual inventory record.
+
+## Native `std/crypto.noise` contract
+
+`std/crypto.noise(value...) -> text` is a pure, variadic deterministic noise
+function. It renders each argument with the canonical Osiris value
+representation, hashes each rendered byte stream from the fixed FNV seed
+`0xcbf29ce484222325` with rotate-left 11 and right-shift 5 mixing, then folds
+the indexed hash into the accumulator seeded at
+`0x6a09e667f3bcc909`. The accumulator uses the fixed
+`0x9e3779b97f4a7c15` index constant, rotate-left 27, and left-shift 7. The
+result is exactly 16 lowercase hexadecimal characters; the zero-argument form
+is valid and returns the initial accumulator.
+
+The generated-C path calls `ocrypto_noise`, which calls
+`ocrypto_noise_hash` over a temporary `orender` buffer, releases that buffer
+before the next argument, and returns a tracked owned string through
+`oownedstring`. Inputs are copied only for rendering, no input pointer is
+retained, and no host capability is defined. `TestNativeLibraryCryptoNoiseParity`
+compares zero-argument, mixed scalar, byte-list, and tuple inputs across the
+interpreter, VM, generated C, and executable. Its companion contract test
+checks direct admission, ownership symbols, capability absence, and the
+individual backend-inventory entry.
+
 ## Native `std/crypto.hmac` contract
 
 `std/crypto.hmac(key: string | list<u8>, data: string | list<u8>, algorithm: string) -> string`
@@ -1150,7 +1419,7 @@ caught failures across interpreter, VM, generated C, and the executable.
 hash helpers, temporary byte staging, owned result boundary, error strings,
 constant lowering, inventory entry, and absence of `OSIRIS_CAP_*` definitions.
 
-## Native `std/crypto` codec and comparison contracts (bounded slice)
+## Native `std/crypto` codec and comparison contracts
 
 This separate slice covers the admitted, host-independent hexadecimal,
 Base64, and digest-comparison members. The Base64 implementation is local and
@@ -1188,6 +1457,38 @@ Base64 members, their allocation boundary, malformed inputs, capability
 absence, and individual backend-inventory status. The granular public
 signatures and native notes are also recorded in `docs/src/std-task-reference.js`.
 
+## Native `std/crypto` deterministic derivation and UUID contracts
+
+The remaining pure `std/crypto` members are direct, capability-free Native C
+operations:
+
+| Symbol | Signature | Result and exact contract | Ownership and failure behavior |
+| --- | --- | --- | --- |
+| `std/crypto.version` | `version -> text` | Returns the module contract version `1.1.0`. | A new owned string is returned; no input or host state is consulted. |
+| `std/crypto.max_input_bytes` | `max_input_bytes -> u64` | Returns `1,048,576`. | Immediate scalar value; no allocation or capability. |
+| `std/crypto.max_output_bytes` | `max_output_bytes -> u64` | Returns `1,048,576`. | Immediate scalar value; no allocation or capability. |
+| `std/crypto.max_key_bytes` | `max_key_bytes -> u64` | Returns `65,536`. | Immediate scalar value; no allocation or capability. |
+| `std/crypto.max_token_bytes` | `max_token_bytes -> u64` | Returns `4,096`. | Immediate scalar value; no allocation or capability. |
+| `std/crypto.derive_key` | `derive_key(secret, context, length) -> list<u8>` | HMAC-SHA256 expansion over `context || big-endian(counter)` for counters beginning at one. | Secret/context are copied into temporary bounded storage; output is a newly owned byte list and length is checked before allocation. |
+| `std/crypto.random_bytes` | `random_bytes(seed, length) -> list<u8>` | The same bounded expansion with the fixed context `random_bytes`; it is deterministic pseudo-random output, not ambient cryptographic randomness. | The explicit seed is copied and released; no process-global state, clock, or capability is consulted. |
+| `std/crypto.token` | `token(seed, length) -> text` | URL-safe unpadded Base64 of the bounded expansion with fixed context `token`. | The encoded text is newly owned; invalid lengths, oversized seed, or allocation failures return structured errors. |
+| `std/crypto.uuid_v5` | `uuid_v5(namespace, name) -> text` | SHA-1 over canonical namespace bytes followed by UTF-8 name bytes, with RFC 4122 version and variant bits applied. | Canonical namespace and name bounds are validated before hashing; the 36-byte UUID text is newly owned. |
+
+`ostd_crypto_hmac_sha256_raw` is the internal fixed-key HMAC primitive used by
+`ostd_crypto_expand_bytes`; it shares the local `OSHA256` implementation with
+the digest and HMAC members. `ostd_crypto_derive_key`,
+`ostd_crypto_random_bytes`, and `ostd_crypto_token` validate all bounds before
+publishing output. `OSHA1`, `osha1block`, `osha1write`, and `osha1final` are
+the complete local SHA-1 implementation used only for UUID v5; no OpenSSL,
+CommonCrypto, or operating-system provider is required.
+
+`TestNativeLibraryCryptoCompleteParity` compares every exported `std/crypto`
+constant and member through the interpreter, VM, generated C, and native
+executable. `TestNativeLibraryCryptoCompleteOwnershipAndCapabilityContract`
+checks the complete inventory, direct runtime symbols, owned results, bounded
+failures, and absence of `OSIRIS_CAP_*` definitions. The focused derivation
+and UUID tests provide an additional direct regression boundary.
+
 ## Native `std/time` pure-value contracts
 
 The existing UTC `std/time` generated-C subset has these individually
@@ -1211,6 +1512,7 @@ documented host-independent contracts:
 | `std/time.weekday` | `weekday(value: datetime) -> string` | `Sunday` through `Saturday` | Returns one of seven static strings; no host locale or allocation is consulted. |
 | `std/time.year_day` | `year_day(value: datetime) -> u64` | One-based `1..365` or `1..366` | UTC civil extraction by value; no capability or allocation. |
 | `std/time.utc` | `utc(value: datetime) -> datetime` | The same instant and normalized nanosecond in the native UTC representation | `ostd_time_utc` validates `O_DATETIME` and returns the complete `ODatetime` value by copy. Native datetimes have no non-UTC location slot, so this direct lowering performs no timezone lookup, allocation, capability check, or input-pointer retention. Wrong arity remains on `ostd_dispatch` so `try/catch` observes `utc expects 1 datetime`. |
+| `std/time.zone` | `zone(value: datetime) -> list<string | i64>` | `["UTC", 0i64]` for every representable native datetime | `ostd_time_zone` validates `O_DATETIME` and constructs a new two-element list. The current two-field native datetime ABI can represent only UTC; non-UTC location parity remains an explicit boundary. |
 
 The duration and Unix-conversion members are also lowered individually. Their
 argument and ownership boundaries are explicit:
@@ -1262,6 +1564,35 @@ modulo the quantum without overflowing the Unix-nanosecond representation, so
 arbitrary positive duration quanta retain the language rule instead of silently
 rounding relative to the Unix epoch. The helpers return only `OValue` scalars,
 retain no argument pointer, and allocate nothing.
+
+### Direct time comparison lowering
+
+The value-only comparison family is lowered directly for valid two-argument
+calls:
+
+| Symbol | Signature | Result | Invalid-input behavior and ownership |
+| --- | --- | --- | --- |
+| `std/time.compare` | `compare(left: duration \| datetime, right: duration \| datetime) -> i64` | `-1i64`, `0i64`, or `1i64` | Requires matching value kinds; compares seconds before nanoseconds for UTC datetimes and returns a scalar by value. |
+| `std/time.equal` | `equal(left: duration \| datetime, right: duration \| datetime) -> bool` | Boolean equality | Requires matching value kinds; no allocation, capability, or input retention. |
+| `std/time.before` | `before(left: duration \| datetime, right: duration \| datetime) -> bool` | Strict-less boolean | Requires matching value kinds; no allocation, capability, or input retention. |
+| `std/time.after` | `after(left: duration \| datetime, right: duration \| datetime) -> bool` | Strict-greater boolean | Requires matching value kinds; no allocation, capability, or input retention. |
+
+`nativeDirectTimeBuiltin` recognizes only the valid arity. The emitter selects
+`ostd_time_compare` or `ostd_time_predicate` directly, removing the generic
+`ostd_dispatch` boundary for successful calls. Wrong-arity calls intentionally
+remain on `ostd_dispatch`, preserving the normal structured error and
+`try/catch` behavior. The comparison implementation lives in the portable
+tagged-ABI runtime and performs no host or timezone access. Mixed duration and
+datetime values, unsupported kinds, and signed-extreme values are rejected or
+compared without subtraction overflow.
+
+`TestNativeTimeComparisonParity` compares durations and UTC datetimes through
+the interpreter, VM, generated C, and native executable, including mixed-kind
+and wrong-arity errors. `TestNativeTimeComparisonContract` checks direct helper
+selection, the value-only no-allocation boundary, capability absence, and each
+individual inventory entry. This does not broaden native time support to
+parsing, IANA or fixed locations, clock reads, timers, or other host-dependent
+semantics.
 
 These members do not read the clock, load timezone data, retain input storage,
 or define an `OSIRIS_CAP_*` macro. The native inventory records each member

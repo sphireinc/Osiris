@@ -316,15 +316,17 @@ static OValue ostd_list_shape(OValue value, int mode, int64_t a, int64_t b) {
     free(out);
     return result;
   }
-  if(value.kind!=O_LIST||a<0||b<0||a>b) return ofail("list shape arguments are invalid");
-  size_t start=(size_t)a,end=(size_t)b;
-  if(start>value.as.list.len) start=value.as.list.len;
-  if(end>value.as.list.len) end=value.as.list.len;
-  if(mode==0) return olist(value.as.list.items+start,end-start);
+  if(value.kind!=O_LIST) return ofail("list shape operation expects a list");
+  if(mode==0) {
+    if(a<0||b<0||a>b) return ofail("list shape arguments are invalid");
+    size_t start=(size_t)a,end=(size_t)b;
+    if(start>value.as.list.len) start=value.as.list.len;
+    if(end>value.as.list.len) end=value.as.list.len;
+    return olist(value.as.list.items+start,end-start);
+  }
+  if(a<=0||b<=0||a>100000||b>100000) return ofail("window width and step must be positive and within the item limit");
   size_t width=(size_t)a;
-  if(mode==2&&width==0) return ofail("window width must be positive");
   size_t step=(size_t)b;
-  if(mode==2&&step==0) return ofail("window step must be positive");
   size_t count=value.as.list.len>=width?(value.as.list.len-width)/step+1:0;
   OValue *out=count?(OValue *)malloc(count*sizeof(OValue)):NULL;
   if(count&&!out) return ofail("out of memory");
@@ -566,6 +568,104 @@ static OValue ostd_crypto_base64_decode(OValue value, int url) {
   }
   OValue result=ostd_bytes_list(out,outLen); free(out); return result;
 }
+typedef struct { uint32_t h[5]; uint64_t bits; unsigned char block[64]; size_t used; } OSHA1;
+static uint32_t osha1rol(uint32_t value, unsigned shift) { return (value<<shift)|(value>>(32-shift)); }
+static void osha1block(OSHA1 *state, const unsigned char *data) {
+  uint32_t words[80];
+  for(size_t i=0;i<16;i++) words[i]=(uint32_t)data[i*4]<<24|(uint32_t)data[i*4+1]<<16|(uint32_t)data[i*4+2]<<8|data[i*4+3];
+  for(size_t i=16;i<80;i++) words[i]=osha1rol(words[i-3]^words[i-8]^words[i-14]^words[i-16],1);
+  uint32_t a=state->h[0],b=state->h[1],c=state->h[2],d=state->h[3],e=state->h[4];
+  for(size_t i=0;i<80;i++) {
+    uint32_t function,constant;
+    if(i<20) { function=(b&c)|((~b)&d); constant=UINT32_C(0x5a827999); }
+    else if(i<40) { function=b^c^d; constant=UINT32_C(0x6ed9eba1); }
+    else if(i<60) { function=(b&c)|(b&d)|(c&d); constant=UINT32_C(0x8f1bbcdc); }
+    else { function=b^c^d; constant=UINT32_C(0xca62c1d6); }
+    uint32_t next=osha1rol(a,5)+function+e+constant+words[i]; e=d; d=c; c=osha1rol(b,30); b=a; a=next;
+  }
+  state->h[0]+=a; state->h[1]+=b; state->h[2]+=c; state->h[3]+=d; state->h[4]+=e;
+}
+static void osha1init(OSHA1 *state) { state->h[0]=UINT32_C(0x67452301); state->h[1]=UINT32_C(0xefcdab89); state->h[2]=UINT32_C(0x98badcfe); state->h[3]=UINT32_C(0x10325476); state->h[4]=UINT32_C(0xc3d2e1f0); state->bits=0; state->used=0; }
+static void osha1write(OSHA1 *state, const unsigned char *data, size_t len) { state->bits+=(uint64_t)len*8; while(len) { size_t take=64-state->used; if(take>len) take=len; memcpy(state->block+state->used,data,take); state->used+=take; data+=take; len-=take; if(state->used==64) { osha1block(state,state->block); state->used=0; } } }
+static void osha1final(OSHA1 *state, unsigned char out[20]) { state->block[state->used++]=0x80; if(state->used>56) { while(state->used<64) state->block[state->used++]=0; osha1block(state,state->block); state->used=0; } while(state->used<56) state->block[state->used++]=0; for(int i=7;i>=0;i--) state->block[state->used++]=(unsigned char)(state->bits>>(i*8)); osha1block(state,state->block); for(size_t i=0;i<5;i++) { out[i*4]=(unsigned char)(state->h[i]>>24); out[i*4+1]=(unsigned char)(state->h[i]>>16); out[i*4+2]=(unsigned char)(state->h[i]>>8); out[i*4+3]=(unsigned char)state->h[i]; } }
+static int ostd_crypto_hmac_sha256_raw(const unsigned char *key, size_t keyLen, const unsigned char *data, size_t dataLen, unsigned char out[32]) {
+  unsigned char block[64],ipad[64],opad[64],inner[32];
+  memset(block,0,sizeof(block));
+  if(keyLen>sizeof(block)) { OSHA256 state; oshainit(&state); oshawrite(&state,key,keyLen); oshafinal(&state,block); }
+  else if(keyLen) memcpy(block,key,keyLen);
+  for(size_t i=0;i<sizeof(block);i++) { ipad[i]=(unsigned char)(block[i]^0x36); opad[i]=(unsigned char)(block[i]^0x5c); }
+  OSHA256 state; oshainit(&state); oshawrite(&state,ipad,sizeof(ipad)); oshawrite(&state,data,dataLen); oshafinal(&state,inner);
+  oshainit(&state); oshawrite(&state,opad,sizeof(opad)); oshawrite(&state,inner,sizeof(inner)); oshafinal(&state,out);
+  return 1;
+}
+static int ostd_crypto_expand_bytes(OValue keyValue, OValue contextValue, OValue lengthValue, unsigned char **out, size_t *outLen, const char *operation) {
+  const unsigned char *key,*context; size_t keyLen,contextLen; unsigned char *ownedKey=NULL,*ownedContext=NULL;
+  int64_t requested;
+  if(!ostd_bytes(keyValue,&key,&keyLen,&ownedKey)||!ostd_bytes(contextValue,&context,&contextLen,&ownedContext)) { free(ownedKey); free(ownedContext); return 0; }
+  if(keyLen>65536||contextLen>1048576||!ostd_i64(lengthValue,&requested)||requested<0||requested>4096) { free(ownedKey); free(ownedContext); return 0; }
+  size_t length=(size_t)requested;
+  unsigned char *result=length?(unsigned char *)malloc(length):NULL;
+  if(length&&!result) { free(ownedKey); free(ownedContext); return 0; }
+  unsigned char *message=contextLen+4?(unsigned char *)malloc(contextLen+4):NULL;
+  if(contextLen+4&&!message) { free(result); free(ownedKey); free(ownedContext); return 0; }
+  if(contextLen) memcpy(message,context,contextLen);
+  size_t written=0;
+  for(uint32_t counter=1;written<length;counter++) {
+    message[contextLen]=(unsigned char)(counter>>24); message[contextLen+1]=(unsigned char)(counter>>16); message[contextLen+2]=(unsigned char)(counter>>8); message[contextLen+3]=(unsigned char)counter;
+    unsigned char block[32];
+    if(!ostd_crypto_hmac_sha256_raw(key,keyLen,message,contextLen+4,block)) { free(message); free(result); free(ownedKey); free(ownedContext); return 0; }
+    size_t take=length-written<sizeof(block)?length-written:sizeof(block); memcpy(result+written,block,take); written+=take;
+    if(counter==UINT32_MAX&&written<length) { free(message); free(result); free(ownedKey); free(ownedContext); return 0; }
+  }
+  free(message); free(ownedKey); free(ownedContext); *out=result; *outLen=length; (void)operation; return 1;
+}
+static OValue ostd_crypto_derive_key(OValue secret, OValue context, OValue length) {
+  unsigned char *data=NULL; size_t len=0;
+  if(!ostd_crypto_expand_bytes(secret,context,length,&data,&len,"derive_key")) return ofail("crypto.derive_key expects bounded byte-compatible secret, context, and length");
+  OValue result=ostd_bytes_list(data,len); free(data); return result;
+}
+static OValue ostd_crypto_random_bytes(OValue seed, OValue length) {
+  OValue context=ostring("random_bytes");
+  unsigned char *data=NULL; size_t len=0;
+  if(!ostd_crypto_expand_bytes(seed,context,length,&data,&len,"random_bytes")) return ofail("crypto.random_bytes expects a bounded seed and length");
+  OValue result=ostd_bytes_list(data,len); free(data); return result;
+}
+static OValue ostd_crypto_token(OValue seed, OValue length) {
+  OValue context=ostring("token");
+  unsigned char *data=NULL; size_t len=0;
+  if(!ostd_crypto_expand_bytes(seed,context,length,&data,&len,"token")) return ofail("crypto.token expects a bounded seed and length");
+  const char *alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  size_t maxOut=((len+2)/3)*4; char *encoded=maxOut?(char *)malloc(maxOut+1):NULL;
+  if(maxOut&&!encoded) { free(data); return ofail("out of memory"); }
+  size_t at=0;
+  for(size_t i=0;i<len;i+=3) { size_t rem=len-i; unsigned int a=data[i],b=rem>1?data[i+1]:0,c=rem>2?data[i+2]:0; encoded[at++]=alphabet[a>>2]; encoded[at++]=alphabet[((a&3)<<4)|(b>>4)]; if(rem>1) encoded[at++]=alphabet[((b&15)<<2)|(c>>6)]; if(rem>2) encoded[at++]=alphabet[c&63]; }
+  OValue result=oownedstring(encoded,at); free(encoded); free(data); return result;
+}
+static int ostd_crypto_hex_digit(unsigned char value) {
+  if(value>='0'&&value<='9') return (int)(value-'0');
+  if(value>='a'&&value<='f') return (int)(value-'a'+10);
+  if(value>='A'&&value<='F') return (int)(value-'A'+10);
+  return -1;
+}
+static OValue ostd_crypto_uuid_v5(OValue namespaceValue, OValue nameValue) {
+  const char *namespaceText,*nameText; size_t namespaceLen,nameLen;
+  if(!ostd_string(namespaceValue,&namespaceText,&namespaceLen)||namespaceLen!=36||!ostd_string(nameValue,&nameText,&nameLen)||nameLen>1048576) return ofail("crypto.uuid_v5 expects a canonical UUID namespace and bounded name");
+  static const size_t dashPositions[] = {8,13,18,23};
+  unsigned char namespaceBytes[16]; size_t digit=0;
+  for(size_t i=0;i<36;i++) {
+    int isDash=(i==dashPositions[0]||i==dashPositions[1]||i==dashPositions[2]||i==dashPositions[3]);
+    if(isDash) { if(namespaceText[i]!='-') return ofail("crypto.uuid_v5 namespace must be a canonical UUID"); continue; }
+    int value=ostd_crypto_hex_digit((unsigned char)namespaceText[i]);
+    if(value<0||digit>=32) return ofail("crypto.uuid_v5 namespace must be a canonical UUID");
+    if((digit&1)==0) namespaceBytes[digit/2]=(unsigned char)(value<<4); else namespaceBytes[digit/2]=(unsigned char)(namespaceBytes[digit/2]|value);
+    digit++;
+  }
+  if(digit!=32) return ofail("crypto.uuid_v5 namespace must be a canonical UUID");
+  OSHA1 state; unsigned char digest[20]; osha1init(&state); osha1write(&state,namespaceBytes,sizeof(namespaceBytes)); osha1write(&state,(const unsigned char *)nameText,nameLen); osha1final(&state,digest);
+  digest[6]=(unsigned char)((digest[6]&0x0f)|0x50); digest[8]=(unsigned char)((digest[8]&0x3f)|0x80);
+  char output[37]; snprintf(output,sizeof(output),"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",digest[0],digest[1],digest[2],digest[3],digest[4],digest[5],digest[6],digest[7],digest[8],digest[9],digest[10],digest[11],digest[12],digest[13],digest[14],digest[15]);
+  return oownedstring(output,36);
+}
 static OValue ostd_os_is_path_separator(OValue value) {
   int64_t code;
   if(!ostd_i64(value,&code)||code<0||code>255) return ofail("is_path_separator expects a byte");
@@ -665,31 +765,6 @@ static OValue ostd_os_identity(const char *member) {
   if(!strcmp(member,"getpagesize")) { long page=sysconf(_SC_PAGESIZE); return page>0?oint((int64_t)page):ofail("os.getpagesize failed"); }
   return ofail("unknown native identity operation");
 #endif
-}
-static int ostd_time_compare_values(OValue left, OValue right, int *comparison) {
-  if(left.kind==O_DURATION&&right.kind==O_DURATION) {
-    *comparison=left.as.i<right.as.i?-1:left.as.i>right.as.i?1:0;
-    return 1;
-  }
-  if(left.kind==O_DATETIME&&right.kind==O_DATETIME) {
-    if(left.as.datetime.seconds!=right.as.datetime.seconds) {
-      *comparison=left.as.datetime.seconds<right.as.datetime.seconds?-1:1;
-    } else {
-      *comparison=left.as.datetime.nanosecond<right.as.datetime.nanosecond?-1:left.as.datetime.nanosecond>right.as.datetime.nanosecond?1:0;
-    }
-    return 1;
-  }
-  return 0;
-}
-static OValue ostd_time_compare(OValue left, OValue right) {
-  int comparison;
-  if(!ostd_time_compare_values(left,right,&comparison)) return ofail("time comparison expects two durations or two datetimes");
-  return oint(comparison);
-}
-static OValue ostd_time_predicate(OValue left, OValue right, int relation) {
-  int comparison;
-  if(!ostd_time_compare_values(left,right,&comparison)) return ofail("time comparison expects two durations or two datetimes");
-  return obool(relation<0?comparison<0:relation>0?comparison>0:comparison==0);
 }
 static uint64_t ostd_time_mod_add(uint64_t left, uint64_t right, uint64_t modulus) {
   return left >= modulus-right ? left-(modulus-right) : left+right;
@@ -805,6 +880,11 @@ static OValue ostd_time_utc(OValue value) {
   if(value.kind!=O_DATETIME) return ofail("utc expects 1 datetime");
   return value;
 }
+static OValue ostd_time_zone(OValue value) {
+  if(value.kind!=O_DATETIME) return ofail("zone expects 1 datetime");
+  OValue pair[2]={ostring("UTC"),oint(0)};
+  return olist(pair,2);
+}
 
 static OValue ostd_dispatch(const char *module, const char *member, const OValue *args, size_t argc) {
   if(!strcmp(module,"std/text") && !strcmp(member,"contains_any")) { if(argc!=2||args[0].kind!=O_STRING||args[1].kind!=O_STRING) return ofail("contains_any expects two strings"); OValue found=ostd_text_index(args[0],args[1],0,1); return found.kind==O_ERROR?found:obool(found.kind==O_OPTION&&found.fbits!=0); }
@@ -831,7 +911,7 @@ static OValue ostd_dispatch(const char *module, const char *member, const OValue
   }
   if(!strcmp(module,"std/list")) { if(!strcmp(member,"range")) { if(argc!=1) return ofail("range expects 1 argument"); return ostd_list_range(args[0]); } if(!strcmp(member,"len")) { if(argc!=1) return ofail("len expects 1 argument"); if(args[0].kind==O_STRING) { size_t n=ostd_runes(args[0].as.s.data,args[0].as.s.len); return n==SIZE_MAX?ofail("len expects valid UTF-8"):ofloat((double)n); } if(args[0].kind==O_LIST) return ofloat((double)args[0].as.list.len); if(args[0].kind==O_TENSOR) return ofloat((double)args[0].as.tensor.len); return ofail("len expects a string, list, or tensor"); } if(!strcmp(member,"sum")||!strcmp(member,"product")) return argc==1?(!strcmp(member,"product")?ostd_list_product(args[0]):ostd_list_sum(args[0])):ofail("list reduction expects 1 argument"); if(!strcmp(member,"take")) { int64_t n; if(argc!=2||!ostd_i64(args[1],&n)) return ofail("take expects a value and integer count"); return ostd_list_take(args[0],n); } if(!strcmp(member,"reverse")) return argc==1?ostd_list_reverse(args[0]):ofail("reverse expects 1 argument"); if(!strcmp(member,"flatten")) return argc==2?ostd_list_flatten(args[0],args[1]):ofail("flatten expects a list and depth"); if(!strcmp(member,"at")) return argc==2?ostd_list_at(args[0],args[1]):ofail("at expects 2 arguments"); if(!strcmp(member,"partition")) return argc==2?ostd_list_partition(args[0],args[1]):ofail("partition expects list and index"); if(!strcmp(member,"index_of")||!strcmp(member,"last_index_of")||!strcmp(member,"contains")||!strcmp(member,"count")) { if(argc!=2) return ofail("list search expects 2 arguments"); OValue result=ostd_list_index(args[0],args[1],!strcmp(member,"last_index_of"),!strcmp(member,"count")); if(!strcmp(member,"contains")) return result.kind==O_ERROR?result:obool(result.kind==O_INT&&result.as.i>=0); return result; } if(!strcmp(member,"sort")) return argc==1?ostd_list_sort(args[0]):ofail("sort expects 1 argument"); if(!strcmp(member,"unique")) return argc==1?ostd_list_unique(args[0]):ofail("unique expects 1 argument"); if(!strcmp(member,"slice")) { int64_t a,b; if(argc!=3||!ostd_i64(args[1],&a)||!ostd_i64(args[2],&b)) return ofail("slice expects list and integer bounds"); return ostd_list_shape(args[0],0,a,b); } if(!strcmp(member,"chunks")||!strcmp(member,"windows")) { int64_t a,b=0; if((!strcmp(member,"chunks")&&argc!=2)||(!strcmp(member,"windows")&&argc!=3)||!ostd_i64(args[1],&a)||(argc==3&&!ostd_i64(args[2],&b))) return ofail("list shape operation expects integer bounds"); return ostd_list_shape(args[0],!strcmp(member,"chunks")?1:2,a,b); } if(!strcmp(member,"zip")) return argc==2?ostd_list_zip(args[0],args[1]):ofail("zip expects 2 arguments"); if(!strcmp(member,"concat")) { size_t total=0; for(size_t i=0;i<argc;i++) { if(args[i].kind!=O_LIST||total>100000||args[i].as.list.len>100000-total||args[i].as.list.len>SIZE_MAX-total) return ofail("concat expects bounded lists"); total+=args[i].as.list.len; } OValue *items=total?(OValue *)malloc(total*sizeof(OValue)):NULL; if(total&&!items)return ofail("out of memory"); size_t at=0; for(size_t i=0;i<argc;i++){memcpy(items+at,args[i].as.list.items,args[i].as.list.len*sizeof(OValue));at+=args[i].as.list.len;} OValue out=olist(items,total);free(items);return out; } if(!strcmp(member,"repeat")) { int64_t n; if(argc!=2||!ostd_i64(args[1],&n)||n<0||n>100000) return ofail("repeat expects bounded item count"); OValue *items=n?(OValue *)malloc((size_t)n*sizeof(OValue)):NULL;if(n&&!items)return ofail("out of memory");for(int64_t i=0;i<n;i++)items[i]=args[0];OValue out=olist(items,(size_t)n);free(items);return out; } if(!strcmp(member,"empty")) return argc==0?olist(NULL,0):ofail("empty expects no arguments"); if(!strcmp(member,"all")||!strcmp(member,"any")||!strcmp(member,"none")) { if(argc!=1) return ofail("list predicate expects a list"); if(!ostd_list_bounded(args[0],"list predicate expects a list")) return onull(); int wantAny=!strcmp(member,"any"),wantNone=!strcmp(member,"none"); for(size_t i=0;i<args[0].as.list.len;i++) { int truth=otruthy(args[0].as.list.items[i]); if((wantAny&&truth)||(!wantAny&&!wantNone&&!truth)||(wantNone&&truth)) return obool(wantAny?1:0); } return obool(!wantAny); } if(!strcmp(member,"enumerate")) { if(argc!=1) return ofail("enumerate expects 1 argument"); if(!ostd_list_bounded(args[0],"enumerate expects 1 argument")) return onull(); OValue *items=args[0].as.list.len?(OValue *)malloc(args[0].as.list.len*sizeof(OValue)):NULL;if(args[0].as.list.len&&!items)return ofail("out of memory");for(size_t i=0;i<args[0].as.list.len;i++){OValue p[2]={ouint(i),args[0].as.list.items[i]};items[i]=olist(p,2);if(items[i].kind==O_LIST)items[i].fbits=1;}OValue out=olist(items,args[0].as.list.len);free(items);return out; } }
   if(!strcmp(module,"std/signal")) { if(!strcmp(member,"rectangular")||!strcmp(member,"hann")||!strcmp(member,"hamming")||!strcmp(member,"blackman")||!strcmp(member,"bartlett")) { if(argc!=1) return ofail("signal window expects 1 argument"); return ostd_signal_window(args[0],!strcmp(member,"rectangular")?0:!strcmp(member,"hann")?1:!strcmp(member,"hamming")?2:!strcmp(member,"blackman")?3:4); } if(!strcmp(member,"convolve")||!strcmp(member,"correlate")) { if(argc!=2) return ofail("signal operation expects 2 arguments"); return ostd_signal_conv(args[0],args[1],!strcmp(member,"correlate")); } if(!strcmp(member,"filter_fir")) { if(argc!=2) return ofail("signal operation expects 2 arguments"); return ostd_signal_fir(args[0],args[1]); } if(!strcmp(member,"resample")) return argc==2?ostd_signal_resample(args[0],args[1]):ofail("signal.resample expects signal and output length"); if(!strcmp(member,"mean")||!strcmp(member,"energy")||!strcmp(member,"variance")||!strcmp(member,"rms")) { if(argc!=1) return ofail("signal statistic expects 1 argument"); return ostd_signal_stats(args[0],!strcmp(member,"mean")?0:!strcmp(member,"energy")?1:!strcmp(member,"variance")?2:3); } if(!strcmp(member,"fft")||!strcmp(member,"ifft")) return argc==1?ostd_signal_fft(args[0],!strcmp(member,"ifft")):ofail("fft expects 1 argument"); if(!strcmp(member,"normalize")) return argc==2?ostd_signal_normalize(args[0],args[1]):ofail("normalize expects signal and mode"); }
-  if(!strcmp(module,"std/crypto")) { if(!strcmp(member,"hash")) { OValue rendered=ocat(args,argc); if(rendered.kind==O_ERROR)return rendered; return ostd_crypto_digest(rendered,ostring("sha256"),0); } if(!strcmp(member,"digest")||!strcmp(member,"digest_bytes")) return argc==2?ostd_crypto_digest(args[0],args[1],!strcmp(member,"digest_bytes")):ofail("digest expects data and algorithm"); if(!strcmp(member,"hmac")) return argc==3?ostd_crypto_hmac(args[0],args[1],args[2]):ofail("crypto.hmac expects key, data, and algorithm"); if(!strcmp(member,"hex_encode")||!strcmp(member,"hex_decode")) return argc==1?ostd_crypto_hex(args[0],!strcmp(member,"hex_decode")):ofail("hex codec expects 1 argument"); if(!strcmp(member,"compare_digest")) return argc==2?ostd_crypto_compare_digest(args[0],args[1]):ofail("compare_digest expects 2 arguments"); if(!strcmp(member,"base64_encode")||!strcmp(member,"base64url_encode")) return argc==1?ostd_crypto_base64_encode(args[0],!strcmp(member,"base64url_encode")):ofail("base64 encode expects 1 argument"); if(!strcmp(member,"base64_decode")||!strcmp(member,"base64url_decode")) return argc==1?ostd_crypto_base64_decode(args[0],!strcmp(member,"base64url_decode")):ofail("base64 decode expects 1 argument"); if(!strcmp(member,"algorithm_supported")) { if(argc!=1||args[0].kind!=O_STRING)return ofail("algorithm_supported expects a string");return obool(!strcmp(args[0].as.s.data,"sha256")||!strcmp(args[0].as.s.data,"sha512")||!strcmp(args[0].as.s.data,"sha512_256")); } }
+  if(!strcmp(module,"std/crypto")) { if(!strcmp(member,"hash")) { OValue rendered=ocat(args,argc); if(rendered.kind==O_ERROR)return rendered; return ostd_crypto_digest(rendered,ostring("sha256"),0); } if(!strcmp(member,"digest")||!strcmp(member,"digest_bytes")) return argc==2?ostd_crypto_digest(args[0],args[1],!strcmp(member,"digest_bytes")):ofail("digest expects data and algorithm"); if(!strcmp(member,"hmac")) return argc==3?ostd_crypto_hmac(args[0],args[1],args[2]):ofail("crypto.hmac expects key, data, and algorithm"); if(!strcmp(member,"hex_encode")||!strcmp(member,"hex_decode")) return argc==1?ostd_crypto_hex(args[0],!strcmp(member,"hex_decode")):ofail("hex codec expects 1 argument"); if(!strcmp(member,"compare_digest")) return argc==2?ostd_crypto_compare_digest(args[0],args[1]):ofail("compare_digest expects 2 arguments"); if(!strcmp(member,"base64_encode")||!strcmp(member,"base64url_encode")) return argc==1?ostd_crypto_base64_encode(args[0],!strcmp(member,"base64url_encode")):ofail("base64 encode expects 1 argument"); if(!strcmp(member,"base64_decode")||!strcmp(member,"base64url_decode")) return argc==1?ostd_crypto_base64_decode(args[0],!strcmp(member,"base64url_decode")):ofail("base64 decode expects 1 argument"); if(!strcmp(member,"derive_key")) return argc==3?ostd_crypto_derive_key(args[0],args[1],args[2]):ofail("crypto.derive_key expects secret, context, and length"); if(!strcmp(member,"random_bytes")) return argc==2?ostd_crypto_random_bytes(args[0],args[1]):ofail("crypto.random_bytes expects seed and length"); if(!strcmp(member,"token")) return argc==2?ostd_crypto_token(args[0],args[1]):ofail("crypto.token expects seed and length"); if(!strcmp(member,"uuid_v5")) return argc==2?ostd_crypto_uuid_v5(args[0],args[1]):ofail("crypto.uuid_v5 expects namespace and name"); if(!strcmp(member,"algorithm_supported")) { if(argc!=1||args[0].kind!=O_STRING)return ofail("algorithm_supported expects a string");return obool(!strcmp(args[0].as.s.data,"sha256")||!strcmp(args[0].as.s.data,"sha512")||!strcmp(args[0].as.s.data,"sha512_256")); } }
   if(!strcmp(module,"std/time")) { if(!strcmp(member,"parse_duration")) return argc==1?ostd_time_parse_duration(args[0]):ofail("parse_duration expects 1 argument"); if(!strcmp(member,"duration_string")) return argc==1?ostd_time_duration_string(args[0]):ofail("duration_string expects 1 argument"); if(!strcmp(member,"add")) return argc==2?ostd_time_add(args[0],args[1]):ofail("add expects 2 arguments"); if(!strcmp(member,"sub")) return argc==2?ostd_time_sub(args[0],args[1]):ofail("sub expects 2 arguments"); if(!strcmp(member,"round")) return argc==2?ostd_time_round(args[0],args[1],0):ofail("round expects 2 arguments"); if(!strcmp(member,"truncate")) return argc==2?ostd_time_round(args[0],args[1],1):ofail("truncate expects 2 arguments"); if(!strcmp(member,"format")) return argc==2?ostd_time_format(args[0],args[1]):ofail("format expects 2 arguments"); if(!strcmp(member,"date")) return (argc==7||argc==8)?ostd_time_date(args,(size_t)argc):ofail("date expects 7 fields and an optional location"); if(!strcmp(member,"add_date")) return argc==4?ostd_time_add_date(args[0],args[1],args[2],args[3]):ofail("add_date expects 4 arguments"); if(!strcmp(member,"compare")) return argc==2?ostd_time_compare(args[0],args[1]):ofail("compare expects 2 arguments"); if(!strcmp(member,"equal")) return argc==2?ostd_time_predicate(args[0],args[1],0):ofail("equal expects 2 arguments"); if(!strcmp(member,"before")) return argc==2?ostd_time_predicate(args[0],args[1],-1):ofail("before expects 2 arguments"); if(!strcmp(member,"after")) return argc==2?ostd_time_predicate(args[0],args[1],1):ofail("after expects 2 arguments"); if(!strcmp(member,"year")) return argc==1?ostd_time_component(args[0],"year",0):ofail("year expects 1 datetime"); if(!strcmp(member,"month")) return argc==1?ostd_time_component(args[0],"month",1):ofail("month expects 1 datetime"); if(!strcmp(member,"day")) return argc==1?ostd_time_component(args[0],"day",2):ofail("day expects 1 datetime"); if(!strcmp(member,"year_day")) return argc==1?ostd_time_component(args[0],"year_day",3):ofail("year_day expects 1 datetime"); if(!strcmp(member,"weekday")) return argc==1?ostd_time_component(args[0],"weekday",4):ofail("weekday expects 1 datetime"); }
   if(!strcmp(module,"std/time")) {
     if(!strcmp(member,"hour")) return argc==1?ostd_time_component(args[0],"hour",5):ofail("hour expects 1 datetime");
@@ -839,6 +919,7 @@ static OValue ostd_dispatch(const char *module, const char *member, const OValue
     if(!strcmp(member,"second")) return argc==1?ostd_time_component(args[0],"second",7):ofail("second expects 1 datetime");
     if(!strcmp(member,"nanosecond")) return argc==1?ostd_time_component(args[0],"nanosecond",8):ofail("nanosecond expects 1 datetime");
     if(!strcmp(member,"utc")) return argc==1?ostd_time_utc(args[0]):ofail("utc expects 1 datetime");
+    if(!strcmp(member,"zone")) return argc==1?ostd_time_zone(args[0]):ofail("zone expects 1 datetime");
   }
   if(!strcmp(module,"std/os")) {
     if(!strcmp(member,"is_path_separator")) return argc==1?ostd_os_is_path_separator(args[0]):ofail("is_path_separator expects 1 argument");

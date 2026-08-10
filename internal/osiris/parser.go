@@ -299,6 +299,7 @@ func (enumStmt) stmtNode() {}
 type structField struct {
 	Name      string
 	Type      string
+	TypeSpan  sourceSpan
 	Tag       string
 	TagValues map[string]string
 	Span      sourceSpan
@@ -1287,11 +1288,11 @@ func (p *parser) parseStructStmt() (Stmt, error) {
 			return nil, p.errorf(fieldName, "struct %q declares field %q more than once", name.text, fieldName.text)
 		}
 		seen[fieldName.text] = struct{}{}
-		fieldType, _, err := p.parseTypeName()
+		fieldType, fieldTypeSpan, err := p.parseTypeName()
 		if err != nil {
 			return nil, err
 		}
-		field := structField{Name: fieldName.text, Type: fieldType, NameSpan: parserSpanFromToken(fieldName)}
+		field := structField{Name: fieldName.text, Type: fieldType, TypeSpan: fieldTypeSpan, NameSpan: parserSpanFromToken(fieldName)}
 		if p.peek().kind == tokenTag {
 			tagTok := p.next()
 			values, tagErr := parseStructTag(tagTok.text)

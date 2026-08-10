@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ func classify(value) => match value {
   number n when n >= 0 => n,
   _ => 0
 }
+
 var value = 1
 value = 2
 defer { emit value }
@@ -43,6 +45,124 @@ defer { emit value }
 	}
 	if !enumPatternRef {
 		t.Fatal("enum pattern case was not indexed as a reference")
+	}
+}
+
+func TestLSPAnalyzerPreservesBindingMutabilityAndRejectsImmutableAssignments(t *testing.T) {
+	source := `const base = 2 + 3
+let runtime = base + 1
+var current = runtime
+current = current + base
+runtime = 9
+base = 10
+emit current
+`
+	prog, err := Parse("lsp-binding-contracts.osr", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := analyzeOnlyForLSPProtocol(t, prog)
+	if len(a.diagnostics) != 2 {
+		t.Fatalf("immutable assignments produced diagnostics = %#v, want two", a.diagnostics)
+	}
+	for _, name := range []string{"runtime", "base"} {
+		found := false
+		for _, diagnostic := range a.diagnostics {
+			if strings.Contains(diagnostic.Message, fmt.Sprintf("immutable binding %q", name)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing immutable assignment diagnostic for %q: %#v", name, a.diagnostics)
+		}
+	}
+	want := map[string]string{"base": "constant binding", "runtime": "immutable binding", "current": "mutable binding"}
+	for _, def := range a.defs {
+		if detail, ok := want[def.name]; ok && def.detail != detail {
+			t.Fatalf("binding %q detail = %q, want %q", def.name, def.detail, detail)
+		}
+	}
+}
+
+func TestLSPBindingContractsProtocolIsDeterministicAndReportsImmutableAssignments(t *testing.T) {
+	uri := "file:///tmp/lsp-binding-contracts.osr"
+	source := "const base = 2 + 3\n" +
+		"let runtime = base + 1\n" +
+		"var current = runtime\n" +
+		"current = current + base\n" +
+		"runtime = 9\n" +
+		"base = 10\n"
+	encoded, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":%q,"languageId":"osiris","version":3,"text":%s}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":3},"position":{"line":0,"character":6}}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":3},"position":{"line":1,"character":5}}}
+{"jsonrpc":"2.0","id":4,"method":"textDocument/hover","params":{"textDocument":{"uri":%q,"version":3},"position":{"line":2,"character":5}}}
+{"jsonrpc":"2.0","id":5,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}`,
+		uri, encoded, uri, uri, uri)
+	first := runLSPProtocolFixture(t, []byte(fixture))
+	second := runLSPProtocolFixture(t, []byte(fixture))
+	if first != second {
+		t.Fatalf("binding protocol output is not deterministic:\nfirst=%s\nsecond=%s", first, second)
+	}
+	frames := decodeLSPProtocolFrames(t, first)
+	wantDetails := map[int]string{2: "constant binding", 3: "immutable binding", 4: "mutable binding"}
+	seen := map[int]bool{}
+	for _, frame := range frames {
+		id, ok := lspProtocolFrameID(frame)
+		if !ok {
+			continue
+		}
+		if detail, wanted := wantDetails[id]; wanted {
+			var hover lspHover
+			payload, err := json.Marshal(frame["result"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(payload, &hover); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(hover.Contents.Value, detail) {
+				t.Fatalf("hover %d = %q, want %q", id, hover.Contents.Value, detail)
+			}
+			seen[id] = true
+		}
+	}
+	for id := range wantDetails {
+		if !seen[id] {
+			t.Fatalf("missing binding hover response %d: %#v", id, frames)
+		}
+	}
+	var diagnosticMessages []string
+	for _, frame := range frames {
+		if frame["method"] != "textDocument/publishDiagnostics" {
+			continue
+		}
+		params, ok := frame["params"].(map[string]any)
+		if !ok {
+			t.Fatalf("diagnostics params = %#v", frame["params"])
+		}
+		items, ok := params["diagnostics"].([]any)
+		if !ok {
+			t.Fatalf("diagnostics items = %#v", params["diagnostics"])
+		}
+		for _, item := range items {
+			entry, ok := item.(map[string]any)
+			if ok {
+				if message, ok := entry["message"].(string); ok {
+					diagnosticMessages = append(diagnosticMessages, message)
+				}
+			}
+		}
+	}
+	joinedDiagnostics := strings.Join(diagnosticMessages, "\n")
+	if len(diagnosticMessages) < 2 || !strings.Contains(joinedDiagnostics, `immutable binding "runtime"`) || !strings.Contains(joinedDiagnostics, `immutable binding "base"`) {
+		t.Fatalf("binding diagnostics = %#v", diagnosticMessages)
 	}
 }
 

@@ -11,6 +11,228 @@ static OValue oownedstring(const char *data, size_t len) {
   if(!otrack(copy)) { free(copy); return ofail("out of memory"); }
   return (OValue){O_STRING,0,{.s={copy,len}}};
 }
+
+/* Tensor shape/value operations use the same row-major, owned representation
+   as the core tensor kernels.  Inputs may be a tensor, a rectangular numeric
+   list, or a numeric scalar, matching inferTensor in the language runtime.
+   These helpers intentionally cover real numeric values only; complex tensors
+   continue to use the separate complex runtime contract. */
+static int oreal_tensor_input(OValue value, OValue *normalized) {
+  if(value.kind==O_TENSOR) { *normalized=value; return 1; }
+  *normalized=otensor(value);
+  return normalized->kind==O_TENSOR;
+}
+static int oaxisvalue(OValue value, int64_t *out) {
+  double number;
+  if(value.kind==O_INT) { *out=value.as.i; return 1; }
+  if(value.kind==O_UINT) { if(value.as.u>INT64_MAX) return 0; *out=(int64_t)value.as.u; return 1; }
+  if(value.kind!=O_FLOAT||!onum(value,&number)||!isfinite(number)||floor(number)!=number||number<(double)INT64_MIN||number>(double)INT64_MAX) return 0;
+  *out=(int64_t)number;
+  return 1;
+}
+static int otensor_product_checked(const size_t *shape, size_t rank, size_t *out) {
+  size_t total=1;
+  for(size_t i=0;i<rank;i++) {
+    if(shape[i]&&total>SIZE_MAX/shape[i]) return 0;
+    total*=shape[i];
+  }
+  *out=total;
+  return 1;
+}
+static OValue otensor_copy_shape(OValue input, const size_t *shape, size_t rank) {
+  size_t n=input.as.tensor.len;
+  if(n>SIZE_MAX/sizeof(double)) return ofail("tensor is too large");
+  double *data=n?(double *)malloc(n*sizeof(double)):NULL;
+  if(n&&!data) return ofail("out of memory");
+  if(n) memcpy(data,input.as.tensor.data,n*sizeof(double));
+  unsigned char element_kind=input.as.tensor.element_kind;
+  return otensordata_kind(data,n,shape,rank,input.fbits,element_kind);
+}
+static OValue otensor_squeeze(const OValue *args, size_t argc) {
+  if(argc!=1) return ofail("squeeze expects 1 argument");
+  OValue input;
+  if(!oreal_tensor_input(args[0],&input)) return ofail("squeeze expects a real numeric tensor");
+  size_t rank=0;
+  for(size_t i=0;i<input.as.tensor.rank;i++) if(input.as.tensor.shape[i]!=1) rank++;
+  size_t *shape=rank?(size_t *)malloc(rank*sizeof(size_t)):NULL;
+  if(rank&&!shape) return ofail("out of memory");
+  size_t at=0;
+  for(size_t i=0;i<input.as.tensor.rank;i++) if(input.as.tensor.shape[i]!=1) shape[at++]=input.as.tensor.shape[i];
+  OValue out=otensor_copy_shape(input,shape,rank);
+  free(shape);
+  return out;
+}
+static OValue otensor_expand_dims(const OValue *args, size_t argc) {
+  if(argc!=1&&argc!=2) return ofail("expand_dims expects 1 or 2 arguments");
+  OValue input;
+  if(!oreal_tensor_input(args[0],&input)) return ofail("expand_dims expects a real numeric tensor");
+  int64_t axis=0;
+  if(argc==2&&!oaxisvalue(args[1],&axis)) return ofail("expand_dims axis must be an integer");
+  if(axis<0) {
+    if(input.as.tensor.rank>INT64_MAX-1) return ofail("expand_dims axis out of range");
+    axis+=(int64_t)input.as.tensor.rank+1;
+  }
+  if(axis<0||(uint64_t)axis>input.as.tensor.rank) return ofail("expand_dims axis out of range");
+  size_t rank=input.as.tensor.rank+1;
+  if(rank<input.as.tensor.rank) return ofail("tensor rank is too large");
+  size_t *shape=rank?(size_t *)malloc(rank*sizeof(size_t)):NULL;
+  if(rank&&!shape) return ofail("out of memory");
+  size_t insert=(size_t)axis;
+  for(size_t i=0,j=0;i<rank;i++) shape[i]=i==insert?1:input.as.tensor.shape[j++];
+  OValue out=otensor_copy_shape(input,shape,rank);
+  free(shape);
+  return out;
+}
+static int otensor_target_compatible(OTensor input, const size_t *target, size_t target_rank, size_t *target_len) {
+  if(target_rank<input.rank) return 0;
+  size_t total;
+  if(!otensor_product_checked(target,target_rank,&total)) return 0;
+  for(size_t axis=0;axis<target_rank;axis++) {
+    size_t source_dim=1;
+    if(axis+input.rank>=target_rank) source_dim=input.shape[axis-(target_rank-input.rank)];
+    if(source_dim==0&&target[axis]!=0) return 0;
+    if(source_dim!=target[axis]&&source_dim!=1&&target[axis]!=1) return 0;
+    size_t result_dim=source_dim>target[axis]?source_dim:target[axis];
+    if(result_dim!=target[axis]) return 0;
+  }
+  *target_len=total;
+  return 1;
+}
+static size_t otensor_broadcast_index(OTensor input, const size_t *target, size_t target_rank, const size_t *strides, size_t output) {
+  size_t rest=output,index=0;
+  for(size_t axis=target_rank;axis>0;axis--) {
+    size_t at=axis-1, coordinate=target[at]?rest%target[at]:0;
+    if(target[at]) rest/=target[at];
+    if(at+input.rank>=target_rank) {
+      size_t source_axis=at-(target_rank-input.rank);
+      if(input.shape[source_axis]!=1) index+=coordinate*strides[source_axis];
+    }
+  }
+  return index;
+}
+static OValue otensor_broadcast_to(const OValue *args, size_t argc) {
+  if(argc<2) return ofail("broadcast_to expects a value and target shape");
+  OValue input;
+  if(!oreal_tensor_input(args[0],&input)) return ofail("broadcast_to expects a real numeric tensor");
+  size_t *target=NULL,target_rank=0,target_len=0;
+  if(!oshapeargs(args+1,argc-1,&target,&target_rank,&target_len)) return ofail("shape dimensions must be non-negative integers");
+  if(!otensor_target_compatible(input.as.tensor,target,target_rank,&target_len)) { free(target); return ofail("broadcast shape mismatch"); }
+  size_t *strides=input.as.tensor.rank?(size_t *)malloc(input.as.tensor.rank*sizeof(size_t)):NULL;
+  if(input.as.tensor.rank&&!strides) { free(target); return ofail("out of memory"); }
+  size_t stride=1;
+  for(size_t i=input.as.tensor.rank;i>0;i--) { strides[i-1]=stride; if(input.as.tensor.shape[i-1]&&stride>SIZE_MAX/input.as.tensor.shape[i-1]) { free(strides); free(target); return ofail("tensor is too large"); } stride*=input.as.tensor.shape[i-1]; }
+  if(target_len>SIZE_MAX/sizeof(double)) { free(strides); free(target); return ofail("tensor is too large"); }
+  double *data=target_len?(double *)malloc(target_len*sizeof(double)):NULL;
+  if(target_len&&!data) { free(strides); free(target); return ofail("out of memory"); }
+  for(size_t i=0;i<target_len;i++) data[i]=input.as.tensor.data[otensor_broadcast_index(input.as.tensor,target,target_rank,strides,i)];
+  OValue out=otensordata_kind(data,target_len,target,target_rank,input.fbits,input.as.tensor.element_kind);
+  free(strides); free(target);
+  return out;
+}
+static OValue oclip_value(OValue value, double lo, double hi) {
+  if(value.kind==O_LIST) {
+    OValue *items=value.as.list.len?(OValue *)malloc(value.as.list.len*sizeof(OValue)):NULL;
+    if(value.as.list.len&&!items) return ofail("out of memory");
+    for(size_t i=0;i<value.as.list.len;i++) { items[i]=oclip_value(value.as.list.items[i],lo,hi); if(items[i].kind==O_ERROR) { free(items); return items[i]; } }
+    OValue out=olist(items,value.as.list.len); free(items); return out;
+  }
+  if(value.kind==O_TENSOR) {
+    size_t n=value.as.tensor.len;
+    if(n>SIZE_MAX/sizeof(double)) return ofail("tensor is too large");
+    double *data=n?(double *)malloc(n*sizeof(double)):NULL;
+    if(n&&!data) return ofail("out of memory");
+    for(size_t i=0;i<n;i++) { double v=value.as.tensor.data[i]; if(v<lo) v=lo; if(v>hi) v=hi; data[i]=v; }
+    return otensordata_kind(data,n,value.as.tensor.shape,value.as.tensor.rank,value.fbits,value.as.tensor.element_kind);
+  }
+  double number;
+  if(!onum(value,&number)) return ofail("clip expects numeric values");
+  if(number<lo) number=lo;
+  if(number>hi) number=hi;
+  return value.kind==O_FLOAT?ofloatbits(number,value.fbits):ofloat(number);
+}
+static OValue otensor_clip(const OValue *args, size_t argc) {
+  if(argc!=3) return ofail("clip expects 3 arguments");
+  double lo,hi;
+  if(!onum(args[1],&lo)||!onum(args[2],&hi)) return ofail("clip expects numeric bounds");
+  return oclip_value(args[0],lo,hi);
+}
+static int otensor_common_broadcast_shape(OTensor left, OTensor right, size_t **shape, size_t *rank, size_t *len) {
+  return otensorbroadcastshape(left,right,shape,rank,len);
+}
+static OValue otensor_where(const OValue *args, size_t argc) {
+  if(argc!=3) return ofail("where expects 3 arguments");
+  OValue condition,when_true,when_false;
+  if(!oreal_tensor_input(args[0],&condition)||!oreal_tensor_input(args[1],&when_true)||!oreal_tensor_input(args[2],&when_false)) return ofail("where expects real numeric tensors");
+  size_t *shape=NULL,*final_shape=NULL,rank=0,final_rank=0,n=0,final_n=0;
+  if(!otensor_common_broadcast_shape(condition.as.tensor,when_true.as.tensor,&shape,&rank,&n)) return ofail("tensor shape mismatch");
+  OTensor intermediate={NULL,n,shape,rank,0};
+  if(!otensor_common_broadcast_shape(intermediate,when_false.as.tensor,&final_shape,&final_rank,&final_n)) { free(shape); return ofail("tensor shape mismatch"); }
+  free(shape);
+  size_t *condition_strides=condition.as.tensor.rank?(size_t *)malloc(condition.as.tensor.rank*sizeof(size_t)):NULL;
+  size_t *true_strides=when_true.as.tensor.rank?(size_t *)malloc(when_true.as.tensor.rank*sizeof(size_t)):NULL;
+  size_t *false_strides=when_false.as.tensor.rank?(size_t *)malloc(when_false.as.tensor.rank*sizeof(size_t)):NULL;
+  if((condition.as.tensor.rank&&!condition_strides)||(when_true.as.tensor.rank&&!true_strides)||(when_false.as.tensor.rank&&!false_strides)) { free(condition_strides); free(true_strides); free(false_strides); free(final_shape); return ofail("out of memory"); }
+  size_t stride=1;
+  for(size_t i=condition.as.tensor.rank;i>0;i--) { condition_strides[i-1]=stride; stride*=condition.as.tensor.shape[i-1]; }
+  stride=1;
+  for(size_t i=when_true.as.tensor.rank;i>0;i--) { true_strides[i-1]=stride; stride*=when_true.as.tensor.shape[i-1]; }
+  stride=1;
+  for(size_t i=when_false.as.tensor.rank;i>0;i--) { false_strides[i-1]=stride; stride*=when_false.as.tensor.shape[i-1]; }
+  if(final_n>SIZE_MAX/sizeof(double)) { free(condition_strides); free(true_strides); free(false_strides); free(final_shape); return ofail("tensor is too large"); }
+  double *data=final_n?(double *)malloc(final_n*sizeof(double)):NULL;
+  if(final_n&&!data) { free(condition_strides); free(true_strides); free(false_strides); free(final_shape); return ofail("out of memory"); }
+  for(size_t i=0;i<final_n;i++) {
+    size_t ci=otensor_broadcast_index(condition.as.tensor,final_shape,final_rank,condition_strides,i);
+    size_t ti=otensor_broadcast_index(when_true.as.tensor,final_shape,final_rank,true_strides,i);
+    size_t fi=otensor_broadcast_index(when_false.as.tensor,final_shape,final_rank,false_strides,i);
+    data[i]=condition.as.tensor.data[ci]!=0?when_true.as.tensor.data[ti]:when_false.as.tensor.data[fi];
+  }
+  uint16_t fbits=when_true.fbits>when_false.fbits?when_true.fbits:when_false.fbits;
+  unsigned char element_kind=when_true.as.tensor.element_kind==when_false.as.tensor.element_kind?when_true.as.tensor.element_kind:0;
+  OValue out=otensordata_kind(data,final_n,final_shape,final_rank,fbits,element_kind);
+  free(condition_strides); free(true_strides); free(false_strides); free(final_shape);
+  return out;
+}
+static int otensor_normalized_shape(OValue value, size_t **shape, size_t *rank) {
+  if(value.kind==O_TENSOR&&value.as.tensor.rank>0) { *rank=value.as.tensor.rank; *shape=(size_t *)malloc(value.as.tensor.rank*sizeof(size_t)); if(!*shape) return 0; memcpy(*shape,value.as.tensor.shape,*rank*sizeof(size_t)); return 1; }
+  *shape=(size_t *)malloc(sizeof(size_t)); if(!*shape) return 0; (*shape)[0]=1; *rank=1; return 1;
+}
+static OValue otensor_concat(const OValue *args, size_t argc) {
+  if(argc<2) return ofail("concat expects at least 2 arguments");
+  OValue *inputs=(OValue *)malloc(argc*sizeof(OValue)); size_t **shapes=(size_t **)calloc(argc,sizeof(size_t *)),*ranks=(size_t *)calloc(argc,sizeof(size_t));
+  if(!inputs||!shapes||!ranks) { free(inputs); free(shapes); free(ranks); return ofail("out of memory"); }
+  for(size_t i=0;i<argc;i++) if(!oreal_tensor_input(args[i],&inputs[i])||!otensor_normalized_shape(inputs[i],&shapes[i],&ranks[i])) { for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("concat expects real numeric tensors"); }
+  size_t tail_rank=ranks[0]-1,total=0; if(ranks[0]==0) tail_rank=0;
+  for(size_t i=0;i<argc;i++) {
+    if(ranks[i]==0) { for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("concat expects arrays, got scalar"); }
+    if(ranks[i]-1!=tail_rank||(tail_rank&&memcmp(shapes[i]+1,shapes[0]+1,tail_rank*sizeof(size_t)))) { for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("concat shape mismatch"); }
+    if(shapes[i][0]>SIZE_MAX-total) { for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("tensor is too large"); }
+    total+=shapes[i][0];
+  }
+  size_t out_rank=ranks[0],*out_shape=out_rank?(size_t *)malloc(out_rank*sizeof(size_t)):NULL;
+  if(out_rank&&!out_shape) { for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("out of memory"); }
+  out_shape[0]=total; for(size_t i=1;i<out_rank;i++) out_shape[i]=shapes[0][i];
+  size_t n; if(!otensor_product_checked(out_shape,out_rank,&n)||n>SIZE_MAX/sizeof(double)) { free(out_shape); for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("tensor is too large"); }
+  double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) { free(out_shape); for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return ofail("out of memory"); }
+  size_t at=0; uint16_t fbits=0; unsigned char element_kind=inputs[0].as.tensor.element_kind;
+  for(size_t i=0;i<argc;i++) { if(inputs[i].fbits>fbits) fbits=inputs[i].fbits; if(inputs[i].as.tensor.element_kind!=element_kind) element_kind=0; if(inputs[i].as.tensor.len) { memcpy(data+at,inputs[i].as.tensor.data,inputs[i].as.tensor.len*sizeof(double)); at+=inputs[i].as.tensor.len; } }
+  OValue out=otensordata_kind(data,n,out_shape,out_rank,fbits,element_kind); free(out_shape); for(size_t j=0;j<argc;j++) free(shapes[j]); free(inputs); free(shapes); free(ranks); return out;
+}
+static OValue otensor_stack(const OValue *args, size_t argc) {
+  if(argc<2) return ofail("stack expects at least 2 arguments");
+  OValue *inputs=(OValue *)malloc(argc*sizeof(OValue)); if(!inputs) return ofail("out of memory");
+  for(size_t i=0;i<argc;i++) if(!oreal_tensor_input(args[i],&inputs[i])) { free(inputs); return ofail("stack expects real numeric tensors"); }
+  OTensor first=inputs[0].as.tensor;
+  for(size_t i=1;i<argc;i++) if(!otensorsameshape(first,inputs[i].as.tensor)) { free(inputs); return ofail("stack shape mismatch"); }
+  size_t out_rank=first.rank+1,*out_shape=out_rank?(size_t *)malloc(out_rank*sizeof(size_t)):NULL;
+  if(out_rank&&!out_shape) { free(inputs); return ofail("out of memory"); }
+  out_shape[0]=argc; for(size_t i=0;i<first.rank;i++) out_shape[i+1]=first.shape[i];
+  size_t n; if(!otensor_product_checked(out_shape,out_rank,&n)||n>SIZE_MAX/sizeof(double)) { free(out_shape); free(inputs); return ofail("tensor is too large"); }
+  double *data=n?(double *)malloc(n*sizeof(double)):NULL; if(n&&!data) { free(out_shape); free(inputs); return ofail("out of memory"); }
+  size_t at=0; uint16_t fbits=0; unsigned char element_kind=first.element_kind;
+  for(size_t i=0;i<argc;i++) { if(inputs[i].fbits>fbits) fbits=inputs[i].fbits; if(inputs[i].as.tensor.element_kind!=element_kind) element_kind=0; if(inputs[i].as.tensor.len) { memcpy(data+at,inputs[i].as.tensor.data,inputs[i].as.tensor.len*sizeof(double)); at+=inputs[i].as.tensor.len; } }
+  OValue out=otensordata_kind(data,n,out_shape,out_rank,fbits,element_kind); free(out_shape); free(inputs); return out;
+}
 static OValue obytes(OValue value) {
   if(value.kind==O_LIST) return olist(value.as.list.items,value.as.list.len);
   if(value.kind!=O_STRING) return ofail("bytes expects a string or byte list");
@@ -37,6 +259,18 @@ static double ogotrig(double x, int cosine) {
 }
 static double ogosin(double value) { return ogotrig(value,0); }
 static double ogocos(double value) { return ogotrig(value,1); }
+
+static double onative_degrees(double value) { return value*(180.0/3.14159265358979323846264338327950288); }
+static double onative_radians(double value) { return value*(3.14159265358979323846264338327950288/180.0); }
+static double onative_copysign(double magnitude, double sign) { return copysign(magnitude,sign); }
+static double onative_nextafter(double from, double to) { return nextafter(from,to); }
+static float onative_nextafterf(float from, float to) { return nextafterf(from,to); }
+static int onative_isfinite(double value) { return isfinite(value)!=0; }
+static int onative_isinf(double value) { return isinf(value)!=0; }
+static int onative_isnan(double value) { return isnan(value)!=0; }
+static int onative_isnormal(double value) { return value!=0.0&&isfinite(value)&&fabs(value)>=DBL_MIN; }
+static int onative_isnormalf(float value) { return value!=0.0f&&isfinite(value)&&fabsf(value)>=FLT_MIN; }
+static int onative_signbit(double value) { return signbit(value)!=0; }
 
 static int onumericsequence(OValue value, size_t *count) {
   if(value.kind==O_TENSOR) { *count=value.as.tensor.len; return 1; }
@@ -287,6 +521,31 @@ static OValue ostd_time_duration(OValue value) {
   int64_t nanoseconds;
   if(!ointarg(value,&nanoseconds)) return ofail("duration expects a duration, integer, or Second quantity");
   return ostd_time_duration_value(nanoseconds);
+}
+static int ostd_time_compare_values(OValue left, OValue right, int *comparison) {
+  if(left.kind==O_DURATION&&right.kind==O_DURATION) {
+    *comparison=left.as.i<right.as.i?-1:left.as.i>right.as.i?1:0;
+    return 1;
+  }
+  if(left.kind==O_DATETIME&&right.kind==O_DATETIME) {
+    if(left.as.datetime.seconds!=right.as.datetime.seconds) {
+      *comparison=left.as.datetime.seconds<right.as.datetime.seconds?-1:1;
+    } else {
+      *comparison=left.as.datetime.nanosecond<right.as.datetime.nanosecond?-1:left.as.datetime.nanosecond>right.as.datetime.nanosecond?1:0;
+    }
+    return 1;
+  }
+  return 0;
+}
+static OValue ostd_time_compare(OValue left, OValue right) {
+  int comparison;
+  if(!ostd_time_compare_values(left,right,&comparison)) return ofail("time comparison expects two durations or two datetimes");
+  return oint(comparison);
+}
+static OValue ostd_time_predicate(OValue left, OValue right, int relation) {
+  int comparison;
+  if(!ostd_time_compare_values(left,right,&comparison)) return ofail("time comparison expects two durations or two datetimes");
+  return obool(relation<0?comparison<0:relation>0?comparison>0:comparison==0);
 }
 static int oleapyear(int year) { return year%4==0&&(year%100!=0||year%400==0); }
 static int odaysinmonth(int year, int month) {
@@ -903,8 +1162,13 @@ static int orender(OBuffer *buffer, OValue value) {
     if(!obuffertext(buffer,"\"")) return 0;
     for(size_t i=0;i<value.as.s.len;i++) { unsigned char c=(unsigned char)value.as.s.data[i]; if(c=='\"'||c=='\\') { char escaped[2]={'\\',(char)c}; if(!obufferadd(buffer,escaped,2)) return 0; } else if(c=='\n') { if(!obuffertext(buffer,"\\n")) return 0; } else if(c=='\r') { if(!obuffertext(buffer,"\\r")) return 0; } else if(c=='\t') { if(!obuffertext(buffer,"\\t")) return 0; } else if(!obufferadd(buffer,&c,1)) return 0; }
     return obuffertext(buffer,"\"");
-  case O_LIST:
-    if(!obuffertext(buffer,"[")) return 0; for(size_t i=0;i<value.as.list.len;i++) { if(i&&!obuffertext(buffer,", ")) return 0; if(!orender(buffer,value.as.list.items[i])) return 0; } return obuffertext(buffer,"]");
+  case O_LIST: {
+    int tuple=value.fbits!=0;
+    if(!obuffertext(buffer,tuple?"(":"[")) return 0;
+    for(size_t i=0;i<value.as.list.len;i++) { if(i&&!obuffertext(buffer,", ")) return 0; if(!orender(buffer,value.as.list.items[i])) return 0; }
+    if(tuple&&value.as.list.len==1&&!obuffertext(buffer,",")) return 0;
+    return obuffertext(buffer,tuple?")":"]");
+  }
   case O_ENUM:
     if(!obufferadd(buffer,value.as.en.type_name.data,value.as.en.type_name.len)||!obuffertext(buffer,".")||!obufferadd(buffer,value.as.en.case_name.data,value.as.en.case_name.len)) return 0;
     if(value.as.en.payload.len) { if(!obuffertext(buffer,"(")) return 0; for(size_t i=0;i<value.as.en.payload.len;i++) { if(i&&!obuffertext(buffer,", ")) return 0; if(!orender(buffer,value.as.en.payload.items[i])) return 0; } if(!obuffertext(buffer,")")) return 0; } return 1;
@@ -950,5 +1214,42 @@ static OValue ocrypto_hash(const OValue *values, size_t count) {
   OSHA256 sha; oshainit(&sha);
   for(size_t i=0;i<count;i++) { OBuffer rendered={0}; if(!orender(&rendered,values[i])) { free(rendered.data); return ofail("hash cannot render native value"); } oshawrite(&sha,rendered.data,rendered.len); unsigned char zero=0; oshawrite(&sha,&zero,1); free(rendered.data); }
   unsigned char digest[32]; char hex[65]; static const char digits[]="0123456789abcdef"; oshafinal(&sha,digest); for(size_t i=0;i<32;i++){hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15];} return oownedstring(hex,64);
+}
+static OValue ocrypto_mix(const OValue *values, size_t count) {
+  uint64_t state=UINT64_C(0xcbf29ce484222325);
+  for(size_t i=0;i<count;i++) {
+    OBuffer rendered={0};
+    if(!orender(&rendered,values[i])) { free(rendered.data); return ofail("mix cannot render native value"); }
+    for(size_t j=0;j<rendered.len;j++) {
+      state^=(uint64_t)rendered.data[j];
+      state*=UINT64_C(0x100000001b3);
+      state=orol64(state,13)^(state>>7);
+    }
+    free(rendered.data);
+    state^=UINT64_C(0xff);
+    state=orol64(state,17)+UINT64_C(0x9e3779b97f4a7c15);
+  }
+  char hex[17];
+  snprintf(hex,sizeof(hex),"%016llx",(unsigned long long)state);
+  return oownedstring(hex,16);
+}
+static uint64_t ocrypto_noise_hash(const unsigned char *data, size_t len) {
+  uint64_t hash=UINT64_C(0xcbf29ce484222325);
+  for(size_t i=0;i<len;i++) { hash^=(uint64_t)data[i]; hash*=UINT64_C(0x100000001b3); hash=orol64(hash,11)^(hash>>5); }
+  return hash;
+}
+static OValue ocrypto_noise(const OValue *values, size_t count) {
+  uint64_t accumulator=UINT64_C(0x6a09e667f3bcc909);
+  for(size_t i=0;i<count;i++) {
+    OBuffer rendered={0};
+    if(!orender(&rendered,values[i])) { free(rendered.data); return ofail("noise cannot render native value"); }
+    uint64_t hash=ocrypto_noise_hash((const unsigned char *)rendered.data,rendered.len);
+    free(rendered.data);
+    accumulator^=hash+(uint64_t)i*UINT64_C(0x9e3779b97f4a7c15);
+    accumulator=orol64(accumulator,27)^(accumulator<<7);
+  }
+  char hex[17];
+  snprintf(hex,sizeof(hex),"%016llx",(unsigned long long)accumulator);
+  return oownedstring(hex,16);
 }
 `

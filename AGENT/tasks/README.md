@@ -88,7 +88,8 @@ matrix column, and task 154 is the focused Native C/LSP release gate.
 WASM, GPU, and unavailable-platform evidence have been intentionally moved to
 the 300-series deferred lane. Tasks 300–302 own WASM implementation, 303–304
 own GPU provider/execution, 305–306 close WASM rows, 307–308 close GPU rows,
-400 owns Windows/Linux/real-device evidence, and 310 is the eventual
+400 coordinates platform evidence while 401 owns Linux, 402 owns Windows,
+403 owns real-device evidence, and 310 is the eventual
 all-backend matrix gate. Deferral changes scheduling priority only; it does
 not relax implementation, evidence, ownership, or documentation requirements.
 
@@ -147,7 +148,7 @@ not relax implementation, evidence, ownership, or documentation requirements.
 - Tasks 138–154 are the completed-foundation and Native C/LSP stabilization
   lane. Tasks 160–163 and 168 own the current implementation and matrix work;
   task 154 must not promote WASM or GPU cells.
-- Tasks 300–308 and 400 are the deferred WASM/GPU/environment lane; task 310
+- Tasks 300–308 and 400–403 are the deferred WASM/GPU/environment lane; task 310
   is the all-backend gate. They
   remain indexed so deferred work cannot disappear from the release plan.
 - `archive/roadmaps/`: preserved historical phase breakdowns and design prose;

@@ -32,5 +32,6 @@
 {"jsonrpc":"2.0","id":33,"method":"callHierarchy/outgoingCalls","params":{"item":{}}}
 {"jsonrpc":"2.0","id":34,"method":"typeHierarchy/supertypes","params":{"item":{}}}
 {"jsonrpc":"2.0","id":35,"method":"typeHierarchy/subtypes","params":{"item":{}}}
+{"jsonrpc":"2.0","id":36,"method":"textDocument/declaration","params":{"textDocument":{"uri":"file:///tmp/lspProtocol.osr"},"position":{"line":3,"character":12}}}
 {"jsonrpc":"2.0","id":31,"method":"shutdown"}
 {"jsonrpc":"2.0","method":"exit"}

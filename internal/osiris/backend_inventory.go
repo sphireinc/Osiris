@@ -116,7 +116,9 @@ func BackendCapabilityInventory() []BackendCapability {
 func nativeBuiltinStatus(name string) BackendStatus {
 	// These are host-independent primitive lowerings in cbackend_native.go.
 	switch name {
-	case "cat", "upper", "lower", "trim", "replace", "repeat", "split", "chunks", "join", "len", "take", "slice", "at", "setat", "range", "sum", "product", "divmod", "gcd", "lcm", "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "bit_width", "bit_floor", "bit_ceil", "has_single_bit", "byte_swap", "encode", "decode", "json", "format", "slug", "noise", "uint", "byte", "bytes", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "number", "complex", "dual", "primal", "tangent", "real", "imag", "conjugate", "magnitude", "abs", "sqrt", "exp", "exp2", "atan2", "trunc", "fmod", "remainder", "fma", "log", "log10", "log2", "pow", "expt", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "floor", "ceil", "round", "hypot", "norm", "min", "max", "clamp", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "mean", "std", "var", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "cumsum", "cumprod", "phase", "vector", "vec", "zeros", "ones", "full", "identity", "eye", "arange", "linspace", "logspace", "tensor", "matrix", "reshape", "shape", "flatten", "squeeze", "expand_dims", "concat", "stack", "tile", "broadcast_to", "where", "clip", "gather", "scatter", "pad", "transpose", "dot", "matmul", "outer", "trace", "det", "solve", "inv", "cholesky", "qr", "clone", "view":
+	case "tile", "gather", "scatter", "pad", "wrap", "cause":
+		return BackendImplemented
+	case "cat", "upper", "lower", "trim", "replace", "repeat", "split", "chunks", "join", "len", "take", "slice", "at", "setat", "range", "sum", "product", "divmod", "gcd", "lcm", "count_ones", "count_zeros", "leading_zeros", "trailing_zeros", "bit_width", "bit_floor", "bit_ceil", "has_single_bit", "byte_swap", "encode", "decode", "json", "format", "slug", "noise", "uint", "byte", "bytes", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "number", "complex", "dual", "primal", "tangent", "real", "imag", "conjugate", "magnitude", "abs", "sqrt", "exp", "exp2", "atan2", "trunc", "fmod", "remainder", "fma", "copysign", "nextafter", "isfinite", "isinf", "isnan", "isnormal", "signbit", "degrees", "radians", "log", "log10", "log2", "pow", "expt", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "expm1", "log1p", "cbrt", "erf", "erfc", "gamma", "lgamma", "floor", "ceil", "round", "hypot", "norm", "min", "max", "clamp", "sign", "step", "heaviside", "relu", "sigmoid", "softplus", "mean", "std", "var", "median", "quantile", "percentile", "argmin", "argmax", "any", "all", "cumsum", "cumprod", "phase", "vector", "vec", "zeros", "ones", "full", "identity", "eye", "arange", "linspace", "logspace", "tensor", "matrix", "reshape", "shape", "flatten", "squeeze", "expand_dims", "concat", "stack", "broadcast_to", "where", "clip", "transpose", "dot", "matmul", "outer", "trace", "det", "solve", "inv", "cholesky", "qr":
 		return BackendImplemented
 	default:
 		return BackendUnsupported
@@ -153,7 +155,7 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 			return BackendImplemented
 		}
 	case "std/crypto":
-		if member == "sha256" || member == "sha512" || member == "sha512_256" || member == "random" || member == "hash" || member == "digest" || member == "digest_bytes" || member == "hmac" || member == "hex_encode" || member == "hex_decode" || member == "compare_digest" || member == "base64_encode" || member == "base64_decode" || member == "base64url_encode" || member == "base64url_decode" || member == "algorithm_supported" {
+		if member == "version" || member == "max_input_bytes" || member == "max_output_bytes" || member == "max_key_bytes" || member == "max_token_bytes" || member == "sha256" || member == "sha512" || member == "sha512_256" || member == "random" || member == "hash" || member == "mix" || member == "noise" || member == "digest" || member == "digest_bytes" || member == "hmac" || member == "hex_encode" || member == "hex_decode" || member == "compare_digest" || member == "base64_encode" || member == "base64_decode" || member == "base64url_encode" || member == "base64url_decode" || member == "derive_key" || member == "random_bytes" || member == "token" || member == "uuid_v5" || member == "algorithm_supported" {
 			return BackendImplemented
 		}
 	case "std/list":
@@ -162,7 +164,8 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 		}
 	case "std/signal":
 		switch member {
-		case "rectangular", "hann", "hamming", "blackman", "bartlett",
+		case "version", "max_samples", "max_transform_samples", "pi",
+			"rectangular", "hann", "hamming", "blackman", "bartlett",
 			"convolve",
 			"correlate", "filter_fir", "resample", "mean", "variance", "energy", "rms",
 			"normalize", "fft", "ifft":
@@ -170,12 +173,12 @@ func nativeModuleMemberStatus(module, member string) BackendStatus {
 		}
 	case "std/text":
 		switch member {
-		case "trim", "trim_space", "trim_left", "trim_right", "lower", "contains", "contains_any", "has_prefix", "has_suffix", "fields", "join", "slug", "upper", "compare", "equal_fold", "count", "index", "last_index", "index_any", "last_index_any", "cut", "cut_prefix", "cut_suffix", "trim_prefix", "trim_suffix", "replace", "replace_n", "split", "split_after", "split_n", "split_after_n", "chunks", "repeat":
+		case "trim", "trim_space", "trim_left", "trim_right", "lower", "contains", "contains_any", "has_prefix", "has_suffix", "fields", "join", "slug", "cat", "upper", "compare", "equal_fold", "count", "index", "last_index", "index_any", "last_index_any", "cut", "cut_prefix", "cut_suffix", "trim_prefix", "trim_suffix", "replace", "replace_n", "split", "split_after", "split_n", "split_after_n", "chunks", "repeat":
 			return BackendImplemented
 		}
 	case "std/time":
 		switch member {
-		case "duration", "add", "add_date", "date", "duration_string", "unix", "unix_milli", "unix_micro", "format", "parse_duration", "rfc3339", "rfc3339_nano", "sub", "round", "truncate", "utc_location", "utc", "compare", "equal", "before", "after", "year", "month", "day", "hour", "minute", "second", "nanosecond", "microsecond", "millisecond", "weekday", "year_day":
+		case "duration", "add", "add_date", "date", "duration_string", "unix", "unix_milli", "unix_micro", "format", "parse_duration", "rfc3339", "rfc3339_nano", "sub", "round", "truncate", "utc_location", "utc", "zone", "compare", "equal", "before", "after", "year", "month", "day", "hour", "minute", "second", "nanosecond", "microsecond", "millisecond", "weekday", "year_day":
 			return BackendImplemented
 		}
 	}

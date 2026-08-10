@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-rename-transaction.osr","languageId":"osiris","version":4,"text":"let answer = 1\nemit answer\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"textDocument/rename","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-rename-transaction.osr","version":4},"position":{"line":1,"character":5},"newName":"result"}}
+{"jsonrpc":"2.0","id":3,"method":"textDocument/rename","params":{"textDocument":{"uri":"file:///tmp/lsp-workspace-rename-transaction.osr","version":3},"position":{"line":1,"character":5},"newName":"result"}}
+{"jsonrpc":"2.0","id":4,"method":"shutdown","params":{}}
+{"jsonrpc":"2.0","method":"exit"}

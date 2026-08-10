@@ -385,3 +385,143 @@ request/result contract is in `docs/design/LSP-HIGHLIGHTS.md` and the
 
 This is a bounded IDE capability slice only; task and support-matrix statuses
 remain unchanged.
+
+## Current implementation evidence: declaration navigation
+
+The standard `textDocument/declaration` provider is now advertised by
+`languageServer.capabilities` and dispatched by `languageServer.handleIDERequest`.
+`languageServer.declarationContext` validates the open-document version and
+zero-based UTF-16 position, rejects out-of-document and surrogate-splitting
+positions, and delegates to the existing analyzer-backed definition resolver so
+declaration and definition navigation share one source identity. The
+`languageServer.declaration` wrapper preserves direct in-process callers.
+
+`TestLSPDeclarationNavigationMatchesSourceDefinition`,
+`TestLSPDeclarationNavigationValidatesRequests`, and
+`TestLSPDeclarationNavigationCancellationIsTransactional` cover the exact
+source range, malformed and stale requests, UTF-16 validation, and canceled
+publication. The request is also included in the deterministic framed
+`lsp-protocol.jsonl` fixture. The granular public contract is documented in
+`docs/design/LSP-DECLARATION.md` and the generated LSP reference entry.
+
+This is one bounded IDE capability slice; the workspace/refactoring/test-tooling
+acceptance criteria remain open.
+
+## Current implementation evidence: declaration-level symbol filtering
+
+`documentSymbolsContext` and `workspaceSymbols` now share
+`isLSPDocumentOrWorkspaceSymbol`, which excludes function-parameter definitions
+from declaration-level symbol providers while retaining fields and other
+user-navigable declarations. This keeps document and workspace symbol results
+consistent instead of exposing a parameter as a top-level declaration.
+
+`TestLSPWorkspaceDocumentAndWorkspaceSymbolsHaveExactShapeUTF16StaleCancellationAndDeterminism`
+and `TestLSPWorkspaceSymbolsProtocolFixtureHasExactResultsAndStaleError` prove
+the exact five-symbol document result, UTF-16 ranges, deterministic ordering,
+stale/cancelled request behavior, and the matching workspace query contract.
+This closes the previously failing symbol-shape slice; the remaining task-161
+workspace/refactoring/test-result criteria remain open.
+
+## Current implementation evidence: executable test results
+
+`languageServer.testResultsContext` now executes the shared language-test
+runner through the `osiris/testResults` request. It accepts an open test or
+colocated production document, an optional `interpreter`, `vm`, or `native`
+backend, and an optional deterministic filter. `languageTestOverlays` passes
+the current open-document snapshots into discovery and execution, including
+virtual test files that do not yet exist on disk. `lspTestResultFromResult`
+projects evaluator-owned results into JSON-safe records with per-test status,
+outputs, assertions, logs, source locations, structured error text, and
+runtime duration.
+
+`TestLSPTestResultsExecutesOverlayWithStableFailureProjection` covers passing
+and skipped tests, overlay execution, result locations, stale-version
+rejection, and cancellation. The framed
+`TestLSPTestResultsProtocolFixtureIsDeterministicAndValidated` fixture covers
+the exact JSON result shape and unsupported-backend validation. Semantic
+fixture comparison ignores `durationNS`, which is intentionally a runtime
+measurement. The endpoint is now covered as a granular LSP test-results row;
+the broader workspace/refactoring acceptance criteria remain open.
+
+## Current implementation evidence: multi-document rename transaction
+
+The source-backed rename path now has an explicit affected-document transaction
+boundary. `languageServer.renameWorkspaceEditContext` captures the merged
+open-overlay/workspace document set once, scans definitions and references
+from that generation, derives UTF-16 ranges and versions from the same
+snapshot, and calls `languageServer.validateRenameDocumentSnapshot` under the
+server read lock before returning. If an affected module or importer is
+replaced while the request is in flight, the server returns typed `-32602`
+without publishing a partial `WorkspaceEdit`; unrelated document changes do
+not invalidate the edit. This closes the previously unverified mixed-generation
+multi-file rename behavior without changing support-matrix status.
+
+`TestLSPWorkspaceRenameTransactionRejectsChangedAffectedDocument` provides a
+deterministic stale affected-module fixture, while
+`TestLSPWorkspaceRenameTransactionConcurrentMutation` exercises the same
+boundary with a concurrent overlay replacement. The framed
+`lsp-workspace-rename-transaction.jsonl` fixture proves normal versioned output
+and stale request rejection; `TestLSPWorkspaceRenameTransactionProtocolFixtureIsDeterministic`
+checks repeated byte-equivalent responses and
+`TestLSPWorkspaceRenameTransactionCancellationIsWireLevel` proves canceled
+requests return `-32800` without a result. Existing cross-document user-module
+rename coverage remains in
+`TestLSPWorkspaceSourceBackedUserModuleRenameFromImporter`.
+
+Focused evidence:
+
+```text
+GOCACHE=/tmp/osiris-lsp-rename-transaction-cache go test ./internal/osiris -run '^TestLSPWorkspaceRenameTransaction|TestLSPWorkspaceSourceBackedUserModuleRenameFromImporter|TestLSPSourceBackedRenameAcrossSemanticKinds|TestLSPRenameMalformedCancellationAndSourceBoundary|TestLSPWorkspaceRenameProtocolFixtureHasExactRangesAndErrors$' -count=1 -timeout=180s
+ok
+
+GOCACHE=/tmp/osiris-lsp-rename-transaction-race-cache go test -race -vet=off ./internal/osiris -run '^TestLSPWorkspaceRenameTransaction|TestLSPWorkspaceSourceBackedUserModuleRenameFromImporter$' -count=1 -timeout=240s
+ok
+
+gofmt -w internal/osiris/lsp_ide.go internal/osiris/lsp_workspace_rename_transaction_test.go && git diff --check
+passed
+```
+
+This remains one bounded refactoring slice. Full rename conflict handling for
+client-side application, broader code-action families, repository/user-module
+parity beyond the indexed source-backed path, and the remaining workspace and
+test-tooling acceptance criteria are still blockers.
+
+## Current implementation evidence: strict request validation boundaries
+
+The latest protocol-validation slice closes three previously under-specified
+request boundaries without changing task status. `typeHierarchy/prepare`
+requires a `position` and rejects malformed, negative, out-of-document, and
+UTF-16-surrogate-splitting positions with `-32602`. The formatting handler
+requires a non-empty `textDocument.uri`; omitted or wrongly typed
+`textDocument` parameters therefore fail validation before document lookup,
+while the optional document-version check remains enforced.
+
+The shared navigation validation coverage also applies the same strict
+position contract to `textDocument/prepareRename` and
+`callHierarchy/prepare`. The framed fixtures and direct tests prove valid
+UTF-16 coordinates, malformed and stale requests, surrogate-boundary
+rejection, deterministic error responses, and `-32800` cancellation without
+partial publication. This evidence is limited to request validation and
+transaction boundaries; it does not establish complete semantic resolution,
+workspace lifecycle, client-side edit conflict handling, or CLI-equivalent
+test discovery.
+
+## Pause checkpoint (2026-08-09)
+
+Implementation is paused. The current LSP evidence includes versioned rename
+transactions, import organization, formatting, type hierarchy, semantic
+navigation, strict UTF-16 position validation for rename and call hierarchy,
+colocated inventory/code lenses, pull diagnostics, and test-result projection.
+The full acceptance gate remains open for the broader code-action
+families, repository/module resolution parity, complete workspace lifecycle and
+watch behavior, client-side edit conflict handling, and exact CLI/LSP test
+discovery equivalence. No support-matrix status changed; resume with focused
+protocol fixtures and cancellation/stale-version evidence for those remaining
+surfaces.
+
+The test-code-lens slice is now also evidenced: one-based rune source
+locations convert to zero-based UTF-16 LSP ranges, including astral
+characters, open-document overlays, stale-version rejection, deterministic
+responses, and cancellation without partial publication. This improves the
+test-tooling evidence but does not close the broader workspace/refactoring or
+CLI-equivalent discovery acceptance criteria.

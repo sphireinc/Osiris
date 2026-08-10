@@ -76,6 +76,50 @@ host surfaces, sanitizer and cross-platform generated-C evidence, and
 provider-dependent implementations. No support-matrix status is changed by
 this progress update.
 
+## Current implementation evidence: complete pure `std/signal` surface
+
+The Native C signal cell is now independently closed for the complete exported
+module surface. `nativeStaticModuleMember`, `emitCInstr`, and
+`nativeModuleMemberStatus` admit and lower the four module values
+(`version`, `max_samples`, `max_transform_samples`, and `pi`) together with all
+sixteen exported operations, including `resample`. The values use direct
+constant lowering; signal inputs are bounded and staged into owned temporary
+storage, scalar results stay by value, and tensor results transfer newly owned
+storage. No member defines or requires an OS capability.
+
+`TestNativeLibrarySignalPureParity` now exercises the module values, every
+window/filter/statistic/transform operation, and resampling across the
+interpreter, VM, generated C, and native executable. Its ownership companion
+checks every individual inventory member and the direct helper/error boundary;
+`TestNativeLibrarySignalResampleParity` and
+`TestNativeLibrarySignalResampleOwnershipErrorAndCapabilityContract` retain the
+focused interpolation, bound, cleanup, and allocation evidence. The public
+support matrix marks only the Native C `std/signal` cell stable; WASM, GPU, and
+LSP statuses are unchanged.
+
+Focused normal, race, LLVM AddressSanitizer, and LLVM UndefinedBehaviorSanitizer
+execution of the updated Native C signal fixtures passed on the local macOS
+host. The granular contracts are documented in `docs/design/NATIVE-C.md` and
+the searchable `std/signal` reference.
+
+## Current implementation evidence: complete pure `std/text` surface
+
+The Native C text cell is now independently closed for every exported
+`std/text` member. The admission table, backend inventory, dispatcher, and
+direct `chunks` lowering cover trimming, case conversion, predicates, Unicode
+search, cut/option results, replacement, splitting, slugging, concatenation,
+joining, and bounded repetition. `TestNativeLibraryTextParity` now calls the
+complete module surface, including `trim`, `trim_space`, `lower`, `contains`,
+prefix/suffix predicates, `slug`, `cat`, and `chunks`; its ownership companion
+checks every inventory member, owned-result helper, exact error boundary, and
+capability absence. The existing trim-set and chunks fixtures remain separate
+focused witnesses.
+
+The public support matrix marks only Native C `std/text` stable. The complete
+per-symbol signatures and ownership rules are documented in
+`docs/design/NATIVE-C.md` and the generated `std/text` reference; WASM, GPU,
+and LSP statuses are unchanged.
+
 ## Current implementation evidence: `std/text.chunks` direct lowering
 
 The Native C emitter now directly lowers the bounded pure member
@@ -102,8 +146,10 @@ error markers, capability absence, and the individual
 `module/std/text/chunks` inventory entry. The granular public reference entry
 is in `docs/src/reference-data.json`, the searchable API entry is in
 `docs/src/std-task-reference.js`, and the design contract is in the Native
-`std/text` table in `docs/design/NATIVE-C.md`. This remains a bounded Task-163
-slice; no support-matrix or task status is changed.
+`std/text` table in `docs/design/NATIVE-C.md`. This evidence is part of the
+complete pure `std/text` closure. The public Native C `std/text` cell is
+stable; task 163 remains blocked by the other standard-library and
+host-resource surfaces.
 
 Focused validation for this slice passed:
 
@@ -118,8 +164,9 @@ node docs/scripts/check-reference.mjs
 Reference checks passed: 26 API groups, 6 chapters, 315 built-ins, 19 special forms, 375 named constants.
 ```
 
-`go test -asan` was attempted but is unavailable on this host (`-asan is not
-supported on darwin/arm64`).
+The Go toolchain's native `-asan` mode is unavailable on this darwin/arm64
+host; the equivalent production LLVM AddressSanitizer command is recorded in
+the complete text evidence above and passes locally.
 
 ## Current implementation evidence: `std/signal` pure-value slice
 
@@ -252,6 +299,25 @@ in the `std/time` Native C table in `docs/design/NATIVE-C.md`.
 This remains a bounded Task-163 slice, not task completion. The broader
 `std/time` row remains partial because parsing, locations, `now`, timers, and
 other standard-library and host families remain outside this work.
+
+## Current implementation evidence: `std/time.zone` UTC contract
+
+The generated C backend now admits `std/time.zone` as the smallest safe
+addition to the existing two-field UTC datetime ABI. `nativeStaticModuleMember`
+and `nativeModuleMemberStatus` record the member individually, while
+`ostd_dispatch` calls `ostd_time_zone` after exact arity and datetime-kind
+validation. The helper returns a newly constructed two-element list containing
+`"UTC"` and `0i64`; it does not retain the datetime, read timezone data, or
+define a host capability.
+
+`TestNativeLibraryTimeZoneParity` compares interpreter, VM, generated C, and
+native executable output for multiple UTC datetimes plus caught arity and kind
+errors. `TestNativeLibraryTimeZoneContract` checks the helper, owned list
+boundary, exact error marker, capability absence, and individual inventory
+entry. The granular signature and explicit UTC-only limitation are documented
+in `docs/design/NATIVE-C.md` and `docs/src/time-reference.json`. The broader
+`std/time` cell remains partial until its location-bearing ABI, deterministic
+timezone-data strategy, parser, and injected clock contract are implemented.
 
 ## Current implementation evidence: `std/time.date`, `add_date`, and `format`
 
@@ -532,6 +598,100 @@ No support-matrix status changed; the task remains Blocked for its broader
 standard-library, host, sanitizer, cross-platform, and provider-dependent
 criteria.
 
+The latest bounded `std/time` slice also directly lowers `compare`, `equal`,
+`before`, and `after` for valid calls through overflow-safe portable value
+comparisons. Normal, race, AddressSanitizer, ownership, and ABI checks passed.
+The aggregate time row remains partial for clock reads, parsing, timers,
+locations, the location-bearing datetime ABI, and alternate-platform evidence.
+
+## Current implementation evidence: complete pure `std/list` surface
+
+The Native C list dispatcher now has executable coverage for every exported
+`std/list` member: `range`, `len`, `take`, `sum`, `product`, `reverse`, `at`,
+`index_of`, `last_index_of`, `contains`, `count`, `sort`, `unique`,
+`partition`, `slice`, `chunks`, `windows`, `zip`, `concat`, `repeat`, `empty`,
+`all`, `any`, `none`, `enumerate`, and `flatten`. The previously incomplete
+window path was corrected in `ostd_list_shape`: slice bounds are no longer
+applied to window width and step, so overlapping windows are accepted while
+both parameters remain independently positive and bounded.
+
+`TestNativeLibraryListPureParity` compares the complete surface across the
+interpreter, VM, generated C, and native executable, including successful
+overlapping-window output and caught invalid-width behavior.
+`TestNativeLibraryListCompleteOwnershipAndCapabilityContract` checks every
+individual inventory record, dispatcher/helper symbols, owned nested results,
+structured failures, and the absence of host capabilities. The dedicated
+flatten and chunk witnesses remain in their respective focused test files.
+
+Evidence passed on macOS:
+
+```text
+GOCACHE=/tmp/osiris-native-list-complete-cache2 go test ./internal/osiris \
+  -run '^TestNativeLibraryList(CompleteOwnershipAndCapabilityContract|PureParity)$' \
+  -count=1 -timeout=600s
+ok
+
+GOCACHE=/tmp/osiris-native-list-complete-race go test -race -vet=off ./internal/osiris \
+  -run '^TestNativeLibraryList(CompleteOwnershipAndCapabilityContract|PureParity)$' \
+  -count=1 -timeout=600s
+ok
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=address \
+GOCACHE=/tmp/osiris-native-list-complete-asan go test ./internal/osiris \
+  -run '^TestNativeLibraryList(CompleteOwnershipAndCapabilityContract|PureParity)$' \
+  -count=1 -timeout=600s
+ok
+```
+
+The `std/list` Native C matrix cell is now marked `stable`; the remaining
+task-163 standard-library and host members remain governed by their own
+evidence and do not inherit this module's status.
+
+## Current implementation evidence: complete pure `std/crypto` surface
+
+The Native C dispatcher now executes every exported `std/crypto` member,
+including module version/bound constants, SHA algorithm constants, seeded
+`random`, `hash`, `mix`, `noise`, text and byte digests, HMAC, constant-time
+comparison, hexadecimal and standard/URL-safe Base64 codecs, deterministic
+key derivation, seeded byte generation, deterministic tokens, UUID v5, and
+algorithm queries. The new `OSHA1` implementation is local to the generated
+runtime and is used only for UUID v5; no ambient provider or capability is
+consulted.
+
+`TestNativeLibraryCryptoCompleteParity` compares the complete module through
+the interpreter, VM, generated C, and native executable. Its companion
+`TestNativeLibraryCryptoCompleteOwnershipAndCapabilityContract` checks every
+inventory member, direct helper and dispatcher symbols, bounded failure
+behavior, owned output boundaries, and absence of `OSIRIS_CAP_*` definitions.
+The existing focused digest, HMAC, codec, mix, noise, and derivation witnesses
+remain as independent regressions.
+
+Evidence passed on macOS:
+
+```text
+GOCACHE=/tmp/osiris-native-crypto-complete-cache go test ./internal/osiris \
+  -run '^TestNativeLibraryCryptoComplete' -count=1 -timeout=600s
+ok
+
+GOCACHE=/tmp/osiris-native-crypto-complete-race go test -race -vet=off ./internal/osiris \
+  -run '^TestNativeLibraryCryptoComplete' -count=1 -timeout=600s
+ok
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=address \
+GOCACHE=/tmp/osiris-native-crypto-complete-asan go test ./internal/osiris \
+  -run '^TestNativeLibraryCryptoComplete' -count=1 -timeout=600s
+ok
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=undefined \
+GOCACHE=/tmp/osiris-native-crypto-complete-ubsan go test ./internal/osiris \
+  -run '^TestNativeLibraryCryptoComplete' -count=1 -timeout=600s
+ok
+```
+
+The `std/crypto` Native C cell is now marked `stable`; provider-dependent
+network, filesystem, process, and cross-platform evidence in this task is
+not affected by that module-level closure.
+
 ## Current implementation evidence: `std/time` duration and Unix slice
 
 The Native C emitter now directly lowers these pure, host-independent members:
@@ -567,6 +727,188 @@ ownership boundaries are documented in `docs/design/NATIVE-C.md` and
 No support-matrix status changed; task 163 remains blocked by its broader
 standard-library, host, sanitizer, cross-platform, and provider-dependent
 criteria.
+
+## Current implementation evidence: `std/time` direct comparison slice
+
+The Native C emitter now directly lowers valid two-argument calls to the pure
+value members `std/time.compare`, `std/time.equal`, `std/time.before`, and
+`std/time.after`. `nativeDirectTimeBuiltin` admits only the valid arity, while
+the `emitCInstr` branch selects `ostd_time_compare` or `ostd_time_predicate`.
+Malformed arity remains on `ostd_dispatch` so structured errors remain
+catchable. The comparison helpers were placed in
+`cRuntimePortableComponent`; they compare exact duration nanoseconds or
+seconds-plus-nanoseconds for UTC datetimes, avoid subtraction overflow, return
+scalar values, allocate nothing, and retain no input storage.
+
+`TestNativeTimeComparisonParity` in
+`internal/osiris/native_time_comparison_test.go` compares interpreter, VM,
+generated-C, and native executable output for duration and UTC datetime
+relations, mixed-kind rejection, and wrong arity. The companion contract test
+checks direct helper selection, the no-allocation/value-ownership boundary,
+capability absence, and the four individual inventory entries.
+
+Focused validation on the current macOS/POSIX host passed:
+
+```text
+GOCACHE=/tmp/osiris-time-comparison-normal \
+go test ./internal/osiris -run '^TestNativeTimeComparison' -count=1 -timeout=1200s
+ok
+
+GOCACHE=/tmp/osiris-time-comparison-race \
+go test -race -vet=off ./internal/osiris -run '^TestNativeTimeComparison' -count=1 -timeout=1200s
+ok
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=address \
+GOCACHE=/tmp/osiris-time-comparison-asan \
+go test ./internal/osiris -run '^TestNativeTimeComparison' -count=1 -timeout=1200s
+ok
+```
+
+This is a bounded host-independent value slice only. The aggregate
+`std/time` Native C row remains partial: clock reads, parsing, timers,
+IANA/fixed locations, location-bearing datetime ABI, and alternate-platform
+execution evidence remain open. No support-matrix or task status changed.
+
+## Pause checkpoint (2026-08-09)
+
+Implementation is paused. Granular Native C evidence has independently closed
+the maintained pure list, text, crypto, signal, selected math, codec, and POSIX
+environment/identity slices. The task remains blocked by the rest of the
+standard-library and host surface: complete time semantics beyond the UTC
+projection, networking/TLS/HTTP provider behavior, filesystem/process/watch
+parity, FFI/resource ownership, cancellation/deadline semantics, and the
+cross-platform generated-C evidence tracked by tasks 401 and 402. No support
+matrix status was promoted.
+
+The granular `native-os-environment-and-identity` row is now stable for the
+POSIX/macOS execution surface. Environment snapshots and mutation, missing
+values, path-separator behavior, hostname, process IDs, and page size have
+generated-executable parity under explicit capability grants, with capability
+normalization and missing-grant diagnostics covered. Windows/Linux adapters,
+filesystem/process/watch breadth, and alternate-platform evidence remain in
+the aggregate partial OS row.
+
+The granular `native-posix-filesystem-and-roots` row is now stable for the
+macOS/POSIX boundary. Maintained generated-executable fixtures cover owned
+file resources, metadata and mutation, rooted filesystem operations,
+ownership/timestamp methods, root FS bridging, capability gates, cleanup, and
+symlink-safe no-escape resolution. Windows HANDLE adapters, Linux execution
+evidence, and unlisted filesystem APIs remain outside the aggregate partial
+OS row.
+
+Two additional Native C granular rows are stable on the POSIX/macOS boundary:
+`native-posix-process-resources` covers owned process spawn/wait/signal/kill,
+stream detachment, environment overlays, process-group cancellation, timeout
+escalation, descendant cleanup, and reaping; `native-posix-standard-resources`
+covers standard streams/raw handles, signal subscriptions, and bounded watch
+snapshots. Their focused normal/race fixtures prove ownership and cleanup.
+Windows HANDLE adapters, Linux evidence, and unlisted host semantics remain
+outside these rows and the aggregate OS row.
+
+The granular `std-time-utc-projection` row is now stable for Native C. The
+maintained UTC and zone fixtures prove value-preserving `time.utc` conversion
+and newly owned `time.zone` results, including generated-executable parity,
+wrong-kind/arity behavior, no clock or timezone-data access, and no host
+capability. This is intentionally narrower than the still-partial aggregate
+`std-time` row: IANA/fixed locations, `now`, parsing, timers, and alternate
+platform evidence remain open.
+
+The provider-backed `std/math` linear-algebra surface is now closed in the
+separate Native C core/data record (task 162). This standard-library task keeps
+the provider deployment requirement explicit and does not treat `eig`, `eigh`,
+or `svd` as host-independent bundled implementations.
+
+## Current implementation evidence: `std/crypto.mix` deterministic mixer slice
+
+The Native C backend now closes the registered pure member
+`std/crypto.mix(value...) -> text`. The exact compiler admission and lowering
+symbols are `nativeStaticModuleMember` and the `emitCFunctionBody`/`emitCInstr`
+static-module dispatch path in `internal/osiris/cbackend_native.go`. The
+individual inventory path is `nativeModuleMemberStatus` in
+`internal/osiris/backend_inventory.go`, which now records
+`module/std/crypto/mix` as implemented.
+
+The generated runtime symbol `ocrypto_mix` in
+`internal/osiris/cbackend_portable_runtime.go` uses the existing canonical
+`orender` representation, including tuple delimiters and singleton tuple
+commas, then applies the language's fixed 64-bit byte mixer and returns an
+owned 16-character lowercase hexadecimal string through `oownedstring`.
+Each argument's temporary rendering buffer is released before the next
+argument is processed; no input pointer or host resource escapes, and no
+capability macro is defined. Zero arguments remain valid. Allocation or
+rendering failure is returned through the existing structured native error
+path.
+
+`TestNativeLibraryCryptoMixParity` in
+`internal/osiris/native_library_crypto_mix_test.go` compares zero-argument,
+mixed scalar, byte-list, and tuple calls across the interpreter, VM, generated
+C, and native executable. `TestNativeLibraryCryptoMixContract` checks direct
+runtime/helper selection, canonical rendering, owned-result construction,
+capability absence, and the individual inventory record. The public
+`std/crypto.mix` entry now documents its exact text result, canonical argument
+rendering, algorithm, ownership, and native capability contract in
+`docs/src/reference-data.json`; the generated-C contract is documented
+individually in `docs/design/NATIVE-C.md`, and the support-matrix note no
+longer lists `mix` as an unsupported Native C member.
+
+Focused validation on the current macOS host passed:
+
+```text
+GOCACHE=/tmp/osiris-native-crypto-mix-cache3 \
+go test ./internal/osiris -run '^TestNativeLibraryCryptoMix' -count=1 -timeout=1200s
+ok   github.com/sphireinc/osiris/internal/osiris  1.082s
+
+GOCACHE=/tmp/osiris-native-crypto-mix-race-cache \
+go test -race -vet=off ./internal/osiris -run '^TestNativeLibraryCryptoMix' -count=1 -timeout=1200s
+ok   github.com/sphireinc/osiris/internal/osiris  2.147s
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=address \
+GOCACHE=/tmp/osiris-native-crypto-mix-asan-cache \
+go test ./internal/osiris -run '^TestNativeLibraryCryptoMix' -count=1 -timeout=1200s
+ok   github.com/sphireinc/osiris/internal/osiris  1.435s
+
+GOCACHE=/tmp/osiris-native-crypto-mix-compile-cache \
+go test ./internal/osiris -run '^$' -count=1
+ok   github.com/sphireinc/osiris/internal/osiris  0.331s [no tests to run]
+
+PATH=/Users/JuanSanchez/.nvm/versions/node/v24.12.0/bin:$PATH \
+npm --prefix docs run check-reference
+Reference checks passed: 26 API groups, 6 chapters, 315 built-ins,
+19 special forms, 375 named constants.
+Reference navigation checks passed: 27 pages, 1063 unique entry routes.
+
+./scripts/check-repository-hygiene.sh
+Repository hygiene checks passed.
+```
+
+No support-matrix status changed; task 163 remains blocked by the other
+registered standard-library members and by the broader host, sanitizer,
+cross-platform, and provider-dependent acceptance criteria.
+
+## Current implementation evidence: `std/crypto.noise` deterministic noise slice
+
+The Native C backend now directly lowers the registered pure member
+`std/crypto.noise(value...) -> text`. `nativeStaticModuleMember`,
+`nativeModuleMemberStatus`, and the static-module branch in `emitCInstr` admit
+the individual member and select `ocrypto_noise` without `ostd_dispatch` or a
+reference-runtime fallback. `ocrypto_noise_hash` implements the fixed
+byte-level FNV-style hash and `ocrypto_noise` owns and releases each temporary
+canonical-render buffer before returning a tracked lowercase hexadecimal text
+value.
+
+`TestNativeLibraryCryptoNoiseParity` compares zero-argument, mixed scalar,
+byte-list, and tuple calls through the interpreter, VM, generated C, and native
+executable. `TestNativeLibraryCryptoNoiseContract` checks direct helper
+selection, `orender`/`oownedstring` ownership, no host capability macro, and
+the individual `module/std/crypto/noise` inventory entry. The public signature
+and exact algorithm are documented in `docs/src/reference-data.json`; the
+Native C ownership and capability contract is documented individually in
+`docs/design/NATIVE-C.md`.
+
+Focused normal, race, and LLVM AddressSanitizer runs passed on the current
+macOS host. This is a bounded pure-member slice; task 163 remains blocked by
+the other standard-library and host-resource members, provider availability,
+and alternate-platform evidence.
 
 Focused validation for the `std/time.utc` slice passed on the current macOS
 host:

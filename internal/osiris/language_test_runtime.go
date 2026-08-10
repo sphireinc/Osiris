@@ -15,25 +15,28 @@ import (
 // Test execution never reuses a completed result from disk; CacheDir only
 // stores an inventory manifest and is therefore safe for source-changing runs.
 type LanguageTestOptions struct {
-	Backend       string
-	Timeout       time.Duration
-	Integration   bool
-	Capabilities  []string
-	Filter        string
-	Parallel      int
-	Deterministic bool
-	Race          bool
-	CoveragePath  string
-	ArtifactsDir  string
-	Benchmark     bool
-	BenchmarkJSON string
-	Fuzz          bool
-	FuzzRuns      int
-	FuzzSeed      int64
-	FuzzCorpus    string
-	UpdateGolden  bool
-	CacheDir      string
-	NoCache       bool
+	Backend      string
+	Timeout      time.Duration
+	Integration  bool
+	Capabilities []string
+	// SourceOverlays supplies open-document contents keyed by absolute file
+	// path so IDE test runs execute the same source snapshot as discovery.
+	SourceOverlays map[string]string
+	Filter         string
+	Parallel       int
+	Deterministic  bool
+	Race           bool
+	CoveragePath   string
+	ArtifactsDir   string
+	Benchmark      bool
+	BenchmarkJSON  string
+	Fuzz           bool
+	FuzzRuns       int
+	FuzzSeed       int64
+	FuzzCorpus     string
+	UpdateGolden   bool
+	CacheDir       string
+	NoCache        bool
 }
 
 // LanguageTestLocation is the source range attached to a declaration,
@@ -298,7 +301,7 @@ func RunLanguageTestSource(ctx context.Context, name, source string, options Lan
 // Input/path failures are returned as errors; source and runtime failures are
 // represented as results so JSON mode can report every case.
 func RunLanguageTests(ctx context.Context, paths []string, options LanguageTestOptions) ([]LanguageTestResult, error) {
-	files, err := DiscoverLanguageTests(paths)
+	files, err := discoverLanguageTestsWithOverlays(paths, options.SourceOverlays)
 	if err != nil {
 		return nil, err
 	}
@@ -324,21 +327,21 @@ func RunLanguageTests(ctx context.Context, paths []string, options LanguageTestO
 	}
 	all := make([]languageTestCase, 0)
 	for _, file := range files {
-		source, err := os.ReadFile(file)
+		source, err := languageTestSource(file, options.SourceOverlays)
 		if err != nil {
 			return nil, err
 		}
-		cases, parseErr := parseLanguageTestFile(file, string(source))
+		cases, parseErr := parseLanguageTestFile(file, source)
 		if parseErr != nil {
-			all = append(all, languageTestCase{name: filepath.Base(file), file: file, body: string(source), parseErr: parseErr, location: languageTestLocation(file, 1, 1, 1, 1)})
+			all = append(all, languageTestCase{name: filepath.Base(file), file: file, body: source, parseErr: parseErr, location: languageTestLocation(file, 1, 1, 1, 1)})
 			continue
 		}
 		if sourceFile := colocatedSourceFile(file); sourceFile != "" {
-			production, err := os.ReadFile(sourceFile)
+			production, err := languageTestSource(sourceFile, options.SourceOverlays)
 			if err != nil {
 				return nil, err
 			}
-			prefix := string(production) + "\n"
+			prefix := production + "\n"
 			for i := range cases {
 				cases[i].body = prefix + cases[i].body
 			}
@@ -384,6 +387,41 @@ func RunLanguageTests(ctx context.Context, paths []string, options LanguageTestO
 		<-finished
 	}
 	return results, nil
+}
+
+func discoverLanguageTestsWithOverlays(paths []string, overlays map[string]string) ([]string, error) {
+	files, err := DiscoverLanguageTests(paths)
+	if err == nil || len(overlays) == 0 {
+		return files, err
+	}
+	if len(paths) != 1 {
+		return nil, err
+	}
+	path := filepath.Clean(paths[0])
+	if !filepath.IsAbs(path) {
+		if absolute, absoluteErr := filepath.Abs(path); absoluteErr == nil {
+			path = filepath.Clean(absolute)
+		}
+	}
+	if _, ok := overlays[path]; !ok || !isLanguageTestFile(path) {
+		return nil, err
+	}
+	return []string{path}, nil
+}
+
+func languageTestSource(path string, overlays map[string]string) (string, error) {
+	if overlays != nil {
+		if source, ok := overlays[filepath.Clean(path)]; ok {
+			return source, nil
+		}
+		if absolute, err := filepath.Abs(path); err == nil {
+			if source, ok := overlays[filepath.Clean(absolute)]; ok {
+				return source, nil
+			}
+		}
+	}
+	data, err := os.ReadFile(path)
+	return string(data), err
 }
 
 func runIndexedLanguageTest(ctx context.Context, item *languageTestCase, options LanguageTestOptions) LanguageTestResult {

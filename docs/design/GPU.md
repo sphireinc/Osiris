@@ -174,8 +174,8 @@ Native-device tests are conditional on an actual adapter. A machine with
 Metal framework support but no runtime `MTLDevice`, a machine built without
 cgo, and non-macOS hosts exercise the structured unavailable-device path.
 Those runs prove policy and compilation only; they are not hardware
-execution evidence. Tasks 159, 166, and 167 remain open for device-backed
-kernel breadth, differential fixtures, and matrix closure.
+execution evidence. Device-backed execution, broader lowering, kernel breadth,
+differential fixtures, and matrix closure remain open for future implementation.
 
 The deterministic fake-native adapter used by lifecycle tests models the
 provider boundary without claiming a device: it supplies opaque buffer

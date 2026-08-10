@@ -2833,21 +2833,25 @@
         {
           "name": "mix",
           "syntax": "mix(value...)",
-          "returns": "numeric value",
-          "summary": "Mix values into a deterministic numeric output.",
+          "returns": "`text`",
+          "summary": "Mix values into a deterministic hexadecimal text value.",
           "details": [
-            "Useful for deterministic scramblers and pseudo-random style work."
+            "The initial state, per-byte FNV-style step, rotations, separators, and lowercase hexadecimal encoding are fixed by the language contract. Arguments are rendered with their canonical Osiris text form and may be omitted.",
+            "Native C directly lowers this pure member through the portable value renderer. The result is newly owned text, inputs are not retained, and no host capability is required."
           ],
+          "native": "Native C directly lowers `mix(value...)` through the canonical value renderer and fixed 64-bit mixer. The result is newly owned lowercase hexadecimal text; no input pointer is retained and no host capability is required.",
           "example": "emit mix(\"osiris\")"
         },
         {
           "name": "noise",
           "syntax": "noise(value...)",
-          "returns": "numeric value",
-          "summary": "Generate deterministic noise from inputs.",
+          "returns": "`text`",
+          "summary": "Generate deterministic hexadecimal noise text from inputs.",
           "details": [
-            "Useful for procedural generation and stable randomized transforms."
+            "The accumulator seed, FNV-style byte hash, rotations, indexed mixing, and lowercase hexadecimal encoding are fixed by the language contract. Arguments use their canonical Osiris text form and may be omitted.",
+            "Native C directly lowers this pure member through the portable value renderer. The result is newly owned text, inputs are not retained, and no host capability is required."
           ],
+          "native": "Native C directly lowers `noise(value...)` through the canonical value renderer and fixed 64-bit mixer. The result is newly owned lowercase hexadecimal text; no input pointer is retained and no host capability is required.",
           "example": "emit noise(\"osiris\")"
         },
         {
@@ -2861,6 +2865,190 @@
             "The explicit-seed form has interpreter, VM, and native C parity for the documented seed and counter types."
           ],
           "example": "emit random(\"osiris\", 0)\nemit random(\"osiris\", 1)\n# Stable distinct f64-backed samples in [0, 1)"
+        },
+        {
+          "name": "version",
+          "syntax": "version",
+          "returns": "`text`",
+          "summary": "Return the std/crypto contract version.",
+          "details": ["The value is a compile-time-readable module constant and is stable across interpreter, VM, and Native C execution."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.version"
+        },
+        {
+          "name": "max_input_bytes",
+          "syntax": "max_input_bytes",
+          "returns": "`u64`",
+          "summary": "Return the maximum input byte bound.",
+          "details": ["Digest, encoding, and comparison inputs are rejected before allocation when they exceed this bound."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.max_input_bytes"
+        },
+        {
+          "name": "max_output_bytes",
+          "syntax": "max_output_bytes",
+          "returns": "`u64`",
+          "summary": "Return the maximum output byte bound.",
+          "details": ["Decoded and derived byte results cannot exceed this documented limit."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.max_output_bytes"
+        },
+        {
+          "name": "max_key_bytes",
+          "syntax": "max_key_bytes",
+          "returns": "`u64`",
+          "summary": "Return the maximum key byte bound.",
+          "details": ["HMAC and key-derivation keys are checked against this bound before hashing."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.max_key_bytes"
+        },
+        {
+          "name": "max_token_bytes",
+          "syntax": "max_token_bytes",
+          "returns": "`u64`",
+          "summary": "Return the maximum derived-token byte bound.",
+          "details": ["`derive_key`, `random_bytes`, and `token` validate requested lengths before allocation."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.max_token_bytes"
+        },
+        {
+          "name": "sha256",
+          "syntax": "sha256",
+          "returns": "`text`",
+          "summary": "Name the SHA-256 algorithm.",
+          "details": ["Pass this constant to `digest`, `digest_bytes`, or `hmac` to select SHA-256 without spelling an unvalidated algorithm string."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.digest(\"osiris\", crypto.sha256)"
+        },
+        {
+          "name": "sha512",
+          "syntax": "sha512",
+          "returns": "`text`",
+          "summary": "Name the SHA-512 algorithm.",
+          "details": ["Pass this constant to `digest`, `digest_bytes`, or `hmac` for the 512-bit digest family."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.digest(\"osiris\", crypto.sha512)"
+        },
+        {
+          "name": "sha512_256",
+          "syntax": "sha512_256",
+          "returns": "`text`",
+          "summary": "Name the SHA-512/256 algorithm.",
+          "details": ["This is the standardized SHA-512/256 truncated digest variant, not a post-hash string truncation."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.digest(\"osiris\", crypto.sha512_256)"
+        },
+        {
+          "name": "digest",
+          "syntax": "digest(data, algorithm)",
+          "returns": "`text`",
+          "summary": "Hash byte-compatible data into lowercase hexadecimal text.",
+          "details": ["`data` may be text or a byte-compatible list; `algorithm` must be `sha256`, `sha512`, or `sha512_256`. Inputs and output are bounded and the result is newly owned."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.digest(\"osiris\", crypto.sha256)"
+        },
+        {
+          "name": "digest_bytes",
+          "syntax": "digest_bytes(data, algorithm)",
+          "returns": "`list<u8>`",
+          "summary": "Hash byte-compatible data into raw digest bytes.",
+          "details": ["The returned byte list is independently owned; malformed algorithms, oversized input, and allocation failures produce structured errors."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.digest_bytes(\"osiris\", crypto.sha256)"
+        },
+        {
+          "name": "hmac",
+          "syntax": "hmac(key, data, algorithm)",
+          "returns": "`text`",
+          "summary": "Compute a keyed lowercase hexadecimal HMAC.",
+          "details": ["Key, data, and algorithm are validated before hashing. The operation uses the selected SHA family and returns owned text without retaining inputs."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.hmac(\"key\", \"data\", crypto.sha256)"
+        },
+        {
+          "name": "compare_digest",
+          "syntax": "compare_digest(left, right)",
+          "returns": "`bool`",
+          "summary": "Compare two byte-compatible values in constant time.",
+          "details": ["The comparison includes length in the accumulated difference and rejects values above the input bound."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.compare_digest(\"same\", \"same\")"
+        },
+        {
+          "name": "hex_encode",
+          "syntax": "hex_encode(data)",
+          "returns": "`text`",
+          "summary": "Encode bytes as lowercase hexadecimal.",
+          "details": ["Text is treated as its UTF-8 bytes; byte lists are copied and validated. The output is newly owned and bounded."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.hex_encode(\"osiris\")"
+        },
+        {
+          "name": "hex_decode",
+          "syntax": "hex_decode(value)",
+          "returns": "`list<u8>`",
+          "summary": "Decode an even-length hexadecimal string.",
+          "details": ["Both uppercase and lowercase digits are accepted; odd length, invalid digits, and oversized output return structured errors."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.hex_decode(\"6f7369726973\")"
+        },
+        {
+          "name": "base64_encode",
+          "syntax": "base64_encode(data)",
+          "returns": "`text`",
+          "summary": "Encode bytes with standard padded Base64.",
+          "details": ["The encoder copies byte-compatible input and emits the standard `+`/`/` alphabet with padding."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.base64_encode(\"osiris\")"
+        },
+        {
+          "name": "base64_decode",
+          "syntax": "base64_decode(value)",
+          "returns": "`list<u8>`",
+          "summary": "Decode standard padded Base64.",
+          "details": ["Invalid alphabet, padding, length, and output-bound violations are rejected before a result is published."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.base64_decode(\"b3Npcmlz\")"
+        },
+        {
+          "name": "base64url_encode",
+          "syntax": "base64url_encode(data)",
+          "returns": "`text`",
+          "summary": "Encode bytes with unpadded URL-safe Base64.",
+          "details": ["The URL-safe `-`/`_` alphabet is used and padding is omitted; the input bound is checked before allocation."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.base64url_encode(\"osiris\")"
+        },
+        {
+          "name": "base64url_decode",
+          "syntax": "base64url_decode(value)",
+          "returns": "`list<u8>`",
+          "summary": "Decode unpadded URL-safe Base64.",
+          "details": ["Padding is rejected for this form; invalid alphabet, length, and output bounds produce structured errors."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.base64url_decode(\"b3Npcmlz\")"
+        },
+        {
+          "name": "derive_key",
+          "syntax": "derive_key(secret, context, length)",
+          "returns": "`list<u8>`",
+          "summary": "Derive bounded deterministic bytes with HMAC-SHA256 expansion.",
+          "details": ["The explicit secret and context are copied; blocks use a big-endian counter starting at one. Length is checked against `max_token_bytes` before allocation."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.derive_key(\"secret\", \"context\", 16)"
+        },
+        {
+          "name": "random_bytes",
+          "syntax": "random_bytes(seed, length)",
+          "returns": "`list<u8>`",
+          "summary": "Generate deterministic pseudo-random bytes from an explicit seed.",
+          "details": ["This is deliberately not ambient cryptographic randomness: identical seed and length produce identical bytes across backends."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.random_bytes(\"seed\", 16)"
+        },
+        {
+          "name": "token",
+          "syntax": "token(seed, length)",
+          "returns": "`text`",
+          "summary": "Generate a deterministic unpadded URL-safe token.",
+          "details": ["The token is the URL-safe Base64 encoding of the explicit-seed HMAC expansion, with no ambient state or retained input."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.token(\"seed\", 16)"
+        },
+        {
+          "name": "uuid_v5",
+          "syntax": "uuid_v5(namespace, name)",
+          "returns": "`text`",
+          "summary": "Derive a canonical RFC 4122 version-5 UUID.",
+          "details": ["The namespace must be canonical UUID text. SHA-1 hashes namespace bytes followed by UTF-8 name bytes, then applies version and variant bits; the returned string is newly owned."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.uuid_v5(\"6ba7b810-9dad-11d1-80b4-00c04fd430c8\", \"www.example.com\")"
+        },
+        {
+          "name": "algorithm_supported",
+          "syntax": "algorithm_supported(algorithm)",
+          "returns": "`bool`",
+          "summary": "Report whether a digest algorithm is in the bounded standard set.",
+          "details": ["The result is true only for `sha256`, `sha512`, and `sha512_256`; the query is side-effect-free."],
+          "example": "import \"std/crypto\" as crypto\nemit crypto.algorithm_supported(crypto.sha256)"
         }
       ]
     },
@@ -3306,6 +3494,17 @@
           "example": "import \"std/list\" as list\nemit list.chunks([1, 2, 3, 4, 5], 2)"
         },
         {
+          "name": "windows",
+          "syntax": "windows(values, width, step)",
+          "returns": "`list<list>`",
+          "summary": "Return overlapping fixed-width windows.",
+          "details": [
+            "`width` and `step` are positive bounded integers; windows begin at index zero and advance by `step`.",
+            "Only complete windows are returned. Each window owns a copied element array and the source list is never mutated."
+          ],
+          "example": "import \"std/list\" as list\nemit list.windows([1, 2, 3, 4, 5], 3, 2)"
+        },
+        {
           "name": "zip",
           "syntax": "zip(left, right)",
           "returns": "`list<tuple>`",
@@ -3368,6 +3567,17 @@
           "summary": "Pair each value with its zero-based index.",
           "details": ["Pairs are emitted in source order and each pair is represented as a tuple."],
           "example": "import \"std/list\" as list\nemit list.enumerate([\"a\", \"b\"])"
+        },
+        {
+          "name": "flatten",
+          "syntax": "flatten(values, depth)",
+          "returns": "`list`",
+          "summary": "Flatten nested lists through a bounded depth.",
+          "details": [
+            "`depth` is a non-negative integer no greater than the list depth limit; depth zero preserves the input elements.",
+            "The result is newly owned, preserves left-to-right order, and rejects excessive output or recursive depth before exposing a partial result."
+          ],
+          "example": "import \"std/list\" as list\nemit list.flatten([[1, 2], [3]], 1)"
         }
       ]
     },

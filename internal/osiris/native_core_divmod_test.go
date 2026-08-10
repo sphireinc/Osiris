@@ -20,6 +20,7 @@ emit pair
 emit at(pair, 0)
 emit at(pair, 1)
 emit math.divmod(u64(100), u8(9))
+emit math.divmod(u32(0), u32(7))
 `,
 	})
 }
@@ -78,6 +79,16 @@ emit math.divmod(u8(17), u16(5))
 // aligned across the reference runtime and generated executable. Wider signed
 // and arbitrary-precision inputs remain outside this native slice.
 func TestNativeCoreUnsignedDivmodErrorContract(t *testing.T) {
+	program, err := Parse("<nativeCore-native-unsigned-divmod-arity>", `import "std/math" as math
+emit math.divmod(u8(1))
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CompileC(context.Background(), NewRuntime(), program); err == nil || !strings.Contains(err.Error(), "divmod expects 2 arguments") {
+		t.Fatalf("divmod arity compile error = %v, want explicit two-argument diagnostic", err)
+	}
+
 	for _, test := range []struct {
 		name        string
 		source      string

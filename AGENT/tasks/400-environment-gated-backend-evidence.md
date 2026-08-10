@@ -1,7 +1,7 @@
 # Task 400: Complete environment-gated backend evidence
 
 **Priority:** P1
-**Dependencies:** 303,304,307,308,162,163
+**Dependencies:** 401,402,403
 **Status:** Blocked by execution environment
 
 ## Purpose
@@ -15,35 +15,11 @@ operating system.
 
 ## Environment-gated scope
 
-### Windows native execution
-
-- Execute generated native C programs on supported Windows runners.
-- Exercise HANDLE adapters for processes, files, sockets, roots, and watches.
-- Verify standard streams, raw handles, signals, cancellation, and cleanup
-  under Windows error and close semantics.
-- Run the native C parity and sanitizer-equivalent suites on every supported
-  Windows architecture.
-
-### Linux generated-C and sanitizer evidence
-
-- Run the generated-C native parity suite on Linux, including the Linux ASan
-  runtime and leak/undefined-behavior checks required by tasks 162 and 163.
-- Record compiler, libc, kernel, architecture, sanitizer runtime, and test
-  commands in the evidence artifact.
-- Include cross-platform differential results; a macOS compile or a Linux
-  cross-compile alone is not execution evidence.
-
-### Real GPU-device evidence
-
-- Run the native GPU provider on a machine exposing a supported `MTLDevice`
-  or another approved device adapter.
-- Exercise discovery, allocation, upload, kernel launch, synchronization,
-  readback, cancellation, device loss, and release-on-error.
-- Produce device-backed fixtures for scalar/numeric, tensor, reduction,
-  matrix/linear-algebra, signal, and mapped-library rows owned by tasks 304,
-  307, and 308.
-- Keep CPUReferenceProvider fixtures separately labeled; reference execution
-  cannot promote hardware GPU matrix cells.
+The concrete platform evidence is split into task 401 (Linux generated-C and
+sanitizers), task 402 (Windows Native C resource adapters), and task 403 (real
+GPU-device execution). This umbrella task owns coordination, evidence format,
+and release-gate consumption; implementation remains in the owning 100/300
+series tasks.
 
 ## Required evidence and acceptance criteria
 
@@ -60,13 +36,10 @@ operating system.
 
 ## Current machine check
 
-- The macOS host exposes Metal framework support but no `MTLDevice`; the
-  conditional native-device fixture therefore skips and no hardware result is
-  counted.
-- Colima is installed, but the current Docker daemon is not running and the
-  configured socket is unavailable. Linux execution evidence therefore has
-  not been claimed from this checkout. A later CI or explicitly started Linux
-  runner must provide it.
+- The macOS host exposes Metal framework support but no `MTLDevice`; task 403
+  therefore remains blocked and no hardware result is counted.
+- Linux generated-C execution and Windows HANDLE execution are not claimed
+  from this checkout; tasks 401 and 402 require their respective runners.
 
 ## Explicitly out of scope
 
@@ -93,3 +66,10 @@ OSIRIS_REQUIRE_STABLE_MATRIX=1 ./scripts/check-support-matrix.sh
 
 The release command must remain failing while any non-stable cell lacks the
 implementation and environment evidence required by task 310.
+
+## Pause checkpoint (2026-08-09)
+
+No environment-gated evidence was produced during this checkpoint. The
+current macOS host still cannot provide Linux execution, Windows HANDLE
+execution, or real GPU-device execution; tasks 401, 402, and 403 remain
+blocked and the umbrella task remains open.

@@ -148,6 +148,8 @@ type symbolDef struct {
 	uri      string
 	span     sourceSpan
 	typeName string
+	mutable  bool
+	constant bool
 }
 
 type symbolRef struct {
@@ -892,6 +894,30 @@ func (s *languageServer) hoverContext(ctx context.Context, uri string, pos lspPo
 // error is nil.
 func (s *languageServer) definition(uri string, pos lspPosition) (any, error) {
 	return s.definitionContext(context.Background(), uri, pos)
+}
+
+func (s *languageServer) declaration(uri string, pos lspPosition) (any, error) {
+	return s.declarationContext(context.Background(), uri, pos)
+}
+
+func (s *languageServer) declarationContext(ctx context.Context, uri string, pos lspPosition) (any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, lspRequestCancelled(err)
+	}
+	state := s.document(uri)
+	if state == nil {
+		return nil, fmt.Errorf("document not open: %s", uri)
+	}
+	if _, ok := lspUTF16Offset(state.text, pos); !ok {
+		return nil, lspInvalidParams(fmt.Errorf("position is outside the document or splits a UTF-16 surrogate pair"))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, lspRequestCancelled(err)
+	}
+	return s.definitionContext(ctx, uri, pos)
 }
 
 // definitionContext resolves a definition into a private location value and
@@ -2008,6 +2034,7 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		def := analysisNamedDefinition(scope, st.Name, "struct", fmt.Sprintf("struct with %d fields", len(st.Fields)), uri, st.NameSpan)
 		addAnalysisDefinition(a, def)
 		for _, field := range st.Fields {
+			analyzeTypeReference(a, scope, uri, field.Type, field.TypeSpan, "struct field type")
 			addLSPMember(a, st.Name, &symbolDef{
 				name: field.Name, kind: "field", detail: "field " + field.Type,
 				uri: uri, span: field.NameSpan, typeName: field.Type,
@@ -2030,7 +2057,11 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			for _, name := range st.Names {
 				item := scope.lookup(name)
 				if item == nil || item.kind != "variable" {
-					item = &symbolDef{name: name, kind: "variable", detail: "tuple binding", uri: uri, span: st.Span}
+					item = &symbolDef{name: name, kind: "variable", detail: lspBindingDetail(st, true), uri: uri, span: st.Span, mutable: st.Mutable, constant: st.Const}
+				} else {
+					item.detail = lspBindingDetail(st, true)
+					item.mutable = st.Mutable
+					item.constant = st.Const
 				}
 				addAnalysisDefinition(a, item)
 				scope = scope.push(item)
@@ -2039,13 +2070,20 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 		}
 		def := scope.lookup(st.Name)
 		if def == nil || def.kind != "variable" {
-			def = &symbolDef{name: st.Name, kind: "variable", detail: "binding", uri: uri, span: st.NameSpan}
+			def = &symbolDef{name: st.Name, kind: "variable", detail: lspBindingDetail(st, false), uri: uri, span: st.NameSpan, mutable: st.Mutable, constant: st.Const}
+		} else {
+			def.detail = lspBindingDetail(st, false)
+			def.mutable = st.Mutable
+			def.constant = st.Const
 		}
 		addAnalysisDefinition(a, def)
 		return scope.push(def), nil
 	case assignStmt:
 		if def := scope.lookup(st.Name); def != nil {
 			a.refs = append(a.refs, &symbolRef{span: st.NameSpan, target: def, detail: "assignment"})
+			if !def.mutable {
+				a.diagnostics = append(a.diagnostics, diagnosticAt(st.NameSpan, fmt.Sprintf("cannot assign to immutable binding %q", st.Name)))
+			}
 		} else {
 			a.diagnostics = append(a.diagnostics, diagnosticAt(st.NameSpan, fmt.Sprintf("undefined assignment target %q", st.Name)))
 		}
@@ -2126,7 +2164,9 @@ func analyzeStmt(a *documentAnalysis, scope *lspScope, uri string, stmt Stmt, in
 			if i < len(st.ParamSpans) {
 				span = st.ParamSpans[i]
 			}
-			child.defs[param] = &symbolDef{name: param, kind: "param", detail: detail, uri: uri, span: span}
+			paramDef := &symbolDef{name: param, kind: "param", detail: detail, uri: uri, span: span}
+			child.defs[param] = paramDef
+			addAnalysisDefinition(a, paramDef)
 		}
 		if err := analyzeExpr(a, child, uri, st.Body); err != nil {
 			return nil, err
@@ -2349,12 +2389,25 @@ func predeclareAnalysisStmt(a *documentAnalysis, scope *lspScope, uri string, st
 		scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "macro", detail: "compile-time macro", uri: uri, span: st.NameSpan}
 	case letStmt:
 		if st.Name != "" {
-			scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "variable", detail: "binding", uri: uri, span: st.NameSpan}
+			scope.defs[st.Name] = &symbolDef{name: st.Name, kind: "variable", detail: lspBindingDetail(st, false), uri: uri, span: st.NameSpan, mutable: st.Mutable, constant: st.Const}
 		}
 		for _, name := range st.Names {
-			scope.defs[name] = &symbolDef{name: name, kind: "variable", detail: "tuple binding", uri: uri, span: st.Span}
+			scope.defs[name] = &symbolDef{name: name, kind: "variable", detail: lspBindingDetail(st, true), uri: uri, span: st.Span, mutable: st.Mutable, constant: st.Const}
 		}
 	}
+}
+
+func lspBindingDetail(st letStmt, tuple bool) string {
+	detail := "immutable binding"
+	if st.Const {
+		detail = "constant binding"
+	} else if st.Mutable {
+		detail = "mutable binding"
+	}
+	if tuple {
+		detail = strings.Replace(detail, " binding", " tuple binding", 1)
+	}
+	return detail
 }
 
 func analysisNamedDefinition(scope *lspScope, name, kind, detail, uri string, span sourceSpan) *symbolDef {
@@ -2434,7 +2487,7 @@ func lspTypeParameterDefinition(uri string, param typeParam) *symbolDef {
 // of type validity; this pass only connects the already parsed names to LSP
 // definitions and references.
 func analyzeGenericFunctionSignature(a *documentAnalysis, scope *lspScope, uri string, fn funcStmt, params []typeParam) {
-	if a == nil || len(params) == 0 {
+	if a == nil {
 		return
 	}
 	for _, param := range params {
@@ -2450,11 +2503,37 @@ func analyzeGenericFunctionSignature(a *documentAnalysis, scope *lspScope, uri s
 		if i < len(fn.Params) {
 			skip = len(fn.Params[i])
 		}
-		addGenericTypeReferences(a, scope, uri, typeName, fn.ParamSpans[i], skip, params, "generic parameter type")
+		if len(params) == 0 || !containsAnyGenericTypeParameter(typeName, params) {
+			analyzeTypeReference(a, scope, uri, typeName, lspParameterTypeSpan(fn.ParamSpans[i], fn.Params, i, typeName), "parameter type")
+		} else {
+			addGenericTypeReferences(a, scope, uri, typeName, fn.ParamSpans[i], skip, params, "generic parameter type")
+		}
 	}
 	if fn.ReturnType != "" {
-		addGenericTypeReferences(a, scope, uri, fn.ReturnType, fn.ReturnTypeSpan, 0, params, "generic return type")
+		if len(params) == 0 || !containsAnyGenericTypeParameter(fn.ReturnType, params) {
+			analyzeTypeReference(a, scope, uri, fn.ReturnType, fn.ReturnTypeSpan, "return type")
+		} else {
+			addGenericTypeReferences(a, scope, uri, fn.ReturnType, fn.ReturnTypeSpan, 0, params, "generic return type")
+		}
 	}
+}
+
+func lspParameterTypeSpan(region sourceSpan, params []string, index int, typeName string) sourceSpan {
+	if index >= 0 && index < len(params) && region.start.line == region.end.line {
+		start := region.start
+		start.col += len(params[index]) + 1
+		return sourceSpan{start: start, end: sourcePos{line: start.line, col: start.col + len(typeName)}}
+	}
+	return region
+}
+
+func containsAnyGenericTypeParameter(typeName string, params []typeParam) bool {
+	for _, param := range params {
+		if lspTypeContainsIdentifier(typeName, param.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 func addGenericTypeReferences(a *documentAnalysis, scope *lspScope, uri, typeName string, region sourceSpan, skip int, params []typeParam, detail string) {

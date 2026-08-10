@@ -72,6 +72,29 @@ func findBackendCapability(entries []BackendCapability, id string) (BackendCapab
 	return BackendCapability{}, false
 }
 
+func TestBackendCapabilityInventoryMatchesNativeShapeAndClassificationSlices(t *testing.T) {
+	for _, name := range []string{"squeeze", "expand_dims", "broadcast_to", "clip", "where", "concat", "stack", "copysign", "nextafter", "isfinite", "isinf", "isnan", "isnormal", "signbit", "degrees", "radians"} {
+		if got := nativeBuiltinStatus(name); got != BackendImplemented {
+			t.Errorf("native builtin %s = %q, want implemented", name, got)
+		}
+	}
+	for _, name := range []string{"clone", "view"} {
+		if got := nativeBuiltinStatus(name); got != BackendUnsupported {
+			t.Errorf("native builtin %s = %q, want unsupported", name, got)
+		}
+	}
+	for _, name := range []string{"tile", "gather", "scatter", "pad"} {
+		if got := nativeBuiltinStatus(name); got != BackendImplemented {
+			t.Errorf("native builtin %s = %q, want implemented", name, got)
+		}
+	}
+	for _, name := range []string{"squeeze", "expand_dims", "broadcast_to", "clip", "where", "concat", "stack", "copysign", "nextafter", "isfinite", "isinf", "isnan", "isnormal", "signbit", "degrees", "radians"} {
+		if got := nativeModuleMemberStatus("std/math", name); got != BackendImplemented {
+			t.Errorf("std/math.%s = %q, want implemented", name, got)
+		}
+	}
+}
+
 func TestCBackendPortableCompilationFlags(t *testing.T) {
 	if _, err := exec.LookPath("cc"); err != nil {
 		t.Skip("cc not available")
@@ -125,8 +148,8 @@ func TestCBackendSanitizerFlagsAreCacheKeyed(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(manifest.Flags, " ")
-	if !strings.Contains(joined, "-fsanitize=undefined") || strings.Contains(joined, "-flto") {
-		t.Fatalf("sanitizer manifest flags = %q, want UBSan and no LTO", joined)
+	if !strings.Contains(joined, "-fsanitize=undefined") || !strings.Contains(joined, "-flto") {
+		t.Fatalf("sanitizer manifest flags = %q, want UBSan and LTO for production floating-point parity", joined)
 	}
 }
 

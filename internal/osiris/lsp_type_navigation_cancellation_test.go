@@ -2,11 +2,55 @@ package osiris
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestLSPImplementationProtocolFixtureIsDeterministicAndValidatesRequests(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/lsp/lsp-implementation.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := runLSPProtocolFixture(t, fixture)
+	second := runLSPProtocolFixture(t, fixture)
+	if first != second {
+		t.Fatalf("implementation fixture is not deterministic\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+	frames := decodeLSPProtocolFrames(t, first)
+	seen := map[int]bool{}
+	for _, frame := range frames {
+		id, ok := lspProtocolFrameID(frame)
+		if !ok {
+			continue
+		}
+		seen[id] = true
+		switch id {
+		case 2, 3:
+			payload, err := json.Marshal(frame["result"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var locations []lspLocation
+			if err := json.Unmarshal(payload, &locations); err != nil {
+				t.Fatal(err)
+			}
+			if len(locations) != 1 || locations[0].URI != "file:///tmp/lsp-implementation-fixture.osr" || locations[0].Range.Start.Line != 3 {
+				t.Fatalf("implementation response %d = %#v, want one implementation on line 3", id, locations)
+			}
+		case 4, 5:
+			lspProtocolAssertErrorCode(t, frame, -32602)
+		}
+	}
+	for _, id := range []int{1, 2, 3, 4, 5, 6} {
+		if !seen[id] {
+			t.Errorf("implementation fixture response %d missing", id)
+		}
+	}
+}
 
 func TestLSPTypeNavigationContextResultsAreDeterministicAndUTF16Safe(t *testing.T) {
 	server := NewLanguageServer(NewRuntime(), ioDiscardWriter{}, ioDiscardWriter{})

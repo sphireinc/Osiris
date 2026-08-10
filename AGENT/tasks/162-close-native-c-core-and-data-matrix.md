@@ -149,8 +149,9 @@ is emitted.
 `TestNativeCoreBitOperationsErrorContract` in
 `internal/osiris/native_core_bitwise_test.go` provide differential, ownership,
 capability, inventory, and runtime-error evidence. This is an incremental
-core/data proof only; the task remains open for the wider numeric families and
-the external platform evidence recorded elsewhere.
+core/data proof only. The granular `std-math-bit-operations` support row is now
+stable for this bounded family; the broad numeric row remains open for the
+wider numeric families and external platform evidence recorded elsewhere.
 
 ### Bounded pure integer-math slice (2026-08-09)
 
@@ -175,7 +176,8 @@ zero behavior, interpreter/VM/generated-C/native executable parity, direct
 helper selection, and the no-capability boundary. The exact API and remaining
 signed/arbitrary-precision boundary are documented in
 `docs/design/NATIVE-C.md` under “Native fixed-width integer math”. This is an
-incremental proof only; no support-matrix or task-completion status changed.
+incremental proof only; the granular `std-math-unsigned-reductions` row is
+stable while the broad `std-math-scalar` row and task remain open.
 
 ### Bounded fixed-width unsigned `divmod` slice (2026-08-09)
 
@@ -193,7 +195,8 @@ arbitrary-precision reference forms remain outside this bounded ABI.
 parity, direct-lowering and inventory evidence, ownership/capability checks,
 and zero-divisor/unsupported-kind runtime errors. The exact contract is
 documented in `docs/design/NATIVE-C.md` under “Native fixed-width unsigned
-`divmod`”. No aggregate support-matrix or task-completion status changed.
+`divmod`”. The granular `std-math-unsigned-divmod` support row is stable; the
+broader `std-math-scalar` row and this task remain open.
 
 ### Bounded scalar extrema inventory closure (2026-08-09)
 
@@ -203,9 +206,9 @@ members use `ominmax`/`oclamp` for the documented numeric subset and do not
 fall through to module dispatch or define a host capability. Existing normal
 executable parity covers mixed numeric extrema and f32/f64 clamp behavior;
 `TestNativeCoreMathExtremaInventoryAndLoweringContract` adds direct-helper,
-inventory, and no-dispatch evidence. This is a ledger/data-surface slice only;
-the task remains Ready while broader numeric families, complete sanitizer
-coverage, and alternate-platform generated-C evidence remain open.
+inventory, and no-dispatch evidence. The granular `std-math-extrema` row is
+stable; the task remains Ready while broader numeric families, complete
+sanitizer coverage, and alternate-platform generated-C evidence remain open.
 
 ### Integer-math inventory reconciliation (2026-08-09)
 
@@ -281,6 +284,16 @@ runtime and malformed-call failures. This evidence does not change aggregate
 matrix or task status and does not claim mixed-width, complex, dynamic,
 sanitizer, or alternate-platform parity.
 
+The bounded `std-math-remainder` row is now stable for Native C. The existing
+direct emitter and contract tests prove generated-executable parity for
+`fmod`, `remainder`, and `fma` across matching-width default, `f32`, and `f64`
+floating scalars; zero divisors retain structured invalid-argument failures;
+arity and mixed-width shapes fail during lowering; and the generated main has
+no allocation, dispatch, evaluator fallback, or host capability. This row is
+deliberately separate from the still-partial aggregate scalar-math row and
+does not claim complex, integer, dynamic, sanitizer, or alternate-platform
+parity.
+
 ### Direct numeric and tensor capability-ledger reconciliation (2026-08-09)
 
 The capability ledger now reports individual entries for the direct Native C
@@ -290,15 +303,17 @@ surface includes:
 
 - numeric constructors and projections: `uint`, `byte`, `bytes`, `complex`,
   `dual`, `primal`, `tangent`, `conjugate`, and `magnitude`;
-- scalar math and reductions: `atan2`, `exp2`, `trunc`, `sign`, `step`,
-  `heaviside`, `relu`, `sigmoid`, `softplus`, `mean`, `std`, `var`, `median`,
-  `quantile`, `percentile`, `argmin`, `argmax`, `any`, `all`, `cumsum`,
-  `cumprod`, and `phase`;
+- scalar math and reductions: `atan2`, `exp2`, `trunc`, `copysign`,
+  `nextafter`, `isfinite`, `isinf`, `isnan`, `isnormal`, `signbit`, `degrees`,
+  `radians`, `sign`, `step`, `heaviside`, `relu`, `sigmoid`, `softplus`,
+  `mean`, `std`, `var`, `median`, `quantile`, `percentile`, `argmin`,
+  `argmax`, `any`, `all`, `cumsum`, `cumprod`, and `phase`;
 - tensor constructors and portable operations: `zeros`, `ones`, `full`,
   `identity`, `eye`, `arange`, `linspace`, `logspace`, `tensor`, `matrix`,
   `at`, `setat`, `reshape`, `transpose`, `matmul`, `outer`, `trace`, `det`,
-  `solve`, `inv`, `cholesky`, `qr`, `shape`, `flatten`, `sum`, `product`,
-  `dot`, and `norm`;
+  `solve`, `inv`, `cholesky`, `qr`, `shape`, `flatten`, `squeeze`,
+  `expand_dims`, `broadcast_to`, `clip`, `where`, `concat`, `stack`, `sum`,
+  `product`, `dot`, and `norm`;
 - fixed-width integer helpers already emitted directly: `gcd`, `lcm`, and the
   unsigned bit-operation family.
 
@@ -313,10 +328,27 @@ shape, and error contracts are in `docs/design/NATIVE-C.md` under the numeric
 constructor, scalar reduction, tensor constructor, and tensor operation
 sections.
 
-Provider-dependent `eig`, `eigh`, and `svd` are deliberately not included in
-this ledger reconciliation. Their emitter branches require configured
-numerical-provider ABIs and need separate provider-backed execution evidence.
-No aggregate support-matrix cell or task status changed.
+The initial ledger reconciliation intentionally excluded provider-dependent
+`eig`, `eigh`, and `svd` because their emitter branches require configured
+numerical-provider ABIs. That boundary was subsequently closed by the
+provider-backed section below; the stable claim is limited to the configured
+provider ABI and does not imply a bundled general-purpose solver.
+
+### Configured numerical-provider linear algebra closure (2026-08-09)
+
+The bounded provider-backed linear-algebra surface is now covered directly.
+`TestCBackendEighProviderParity`, `TestCBackendSVDProviderParity`,
+`TestCBackendEigProviderParity`, and `TestCBackendEigProviderComplexResidual`
+execute generated C with the deterministic diagonal provider and compare
+interpreter/VM/native results, including complex eigenvector residuals.
+`TestNativeCoreMathLinalgProviderLoweringOwnershipAndCapabilityContract`
+verifies the direct `oeigh`, `osvd`, and `oeig` helpers, ABI-provider lookup,
+owned tensor/list result construction, and missing-provider diagnostics;
+`TestCBackendProviderABIMismatchDiagnostic` covers an incompatible provider.
+The focused normal and race suites pass. The public Native C linear-algebra
+cell is now stable for this explicitly configured ABI surface; a bundled
+general-purpose solver and alternate-platform production provider remain out of
+scope and are recorded as deployment requirements.
 
 ### Native OSR1 Result, Option, and Error codec slice (2026-08-09)
 
@@ -339,5 +371,223 @@ checks invalid presence flags, unsupported Error versions, truncated records,
 and malformed framing. Both tests require no host capability and exercise the
 same code under normal and race builds. The public codec contract is recorded
 individually in `docs/src/reference-data.json` and the Native C design chapter.
-The bounded slice is complete; task 162 still requires the broader wide
-numeric, provider-backed linear algebra, and alternate-platform surfaces.
+`TestNativeResultOptionErrorConstructorContract` adds exact constructor arity
+and wrong-kind execution checks plus direct-helper, payload-box, and ownership
+markers. The granular `native-result-option-error-codec` row is stable; task
+162 still requires the broader wide numeric, provider-backed linear algebra,
+and alternate-platform surfaces.
+
+The broader bounded `native-osr1-codecs` row is now stable for Native C. It
+combines the existing scalar/cross-direction codec contract with the
+structured Error/Result/Option records: generated C preserves canonical OSR1
+tags, validates framing and recursive bounds, copies decoded storage into
+tracked ownership, and rejects malformed records and constructor shapes
+without dispatch or host capability. The aggregate `data-helpers` row remains
+partial for data-pipeline helpers and codec tags outside this maintained OSR1
+tree.
+
+### Qualified list range and numeric reductions (2026-08-09)
+
+The pure qualified calls `std/list.range`, `std/list.sum`, and
+`std/list.product` now bypass the general native module dispatcher. In
+`emitCInstr`, the emitter validates the one-argument shape and selects the
+owned helpers `ostd_list_range`, `ostd_list_sum`, and `ostd_list_product`
+directly. The existing helpers retain the reference contracts: range produces
+the bounded floating sequence from zero, sum/product preserve the widest
+explicit floating width and complex family, and empty reductions return their
+mathematical identities. Wrong kinds, invalid range values, non-numeric list
+items, and malformed arity remain structured native failures.
+
+`TestNativeListRangeAndReductionParity` and
+`TestNativeListRangeAndReductionUseOwnedDirectHelpers` in
+`internal/osiris/native_list_range_reduction_test.go` cover interpreter/VM/
+generated-C/native executable parity, empty identities, complex values,
+structured failures, direct helper selection, dispatcher absence at the call
+site, and the no-capability boundary. The focused normal and race commands
+are:
+
+```text
+GOCACHE=/tmp/osiris-list-range-reduction go test ./internal/osiris \
+  -run '^TestNativeListRangeAndReduction' -count=1 -timeout=600s
+GOCACHE=/tmp/osiris-list-range-reduction-race go test -race -vet=off \
+  ./internal/osiris -run '^TestNativeListRangeAndReduction' -count=1 -timeout=600s
+```
+
+This is a bounded direct-call optimization and evidence slice. It does not
+promote the aggregate array, range, or reduction matrix cells: tensor and
+array constructors, wider reduction families, alternate-platform execution,
+and the remaining qualified `std/list` members retain their existing
+boundaries.
+
+### Sanitizer floating-point parity boundary (2026-08-09)
+
+Generated-C sanitizer builds now retain the production `-O3 -flto` boundary in
+`CompileCExecutableCachedWithOptions` and `compileCArtifact`. The cache
+manifest records those flags, and `TestCBackendSanitizerFlagsAreCacheKeyed`
+asserts both the requested sanitizer and LTO. This is required because the
+Native C runtime must have the same floating-point contraction behavior under
+instrumentation as it has in the production executable.
+
+The portable `osolve` elimination update now calls C `fma` explicitly. This
+turns the fused rounding step into a source-level ABI contract rather than a
+compiler heuristic and removes the one-ULP solve rendering mismatch previously
+seen under sanitizer optimization. The complete Native C suite passed on the
+current macOS host under normal, `-race -vet=off`, LLVM ASan, and LLVM UBSan
+runs. The exact commands and runtimes were:
+
+```text
+go test ./internal/osiris -run '^TestCBackend' -count=1 -timeout=3600s
+ok   github.com/sphireinc/osiris/internal/osiris  99.456s
+
+go test -race -vet=off ./internal/osiris -run '^TestCBackend' -count=1 -timeout=3600s
+ok   github.com/sphireinc/osiris/internal/osiris  100.295s
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=address \
+go test ./internal/osiris -run '^TestCBackend' -count=1 -timeout=3600s
+ok   github.com/sphireinc/osiris/internal/osiris  121.230s
+
+CC="$(brew --prefix llvm)/bin/clang" OSIRIS_C_SANITIZERS=undefined \
+go test ./internal/osiris -run '^TestCBackend' -count=1 -timeout=3600s
+ok   github.com/sphireinc/osiris/internal/osiris  121.941s
+```
+
+This closes the local sanitizer-evidence gap for the generated-C core/data
+slice. It does not provide Linux, Windows, or provider-backed numerical
+execution evidence, so the aggregate task and support-matrix status remain
+open.
+
+### Native unreachable terminator lowering (2026-08-09)
+
+`emitCTerm` now handles the IR `irUnreachable` terminator explicitly. Generated
+function bodies return the structured native failure `ofail("unreachable")`,
+while the generated program entry point returns a non-zero status. This keeps
+the Native C emitter total for valid IR and preserves a failure boundary rather
+than converting an unreachable terminator into an emitter-only error.
+`TestNativeCUnreachableTerminatorHasExplicitFailureLowering` checks both
+function and entry-point output directly.
+
+### Native tensor shape/value and scalar classification slices (2026-08-09)
+
+The Native C emitter now has direct, owned lowering for the bounded real
+numeric tensor operations `squeeze`, `expand_dims`, `broadcast_to`, `clip`,
+`where`, `concat`, and `stack`. `emitCInstr` validates their individual
+arities and calls `otensor_squeeze`, `otensor_expand_dims`,
+`otensor_broadcast_to`, `otensor_clip`, `otensor_where`, `otensor_concat`, or
+`otensor_stack` directly. The portable helpers normalize rectangular numeric
+lists and scalars where permitted, preserve row-major shape and width metadata,
+validate axes and broadcast compatibility, and transfer only newly owned
+results. `TestNativeTensorShapeValueOperationsParity` and its invalid-shape
+cases compare the interpreter, VM, and generated C executable and reject
+axis, broadcast, concatenation, and stack mismatches. The focused normal,
+race, and LLVM ASan suites passed on the current macOS host.
+
+The scalar math slice adds direct Native C support for `copysign`, `nextafter`,
+`isfinite`, `isinf`, `isnan`, `isnormal`, `signbit`, `degrees`, and `radians`.
+`nativeScalarBuiltinResultKind` and `emitScalarBuiltin` preserve f32/f64
+widths, including width-specific `nextafter` and normal-number thresholds.
+`TestNativeCoreMathClassificationAndAngleParity`, boundary, lowering, and
+error tests cover interpreter/VM/generated-C parity, signed zero, NaN,
+infinity, subnormal values, f32 narrowing, and invalid calls. The focused
+normal, race, and LLVM ASan suites passed on the current macOS host.
+
+This evidence did not close the complete task. At that checkpoint, the
+tensor-only `repeat`, `tile`, `split`, `gather`, `scatter`, and `pad` cluster,
+along with `clone` and `view`, remained unlowered; complex tensor variants and
+the broader module/pattern/task/data surfaces remained separate gaps.
+Linux/Windows execution evidence and provider-independent cross-platform
+evidence remain environment-gated by task 400. The later task-162 bounded
+shape/data section below records the six newly implemented real-tensor paths;
+`clone` and `view` remain unsupported.
+
+### Bounded Native Result/Option combinator and try/catch slice (2026-08-09)
+
+This slice closes the locally implementable pure combinator gap without
+changing support-matrix statuses. `emitCInstr` now lowers the existing `async`
+IR forms `map`, `map_error`, and `flat_map` to the synchronous helpers
+`omapresult`, `omaperror`, and `oflatmap`; `isok` and `iserr` now have direct
+tagged-ABI predicates alongside the existing Option predicates. The helpers
+preserve Result short-circuit behavior, invoke callbacks only on the matching
+branch, convert Option callbacks for `flat_map`, and preserve structured
+callback failures through the existing `ohaderror`/`olasterror` state used by
+`otry`.
+
+`TestNativeResultOptionCombinatorAndTryParity` provides interpreter/VM/
+generated-C/native executable differential coverage for successful and failed
+map, error mapping, Result and Option flat mapping, predicates, `unwrap`,
+`let?`, and caught structured errors. The malformed/callback test covers
+source-level arity diagnostics and callback failures. The ownership/no-fallback
+test checks `omapresult`, `omaperror`, `oflatmap`, `oresultbox`, `ooptionbox`,
+`otrack`, `otry`, and `oresultbind` in generated C and rejects
+`ostd_dispatch`/capability injection. All behavior is pure and local; no
+Linux/Windows/provider evidence is included.
+
+The remaining structured-error boundary is explicit: `wrap`, cause/metadata
+mutation, full error-field preservation, dynamic callback ABI shapes, and
+asynchronous task/host failure paths remain outside this bounded slice. The
+aggregate errors/results/options row and task 162 remain open; no support
+matrix or task-completion status was changed.
+
+### Native structured-error wrapping (2026-08-09)
+
+`wrap(cause, kind, message)` now has a direct Native C lowering through
+`owrap`. It accepts a structured Error or `null` cause, validates the kind and
+message strings, creates a new outer Error, and tracks an independent copy of
+the cause value. The direct `cause(error)` accessor uses `ocause` to return the
+tracked cause or `null` without a dispatcher. `TestNativeStructuredErrorWrapParity`
+compares nested cause construction, cause extraction, and invalid-input behavior
+across interpreter, VM, generated C, and the native executable;
+`TestNativeStructuredErrorWrapLoweringOwnsCauseWithoutFallback` checks the
+direct helpers, cause ownership, inventory admission, and absence of capability
+or dispatcher fallback. Full metadata/debug/source-location mutation and
+asynchronous error paths remain separate gaps; no matrix or task status changed.
+
+### Native tensor shape/data cluster (2026-08-09, task-162 bounded slice)
+
+The next local Native C slice directly lowers the real-tensor subset of the
+global `repeat`, `tile`, `split`, `gather`, `scatter`, and `pad` builtins.
+`emitCInstr` validates the two-, three-, or optional-four-argument forms and
+emits `otensor_repeat`, `otensor_tile`, `otensor_split`, `otensor_gather`,
+`otensor_scatter`, or `otensor_pad`. Each helper validates integral shape,
+count, width, and index contracts before publishing an owned result. Source
+buffers and index/value staging buffers are copied or released; no helper
+retains an input pointer, invokes `ostd_dispatch`, or defines a host
+capability. Repeat/tile use leading-dimension repetition, split returns
+owned chunks, gather adopts the index tensor shape, scatter applies updates
+in input order, and pad uses the leading dimension with an optional scalar
+fill.
+
+`TestTask162NativeTensorShapeDataParity` provides interpreter/VM/generated-C
+executable differential evidence. `TestTask162NativeTensorShapeDataInvalidShapes`
+covers negative and zero counts, out-of-range indices, scatter cardinality,
+and negative padding widths through matching caught errors.
+`TestTask162NativeTensorShapeDataLoweringOwnershipAndNoDispatch` checks the
+direct helper symbols, generated ownership markers, no-dispatch/no-callable
+fallback boundary, and only the six reconciled builtin inventory entries.
+The existing `std/math` tensor-shape section in `docs/design/NATIVE-C.md`
+records the exact real-tensor contract and retains complex tensors,
+string-polymorphic repeat/split, `clone`, and `view` as unsupported remainder.
+
+This is a bounded local slice, not task closure. Wider complex tensor forms,
+clone/view alias semantics, exact reduction/constructor gaps, provider and
+alternate-platform evidence, and the broader Native C matrix remain open.
+
+## Pause checkpoint (2026-08-09)
+
+Implementation is paused with task status still `Ready`; the task remains
+locally actionable and is not complete. Proven slices include core control
+flow/cleanup, Result/Option combinators, tuples/products/aliases/newtypes,
+selected numeric families, real tensor shape/data operations, codecs, and
+provider-backed linear-algebra contracts. Remaining work includes full
+structured-error field/cause metadata mutation beyond the new `wrap` slice,
+unsupported complex
+and alias/view tensor semantics, remaining constructor and reduction families
+beyond the covered list range/sum/product slice,
+async task failure behavior, and the required sanitizer, Linux, provider, and
+cross-platform evidence. No matrix status changed.
+
+Native structured-error `wrap` and `cause` now have direct generated-C
+lowering, owned cause storage, type/arity validation, and focused normal,
+race, and lowering-ownership coverage. The native inventory test is aligned
+with the existing direct tensor-shape lowering for `tile`, `gather`, `scatter`,
+and `pad`; `clone` and `view` remain explicitly unsupported. These are bounded
+local slices only and do not promote the task or its aggregate matrix cells.

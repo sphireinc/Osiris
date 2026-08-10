@@ -1,0 +1,14 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","languageId":"osiris","version":1,"text":"trait Render { func render() string }\nstruct User { name string }\nstruct Admin { name string }\nimpl Render for User { func render() string => \"user\" }\nimpl Render for Admin { func render() string => \"admin\" }\nemit \"😀\"\nemit User\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1},"position":{"line":0,"character":7}}}
+{"jsonrpc":"2.0","id":3,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1},"position":{"line":1,"character":8}}}
+{"jsonrpc":"2.0","id":4,"method":"typeHierarchy/supertypes","params":{"item":{"name":"User","kind":26,"uri":"file:///tmp/lspTypeHierarchy.osr","range":{"start":{"line":1,"character":7},"end":{"line":1,"character":11}},"selectionRange":{"start":{"line":1,"character":7},"end":{"line":1,"character":11}},"data":"User"}}}
+{"jsonrpc":"2.0","id":5,"method":"typeHierarchy/subtypes","params":{"item":{"name":"Render","kind":11,"uri":"file:///tmp/lspTypeHierarchy.osr","range":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},"selectionRange":{"start":{"line":0,"character":6},"end":{"line":0,"character":12}},"data":"Render"}}}
+{"jsonrpc":"2.0","id":6,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1},"position":{"line":4,"character":22}}}
+{"jsonrpc":"2.0","id":7,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1},"position":{"line":5,"character":7}}}
+{"jsonrpc":"2.0","id":8,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1},"position":"invalid"}}
+{"jsonrpc":"2.0","id":9,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":0},"position":{"line":1,"character":8}}}
+{"jsonrpc":"2.0","id":10,"method":"typeHierarchy/subtypes","params":{"item":{}}}
+{"jsonrpc":"2.0","id":11,"method":"typeHierarchy/prepare","params":{"textDocument":{"uri":"file:///tmp/lspTypeHierarchy.osr","version":1}}}
+{"jsonrpc":"2.0","id":12,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

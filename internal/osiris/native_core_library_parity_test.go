@@ -474,13 +474,16 @@ func TestNativeLibrarySignalPureParity(t *testing.T) {
 	runDifferentialFixture(t, differentialFixture{
 		Name: "nativeLibrary-native-signal-pure",
 		Source: `import "std/signal" as signal
-emit signal.rectangular(3)
-emit signal.hamming(1)
+	emit signal.version, signal.max_samples, signal.max_transform_samples, signal.pi
+	emit signal.rectangular(3)
+	emit signal.hann(3)
+	emit signal.hamming(1)
 emit signal.blackman(1)
 emit signal.bartlett(1)
 emit signal.convolve([1, 2, 3], [1, 1])
 emit signal.filter_fir([1, 2, 3], [1, 1])
-emit signal.correlate([1, 2, 3], [1, 1])
+	emit signal.correlate([1, 2, 3], [1, 1])
+	emit signal.resample([1, 2, 3], 5)
 emit signal.mean([1, 2, 3, 4])
 emit signal.variance([1, 2, 3, 4])
 emit signal.energy([1, 2, 3, 4])
@@ -511,17 +514,17 @@ func TestNativeLibrarySignalOwnershipCapabilityAndErrorContract(t *testing.T) {
 	if strings.Contains(artifact.Source, "#define OSIRIS_CAP_") {
 		t.Fatal("pure std/signal lowering unexpectedly defines a host capability")
 	}
-	for _, symbol := range []string{"ostd_signal_window", "ostd_signal_conv", "ostd_signal_fir", "ostd_signal_stats", "ostd_signal_normalize", "ostd_signal_data", "ostd_signal_complex_data", "ostd_signal_fft", "ocomplextensordata", "ostd_dispatch"} {
+	for _, symbol := range []string{"ostd_signal_window", "ostd_signal_conv", "ostd_signal_fir", "ostd_signal_resample", "ostd_signal_stats", "ostd_signal_normalize", "ostd_signal_data", "ostd_signal_complex_data", "ostd_signal_fft", "ocomplextensordata", "ostd_dispatch"} {
 		if !strings.Contains(artifact.Source, symbol) {
 			t.Fatalf("generated signal artifact does not contain ownership boundary %q", symbol)
 		}
 	}
-	for _, message := range []string{"signal window length is out of range", "signal expects rank-one numeric data", "signal statistics expects non-empty numeric data", "signal.normalize mode must be peak, minmax, or zscore", "fft expects a rank-one numeric signal within the 4096-sample limit"} {
+	for _, message := range []string{"signal window length is out of range", "signal.resample expects a one-dimensional numeric signal", "signal expects rank-one numeric data", "signal statistics expects non-empty numeric data", "signal.normalize mode must be peak, minmax, or zscore", "fft expects a rank-one numeric signal within the 4096-sample limit"} {
 		if !strings.Contains(artifact.Source, message) {
 			t.Fatalf("generated signal artifact does not preserve error contract %q", message)
 		}
 	}
-	for _, member := range []string{"rectangular", "hann", "hamming", "blackman", "bartlett", "convolve", "correlate", "filter_fir", "mean", "variance", "energy", "rms", "normalize", "fft", "ifft"} {
+	for _, member := range []string{"version", "max_samples", "max_transform_samples", "pi", "rectangular", "hann", "hamming", "blackman", "bartlett", "convolve", "correlate", "filter_fir", "resample", "mean", "variance", "energy", "rms", "normalize", "fft", "ifft"} {
 		entry, ok := findBackendCapability(BackendCapabilityInventory(), "module/std/signal/"+member)
 		if !ok || entry.Native != BackendImplemented {
 			t.Fatalf("std/signal.%s inventory entry = %+v, want implemented native capability", member, entry)
