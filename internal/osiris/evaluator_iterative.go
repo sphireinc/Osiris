@@ -2,7 +2,7 @@ package osiris
 
 import "fmt"
 
-const iterativeLazyExpressionDepth = 128
+const iterativeExpressionDepth = 128
 
 type simpleFingerprintResult struct {
 	hash  string
@@ -18,7 +18,7 @@ type simpleFingerprintFrame struct {
 	active   bool
 }
 
-func isSimpleLazyExpr(expr Expr) bool {
+func isSimpleEvaluatorExpr(expr Expr) bool {
 	switch expr.(type) {
 	case *literalExpr, *identExpr, *unaryExpr, *binaryExpr:
 		return true
@@ -32,7 +32,7 @@ func isSimpleLazyExpr(expr Expr) bool {
 // expression forms retain the established recursive implementation; when one
 // appears as a leaf of a simple graph it is fingerprinted as one opaque leaf.
 func (ev *evaluator) fingerprintSimple(expr Expr, env *scope) (string, int, bool, error) {
-	if !isSimpleLazyExpr(expr) {
+	if !isSimpleEvaluatorExpr(expr) {
 		return "", 0, false, nil
 	}
 	frames := []simpleFingerprintFrame{{expr: expr, env: env}}
@@ -82,7 +82,7 @@ func (ev *evaluator) fingerprintSimple(expr Expr, env *scope) (string, int, bool
 			if _, cycle := active[frame.key]; cycle {
 				complete(simpleFingerprintResult{
 					hash:  hashParts("cycle", fmt.Sprintf("%T", frame.expr)),
-					depth: iterativeLazyExpressionDepth,
+					depth: iterativeExpressionDepth,
 				}, false)
 				continue
 			}
@@ -98,6 +98,10 @@ func (ev *evaluator) fingerprintSimple(expr Expr, env *scope) (string, int, bool
 			case *identExpr:
 				binding, ok := frame.env.lookup(n.name)
 				if ok {
+					if value, stored := storedBindingValue(binding); stored {
+						complete(simpleFingerprintResult{hash: hashParts("value", fingerprintValue(value)), depth: 1}, true)
+						continue
+					}
 					frame.stage = 1
 					frames = append(frames, simpleFingerprintFrame{expr: binding.expr, env: binding.env})
 					continue
@@ -167,14 +171,14 @@ func (ev *evaluator) fingerprintSimple(expr Expr, env *scope) (string, int, bool
 }
 
 func (ev *evaluator) shouldEvaluateSimpleIteratively(expr Expr, env *scope) bool {
-	if !isSimpleLazyExpr(expr) {
+	if !isSimpleEvaluatorExpr(expr) {
 		return false
 	}
 	key := fpKey{expr: expr, scope: env}
 	ev.fpMu.Lock()
 	depth := ev.fpDepth[key]
 	ev.fpMu.Unlock()
-	return depth >= iterativeLazyExpressionDepth
+	return depth >= iterativeExpressionDepth
 }
 
 type simpleEvaluationFrame struct {
@@ -187,10 +191,11 @@ type simpleEvaluationFrame struct {
 	active bool
 }
 
-// evalSimpleIterative forces a deep simple dependency graph without adding a
-// Go frame for every lazy binding. It is entered only after the fingerprint
-// walk proves the graph is deep; ordinary shallow expressions retain their
-// established scheduler and error-shaping path.
+// evalSimpleIterative evaluates a deep simple expression graph without adding
+// a Go frame for every lexical dependency. It is entered only after the
+// fingerprint walk proves the graph is deep; ordinary shallow expressions
+// retain their established scheduler and error-shaping path. Explicit
+// Lazy<T> values are handled by their dedicated lazy object and never here.
 func (ev *evaluator) evalSimpleIterative(expr Expr, env *scope) (Value, error) {
 	frames := []simpleEvaluationFrame{{expr: expr, env: env}}
 	active := make(map[fpKey]struct{})
@@ -231,7 +236,7 @@ func (ev *evaluator) evalSimpleIterative(expr Expr, env *scope) (Value, error) {
 			frame.hash = ev.fpMemo[frame.key]
 			ev.fpMu.Unlock()
 			if frame.hash == "" {
-				return nullValue(), fmt.Errorf("internal error: missing lazy fingerprint for %T", frame.expr)
+				return nullValue(), fmt.Errorf("internal error: missing evaluator fingerprint for %T", frame.expr)
 			}
 			ev.mu.Lock()
 			cached, memoized := ev.cache[frame.hash]
@@ -241,7 +246,7 @@ func (ev *evaluator) evalSimpleIterative(expr Expr, env *scope) (Value, error) {
 				continue
 			}
 			if _, cycle := active[frame.key]; cycle {
-				return nullValue(), fmt.Errorf("cyclic lazy binding dependency")
+				return nullValue(), fmt.Errorf("cyclic evaluator dependency")
 			}
 			active[frame.key] = struct{}{}
 			frame.active = true
@@ -252,6 +257,14 @@ func (ev *evaluator) evalSimpleIterative(expr Expr, env *scope) (Value, error) {
 			case *identExpr:
 				binding, ok := frame.env.lookup(n.name)
 				if ok {
+					if binding.cell != nil {
+						complete(binding.cell.value, true)
+						continue
+					}
+					if binding.value != nil {
+						complete(*binding.value, true)
+						continue
+					}
 					frame.stage = 1
 					frames = append(frames, simpleEvaluationFrame{expr: binding.expr, env: binding.env})
 					continue

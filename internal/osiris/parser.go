@@ -423,6 +423,16 @@ type blockExpr struct {
 // effects or through a separate error path when one exists.
 func (blockExpr) exprNode() {}
 
+// lazyExpr is an explicit deferred computation. Its body is deliberately an
+// AST node rather than a parser-synthesized call so each backend can lower the
+// lazy boundary using its own runtime representation.
+type lazyExpr struct {
+	Body Expr
+	Span sourceSpan
+}
+
+func (lazyExpr) exprNode() {}
+
 type tryExpr struct {
 	body      Expr
 	catchName string
@@ -1515,6 +1525,16 @@ func (p *parser) parsePrefix() (Expr, error) {
 		return p.parseList()
 	case tokenLBrace:
 		return p.parseBlockExpr()
+	case tokenLazy:
+		start := p.next()
+		if p.peek().kind != tokenLBrace {
+			return nil, p.errorf(p.peek(), "lazy requires a braced expression body")
+		}
+		body, err := p.parseBlockExpr()
+		if err != nil {
+			return nil, err
+		}
+		return &lazyExpr{Body: body, Span: spanCover(parserSpanFromToken(start), exprSpan(body))}, nil
 	case tokenTry:
 		return p.parseTryExpr()
 	case tokenMatch, tokenSwitch:
@@ -1869,7 +1889,7 @@ func builtinTypeSet() map[string]struct{} {
 		"number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64",
 		"string", "bool", "null", "list", "tuple", "tensor", "enum", "function", "error", "result", "option",
 		"stream", "task", "map", "set", "module", "decimal", "fixed", "interval", "modint", "complex", "bigint",
-		"bigfloat", "quantity", "dual", "duration", "datetime", "location",
+		"bigfloat", "quantity", "dual", "duration", "datetime", "location", "Lazy",
 		"poly", "quat", "simd", "sparse_matrix", "sparse_tensor",
 	} {
 		set[name] = struct{}{}
@@ -2133,6 +2153,8 @@ func exprSpan(expr Expr) sourceSpan {
 	case *callExpr:
 		return n.Span
 	case *blockExpr:
+		return n.Span
+	case *lazyExpr:
 		return n.Span
 	case *memberExpr:
 		return n.Span

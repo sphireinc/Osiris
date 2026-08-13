@@ -104,7 +104,9 @@ LET
   let count u32 = 3
   let callback func(u32) string = render
 
-Bindings are lexical and lazy.
+Bindings are lexical.  `let` evaluates its initializer exactly once when
+execution reaches the declaration; use `lazy { expression }` with
+`force(value)` when work must be deferred explicitly.
 An annotation checks a value; it does not cast.
 Prefer clear names.
 

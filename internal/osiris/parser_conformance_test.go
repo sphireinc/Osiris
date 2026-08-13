@@ -40,6 +40,8 @@ struct Point { value u64 }
 impl Printable for Point { func render(value u64) string => "point" }`,
 		"macros-and-try": `macro shout(x) => text.upper(x)
 emit try { read("/definitely/missing.osiris") } catch err { err.kind }`,
+		"explicit-lazy": `let delayed = lazy { 1 + 2 }
+emit delayed`,
 	}
 
 	for name, source := range fixtures {
@@ -69,6 +71,7 @@ func TestParserInvalidAndBoundaryDiagnostics(t *testing.T) {
 		{name: "missing-match-arm", source: "emit match 1 {}", want: "match requires at least one arm"},
 		{name: "invalid-number-suffix", source: "emit 1u7", want: "<parser-invalid>:1:6"},
 		{name: "unclosed-list", source: "emit [1, 2", want: "<parser-invalid>:1:11"},
+		{name: "lazy-requires-braces", source: "emit lazy 1", want: "lazy requires a braced expression body"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,6 +88,31 @@ func TestParserInvalidAndBoundaryDiagnostics(t *testing.T) {
 				t.Fatalf("parse failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestParserExplicitLazyExpressionAndSpans(t *testing.T) {
+	prog, err := Parse("<parser-lazy>", "let delayed = lazy { let value = 1; value + 2 }\nemit delayed\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl := prog.Statements[0].(letStmt)
+	lazy, ok := decl.Expr.(*lazyExpr)
+	if !ok {
+		t.Fatalf("declaration expression = %T, want *lazyExpr", decl.Expr)
+	}
+	if _, ok := lazy.Body.(*blockExpr); !ok {
+		t.Fatalf("lazy body = %T, want *blockExpr", lazy.Body)
+	}
+	if lazy.Span.start != (sourcePos{line: 1, col: 15}) || lazy.Span.end.line != 1 {
+		t.Fatalf("lazy span = %#v", lazy.Span)
+	}
+	formatted := FormatProgram(prog)
+	if !strings.Contains(formatted, "let delayed = lazy { let value = 1u64; value + 2u64 }") {
+		t.Fatalf("formatted lazy expression missing: %s", formatted)
+	}
+	if _, err := Parse("<parser-lazy-roundtrip>", formatted); err != nil {
+		t.Fatalf("formatted lazy source did not parse: %v\nformatted:\n%s", err, formatted)
 	}
 }
 

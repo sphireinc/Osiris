@@ -494,7 +494,7 @@
             "Write annotations after parameter names and after the closing parenthesis, without a colon. `func(u32) string` is the exact type of a callable that accepts `u32` and returns `string`.",
             "Functions can use an expression body after `=>` or a block with explicit `return` and a tail expression.",
             "Captured variables are resolved through lexical scope, not dynamic lookup. Recursive and mutually recursive signatures are checked without executing their bodies.",
-            "Known call and return mismatches are rejected before execution. Unannotated positions remain dynamic for source compatibility and keep a runtime guard when they cross a typed boundary."
+            "Known call and return mismatches are rejected before execution. Core Semantics 1 requires unannotated positions to infer or diagnose; current source-compatibility dynamic behavior is explicitly tracked as CS1-D04 rather than a language guarantee."
           ],
           "example": "func add1(value u32) u32 => value + u32(1)\nemit add1(u32(41)) # 42u32"
         },

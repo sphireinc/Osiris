@@ -1,0 +1,4 @@
+var source = 1
+let captured = source
+source = 2
+emit captured

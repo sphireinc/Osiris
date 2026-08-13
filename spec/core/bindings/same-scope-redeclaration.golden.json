@@ -1,0 +1,9 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "2.2",
+  "category": "bindings",
+  "phase": "type",
+  "error_contains": "redeclaration of",
+  "backends": {"interpreter": "required", "vm": "required", "native": "reject", "wasm": "skip"},
+  "reason": "The source is rejected during frontend type checking before any backend executes it."
+}

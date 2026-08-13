@@ -223,7 +223,7 @@ After focused tests pass:
 ### Design decision
 
 Deep identifier/unary/binary fingerprinting now uses an explicit continuation
-stack in `lazy_eval.go`. Each frame owns only its expression, immutable lexical
+stack in `evaluator_iterative.go`. Each frame owns only its expression, immutable lexical
 scope, stage, and completed child results. The walk produces the same
 `hashParts` structure as the former recursive path and records dependency
 depth beside the existing fingerprint memo. Other expression families keep

@@ -142,6 +142,7 @@ func spanWidth(sp sourceSpan) int {
 }
 
 type symbolDef struct {
+	symbolID SymbolID
 	name     string
 	kind     string
 	detail   string
@@ -1868,6 +1869,24 @@ func analyzeDocumentSourceContextWithModules(ctx context.Context, rt *Runtime, u
 	if rt == nil {
 		rt = NewRuntime()
 	}
+	// Type diagnostics consume the same post-expansion checked program as
+	// execution backends. Navigation keeps the surface Program until expansion
+	// origin chains become node-addressable, preserving macro call locations.
+	semantic := prog
+	frontendTyped, frontendErr := rt.frontendProgram(ctx, prog)
+	if frontendErr != nil {
+		span := sourceSpan{}
+		message := frontendErr.Error()
+		if typedErr, ok := frontendErr.(*OsirisError); ok {
+			message = typedErr.message
+			if typedErr.location != nil {
+				span = typedErr.location.Span
+			}
+		}
+		a.diagnostics = append(a.diagnostics, diagnosticAt(span, message))
+	} else {
+		a.checked = frontendTyped.checked
+	}
 	root := &lspScope{defs: map[string]*symbolDef{}}
 	for name := range rt.Builtins {
 		root.defs[name] = &symbolDef{name: name, kind: "builtin", detail: "builtin function", uri: "", span: sourceSpan{}}
@@ -1875,7 +1894,7 @@ func analyzeDocumentSourceContextWithModules(ctx context.Context, rt *Runtime, u
 	// Imports are predeclared before semantic expressions are analyzed. This
 	// lets the module index install source-backed members early enough for
 	// member expressions to create references to the shared exported symbols.
-	for _, stmt := range prog.Statements {
+	for _, stmt := range semantic.Statements {
 		st, ok := stmt.(importStmt)
 		if !ok || st.Alias == "" {
 			continue
@@ -1884,40 +1903,53 @@ func analyzeDocumentSourceContextWithModules(ctx context.Context, rt *Runtime, u
 		root.defs[st.Alias] = def
 		addAnalysisDefinition(a, def)
 	}
-	indexLSPImportedModules(a, root, rt, prog.Statements)
-	indexLSPImportedUserModules(a, root, prog.Statements, modules)
-	analysisScope, _ := analyzeStmtSeq(a, root, uri, prog.Statements, false)
+	indexLSPImportedModules(a, root, rt, semantic.Statements)
+	indexLSPImportedUserModules(a, root, semantic.Statements, modules)
+	analysisScope, _ := analyzeStmtSeq(a, root, uri, semantic.Statements, false)
 	// analyzeStmtSeq may create a function scope above root. The import aliases
 	// remain visible through that parent scope, while this second pass keeps the
 	// final scope's aliases consistent for callers that inspect it directly.
-	indexLSPImportedModules(a, analysisScope, rt, prog.Statements)
-	indexLSPImportedUserModules(a, analysisScope, prog.Statements, modules)
+	indexLSPImportedModules(a, analysisScope, rt, semantic.Statements)
+	indexLSPImportedUserModules(a, analysisScope, semantic.Statements, modules)
 	resolveCheckedMemberReferences(a)
-	checked, checkErr := rt.CheckProgram(ctx, prog)
-	a.checked = checked
-	if checkErr != nil {
-		span := sourceSpan{}
-		message := checkErr.Error()
-		if typed, ok := checkErr.(*OsirisError); ok {
-			message = typed.message
-			if typed.location != nil {
-				span = typed.location.Span
+	if a.checked == nil {
+		checked, checkErr := rt.CheckProgram(ctx, semantic)
+		a.checked = checked
+		if checkErr != nil {
+			span := sourceSpan{}
+			message := checkErr.Error()
+			if typed, ok := checkErr.(*OsirisError); ok {
+				message = typed.message
+				if typed.location != nil {
+					span = typed.location.Span
+				}
 			}
+			a.diagnostics = append(a.diagnostics, diagnosticAt(span, message))
 		}
-		a.diagnostics = append(a.diagnostics, diagnosticAt(span, message))
 	}
-	if checked != nil {
-		for _, binding := range checked.Bindings {
+	if a.checked != nil {
+		for _, binding := range a.checked.Bindings {
+			typeName := a.checked.DisplayType(binding, TypeFormatDiagnostic)
 			for _, def := range a.defs {
 				if def.name == binding.Name && def.span == binding.Span {
-					def.typeName = binding.Type
-					if binding.Type != "" && !strings.Contains(def.detail, binding.Type) {
-						def.detail += " : " + binding.Type
+					def.typeName = typeName
+					if typeName != "" && !strings.Contains(def.detail, typeName) {
+						def.detail += " : " + typeName
 					}
 				}
 			}
 		}
 		resolveCheckedMemberReferences(a)
+	}
+	if frontendTyped != nil {
+		for _, def := range a.defs {
+			for _, symbol := range frontendTyped.resolved.Symbols {
+				if def.name == symbol.Name && def.span == symbol.Span {
+					def.symbolID = symbol.ID
+					break
+				}
+			}
+		}
 	}
 	return a
 }

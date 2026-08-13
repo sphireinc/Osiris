@@ -1,0 +1,8 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "14.2",
+  "category": "errors",
+  "output": "42u64\n\"invalid_argument/bad result\"\n",
+  "backends": {"interpreter": "required", "vm": "required", "native": "required", "wasm": "skip"},
+  "reason": "WASM backend is not available yet."
+}

@@ -47,11 +47,11 @@ func (p *PurityProgram) String() string {
 // It returns *PurityProgram and an error. Callers should only trust the value
 // when the error is nil.
 func (rt *Runtime) AnalyzePurity(ctx context.Context, prog *Program) (*PurityProgram, error) {
-	_ = ctx
-	if prog == nil {
-		return nil, fmt.Errorf("cannot analyze purity for nil program")
+	typed, err := rt.frontendProgram(ctx, prog)
+	if err != nil {
+		return nil, err
 	}
-	return analyzePurityProgram(prog), nil
+	return analyzePurityProgram(typed.resolved.expanded.program), nil
 }
 
 // FormatPurityProgram formats the purity program into a stable textual

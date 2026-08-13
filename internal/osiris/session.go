@@ -27,6 +27,8 @@ type Session struct {
 	exportSet      map[string]struct{}
 	macros         map[string]*macroDef
 	typecheckStmts []Stmt
+	types          *TypeContext
+	functionTypes  map[sourceSpan]TypeID
 	knownTypes     map[string]struct{}
 	knownStructs   map[string]struct{}
 	cleanupFrames  []*cleanupFrame
@@ -266,14 +268,15 @@ func newIterationCursor(s *Session, value Value) (iterationCursor, error) {
 // pipeline without re-deriving the same information.
 func NewSession(rt *Runtime, ctx context.Context, sourceName string) *Session {
 	sess := &Session{
-		rt:           rt,
-		ctx:          ctx,
-		sourceName:   sourceName,
-		emitAllowed:  true,
-		exportSet:    make(map[string]struct{}),
-		macros:       make(map[string]*macroDef),
-		knownTypes:   builtinTypeSet(),
-		knownStructs: make(map[string]struct{}),
+		rt:            rt,
+		ctx:           ctx,
+		sourceName:    sourceName,
+		emitAllowed:   true,
+		exportSet:     make(map[string]struct{}),
+		macros:        make(map[string]*macroDef),
+		knownTypes:    builtinTypeSet(),
+		knownStructs:  make(map[string]struct{}),
+		functionTypes: make(map[sourceSpan]TypeID),
 	}
 	ev := &evaluator{
 		ctx:     ctx,
@@ -314,7 +317,7 @@ func (s *Session) registerCleanup(body Expr, env *scope, sourceName string, stac
 		// A cleanup is a registration-time closure. Clone the lexical
 		// environment so later writes to a mutable cell cannot change which
 		// resource or value this action releases. The clone preserves the
-		// existing lazy binding representation while snapshotting mutable
+		// eager values/cells and explicit Lazy values while snapshotting mutable
 		// cells and their parent chain.
 		env:        cloneScope(env),
 		sourceName: sourceName,
@@ -392,23 +395,23 @@ func (s *Session) ExecSource(src string) ([]Value, error) {
 // It returns the values committed before execution stopped and an error. A
 // non-nil error does not discard earlier successful emit statements.
 func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (outputs []Value, execErr error) {
-	if _, err := s.checkProgram(prog); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
-	}
 	previousStack := s.moduleStack
 	s.moduleStack = append([]string(nil), stack...)
 	defer func() {
 		s.moduleStack = previousStack
 	}()
-	expanded, expandedMacros, err := s.expandProgramWithStack(prog, stack)
+	parsed, err := parsedProgramOf(prog)
 	if err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
-	prog = expanded
-	if _, err := s.checkProgram(prog); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
+	typed, err := s.frontend(parsed, stack)
+	if err != nil {
+		return nil, err
 	}
-	s.macros = cloneMacroDefs(expandedMacros)
+	prog = typed.resolved.expanded.program
+	s.types = typed.checked.Types
+	s.functionTypes = checkedFunctionTypeIDs(typed.checked)
+	s.macros = cloneMacroDefs(typed.resolved.expanded.macros)
 	s.scope = s.predeclareFunctionScope(prog.Statements, s.scope)
 	prevOutputs := s.outputs
 	s.outputs = &outputs
@@ -463,13 +466,7 @@ func (s *Session) ExecProgram(prog *Program, moduleMode bool, stack []string) (o
 // checker must see the same declaration history before validating assignments,
 // calls, traits, and other cross-fragment references.
 func (s *Session) checkProgram(prog *Program) (*CheckedProgram, error) {
-	if len(s.typecheckStmts) == 0 {
-		return s.rt.CheckProgram(s.ctx, prog)
-	}
-	statements := make([]Stmt, 0, len(s.typecheckStmts)+len(prog.Statements))
-	statements = append(statements, s.typecheckStmts...)
-	statements = append(statements, prog.Statements...)
-	return s.rt.CheckProgram(s.ctx, &Program{SourceName: prog.SourceName, Statements: statements})
+	return s.checkExpandedProgram(prog)
 }
 
 // execStmt operates on Session values and keeps the session-specific behavior
@@ -558,10 +555,7 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		}
 		return nil, false, nil
 	case letStmt:
-		expr, err := s.expandExpr(st.Expr, s.scope)
-		if err != nil {
-			return nil, false, err
-		}
+		expr := st.Expr
 		if st.Unwrap {
 			value, err := s.ev.eval(expr, s.scope)
 			if err != nil {
@@ -573,39 +567,32 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 			}
 			expr = &literalExpr{value: value}
 		}
-		if st.Type != "" {
-			value, err := s.ev.eval(expr, s.scope)
-			if err != nil {
-				return nil, false, err
-			}
-			if isBindingTypeName(st.Type) || strings.HasPrefix(st.Type, "func(") {
-				value, err = checkBindingType(st.Type, value, false)
-				if err != nil {
-					return nil, false, fmt.Errorf("let %s: %w", st.Name, err)
-				}
-			}
-			expr = &literalExpr{value: value}
+		// A declaration is a sequencing point. Evaluate its initializer before
+		// extending the lexical scope so an ordinary let captures a value, not
+		// an AST/environment pair to be implicitly demanded later.
+		value, err := s.ev.eval(expr, s.scope)
+		if err != nil {
+			return nil, false, err
 		}
-		if len(st.Names) > 0 {
-			value, err := s.ev.eval(expr, s.scope)
+		if st.Type != "" && (isBindingTypeName(st.Type) || strings.HasPrefix(st.Type, "func(")) {
+			value, err = checkBindingType(st.Type, value, false)
 			if err != nil {
-				return nil, false, err
+				return nil, false, fmt.Errorf("let %s: %w", st.Name, err)
 			}
+		}
+		expr = &literalExpr{value: value}
+		if len(st.Names) > 0 {
 			if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
 				return nil, false, fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
 			}
 			cur := s.scope
 			for i, name := range st.Names {
-				cur = &scope{parent: cur, items: map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}}}
+				cur = &scope{parent: cur, items: map[string]binding{name: eagerBinding(value.tuple[i])}}
 			}
 			s.scope = cur
 			return nil, false, nil
 		}
 		if st.Mutable {
-			value, err := s.ev.eval(expr, s.scope)
-			if err != nil {
-				return nil, false, err
-			}
 			s.scope = &scope{
 				parent: s.scope,
 				items: map[string]binding{st.Name: {
@@ -617,9 +604,7 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		}
 		s.scope = &scope{
 			parent: s.scope,
-			items: map[string]binding{st.Name: {
-				expr: expr, env: s.scope,
-			}},
+			items:  map[string]binding{st.Name: eagerBinding(value)},
 		}
 		return nil, false, nil
 	case deferStmt:
@@ -633,11 +618,7 @@ func (s *Session) execStmt(stmt Stmt, baseSource string, moduleMode bool, stack 
 		if err := s.checkContext(); err != nil {
 			return nil, false, err
 		}
-		expr, err := s.expandExpr(st.Expr, s.scope)
-		if err != nil {
-			return nil, false, err
-		}
-		value, err := s.ev.eval(expr, s.scope)
+		value, err := s.ev.eval(st.Expr, s.scope)
 		if err != nil {
 			return nil, false, err
 		}
@@ -720,11 +701,16 @@ func (s *Session) execControlStmt(stmt Stmt, curScope *scope, baseSource string,
 // It returns *scope and an error. Callers should only trust the value when the
 // error is nil.
 func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
-	expanded, err := s.expandExpr(st.Body, cur)
-	if err != nil {
-		return nil, err
+	signatureID := s.functionTypes[st.Span]
+	paramTypeIDs := make([]TypeID, len(st.ParamTypes))
+	returnTypeID := TypeID(0)
+	if s.types != nil && signatureID != 0 {
+		if signature, ok := s.types.Node(signatureID); ok && signature.Kind == TypeFunction {
+			copy(paramTypeIDs, signature.Args)
+			returnTypeID = signature.Result
+		}
 	}
-	fn := typedGenericUserFunctionValue(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, expanded, cur, s)
+	fn := typedGenericUserFunctionValueWithTypes(st.Name, st.TypeParams, st.Params, st.ParamTypes, st.ReturnType, st.Body, cur, s, s.types, signatureID, paramTypeIDs, returnTypeID)
 	if fn.fn != nil {
 		fn.fn.receiver, fn.fn.receiverType = st.Receiver, st.ReceiverType
 	}
@@ -740,11 +726,15 @@ func (s *Session) declareFunction(cur *scope, st funcStmt) (*scope, error) {
 		}
 		placeholder := literal.value.fn
 		placeholder.signature = fn.fn.signature
+		placeholder.types = fn.fn.types
+		placeholder.signatureTypeID = fn.fn.signatureTypeID
 		placeholder.typeParams = append(placeholder.typeParams[:0], st.TypeParams...)
 		placeholder.paramTypes = append(placeholder.paramTypes[:0], st.ParamTypes...)
+		placeholder.paramTypeIDs = append(placeholder.paramTypeIDs[:0], fn.fn.paramTypeIDs...)
 		placeholder.returnType = st.ReturnType
+		placeholder.returnTypeID = fn.fn.returnTypeID
 		placeholder.params = append(placeholder.params[:0], st.Params...)
-		placeholder.body = expanded
+		placeholder.body = st.Body
 		placeholder.session = s
 		fn = literal.value
 		break
@@ -938,10 +928,7 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 			}
 			switch st := stmt.(type) {
 			case letStmt:
-				expr, err := s.expandExpr(st.Expr, cur)
-				if err != nil {
-					return nullValue(), cur, err
-				}
+				expr := st.Expr
 				if st.Unwrap {
 					value, err := s.ev.eval(expr, cur)
 					if err != nil {
@@ -953,17 +940,20 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					}
 					expr = &literalExpr{value: value}
 				}
-				if st.Mutable {
-					value, err := s.ev.eval(expr, cur)
+				// Blocks use the same eager declaration boundary as top-level
+				// execution: evaluate before the new name is visible.
+				value, err := s.ev.eval(expr, cur)
+				if err != nil {
+					return nullValue(), cur, err
+				}
+				if st.Type != "" {
+					value, err = checkBindingType(st.Type, value, false)
 					if err != nil {
-						return nullValue(), cur, err
+						return nullValue(), cur, fmt.Errorf("let %s: %w", st.Name, err)
 					}
-					if st.Type != "" {
-						value, err = checkBindingType(st.Type, value, false)
-						if err != nil {
-							return nullValue(), cur, fmt.Errorf("let %s: %w", st.Name, err)
-						}
-					}
+				}
+				expr = &literalExpr{value: value}
+				if st.Mutable {
 					cur = &scope{
 						parent: cur,
 						items: map[string]binding{st.Name: {
@@ -974,28 +964,18 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 					continue
 				}
 				if len(st.Names) > 0 {
-					value, err := s.ev.eval(expr, cur)
-					if err != nil {
-						return nullValue(), cur, err
-					}
 					if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
 						return nullValue(), cur, fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
 					}
 					for i, name := range st.Names {
 						cur = &scope{
 							parent: cur,
-							items:  map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}},
+							items:  map[string]binding{name: eagerBinding(value.tuple[i])},
 						}
 					}
 					continue
 				}
-				cur = &scope{
-					parent: cur,
-					items: map[string]binding{st.Name: {
-						expr: expr, env: cur,
-						mutable: st.Mutable,
-					}},
-				}
+				cur = &scope{parent: cur, items: map[string]binding{st.Name: eagerBinding(value)}}
 			case deferStmt:
 				s.registerCleanup(st.Body, cur, baseSource, stack)
 			case assignStmt:
@@ -1003,11 +983,7 @@ func (s *Session) evalBlockExpr(body Expr, curScope *scope, baseSource string, s
 				if !ok || b.cell == nil || !b.mutable {
 					return nullValue(), cur, fmt.Errorf("cannot assign to immutable or undefined name %q", st.Name)
 				}
-				expr, err := s.expandExpr(st.Expr, cur)
-				if err != nil {
-					return nullValue(), cur, err
-				}
-				value, err := s.ev.eval(expr, cur)
+				value, err := s.ev.eval(st.Expr, cur)
 				if err != nil {
 					return nullValue(), cur, err
 				}
@@ -1150,7 +1126,11 @@ func (s *Session) moduleValue() (Value, error) {
 		if !ok {
 			return nullValue(), fmt.Errorf("module %s exports undefined name %q", s.packageName, name)
 		}
-		v, err := s.eval(b.expr, b.env)
+		v, stored := storedBindingValue(b)
+		var err error
+		if !stored {
+			v, err = s.eval(b.expr, b.env)
+		}
 		if err != nil {
 			return nullValue(), err
 		}

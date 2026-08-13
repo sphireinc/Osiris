@@ -11,12 +11,25 @@
         "returns": "No standalone value; the binding is available in the remaining lexical scope.",
         "returnValue": "`let answer = 42` binds `answer` to `42u64`.",
         "details": [
-          "A later assignment to the same binding is rejected. The initializer is evaluated once at runtime, so it may depend on calls and runtime values. Inner scopes may deliberately shadow an outer binding."
+          "A later assignment to the same binding is rejected. The initializer is evaluated once at runtime, so it may depend on calls and runtime values. Inner scopes may deliberately shadow an outer binding. To defer work, use explicit `lazy { expression }`; ordinary `let` never delays an initializer."
         ],
         "example": "let answer = 42\nemit answer\n# 42u64",
         "exampleStatus": "checked"
       },
       {
+		"kind": "construct",
+		"name": "lazy",
+		"signature": "lazy { expression }",
+		"description": "Construct an explicit once-only deferred `Lazy<T>` value.",
+		"parameters": "The braced body is not evaluated when the lazy value is created. `force(value)` accepts exactly one `Lazy<T>` and returns `T`.",
+		"returns": "`Lazy<T>`; it is distinct from `T` and is never implicitly forced.",
+		"returnValue": "The first `force` evaluates the body; later forces replay the same value or language failure.",
+		"details": ["Recursive forcing is `LazyCycle`. Concurrent forces coordinate to one evaluation. Cancellation clears a pending evaluation so it cannot become permanently stuck. Lazy values are not comparable, map/set keys, or serializable. Interpreter, VM, and native C compile the lazy body to a backend-native thunk; forcing never delegates back to the AST interpreter."],
+		"errors": "Malformed bodies, `force` with a non-lazy value, and recursive forcing are source-located errors.",
+		"example": "let delayed = lazy { 21 + 21 }\nemit force(delayed)\nemit force(delayed)\n# 42u64\n# 42u64",
+		"exampleStatus": "checked"
+	  },
+	  {
         "kind": "construct",
         "name": "let?",
         "anchor": "let-result",
@@ -38,11 +51,11 @@
         "signature": "func name(parameter [Type], …) [ReturnType] => expression",
         "description": "Declare a lexical function with optional checked parameter and return types.",
         "parameters": "Each parameter is an immutable local binding. Write its canonical type after its name with no colon. Callback types use forms such as `func(u32) string`.",
-        "returns": "An annotated result checks every reachable `return`, tail expression, and fallthrough path before execution. An omitted result remains dynamic for compatibility.",
+        "returns": "An annotated result checks every reachable `return`, tail expression, and fallthrough path before execution. Core Semantics 1 requires omitted result types to be inferred or rejected; the current compatibility behavior is tracked as CS1-D04 and is not a second language rule.",
         "returnValue": "`func double(value u32) u32 => value * u32(2)` has type `func(u32) u32`; `double(u32(21))` returns `42u32`.",
         "details": [
           "Functions may capture lexical bindings. Signatures are declared before bodies are checked, so recursion and mutual recursion do not require execution.",
-          "Known argument and result mismatches are source-located `type_error` diagnostics. A dynamic value crossing a typed boundary keeps a runtime guard.",
+          "Known argument and result mismatches are source-located `type_error` diagnostics. `dynamic` is a future explicit FFI/interop boundary under Core Semantics 1; the legacy implicit behavior is tracked as CS1-D04.",
           "Function signatures are exact: `func(u32) string` is different from `func(u64) string`. Use the broad `function` kind only when any callable is intended.",
           "Supported native programs lower direct functions and proven closures with exact signature metadata; unsupported runtime-kind assertions fail native compilation clearly."
         ],

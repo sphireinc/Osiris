@@ -27,7 +27,7 @@
           "rows": [
             [
               "Reserved keywords",
-              "`const let var emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
+              "`const let var lazy emit macro func return try catch while for in break continue package export enum import match switch as true false null`",
               "These always lex as keyword tokens."
             ],
             [
@@ -289,7 +289,7 @@
       "title": "Functions, Closures, and Macros",
       "summary": "A function is a runtime callable with immutable positional parameters, optional checked types, and lexical captures. A macro rewrites syntax before ordinary evaluation.",
       "paragraphs": [
-        "Write `func convert(value u32) string` for a typed declaration and `func(u32) string` for its callable type. An omitted annotation remains dynamic so existing source keeps its behavior.",
+        "Write `func convert(value u32) string` for a typed declaration and `func(u32) string` for its callable type. Core Semantics 1 requires an omitted annotation to infer locally or diagnose; the legacy implicit-dynamic implementation is CS1-D04, not an alternate contract.",
         "Expression-bodied functions return the expression. Block-bodied functions return an explicit `return` value, their tail expression, or `null`. A bare `return` returns `null`. An annotated result checks every reachable return and fallthrough path.",
         "Annotations never cast. Unsuffixed non-negative integer literals may inherit an expected numeric width, including the result alternatives of `if`, `match`/`switch`, `try`/`catch`, and block tails. Suffixed and existing values require an explicit constructor for conversion.",
         "Nested functions may capture bindings from surrounding scopes. Backend support for closure conversion is feature-specific; unsupported native captures are compile-time diagnostics.",
@@ -980,6 +980,7 @@
             "import",
             "in",
             "let",
+			"lazy",
             "var",
             "macro",
             "match",

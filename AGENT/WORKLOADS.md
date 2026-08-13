@@ -15,7 +15,8 @@ after each runner declares its supported paths rather than treating an
 unsupported native lowering diagnostic as a benchmark result.
 
 `aegis-mission-control.osr` is the human-facing showcase rather than a
-single-kernel performance baseline. It combines typed and lazy bindings,
+single-kernel performance baseline. It combines typed bindings and explicit
+`Lazy<T>` values,
 macros, recursion, closures, loops, enums and patterns, tasks, structured
 recovery, codecs, time, text, crypto, signal processing, statistics, units,
 complex values, and dense linear algebra into one bounded mission-analysis

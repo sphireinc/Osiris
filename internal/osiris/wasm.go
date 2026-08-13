@@ -404,7 +404,11 @@ func emitWASMAggregateBody(ir *IRProgram) ([]byte, []byte, bool) {
 			if !ok {
 				return nil, nil, false
 			}
-			values[in.Dest] = cloneWASMValue(value)
+			checked, err := checkBindingTypeID(ir.Types, in.TypeID, value, false)
+			if err != nil {
+				return nil, nil, false
+			}
+			values[in.Dest] = cloneWASMValue(checked)
 		case "makefunc":
 			if in.Dest == "" || in.Text == "" {
 				return nil, nil, false
@@ -559,7 +563,7 @@ func evaluateWASMStaticFunction(fn *IRFunction, args []Value) (Value, bool) {
 		switch in.Op {
 		case "const", "global":
 			values[in.Dest] = in.Value
-		case "copy", "assign", "asserttype":
+		case "copy", "assign":
 			if len(in.Args) != 1 {
 				return nullValue(), false
 			}
@@ -568,6 +572,19 @@ func evaluateWASMStaticFunction(fn *IRFunction, args []Value) (Value, bool) {
 				return nullValue(), false
 			}
 			values[in.Dest] = cloneWASMValue(value)
+		case "asserttype":
+			if len(in.Args) != 1 {
+				return nullValue(), false
+			}
+			value, ok := values[in.Args[0]]
+			if !ok {
+				return nullValue(), false
+			}
+			checked, err := checkBindingTypeID(fn.Types, in.TypeID, value, false)
+			if err != nil {
+				return nullValue(), false
+			}
+			values[in.Dest] = cloneWASMValue(checked)
 		case "unary":
 			if len(in.Args) != 1 {
 				return nullValue(), false

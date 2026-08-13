@@ -369,7 +369,7 @@ func runTests(ctx context.Context, args []string, stdout io.Writer) error {
 }
 
 func runVersion(stdout io.Writer) error {
-	_, err := fmt.Fprintf(stdout, "osiris %s\ncommit: %s\nbuilt: %s\ngo: %s\ntarget: %s/%s\n", version, commit, buildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	_, err := fmt.Fprintf(stdout, "osiris %s\nsemantics: %s\ncommit: %s\nbuilt: %s\ngo: %s\ntarget: %s/%s\n", version, osiris.CoreSemanticsVersion, commit, buildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	return err
 }
 

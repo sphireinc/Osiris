@@ -2,6 +2,7 @@ package osiris
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -54,10 +55,13 @@ const (
 	vmOpAsyncBuiltin
 	vmOpTry
 	vmOpPropagate
+	vmOpLazy
+	vmOpForce
 )
 
 type vmChunk struct {
 	sourceName  string
+	types       *TypeContext
 	packageName string
 	exports     []string
 	result      int
@@ -66,31 +70,35 @@ type vmChunk struct {
 }
 
 type vmInstr struct {
-	op           vmOp
-	dst          int
-	a            int
-	b            int
-	tok          tokenKind
-	name         string
-	text         string
-	value        Value
-	mutable      bool
-	args         []int
-	typeArgs     []string
-	fieldNames   []string
-	names        []string
-	params       []string
-	paramTypes   []string
-	typeParams   []typeParam
-	returnType   string
-	receiver     string
-	receiverType string
-	iter         int
-	chunks       []*vmChunk
-	body         *vmChunk
-	alt          *vmChunk
-	arms         []vmMatchArm
-	span         sourceSpan
+	op              vmOp
+	dst             int
+	a               int
+	b               int
+	tok             tokenKind
+	name            string
+	text            string
+	typeID          TypeID
+	value           Value
+	mutable         bool
+	args            []int
+	typeArgs        []string
+	fieldNames      []string
+	names           []string
+	params          []string
+	paramTypes      []string
+	paramTypeIDs    []TypeID
+	typeParams      []typeParam
+	returnType      string
+	returnTypeID    TypeID
+	signatureTypeID TypeID
+	receiver        string
+	receiverType    string
+	iter            int
+	chunks          []*vmChunk
+	body            *vmChunk
+	alt             *vmChunk
+	arms            []vmMatchArm
+	span            sourceSpan
 }
 
 type vmMatchArm struct {
@@ -101,9 +109,10 @@ type vmMatchArm struct {
 }
 
 type vmCompiler struct {
-	chunk   *vmChunk
-	next    int
-	emitted bool
+	chunk         *vmChunk
+	functionTypes map[sourceSpan]TypeID
+	next          int
+	emitted       bool
 }
 
 // newVMCompiler handles the new vmcompiler step in the surrounding package and
@@ -111,8 +120,40 @@ type vmCompiler struct {
 //
 // It returns *vmCompiler so callers can continue with the next stage of the
 // pipeline without re-deriving the same information.
-func newVMCompiler(sourceName string) *vmCompiler {
-	return &vmCompiler{chunk: &vmChunk{sourceName: sourceName, result: -1}}
+func newVMCompiler(sourceName string, types ...*TypeContext) *vmCompiler {
+	var context *TypeContext
+	if len(types) > 0 {
+		context = types[0]
+	}
+	return &vmCompiler{chunk: &vmChunk{sourceName: sourceName, types: context, result: -1}}
+}
+
+func (c *vmCompiler) typeID(text string) TypeID {
+	if c == nil || c.chunk == nil || c.chunk.types == nil || text == "" {
+		return 0
+	}
+	typ, err := parseStaticType(text)
+	if err != nil {
+		return 0
+	}
+	return c.chunk.types.InternStatic(typ)
+}
+
+func (c *vmCompiler) childCompiler() *vmCompiler {
+	child := newVMCompiler(c.chunk.sourceName, c.chunk.types)
+	child.functionTypes = c.functionTypes
+	return child
+}
+
+func checkedFunctionTypeIDs(checked *CheckedProgram) map[sourceSpan]TypeID {
+	ids := make(map[sourceSpan]TypeID)
+	if checked == nil {
+		return ids
+	}
+	for _, function := range checked.Functions {
+		ids[function.Span] = function.TypeID
+	}
+	return ids
 }
 
 // alloc operates on vmCompiler values and keeps the vmcompiler-specific
@@ -223,7 +264,7 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		}
 		if st.Type != "" {
 			checked := c.alloc()
-			c.emit(vmInstr{op: vmOpTypeAssert, dst: checked, a: reg, text: st.Type})
+			c.emit(vmInstr{op: vmOpTypeAssert, dst: checked, a: reg, text: st.Type, typeID: c.typeID(st.Type)})
 			reg = checked
 		}
 		if len(st.Names) > 0 {
@@ -233,7 +274,7 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		}
 		return nil
 	case funcStmt:
-		bodyCompiler := newVMCompiler(c.chunk.sourceName)
+		bodyCompiler := c.childCompiler()
 		bodyCompiler.chunk.packageName = c.chunk.packageName
 		if body, ok := st.Body.(*blockExpr); ok {
 			for _, bodyStmt := range body.stmts {
@@ -255,10 +296,23 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 			}
 			bodyCompiler.emit(vmInstr{op: vmOpReturn, a: reg})
 		}
+		signatureTypeID := c.functionTypes[st.Span]
+		paramTypeIDs := make([]TypeID, len(st.ParamTypes))
+		returnTypeID := c.typeID(st.ReturnType)
+		if signatureID := signatureTypeID; signatureID != 0 {
+			if signature, ok := c.chunk.types.Node(signatureID); ok && signature.Kind == TypeFunction {
+				copy(paramTypeIDs, signature.Args)
+				returnTypeID = signature.Result
+			}
+		} else {
+			for i, typ := range st.ParamTypes {
+				paramTypeIDs[i] = c.typeID(typ)
+			}
+		}
 		reg := c.alloc()
 		c.emit(vmInstr{op: vmOpFunc, dst: reg, name: st.Name, body: bodyCompiler.chunk,
 			params: append([]string(nil), st.Params...), paramTypes: append([]string(nil), st.ParamTypes...),
-			typeParams: append([]typeParam(nil), st.TypeParams...), returnType: st.ReturnType,
+			paramTypeIDs: paramTypeIDs, typeParams: append([]typeParam(nil), st.TypeParams...), returnType: st.ReturnType, returnTypeID: returnTypeID, signatureTypeID: signatureTypeID,
 			receiver: st.Receiver, receiverType: st.ReceiverType})
 		// Receiver methods live in the nominal method registry. Binding the
 		// unqualified method name would shadow a builtin such as `close` in
@@ -339,7 +393,7 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 		if !ok {
 			return fmt.Errorf("defer requires a block expression")
 		}
-		child := newVMCompiler(c.chunk.sourceName)
+		child := c.childCompiler()
 		if _, err := child.compileExpr(body); err != nil {
 			return err
 		}
@@ -360,6 +414,14 @@ func (c *vmCompiler) compileStmt(stmt Stmt) error {
 // error is nil.
 func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 	switch n := expr.(type) {
+	case *lazyExpr:
+		body, err := c.compileExprChunk(n.Body)
+		if err != nil {
+			return 0, err
+		}
+		dst := c.alloc()
+		c.emit(vmInstr{op: vmOpLazy, dst: dst, body: body, span: n.Span})
+		return dst, nil
 	case *literalExpr:
 		dst := c.alloc()
 		c.emit(vmInstr{op: vmOpConst, dst: dst, value: n.value})
@@ -400,6 +462,18 @@ func (c *vmCompiler) compileExpr(expr Expr) (int, error) {
 		c.emit(vmInstr{op: vmOpBinary, dst: dst, a: left, b: right, tok: n.op})
 		return dst, nil
 	case *callExpr:
+		if ident, ok := n.callee.(*identExpr); ok && ident.name == "force" {
+			if len(n.args) != 1 {
+				return 0, fmt.Errorf("force expects exactly one Lazy<T> argument")
+			}
+			value, err := c.compileExpr(n.args[0])
+			if err != nil {
+				return 0, err
+			}
+			dst := c.alloc()
+			c.emit(vmInstr{op: vmOpForce, dst: dst, a: value, span: n.Span})
+			return dst, nil
+		}
 		if name, ok := specialFormName(n.callee); ok {
 			switch name {
 			case "if":
@@ -560,7 +634,7 @@ func (c *vmCompiler) compileBlockExpr(n *blockExpr) (int, error) {
 }
 
 func (c *vmCompiler) compileBlockChunk(n *blockExpr) (*vmChunk, error) {
-	sub := newVMCompiler(c.chunk.sourceName)
+	sub := c.childCompiler()
 	sub.chunk.packageName = c.chunk.packageName
 	sub.chunk.exports = append([]string(nil), c.chunk.exports...)
 	for _, stmt := range n.stmts {
@@ -590,7 +664,7 @@ func (c *vmCompiler) compileExprChunk(expr Expr) (*vmChunk, error) {
 	if block, ok := expr.(*blockExpr); ok {
 		return c.compileBlockChunk(block)
 	}
-	sub := newVMCompiler(c.chunk.sourceName)
+	sub := c.childCompiler()
 	sub.chunk.packageName = c.chunk.packageName
 	sub.chunk.exports = append([]string(nil), c.chunk.exports...)
 	reg, err := sub.compileExpr(expr)
@@ -926,7 +1000,35 @@ type vmRunner struct {
 	cleanups           []vmCleanup
 	cleanupActive      bool
 	emitAllowed        bool
+	lazyForces         map[*vmLazyThunk]struct{}
 }
+
+// vmLazyThunk is the VM-native representation of a Lazy<T>. Its body is a
+// compiled chunk, never an AST evaluator callback. The Value carrier stores a
+// private Expr wrapper solely because Value's existing Lazy slot is shared by
+// all backends; no AST is evaluated through that wrapper.
+type vmLazyThunk struct {
+	mu    sync.Mutex
+	chunk *vmChunk
+	frame *vmFrame
+	done  chan struct{}
+	value Value
+	err   error
+	state vmLazyState
+}
+
+type vmLazyThunkExpr struct{ thunk *vmLazyThunk }
+
+func (*vmLazyThunkExpr) exprNode() {}
+
+type vmLazyState uint8
+
+const (
+	vmLazyUnforced vmLazyState = iota
+	vmLazyForcing
+	vmLazyValueReady
+	vmLazyErrorReady
+)
 
 // vmCleanup retains both the cleanup code and the lexical frame that existed
 // when the defer statement executed. Keeping the frame with the thunk makes
@@ -1028,11 +1130,14 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			// Trait/interface assignments are proven by the shared checker and
 			// represented at runtime by the concrete receiver value. The VM does
 			// not need to manufacture a second nominal wrapper for that proof.
-			if regs[instr.a].kind == kindStruct && !bindingTypeMatches(instr.text, regs[instr.a]) {
+			if instr.typeID == 0 {
+				return nullValue(), fmt.Errorf("VM type assertion lacks canonical TypeID")
+			}
+			if regs[instr.a].kind == kindStruct && !runtimeValueMatchesTypeID(chunk.types, instr.typeID, regs[instr.a]) {
 				regs[instr.dst] = regs[instr.a]
 				continue
 			}
-			value, err := checkBindingType(instr.text, regs[instr.a], false)
+			value, err := checkBindingTypeID(chunk.types, instr.typeID, regs[instr.a], false)
 			if err != nil {
 				return nullValue(), err
 			}
@@ -1141,7 +1246,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 					parent = r.frame
 				}
 				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: &vmFrame{parent: parent}, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: &vmFrame{parent: parent}, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed, lazyForces: r.lazyForces}
 				for i, name := range callee.fn.params {
 					child.frame.bind(name, checkedArgs[i], false)
 				}
@@ -1244,6 +1349,10 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			r.cleanups = append(r.cleanups, vmCleanup{chunk: instr.body, frame: snapshotVMFrame(r.frame)})
 		case vmOpFunc:
 			function := typedGenericUserFunctionValue(instr.name, instr.typeParams, instr.params, instr.paramTypes, instr.returnType, nil, nil, nil)
+			function.fn.types = chunk.types
+			function.fn.paramTypeIDs = append([]TypeID(nil), instr.paramTypeIDs...)
+			function.fn.returnTypeID = instr.returnTypeID
+			function.fn.signatureTypeID = instr.signatureTypeID
 			function.fn.vmBody = instr.body
 			function.fn.vmClosure = r.frame
 			function.fn.receiver = instr.receiver
@@ -1301,7 +1410,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			}
 			childCtx, cancel := context.WithTimeout(r.ctx, time.Duration(ms)*time.Millisecond)
 			child := &vmRunner{rt: r.rt, ctx: childCtx, source: r.source, stack: r.stack,
-				vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: r.frame.child(nil), emitAllowed: false}
+				vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: r.frame.child(nil), emitAllowed: false, lazyForces: r.lazyForces}
 			out, bodyErr := child.run(instr.alt)
 			cancel()
 			r.outputs = append(r.outputs, child.outputs...)
@@ -1380,13 +1489,24 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 			default:
 				regs[instr.dst] = out
 			}
+		case vmOpLazy:
+			if instr.body == nil {
+				return nullValue(), fmt.Errorf("lazy has no compiled body")
+			}
+			regs[instr.dst] = newVMLazyValue(instr.body, r.frame)
+		case vmOpForce:
+			out, forceErr := r.forceVMLazy(regs[instr.a])
+			if forceErr != nil {
+				return nullValue(), forceErr
+			}
+			regs[instr.dst] = out
 		case vmOpWhile:
 			loopFrame := r.frame
 			carryNames := vmLoopCarryNames(r.frame)
 		whileLoop:
 			for {
 				conditionRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: loopFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: loopFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed, lazyForces: r.lazyForces}
 				condition, conditionErr := conditionRunner.run(instr.body)
 				r.outputs = append(r.outputs, conditionRunner.outputs...)
 				if conditionErr != nil {
@@ -1397,7 +1517,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				}
 				iterationFrame := loopFrame.child(nil)
 				bodyRunner := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed, lazyForces: r.lazyForces}
 				_, bodyErr := bodyRunner.run(instr.alt)
 				r.outputs = append(r.outputs, bodyRunner.outputs...)
 				loopFrame = bodyRunner.frame
@@ -1434,7 +1554,7 @@ func (r *vmRunner) run(chunk *vmChunk) (value Value, err error) {
 				iterationFrame := loopFrame.child(nil)
 				iterationFrame.bind(instr.name, item, false)
 				child := &vmRunner{rt: r.rt, ctx: r.ctx, source: r.source, stack: r.stack,
-					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed}
+					vmModules: r.vmModules, vmModuleMu: r.vmModuleMu, frame: iterationFrame, cleanupActive: r.cleanupActive, emitAllowed: r.emitAllowed, lazyForces: r.lazyForces}
 				_, bodyErr := child.run(instr.body)
 				r.outputs = append(r.outputs, child.outputs...)
 				loopFrame = child.frame
@@ -1637,14 +1757,17 @@ func (r *vmRunner) loadModuleVM(ctx context.Context, ref, base string, stack []s
 		return nullValue(), err
 	}
 	session := NewSession(r.rt, ctx, path)
-	expanded, err := session.ExpandProgram(program)
+	parsed, err := parsedProgramOf(program)
 	if err != nil {
 		return nullValue(), err
 	}
-	if _, err := r.rt.CheckProgram(ctx, expanded); err != nil {
+	typed, err := session.frontend(parsed, stack)
+	if err != nil {
 		return nullValue(), err
 	}
-	compiler := newVMCompiler(path)
+	expanded := typed.resolved.expanded.program
+	compiler := newVMCompiler(path, typed.checked.Types)
+	compiler.functionTypes = checkedFunctionTypeIDs(typed.checked)
 	chunk, err := compiler.compileProgram(expanded)
 	if err != nil {
 		return nullValue(), err
@@ -1992,10 +2115,126 @@ func (r *vmRunner) runChildWithFrame(chunk *vmChunk, parent *vmFrame) (Value, er
 		frame:         parent.child(nil),
 		cleanupActive: r.cleanupActive,
 		emitAllowed:   r.emitAllowed,
+		lazyForces:    r.lazyForces,
 	}
 	value, err := child.run(chunk)
 	r.outputs = append(r.outputs, child.outputs...)
 	return value, err
+}
+
+func newVMLazyValue(chunk *vmChunk, frame *vmFrame) Value {
+	thunk := &vmLazyThunk{chunk: chunk, frame: frame, state: vmLazyUnforced}
+	carrier := &lazyValue{body: &vmLazyThunkExpr{thunk: thunk}, state: lazyUnforced}
+	return Value{kind: kindLazy, lazy: carrier}
+}
+
+func vmLazyThunkFromValue(value Value) (*vmLazyThunk, error) {
+	if value.kind != kindLazy || value.lazy == nil {
+		return nil, fmt.Errorf("force expects Lazy<T>, got %s", value.Kind())
+	}
+	carrier, ok := value.lazy.body.(*vmLazyThunkExpr)
+	if !ok || carrier == nil || carrier.thunk == nil {
+		return nil, fmt.Errorf("force expects a VM Lazy<T>")
+	}
+	return carrier.thunk, nil
+}
+
+func (r *vmRunner) forceVMLazy(value Value) (Value, error) {
+	thunk, err := vmLazyThunkFromValue(value)
+	if err != nil {
+		return nullValue(), err
+	}
+	if r.lazyForces == nil {
+		r.lazyForces = make(map[*vmLazyThunk]struct{})
+	}
+	thunk.mu.Lock()
+	switch thunk.state {
+	case vmLazyValueReady:
+		result := thunk.value
+		thunk.mu.Unlock()
+		return result, nil
+	case vmLazyErrorReady:
+		failure := thunk.err
+		thunk.mu.Unlock()
+		return nullValue(), failure
+	case vmLazyForcing:
+		if _, recursive := r.lazyForces[thunk]; recursive {
+			thunk.mu.Unlock()
+			return nullValue(), newOsirisError(ErrorKindInvalidArgument, "LazyCycle: recursive force of the same Lazy value")
+		}
+		done := thunk.done
+		thunk.mu.Unlock()
+		select {
+		case <-done:
+			return r.forceVMLazy(value)
+		case <-r.ctx.Done():
+			return nullValue(), r.ctx.Err()
+		}
+	case vmLazyUnforced:
+		thunk.state = vmLazyForcing
+		thunk.done = make(chan struct{})
+		setVMLazyCarrierState(value.lazy, lazyForcing, nullValue(), nil)
+	}
+	thunk.mu.Unlock()
+
+	r.lazyForces[thunk] = struct{}{}
+	result, runErr := r.runVMLazyThunk(thunk)
+	delete(r.lazyForces, thunk)
+
+	thunk.mu.Lock()
+	if runErr == nil {
+		thunk.value = result
+		thunk.err = nil
+		thunk.state = vmLazyValueReady
+		setVMLazyCarrierState(value.lazy, lazyValueReady, result, nil)
+	} else if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+		// Cancellation does not poison Lazy<T>; a later explicit force retries.
+		thunk.err = nil
+		thunk.state = vmLazyUnforced
+		setVMLazyCarrierState(value.lazy, lazyUnforced, nullValue(), nil)
+	} else {
+		thunk.err = runErr
+		thunk.state = vmLazyErrorReady
+		setVMLazyCarrierState(value.lazy, lazyErrorReady, nullValue(), runErr)
+	}
+	done := thunk.done
+	thunk.done = nil
+	thunk.mu.Unlock()
+	close(done)
+	return result, runErr
+}
+
+func setVMLazyCarrierState(carrier *lazyValue, state lazyState, value Value, err error) {
+	if carrier == nil {
+		return
+	}
+	carrier.mu.Lock()
+	carrier.state = state
+	carrier.value = value
+	carrier.err = err
+	carrier.mu.Unlock()
+}
+
+func (r *vmRunner) runVMLazyThunk(thunk *vmLazyThunk) (Value, error) {
+	if thunk == nil || thunk.chunk == nil {
+		return nullValue(), fmt.Errorf("lazy has no compiled body")
+	}
+	// Re-entering the VM runner preserves the caller's output stream and makes
+	// a recursive force visible through lazyForces. Save lexical and cleanup
+	// state so the thunk behaves as an isolated compiled closure.
+	savedFrame, savedCleanups := r.frame, r.cleanups
+	savedCleanupActive, savedAllowCancelledEmit := r.cleanupActive, r.allowCancelledEmit
+	r.frame = thunk.frame.child(nil)
+	r.cleanups = nil
+	result, err := r.run(thunk.chunk)
+	r.frame = savedFrame
+	r.cleanups = savedCleanups
+	r.cleanupActive = savedCleanupActive
+	r.allowCancelledEmit = savedAllowCancelledEmit
+	if signal, ok := err.(*vmReturnSignal); ok {
+		return signal.value, nil
+	}
+	return result, err
 }
 
 // runChildWithBindings operates on vmRunner values and keeps the
@@ -2018,6 +2257,7 @@ func (r *vmRunner) runChildWithBindings(chunk *vmChunk, bindings map[string]Valu
 		frame:         r.frame.child(bindings),
 		cleanupActive: r.cleanupActive,
 		emitAllowed:   r.emitAllowed,
+		lazyForces:    r.lazyForces,
 	}
 	value, err := child.run(chunk)
 	r.outputs = append(r.outputs, child.outputs...)
@@ -2231,29 +2471,30 @@ func vmBinary(ctx context.Context, op tokenKind, left, right Value) (Value, erro
 // It returns []Value and an error. Callers should only trust the value when
 // the error is nil.
 func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
-	sess := NewSession(r, ctx, prog.SourceName)
-	expanded, err := sess.ExpandProgram(prog)
+	typed, err := r.frontendProgram(ctx, prog)
 	if err != nil {
 		return nil, normalizeError(err, prog.SourceName)
 	}
-	if err := validateTensorShapes(expanded); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
+	return r.RunVMFromTyped(ctx, typed)
+}
+
+// RunVMFromTyped executes only a single post-expansion, resolved and checked
+// frontend result. The VM compiler never performs source macro expansion.
+func (r *Runtime) RunVMFromTyped(ctx context.Context, typed *TypedProgram) ([]Value, error) {
+	if typed == nil || typed.resolved.expanded.program == nil {
+		return nil, fmt.Errorf("VM requires a typed program")
 	}
-	if err := validateConcurrentEmits(expanded); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
-	}
-	if _, err := r.CheckProgram(ctx, expanded); err != nil {
-		return nil, normalizeError(err, prog.SourceName)
-	}
-	compiler := newVMCompiler(prog.SourceName)
+	expanded := typed.resolved.expanded.program
+	compiler := newVMCompiler(expanded.SourceName, typed.checked.Types)
+	compiler.functionTypes = checkedFunctionTypeIDs(typed.checked)
 	chunk, err := compiler.compileProgram(expanded)
 	if err != nil {
-		return nil, normalizeError(err, prog.SourceName)
+		return nil, normalizeError(err, expanded.SourceName)
 	}
 	runner := &vmRunner{
 		rt:          r,
 		ctx:         ctx,
-		source:      prog.SourceName,
+		source:      expanded.SourceName,
 		stack:       nil,
 		vmModules:   make(map[string]Value),
 		vmModuleMu:  &sync.Mutex{},
@@ -2261,7 +2502,7 @@ func (r *Runtime) RunVM(ctx context.Context, prog *Program) ([]Value, error) {
 		emitAllowed: true,
 	}
 	if _, err := runner.run(chunk); err != nil {
-		return runner.outputs, normalizeError(err, prog.SourceName)
+		return runner.outputs, normalizeError(err, expanded.SourceName)
 	}
 	return runner.outputs, nil
 }

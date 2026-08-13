@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"math"
@@ -286,15 +287,22 @@ type evaluator struct {
 // It returns Value and an error. Callers should only trust the value when the
 // error is nil.
 func (ev *evaluator) eval(expr Expr, scope *scope) (Value, error) {
-	if ev.session != nil {
-		expanded, err := ev.session.expandExpr(expr, scope)
-		if err != nil {
-			return nullValue(), err
-		}
-		expr = expanded
-	}
 	if m, ok := expr.(*matchExpr); ok {
 		return evalMatch(ev, m, scope)
+	}
+	// A lazy expression is an allocation/effect boundary: each execution
+	// creates a distinct explicit Lazy object and must never enter the ordinary
+	// expression memoization cache.
+	if lazy, ok := expr.(*lazyExpr); ok {
+		return computeExpr(ev, lazy, scope, "")
+	}
+	if call, ok := expr.(*callExpr); ok {
+		if ident, ok := call.callee.(*identExpr); ok && ident.name == "force" {
+			// force is a language primitive whose result depends on a Lazy
+			// object's once-only state. It is neither a lexical identifier nor a
+			// pure-expression cache candidate.
+			return computeExpr(ev, call, scope, "")
+		}
 	}
 	if binary, ok := expr.(*binaryExpr); ok && (binary.op == tokenAndAnd || binary.op == tokenOrOr) {
 		// Logical expressions must not fingerprint the deferred operand: doing so
@@ -579,18 +587,23 @@ func (ev *evaluator) fingerprintRecursive(expr Expr, env *scope) (string, error)
 			}
 			switch st := stmt.(type) {
 			case letStmt:
+				// Fingerprinting models lexical visibility only. It must never retain
+				// an ordinary let initializer for later evaluation: execution has
+				// already made the initializer an eager value before introducing its
+				// real binding. A stable marker is sufficient for this analysis-only
+				// scope and cannot be demanded as source code.
 				if len(st.Names) > 0 {
 					for _, name := range st.Names {
 						cur = &scope{
 							parent: cur,
-							items:  map[string]binding{name: {expr: st.Expr, env: cur}},
+							items:  map[string]binding{name: eagerBinding(stringValue("$fingerprint:" + name))},
 						}
 					}
 				} else {
 					cur = &scope{
 						parent: cur,
 						items: map[string]binding{
-							st.Name: {expr: st.Expr, env: cur},
+							st.Name: eagerBinding(stringValue("$fingerprint:" + st.Name)),
 						},
 					}
 				}
@@ -749,10 +762,12 @@ func computeExpr(ev *evaluator, expr Expr, curScope *scope, key string) (Value, 
 			}
 			return nullValue(), fmt.Errorf("undefined name %q", n.name)
 		}
-		if b.cell != nil {
-			return b.cell.value, nil
+		if value, ok := storedBindingValue(b); ok {
+			return value, nil
 		}
 		return computeExpr(ev, b.expr, b.env, key)
+	case *lazyExpr:
+		return lazyValueOf(n.Body, curScope, ev), nil
 	case *memberExpr:
 		obj, err := ev.eval(n.object, curScope)
 		if err != nil {
@@ -900,22 +915,20 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 		switch st := stmt.(type) {
 		case letStmt:
 			expr := st.Expr
+			// Keep the evaluator-only block path aligned with Session: ordinary
+			// lets evaluate before their binding becomes visible.
+			value, err := ev.eval(expr, cur)
+			if err != nil {
+				return nullValue(), err
+			}
 			if st.Type != "" {
-				value, err := ev.eval(expr, cur)
-				if err != nil {
-					return nullValue(), err
-				}
 				value, err = checkBindingType(st.Type, value, false)
 				if err != nil {
 					return nullValue(), fmt.Errorf("let %s: %w", st.Name, err)
 				}
-				expr = &literalExpr{value: value}
 			}
+			expr = &literalExpr{value: value}
 			if st.Mutable {
-				value, err := ev.eval(expr, cur)
-				if err != nil {
-					return nullValue(), err
-				}
 				cur = &scope{
 					parent: cur,
 					items: map[string]binding{st.Name: {
@@ -926,26 +939,20 @@ func evalBlock(ev *evaluator, n *blockExpr, env *scope) (Value, error) {
 				continue
 			}
 			if len(st.Names) > 0 {
-				value, err := ev.eval(expr, cur)
-				if err != nil {
-					return nullValue(), err
-				}
 				if value.kind != kindTuple || len(value.tuple) != len(st.Names) {
 					return nullValue(), fmt.Errorf("tuple destructuring requires %d values", len(st.Names))
 				}
 				for i, name := range st.Names {
 					cur = &scope{
 						parent: cur,
-						items:  map[string]binding{name: {expr: &literalExpr{value: value.tuple[i]}, env: cur}},
+						items:  map[string]binding{name: eagerBinding(value.tuple[i])},
 					}
 				}
 				continue
 			}
 			cur = &scope{
 				parent: cur,
-				items: map[string]binding{
-					st.Name: {expr: expr, env: cur},
-				},
+				items:  map[string]binding{st.Name: eagerBinding(value)},
 			}
 		case assignStmt:
 			b, ok := cur.lookup(st.Name)
@@ -1324,6 +1331,16 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 	if name, ok := specialFormName(n.callee); ok {
 		return evalSpecialForm(ev, name, n.args, curScope, n.Span)
 	}
+	if ident, ok := n.callee.(*identExpr); ok && ident.name == "force" {
+		if len(n.args) != 1 {
+			return nullValue(), fmt.Errorf("force expects exactly one Lazy<T> argument")
+		}
+		value, err := ev.eval(n.args[0], curScope)
+		if err != nil {
+			return nullValue(), err
+		}
+		return forceLazyValue(ev, value)
+	}
 	if ident, ok := n.callee.(*identExpr); ok && ident.name == "close" {
 		args, err := evalMany(ev, n.args, curScope)
 		if err != nil {
@@ -1432,6 +1449,66 @@ func evalCall(ev *evaluator, n *callExpr, curScope *scope) (Value, error) {
 		return nullValue(), fmt.Errorf("cannot call module %s", callee.String())
 	}
 	return nullValue(), fmt.Errorf("value %s is not callable", callee.Kind())
+}
+
+func forceLazyValue(ev *evaluator, value Value) (Value, error) {
+	if value.kind != kindLazy || value.lazy == nil {
+		return nullValue(), fmt.Errorf("force expects Lazy<T>, got %s", value.Kind())
+	}
+	lazy := value.lazy
+	lazy.mu.Lock()
+	switch lazy.state {
+	case lazyValueReady:
+		result := lazy.value
+		lazy.mu.Unlock()
+		return result, nil
+	case lazyErrorReady:
+		err := lazy.err
+		lazy.mu.Unlock()
+		return nullValue(), err
+	case lazyForcing:
+		if _, recursive := lazy.owners[ev]; recursive {
+			lazy.mu.Unlock()
+			return nullValue(), newOsirisError(ErrorKindInvalidArgument, "LazyCycle: recursive force of the same Lazy value")
+		}
+		done := lazy.done
+		lazy.mu.Unlock()
+		select {
+		case <-done:
+			return forceLazyValue(ev, value)
+		case <-ev.ctx.Done():
+			return nullValue(), ev.ctx.Err()
+		}
+	case lazyUnforced:
+		lazy.state = lazyForcing
+		lazy.done = make(chan struct{})
+		lazy.owners[ev] = struct{}{}
+	}
+	lazy.mu.Unlock()
+
+	result, err := ev.eval(lazy.body, lazy.scope)
+	lazy.mu.Lock()
+	delete(lazy.owners, ev)
+	if err == nil {
+		lazy.value = result
+		lazy.err = nil
+		lazy.state = lazyValueReady
+	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// Cancellation abandons this attempt; a later force may retry and the
+		// object cannot be left permanently pending.
+		lazy.state = lazyUnforced
+		lazy.err = nil
+	} else {
+		// A language failure is terminal and replayed exactly, preserving the
+		// exactly-once semantic promised by Lazy<T>.
+		lazy.err = err
+		lazy.state = lazyErrorReady
+	}
+	done := lazy.done
+	lazy.done = nil
+	lazy.mu.Unlock()
+	close(done)
+	return result, err
 }
 
 func constructStruct(typ *structTypeValue, args []Value) (Value, error) {

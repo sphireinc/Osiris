@@ -9,6 +9,7 @@ import (
 
 type IRProgram struct {
 	SourceName     string
+	Types          *TypeContext
 	PackageName    string
 	PackageVersion string
 	Exports        []string
@@ -28,18 +29,22 @@ type IRProductType struct {
 }
 
 type IRProductField struct {
-	Name string
-	Type string
+	Name   string
+	Type   string
+	TypeID TypeID
 }
 
 type IRFunction struct {
+	Types         *TypeContext
 	Name          string
 	SourceName    string
 	ReceiverType  string
 	Params        []string
 	TypeParams    []string
 	ParamTypes    []string
+	ParamTypeIDs  []TypeID
 	ResultType    string
+	ResultTypeID  TypeID
 	Captures      []string
 	CaptureValues []string
 	// MutableCaptures is aligned with Captures. Native closures use the
@@ -67,6 +72,7 @@ type IRInstr struct {
 	// names alongside values avoids encoding source metadata into Text.
 	FieldNames []string
 	Text       string
+	TypeID     TypeID
 	Value      Value
 	Span       sourceSpan
 }
@@ -372,30 +378,34 @@ func formatIRTerminator(term IRTerminator) string {
 // It returns *IRProgram and an error. Callers should only trust the value when
 // the error is nil.
 func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, error) {
-	if rt == nil {
-		rt = NewRuntime()
-	}
-	if prog == nil {
-		return nil, fmt.Errorf("cannot build IR for nil program")
-	}
-	sess := NewSession(rt, ctx, prog.SourceName)
-	expanded, err := sess.ExpandProgram(prog)
+	typed, err := rt.frontendProgram(ctx, prog)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateConcurrentEmits(expanded); err != nil {
-		return nil, err
+	return rt.BuildIRFromTyped(ctx, typed)
+}
+
+// BuildIRFromTyped lowers the one post-expansion, resolved, checked frontend
+// result. Raw parsed source cannot reach this boundary directly.
+func (rt *Runtime) BuildIRFromTyped(ctx context.Context, typed *TypedProgram) (*IRProgram, error) {
+	if rt == nil {
+		rt = NewRuntime()
 	}
-	if _, err := rt.CheckProgram(ctx, expanded); err != nil {
-		return nil, err
+	if typed == nil || typed.resolved.expanded.program == nil {
+		return nil, fmt.Errorf("cannot build IR for nil typed program")
 	}
+	expanded := typed.resolved.expanded.program
 
 	pb := &irProgramBuilder{
-		rt:       rt,
-		prog:     &IRProgram{SourceName: expanded.SourceName},
-		nextFunc: 0,
-		products: make(map[string]IRProductType),
-		aliases:  make(map[string]string),
+		rt:            rt,
+		prog:          &IRProgram{SourceName: expanded.SourceName, Types: typed.checked.Types},
+		nextFunc:      0,
+		products:      make(map[string]IRProductType),
+		aliases:       make(map[string]string),
+		functionTypes: make(map[sourceSpan]TypeID),
+	}
+	for _, function := range typed.checked.Functions {
+		pb.functionTypes[function.Span] = function.TypeID
 	}
 	pb.prog.Aliases = pb.aliases
 	for _, stmt := range expanded.Statements {
@@ -407,14 +417,14 @@ func (rt *Runtime) BuildIR(ctx context.Context, prog *Program) (*IRProgram, erro
 				Name:    st.Name,
 				Target:  st.Target,
 				Newtype: true,
-				Fields:  []IRProductField{{Name: "value", Type: st.Target}},
+				Fields:  []IRProductField{{Name: "value", Type: st.Target, TypeID: pb.typeID(st.Target)}},
 			}
 			pb.products[st.Name] = product
 			pb.prog.Products = append(pb.prog.Products, product)
 		case structStmt:
 			fields := make([]IRProductField, len(st.Fields))
 			for i, field := range st.Fields {
-				fields[i] = IRProductField{Name: field.Name, Type: field.Type}
+				fields[i] = IRProductField{Name: field.Name, Type: field.Type, TypeID: pb.typeID(field.Type)}
 			}
 			product := IRProductType{Name: st.Name, Fields: fields}
 			pb.products[st.Name] = product
@@ -462,12 +472,13 @@ func firstPackage(prog *Program) (packageStmt, bool) {
 }
 
 type irProgramBuilder struct {
-	rt       *Runtime
-	prog     *IRProgram
-	nextFunc int
-	enums    map[string]map[string]enumCase
-	products map[string]IRProductType
-	aliases  map[string]string
+	rt            *Runtime
+	prog          *IRProgram
+	nextFunc      int
+	enums         map[string]map[string]enumCase
+	products      map[string]IRProductType
+	aliases       map[string]string
+	functionTypes map[sourceSpan]TypeID
 }
 
 // newFunction operates on irProgramBuilder values and keeps the
@@ -478,6 +489,7 @@ type irProgramBuilder struct {
 // pipeline without re-deriving the same information.
 func (pb *irProgramBuilder) newFunction(sourceName, label string, params []string) *IRFunction {
 	fn := &IRFunction{
+		Types:      pb.prog.Types,
 		Name:       label,
 		SourceName: sourceName,
 		Params:     append([]string(nil), params...),
@@ -505,6 +517,20 @@ func (pb *irProgramBuilder) nextFuncLabel(source string) string {
 // effects or through a separate error path when one exists.
 func (pb *irProgramBuilder) appendFunction(fn *IRFunction) {
 	pb.prog.Functions = append(pb.prog.Functions, fn)
+}
+
+// typeID is the IR lowering adapter for a source annotation. The annotation is
+// parsed once at the source-to-IR boundary and all later passes carry the
+// canonical ID; no backend is permitted to parse an IR display string.
+func (pb *irProgramBuilder) typeID(text string) TypeID {
+	if pb == nil || pb.prog == nil || pb.prog.Types == nil || text == "" {
+		return 0
+	}
+	typ, err := parseStaticType(text)
+	if err != nil {
+		return 0
+	}
+	return pb.prog.Types.InternStatic(typ)
 }
 
 type irFnState struct {
@@ -848,7 +874,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		}
 		if st.Type != "" {
 			checked := b.newTemp()
-			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.Type, Args: []string{value}})
+			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.Type, TypeID: b.pb.typeID(st.Type), Args: []string{value}})
 			value = checked
 		}
 		if len(st.Names) > 0 {
@@ -952,7 +978,7 @@ func (b *irBuilder) lowerStmt(stmt Stmt) (bool, error) {
 		}
 		if b.fn.ResultType != "" {
 			checked := b.newTemp()
-			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: b.fn.ResultType, Args: []string{value}, Span: st.Span})
+			b.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: b.fn.ResultType, TypeID: b.fn.ResultTypeID, Args: []string{value}, Span: st.Span})
 			value = checked
 		}
 		b.emitCleanups()
@@ -1030,14 +1056,30 @@ func (b *irBuilder) nextLoopIndex(name string) string {
 // error is nil.
 func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 	label := b.pb.nextFuncLabel(st.Name)
+	paramTypeIDs := make([]TypeID, len(st.ParamTypes))
+	resultTypeID := b.pb.typeID(st.ReturnType)
+	if signatureID := b.pb.functionTypes[st.Span]; signatureID != 0 {
+		if signature, ok := b.pb.prog.Types.Node(signatureID); ok && signature.Kind == TypeFunction {
+			copy(paramTypeIDs, signature.Args)
+			resultTypeID = signature.Result
+		}
+	}
+	for i, typ := range st.ParamTypes {
+		if paramTypeIDs[i] == 0 {
+			paramTypeIDs[i] = b.pb.typeID(typ)
+		}
+	}
 	fn := &IRFunction{
+		Types:        b.pb.prog.Types,
 		Name:         label,
 		SourceName:   st.Name,
 		ReceiverType: st.ReceiverType,
 		Params:       append([]string(nil), st.Params...),
 		TypeParams:   typeParamNames(st.TypeParams),
 		ParamTypes:   append([]string(nil), st.ParamTypes...),
+		ParamTypeIDs: paramTypeIDs,
 		ResultType:   st.ReturnType,
+		ResultTypeID: resultTypeID,
 		Captures:     nil,
 	}
 
@@ -1070,7 +1112,7 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 			span = st.ParamSpans[i]
 		}
 		if !containsGenericTypeName(st.ParamTypes[i], st.TypeParams) {
-			child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ParamTypes[i], Args: []string{child.env[param]}, Span: span})
+			child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ParamTypes[i], TypeID: fn.ParamTypeIDs[i], Args: []string{child.env[param]}, Span: span})
 			child.env[param] = checked
 		}
 	}
@@ -1084,7 +1126,7 @@ func (b *irBuilder) lowerFuncStmt(st funcStmt) (bool, error) {
 		if st.ReturnType != "" {
 			checked := child.newTemp()
 			if !containsGenericTypeName(st.ReturnType, st.TypeParams) {
-				child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ReturnType, Args: []string{result}, Span: st.ReturnTypeSpan})
+				child.emitInstr(IRInstr{Dest: checked, Op: "asserttype", Text: st.ReturnType, TypeID: fn.ResultTypeID, Args: []string{result}, Span: st.ReturnTypeSpan})
 				result = checked
 			}
 		}
@@ -1493,7 +1535,32 @@ func (b *irBuilder) evalExpr(expr Expr) (string, error) {
 		tmp := b.newTemp()
 		b.emitInstr(IRInstr{Dest: tmp, Op: "binary", Text: n.op.String(), Args: []string{left, right}})
 		return tmp, nil
+	case *lazyExpr:
+		// A Lazy body is lowered as an ordinary compiled zero-argument closure.
+		// The backend owns its once-only state; retaining no AST in IR prevents a
+		// native artifact from falling back into the interpreter when forced.
+		thunk, err := b.lowerDeferredExpr(n.Body, "lazy.value", nil)
+		if err != nil {
+			return "", err
+		}
+		tmp := b.newTemp()
+		b.emitInstr(IRInstr{Dest: tmp, Op: "lazy", Args: []string{thunk}, Span: n.Span})
+		return tmp, nil
 	case *callExpr:
+		if ident, ok := n.callee.(*identExpr); ok && ident.name == "force" {
+			if len(n.args) != 1 {
+				return "", fmt.Errorf("force expects exactly one Lazy<T> argument")
+			}
+			child := b.fork()
+			value, err := child.evalExpr(n.args[0])
+			if err != nil {
+				return "", err
+			}
+			b.block = child.block
+			tmp := b.newTemp()
+			b.emitInstr(IRInstr{Dest: tmp, Op: "force", Args: []string{value}, Span: n.Span})
+			return tmp, nil
+		}
 		if member, ok := n.callee.(*memberExpr); ok {
 			if object, ok := member.object.(*identExpr); ok {
 				if cases, ok := b.pb.enums[object.name]; ok {

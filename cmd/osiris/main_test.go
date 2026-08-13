@@ -21,7 +21,7 @@ func TestVersionReportsActionableProvenance(t *testing.T) {
 	if code := execute(context.Background(), []string{"version"}, &stdout, &stderr); code != cliExitSuccess {
 		t.Fatalf("version exit = %d, stderr = %s", code, stderr.String())
 	}
-	for _, field := range []string{"osiris ", "commit:", "built:", "go:", "target:"} {
+	for _, field := range []string{"osiris ", "semantics: " + osiris.CoreSemanticsVersion, "commit:", "built:", "go:", "target:"} {
 		if !strings.Contains(stdout.String(), field) {
 			t.Fatalf("version output lacks %q: %s", field, stdout.String())
 		}

@@ -128,7 +128,11 @@ func (h *HeapInspector) Binding(name string) (HeapBinding, bool) {
 	if !ok {
 		return HeapBinding{}, false
 	}
-	v, err := h.sess.eval(b.expr, b.env)
+	v, stored := storedBindingValue(b)
+	var err error
+	if !stored {
+		v, err = h.sess.eval(b.expr, b.env)
+	}
 	if err != nil {
 		return HeapBinding{Name: name, Value: "<error: " + err.Error() + ">"}, true
 	}
@@ -149,7 +153,11 @@ func (h *HeapInspector) Module(name string) (HeapModule, bool) {
 	if !ok {
 		return HeapModule{}, false
 	}
-	v, err := h.sess.eval(b.expr, b.env)
+	v, stored := storedBindingValue(b)
+	var err error
+	if !stored {
+		v, err = h.sess.eval(b.expr, b.env)
+	}
 	if err != nil {
 		return HeapModule{
 			Ref:  name,

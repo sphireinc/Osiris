@@ -60,11 +60,11 @@ func (p *AliasProgram) String() string {
 // It returns *AliasProgram and an error. Callers should only trust the value
 // when the error is nil.
 func (rt *Runtime) AnalyzeAlias(ctx context.Context, prog *Program) (*AliasProgram, error) {
-	_ = ctx
-	if prog == nil {
-		return nil, fmt.Errorf("cannot analyze aliases for nil program")
+	typed, err := rt.frontendProgram(ctx, prog)
+	if err != nil {
+		return nil, err
 	}
-	return analyzeAliasProgram(prog), nil
+	return analyzeAliasProgram(typed.resolved.expanded.program), nil
 }
 
 // FormatAliasProgram formats the alias program into a stable textual

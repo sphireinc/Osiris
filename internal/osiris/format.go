@@ -301,6 +301,12 @@ func formatExpr(expr Expr, parentPrec int) string {
 		}
 		b.WriteByte('}')
 		return b.String()
+	case *lazyExpr:
+		s := "lazy " + formatExpr(n.Body, precLowest)
+		if precLowest < parentPrec {
+			return "(" + s + ")"
+		}
+		return s
 	case *tryExpr:
 		s := "try " + formatExpr(n.body, precLowest) + " catch " + n.catchName + " " + formatExpr(n.handler, precLowest)
 		if precLowest < parentPrec {

@@ -1,0 +1,3 @@
+emit "before"
+let value = 1 / 0
+emit "after"

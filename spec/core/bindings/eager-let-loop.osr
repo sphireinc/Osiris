@@ -1,0 +1,6 @@
+var index = 0
+while index < 3 {
+  let snapshot = index
+  emit snapshot
+  index = index + 1
+}

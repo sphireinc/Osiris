@@ -1,0 +1,2 @@
+import "std/text" as text
+emit text.slug("Hello, Weird World")

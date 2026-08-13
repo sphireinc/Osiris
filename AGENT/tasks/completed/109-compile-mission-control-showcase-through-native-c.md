@@ -83,7 +83,7 @@ parity-safe lowering.
 
 Treat the checked-in showcase as the acceptance fixture. It must retain its:
 
-- six imports, macros, typed and lazy bindings;
+- six imports, macros, typed bindings, and explicit `Lazy<T>` values;
 - nominal and backed enums, guarded `match`, and `switch`;
 - recursive function, lexical captures, `for` and `while` loops;
 - three `spawn` tasks, three `await` operations, and ordered `parallel`;

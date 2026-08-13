@@ -1,0 +1,2 @@
+let value = { emit "initializer"; 5 }
+emit value

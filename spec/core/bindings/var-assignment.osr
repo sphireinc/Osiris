@@ -1,0 +1,3 @@
+var total = 1
+total = total + 1
+emit total

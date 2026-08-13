@@ -1518,11 +1518,12 @@ func (s *languageServer) inlayHintsContext(ctx context.Context, uri string, r ls
 		if err := ctx.Err(); err != nil {
 			return nil, lspRequestCancelled(err)
 		}
-		if binding.Type == "" || !lspSpanOverlapsRange(binding.Span, r, doc.text) {
+		typeName := doc.analysis.checked.DisplayType(binding, TypeFormatSource)
+		if typeName == "" || !lspSpanOverlapsRange(binding.Span, r, doc.text) {
 			continue
 		}
 		pos := s.rangeForURI(uri, binding.Span).End
-		out = append(out, lspInlayHint{Position: pos, Label: binding.Type, Kind: 1, PaddingLeft: true})
+		out = append(out, lspInlayHint{Position: pos, Label: typeName, Kind: 1, PaddingLeft: true})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Position.Line != out[j].Position.Line {

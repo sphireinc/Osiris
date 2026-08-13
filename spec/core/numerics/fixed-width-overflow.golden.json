@@ -1,0 +1,8 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "8.3",
+  "category": "numerics",
+  "output": "0u8\n",
+  "backends": {"interpreter": "required", "vm": "required", "native": "required", "wasm": "skip"},
+  "reason": "This fixture records the current fixed-width wrap contract; any checked-overflow migration must revise Core Semantics explicitly."
+}

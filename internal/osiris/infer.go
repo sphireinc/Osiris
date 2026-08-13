@@ -51,17 +51,11 @@ func (p *InferProgram) String() string {
 // It returns *InferProgram and an error. Callers should only trust the value
 // when the error is nil.
 func (rt *Runtime) InferProgram(ctx context.Context, prog *Program) (*InferProgram, error) {
-	_ = ctx
-	if prog == nil {
-		return nil, fmt.Errorf("cannot infer types for nil program")
-	}
-	if err := validateTensorShapes(prog); err != nil {
+	typed, err := rt.frontendProgram(ctx, prog)
+	if err != nil {
 		return nil, err
 	}
-	if _, err := rt.CheckProgram(ctx, prog); err != nil {
-		return nil, err
-	}
-	return inferProgram(prog), nil
+	return inferProgram(typed.resolved.expanded.program), nil
 }
 
 // FormatInferProgram formats the infer program into a stable textual

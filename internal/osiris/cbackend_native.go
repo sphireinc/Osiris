@@ -157,7 +157,7 @@ func emitCIRWithOptionsAndFFI(prog *IRProgram, options CCompileOptions, ffiPlan 
 		if fn == nil || fn.ReceiverType == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "  oregistermethod(\"%s\", \"%s\", %s_witness, \"%s\");\n", cEscapeString(fn.ReceiverType), cEscapeString(nativeWitnessMethodName(fn.SourceName)), functionNames[fn.Name], cEscapeString(irFunctionSignature(fn)))
+		fmt.Fprintf(&b, "  oregistermethod(\"%s\", \"%s\", %s_witness, \"%s\");\n", cEscapeString(fn.ReceiverType), cEscapeString(nativeWitnessMethodName(fn.SourceName)), functionNames[fn.Name], cEscapeString(irFunctionSignature(prog.Types, fn)))
 	}
 	if specialized, err := emitCScalarMain(&b, prog.Functions[0], functions); err != nil {
 		return "", err
@@ -218,7 +218,7 @@ func nativeScalarFallbackReason(fn *IRFunction) string {
 				return "list values require the tagged ABI"
 			case "enum":
 				return "enum values require the tagged ABI"
-			case "makefunc", "call":
+			case "makefunc", "call", "lazy", "force":
 				return "function or builtin call requires the tagged ABI"
 			case "builtin", "import", "member":
 				return "dynamic lookup requires the tagged ABI"
@@ -352,8 +352,8 @@ func emitCFunctionBody(b *strings.Builder, fn *IRFunction, main bool, functions 
 			continue
 		}
 		for _, in := range block.Instrs {
-			if in.Op == "asserttype" && !nativeTypeAssertionSupported(in.Text) {
-				return nativeCInstrError(programSource, in, "type assertion %q is not supported", in.Text)
+			if in.Op == "asserttype" && !nativeTypeAssertionSupported(fn.Types, in.TypeID) {
+				return nativeCInstrError(programSource, in, "type assertion %q is not supported", fn.Types.Format(in.TypeID, TypeFormatDiagnostic))
 			}
 			if in.Op == "member" && len(in.Args) == 1 {
 				path, ok := modules[in.Args[0]]
@@ -417,10 +417,18 @@ func nativeCInstrError(sourceName string, in IRInstr, format string, args ...any
 	return fmt.Errorf("native C backend: %s", message)
 }
 
-func nativeTypeAssertionSupported(name string) bool {
-	if strings.HasPrefix(name, "func(") {
+func nativeTypeAssertionSupported(types *TypeContext, id TypeID) bool {
+	if types == nil || id == 0 {
+		return false
+	}
+	node, ok := types.Node(id)
+	if !ok {
+		return false
+	}
+	if node.Kind == TypeLazy || node.Kind == TypeFunction {
 		return true
 	}
+	name := node.Name
 	switch name {
 	case "number", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
 		"f32", "f64", "string", "bool", "null", "list", "tensor", "enum",
@@ -431,7 +439,7 @@ func nativeTypeAssertionSupported(name string) bool {
 		// Named trait/interface assertions are proven by the shared checker;
 		// native values retain their concrete tagged representation and the
 		// witness table performs the dynamic method lookup.
-		return len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
+		return node.Kind == TypeNominal
 	}
 }
 
@@ -1443,7 +1451,7 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 		}
 		signature := ""
 		if target := bindings[in.Dest]; target != nil {
-			signature = irFunctionSignature(target)
+			signature = irFunctionSignature(target.Types, target)
 		}
 		target := bindings[in.Dest]
 		captureValues := make([]string, len(in.Args))
@@ -1480,6 +1488,26 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 			b.WriteString(value)
 		}
 		fmt.Fprintf(b, "}, %d, \"%s\");\n", len(in.Args), cEscapeString(signature))
+		return nil
+	case "lazy":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: lazy expects one compiled thunk")
+		}
+		thunk, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = olazy(%s);\n", vars[in.Dest], thunk)
+		return nil
+	case "force":
+		if len(in.Args) != 1 {
+			return fmt.Errorf("native C backend: force expects one Lazy value")
+		}
+		value, err := name(in.Args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "  %s = oforce(%s);\n", vars[in.Dest], value)
 		return nil
 	case "import":
 		// Static stdlib imports and members are resolved while scanning the IR
@@ -2754,31 +2782,27 @@ func emitCInstr(b *strings.Builder, in IRInstr, vars map[string]string, bindings
 	return nil
 }
 
-func irFunctionSignature(fn *IRFunction) string {
-	if fn == nil {
+func irFunctionSignature(types *TypeContext, fn *IRFunction) string {
+	if fn == nil || types == nil {
 		return ""
 	}
-	hasType := fn.ResultType != ""
-	params := make([]staticType, len(fn.Params))
+	hasType := fn.ResultTypeID != 0
+	params := make([]string, len(fn.Params))
 	for i := range params {
-		params[i] = dynamicStaticType
-		if i < len(fn.ParamTypes) && fn.ParamTypes[i] != "" {
-			if parsed, err := parseStaticType(fn.ParamTypes[i]); err == nil {
-				params[i] = parsed
-				hasType = true
-			}
-		}
-	}
-	result := dynamicStaticType
-	if fn.ResultType != "" {
-		if parsed, err := parseStaticType(fn.ResultType); err == nil {
-			result = parsed
+		params[i] = "dynamic"
+		if i < len(fn.ParamTypeIDs) && fn.ParamTypeIDs[i] != 0 {
+			params[i] = types.Format(fn.ParamTypeIDs[i], TypeFormatSource)
+			hasType = true
 		}
 	}
 	if !hasType {
 		return ""
 	}
-	return staticType{name: "func", params: params, result: &result}.String()
+	result := "dynamic"
+	if fn.ResultTypeID != 0 {
+		result = types.Format(fn.ResultTypeID, TypeFormatSource)
+	}
+	return "func(" + strings.Join(params, ", ") + ") " + result
 }
 
 func emitCTerm(b *strings.Builder, term IRTerminator, blocks []*IRBlock, vars map[string]string, main bool, cellByValue map[string]string) error {
@@ -4632,7 +4656,7 @@ func cRuntimePrelude() string {
 #include <unistd.h>
 #endif
 
-typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_DUAL, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_CELL, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_OPTION, O_TASK, O_BYTES, O_MAP, O_PRODUCT, O_FFI, O_RESOURCE } OKind;
+typedef enum { O_NULL, O_BOOL, O_UINT, O_INT, O_FLOAT, O_COMPLEX, O_DUAL, O_STRING, O_LIST, O_TENSOR, O_COMPLEX_TENSOR, O_CLOSURE, O_LAZY, O_CELL, O_ENUM, O_DECIMAL, O_BIGINT, O_QUANTITY, O_DATETIME, O_DURATION, O_ERROR, O_RESULT, O_OPTION, O_TASK, O_BYTES, O_MAP, O_PRODUCT, O_FFI, O_RESOURCE } OKind;
 typedef struct OValue OValue;
 typedef struct OTask OTask;
 typedef struct OCell OCell;
@@ -4667,16 +4691,18 @@ typedef struct { double magnitude; OString unit; } OQuantity;
 typedef struct { int64_t seconds; int32_t nanosecond; } ODatetime;
 typedef struct { OValue *value; } OBox;
 typedef struct { void *handle; } OFFILibrary;
+typedef struct OLazy OLazy;
 typedef struct OAlloc { void *ptr; struct OAlloc *next; } OAlloc;
 typedef enum { O_LINALG_OK = 0, O_LINALG_INVALID_ARGUMENT, O_LINALG_NOT_CONVERGED, O_LINALG_NO_MEMORY, O_LINALG_UNAVAILABLE } OLinalgStatus;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); } OLinalgProviderV1;
 typedef struct { unsigned abi_version; OLinalgStatus (*eigh_f64)(size_t, double *, double *, double *); OLinalgStatus (*svd_f64)(size_t, size_t, double *, double *, double *, double *); OLinalgStatus (*eig_f64)(size_t, double *, OComplex *, OComplex *); } OLinalgProviderV2;
 extern const OLinalgProviderV1 *osiris_linalg_provider_v1(void);
-struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OCell *cell; OEnum en; OError error; OQuantity quantity; ODatetime datetime; OBox box; OTask *task; OMap *map; OProduct product; OFFILibrary ffi; void *resource; } as; };
+struct OValue { OKind kind; uint16_t fbits; union { int b; uint64_t u; int64_t i; double f; OComplex cx; ODual dual; OString s; OList list; OTensor tensor; OComplexTensor ctensor; OClosure closure; OLazy *lazy; OCell *cell; OEnum en; OError error; OQuantity quantity; ODatetime datetime; OBox box; OTask *task; OMap *map; OProduct product; OFFILibrary ffi; void *resource; } as; };
 typedef struct { OString key; OValue value; } OMapEntry;
 struct OMap { OMapEntry *entries; size_t len; };
 struct OCell { OValue value; };
 struct OTask { OValue thunk; OValue result; OValue error; int state; int failed; };
+struct OLazy { OValue thunk; OValue value; const char *error_message; int state; };
 static OValue ofail(const char *message);
 static OValue obin(const char *op, OValue a, OValue b);
 static void oprintdatetime(OValue value);
@@ -4755,10 +4781,12 @@ static OValue oenumpayload(OValue value, size_t index) { return value.kind==O_EN
 static OValue olistis(OValue value, size_t count) { return obool(value.kind==O_LIST&&value.as.list.len==count); }
 static OValue olistitem(OValue value, size_t index) { return value.kind==O_LIST&&index<value.as.list.len?value.as.list.items[index]:ofail("list pattern index out of range"); }
 static OValue olistatunchecked(OValue value, OValue index) { return value.as.list.items[(size_t)index.as.f]; }
-static OValue omatchtype(OValue value, const char *name) { if(!strcmp(name,"number")) return obool(value.kind==O_FLOAT||value.kind==O_INT||value.kind==O_UINT); if(!strcmp(name,"integer")||!strcmp(name,"int")) return obool(value.kind==O_INT||value.kind==O_UINT); if(!strcmp(name,"string")) return obool(value.kind==O_STRING); if(!strcmp(name,"list")) return obool(value.kind==O_LIST); if(!strcmp(name,"tensor")) return obool(value.kind==O_TENSOR||value.kind==O_COMPLEX_TENSOR); if(!strcmp(name,"bool")) return obool(value.kind==O_BOOL); if(!strcmp(name,"null")) return obool(value.kind==O_NULL); if(!strcmp(name,"enum")) return obool(value.kind==O_ENUM); if(!strcmp(name,"function")) return obool(value.kind==O_CLOSURE); if(!strcmp(name,"result")) return obool(value.kind==O_RESULT); if(!strcmp(name,"option")) return obool(value.kind==O_OPTION); if(!strcmp(name,"task")) return obool(value.kind==O_TASK); return obool(0); }
-static OValue oasserttype(OValue value, const char *name) { int ok=0, known=1; if(!strcmp(name,"number")) ok=value.kind==O_FLOAT; else if(!strcmp(name,"u8")) ok=value.kind==O_UINT&&value.fbits==8; else if(!strcmp(name,"u16")) ok=value.kind==O_UINT&&value.fbits==16; else if(!strcmp(name,"u32")) ok=value.kind==O_UINT&&value.fbits==32; else if(!strcmp(name,"u64")) ok=value.kind==O_UINT&&value.fbits==64; else if(!strcmp(name,"i8")) ok=value.kind==O_INT&&value.fbits==8; else if(!strcmp(name,"i16")) ok=value.kind==O_INT&&value.fbits==16; else if(!strcmp(name,"i32")) ok=value.kind==O_INT&&value.fbits==32; else if(!strcmp(name,"i64")) ok=value.kind==O_INT&&value.fbits==64; else if(!strcmp(name,"f32")) ok=value.kind==O_FLOAT&&value.fbits==32; else if(!strcmp(name,"f64")) ok=value.kind==O_FLOAT&&value.fbits==64; else if(!strcmp(name,"string")) ok=value.kind==O_STRING; else if(!strcmp(name,"bool")) ok=value.kind==O_BOOL; else if(!strcmp(name,"null")) ok=value.kind==O_NULL; else if(!strcmp(name,"list")) ok=value.kind==O_LIST; else if(!strcmp(name,"tensor")) ok=value.kind==O_TENSOR||value.kind==O_COMPLEX_TENSOR; else if(!strcmp(name,"enum")) ok=value.kind==O_ENUM; else if(!strcmp(name,"function")) ok=value.kind==O_CLOSURE; else if(!strcmp(name,"complex")) ok=value.kind==O_COMPLEX; else if(!strcmp(name,"decimal")) ok=value.kind==O_DECIMAL; else if(!strcmp(name,"bigint")) ok=value.kind==O_BIGINT; else if(!strcmp(name,"quantity")) ok=value.kind==O_QUANTITY; else if(!strcmp(name,"datetime")) ok=value.kind==O_DATETIME; else if(!strcmp(name,"duration")) ok=value.kind==O_DURATION; else if(!strcmp(name,"error")) ok=value.kind==O_ERROR; else if(!strcmp(name,"result")) ok=value.kind==O_RESULT; else if(!strcmp(name,"option")) ok=value.kind==O_OPTION; else if(!strcmp(name,"task")) ok=value.kind==O_TASK; else if(!strncmp(name,"func(",5)) ok=value.kind==O_CLOSURE&&value.as.closure.signature&&strcmp(value.as.closure.signature,name)==0; else known=0; return ok||(!known&&name[0]>='A'&&name[0]<='Z')?value:ofail("binding type assertion failed"); }
+static OValue omatchtype(OValue value, const char *name) { if(!strcmp(name,"number")) return obool(value.kind==O_FLOAT||value.kind==O_INT||value.kind==O_UINT); if(!strcmp(name,"integer")||!strcmp(name,"int")) return obool(value.kind==O_INT||value.kind==O_UINT); if(!strcmp(name,"string")) return obool(value.kind==O_STRING); if(!strcmp(name,"list")) return obool(value.kind==O_LIST); if(!strcmp(name,"tensor")) return obool(value.kind==O_TENSOR||value.kind==O_COMPLEX_TENSOR); if(!strcmp(name,"bool")) return obool(value.kind==O_BOOL); if(!strcmp(name,"null")) return obool(value.kind==O_NULL); if(!strcmp(name,"enum")) return obool(value.kind==O_ENUM); if(!strcmp(name,"function")) return obool(value.kind==O_CLOSURE); if(!strcmp(name,"Lazy")||!strncmp(name,"Lazy<",5)) return obool(value.kind==O_LAZY); if(!strcmp(name,"result")) return obool(value.kind==O_RESULT); if(!strcmp(name,"option")) return obool(value.kind==O_OPTION); if(!strcmp(name,"task")) return obool(value.kind==O_TASK); return obool(0); }
+static OValue oasserttype(OValue value, const char *name) { int ok=0, known=1; if(!strcmp(name,"number")) ok=value.kind==O_FLOAT; else if(!strcmp(name,"u8")) ok=value.kind==O_UINT&&value.fbits==8; else if(!strcmp(name,"u16")) ok=value.kind==O_UINT&&value.fbits==16; else if(!strcmp(name,"u32")) ok=value.kind==O_UINT&&value.fbits==32; else if(!strcmp(name,"u64")) ok=value.kind==O_UINT&&value.fbits==64; else if(!strcmp(name,"i8")) ok=value.kind==O_INT&&value.fbits==8; else if(!strcmp(name,"i16")) ok=value.kind==O_INT&&value.fbits==16; else if(!strcmp(name,"i32")) ok=value.kind==O_INT&&value.fbits==32; else if(!strcmp(name,"i64")) ok=value.kind==O_INT&&value.fbits==64; else if(!strcmp(name,"f32")) ok=value.kind==O_FLOAT&&value.fbits==32; else if(!strcmp(name,"f64")) ok=value.kind==O_FLOAT&&value.fbits==64; else if(!strcmp(name,"string")) ok=value.kind==O_STRING; else if(!strcmp(name,"bool")) ok=value.kind==O_BOOL; else if(!strcmp(name,"null")) ok=value.kind==O_NULL; else if(!strcmp(name,"list")) ok=value.kind==O_LIST; else if(!strcmp(name,"tensor")) ok=value.kind==O_TENSOR||value.kind==O_COMPLEX_TENSOR; else if(!strcmp(name,"enum")) ok=value.kind==O_ENUM; else if(!strcmp(name,"function")) ok=value.kind==O_CLOSURE; else if(!strcmp(name,"complex")) ok=value.kind==O_COMPLEX; else if(!strcmp(name,"decimal")) ok=value.kind==O_DECIMAL; else if(!strcmp(name,"bigint")) ok=value.kind==O_BIGINT; else if(!strcmp(name,"quantity")) ok=value.kind==O_QUANTITY; else if(!strcmp(name,"datetime")) ok=value.kind==O_DATETIME; else if(!strcmp(name,"duration")) ok=value.kind==O_DURATION; else if(!strcmp(name,"error")) ok=value.kind==O_ERROR; else if(!strcmp(name,"result")) ok=value.kind==O_RESULT; else if(!strcmp(name,"option")) ok=value.kind==O_OPTION; else if(!strcmp(name,"task")) ok=value.kind==O_TASK; else if(!strncmp(name,"Lazy<",5)) ok=value.kind==O_LAZY; else if(!strncmp(name,"func(",5)) ok=value.kind==O_CLOSURE&&value.as.closure.signature&&strcmp(value.as.closure.signature,name)==0; else known=0; return ok||(!known&&name[0]>='A'&&name[0]<='Z')?value:ofail("binding type assertion failed"); }
 static OValue oclosure(OCall call, const OValue *captures, size_t capture_count, const char *signature) { if(!call) return ofail("invalid closure"); if(capture_count==0) return (OValue){O_CLOSURE,0,{.closure={call,NULL,0,signature}}}; if(capture_count>SIZE_MAX/sizeof(OValue)) return ofail("closure captures are too large"); OValue *data=(OValue *)malloc(capture_count*sizeof(OValue)); OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!data||!node) { free(data); free(node); return ofail("out of memory"); } memcpy(data,captures,capture_count*sizeof(OValue)); node->ptr=data; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return (OValue){O_CLOSURE,0,{.closure={call,data,capture_count,signature}}}; }
 static OValue ocall(OValue fn, const OValue *args, size_t argc) { if(fn.kind!=O_CLOSURE||!fn.as.closure.call) return ofail("value is not callable"); return fn.as.closure.call(args,argc,fn.as.closure.captures,fn.as.closure.capture_count); }
+static OValue olazy(OValue thunk) { if(thunk.kind!=O_CLOSURE) return ofail("lazy requires a compiled closure"); OLazy *lazy=(OLazy *)calloc(1,sizeof(OLazy)); if(!lazy||!otrack(lazy)) { free(lazy); return ofail("out of memory"); } lazy->thunk=thunk; lazy->value=onull(); return (OValue){O_LAZY,0,{.lazy=lazy}}; }
+static OValue oforce(OValue lazy_value) { if(lazy_value.kind!=O_LAZY||!lazy_value.as.lazy) return ofail("force expects Lazy<T>"); OLazy *lazy=lazy_value.as.lazy; if(lazy->state==2) return lazy->value; if(lazy->state==3) return ofail(lazy->error_message?lazy->error_message:"lazy initializer failed"); if(lazy->state==1) return ofail("LazyCycle: recursive force of the same Lazy value"); lazy->state=1; OValue value=ocall(lazy->thunk,NULL,0); if(ohaderror) { lazy->state=3; lazy->error_message=oerrormessage; return onull(); } lazy->value=value; lazy->state=2; return value; }
 static int otrack(void *ptr) { if(!ptr) return 1; OAlloc *node=(OAlloc *)malloc(sizeof(OAlloc)); if(!node) return 0; node->ptr=ptr; node->next=oallocs; oallocs=node; static int registered=0; if(!registered) { atexit(ofreeallocs); registered=1; } return 1; }
 static OValue oexacttext(OKind kind, OValue text) {
   if(text.kind!=O_STRING||text.as.s.len==0) return ofail(kind==O_DECIMAL?"dec expects a non-empty string":"bigint expects a non-empty string");

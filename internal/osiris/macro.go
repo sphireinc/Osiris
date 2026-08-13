@@ -239,17 +239,6 @@ func (s *Session) registerMacro(name string, params []string, body Expr) error {
 	return nil
 }
 
-// ExpandProgram operates on Session values and keeps the session-specific
-// behavior attached to the receiver so callers can use the method as the
-// natural entry point for that data structure.
-//
-// It returns *Program and an error. Callers should only trust the value when
-// the error is nil.
-func (s *Session) ExpandProgram(prog *Program) (*Program, error) {
-	expanded, _, err := s.expandProgramWithStack(prog, s.moduleStack)
-	return expanded, err
-}
-
 func (s *Session) expandProgramWithStack(prog *Program, stack []string) (*Program, map[string]*macroDef, error) {
 	exp := &macroExpander{
 		rt:         s.rt,
@@ -262,22 +251,6 @@ func (s *Session) expandProgramWithStack(prog *Program, stack []string) (*Progra
 		return nil, nil, err
 	}
 	return &Program{SourceName: prog.SourceName, Statements: stmts}, defs, nil
-}
-
-// expandExpr operates on Session values and keeps the session-specific
-// behavior attached to the receiver so callers can use the method as the
-// natural entry point for that data structure.
-//
-// It returns Expr and an error. Callers should only trust the value when the
-// error is nil.
-func (s *Session) expandExpr(expr Expr, env *scope) (Expr, error) {
-	exp := &macroExpander{
-		rt:         s.rt,
-		ctx:        s.ctx,
-		sourceName: s.sourceName,
-		stack:      append([]string(nil), s.moduleStack...),
-	}
-	return exp.expandExpr(expr, env, cloneMacroDefs(s.macros), 0)
 }
 
 type seqMode uint8
@@ -496,7 +469,7 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 	}
 	switch n := expr.(type) {
 	case *literalExpr:
-		return &literalExpr{value: n.value, Span: n.Span}, nil
+		return &literalExpr{value: n.value, Span: n.Span, defaultInteger: n.defaultInteger}, nil
 	case *identExpr:
 		return &identExpr{name: n.name, Span: n.Span}, nil
 	case *unaryExpr:
@@ -626,6 +599,12 @@ func (e *macroExpander) expandExpr(expr Expr, env *scope, defs map[string]*macro
 		return &matchExpr{subject: subject, arms: arms, Span: n.Span, keyword: n.keyword}, nil
 	case *blockExpr:
 		return e.expandBlockExpr(n, env, defs, depth+1)
+	case *lazyExpr:
+		body, err := e.expandExpr(n.Body, env, defs, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &lazyExpr{Body: body, Span: n.Span}, nil
 	case *tryExpr:
 		body, err := e.expandExpr(n.body, env, defs, depth+1)
 		if err != nil {
@@ -1040,7 +1019,7 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 	}
 	switch n := expr.(type) {
 	case *literalExpr:
-		return &literalExpr{value: n.value}, nil
+		return &literalExpr{value: n.value, Span: n.Span, defaultInteger: n.defaultInteger}, nil
 	case *identExpr:
 		if idx, ok := params[n.name]; ok {
 			return cloneExpr(args[idx]), nil
@@ -1144,6 +1123,12 @@ func (e *macroExpander) expandTemplateExpr(expr Expr, env *scope, defs map[strin
 		return &matchExpr{subject: subject, arms: arms}, nil
 	case *blockExpr:
 		return e.expandTemplateBlock(n, env, defs, params, args, renames, depth+1)
+	case *lazyExpr:
+		body, err := e.expandTemplateExpr(n.Body, env, defs, params, args, renames, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		return &lazyExpr{Body: body, Span: n.Span}, nil
 	case *tryExpr:
 		body, err := e.expandTemplateExpr(n.body, env, defs, params, args, renames, depth+1)
 		if err != nil {

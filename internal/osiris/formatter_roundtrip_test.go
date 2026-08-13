@@ -408,6 +408,8 @@ func formatterSemanticExpr(expression Expr) any {
 			statements[i] = formatterSemanticStmt(statement)
 		}
 		return map[string]any{"kind": "block", "statements": statements, "tail": formatterSemanticExpr(expression.tail)}
+	case *lazyExpr:
+		return map[string]any{"kind": "lazy", "body": formatterSemanticExpr(expression.Body)}
 	case *tryExpr:
 		return map[string]any{"kind": "try", "body": formatterSemanticExpr(expression.body), "catch": expression.catchName, "handler": formatterSemanticExpr(expression.handler)}
 	case *propagateExpr:

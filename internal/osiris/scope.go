@@ -4,10 +4,35 @@ package osiris
 // small component separates shared name-resolution state from evaluator,
 // session, macro, match, and bytecode execution machinery.
 type binding struct {
-	expr    Expr
-	env     *scope
+	expr Expr
+	env  *scope
+	// value is populated for eager immutable declarations. expr/env remain for
+	// functions, imports, and transitional compiler-owned bindings that are not
+	// ordinary lets.
+	value   *Value
 	cell    *bindingCell
 	mutable bool
+}
+
+func eagerBinding(value Value) binding {
+	// Keep the literal expression as metadata for legacy analyzers/fingerprint
+	// passes while lookup itself returns value directly. It is not a deferred
+	// initializer AST or captured lexical environment.
+	return binding{expr: &literalExpr{value: value}, value: &value}
+}
+
+// storedBindingValue returns the value already owned by an eager binding or
+// mutable cell. Runtime inspection and export paths must use it before any
+// legacy compiler-owned expression metadata so ordinary lets can never be
+// re-evaluated through tooling.
+func storedBindingValue(b binding) (Value, bool) {
+	if b.cell != nil {
+		return b.cell.value, true
+	}
+	if b.value != nil {
+		return *b.value, true
+	}
+	return Value{}, false
 }
 
 type bindingCell struct{ value Value }
@@ -38,6 +63,10 @@ func cloneScope(s *scope) *scope {
 		b.env = parent
 		if b.cell != nil {
 			b.cell = &bindingCell{value: b.cell.value}
+		}
+		if b.value != nil {
+			value := *b.value
+			b.value = &value
 		}
 		clone.items[name] = b
 	}

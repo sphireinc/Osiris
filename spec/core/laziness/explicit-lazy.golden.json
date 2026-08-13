@@ -1,0 +1,8 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "3.1",
+  "category": "laziness",
+  "output": "7u64\n",
+  "backends": {"interpreter": "required", "vm": "required", "native": "required", "wasm": "skip"},
+  "reason": "WASM lowering does not yet implement compiled Lazy thunks."
+}

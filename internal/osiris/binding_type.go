@@ -42,7 +42,7 @@ func checkBindingType(name string, value Value, allowDefaultInteger bool) (Value
 			return nullValue(), err
 		}
 		actual := staticTypeFromValue(value)
-		if staticTypesEqual(expected, actual) {
+		if runtimeStaticTypesEqual(expected, actual) {
 			return value, nil
 		}
 		return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", name, name, actual.String())
@@ -82,12 +82,96 @@ func checkBindingType(name string, value Value, allowDefaultInteger bool) (Value
 	return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", name, name, value.Kind())
 }
 
+// checkBindingTypeID is the compiled-backend assertion adapter. It consumes a
+// canonical type node directly: no formatter output is reparsed to recover
+// semantic type information. Text remains only for an error message.
+func checkBindingTypeID(types *TypeContext, id TypeID, value Value, allowDefaultInteger bool) (Value, error) {
+	if types == nil || id == 0 {
+		return nullValue(), fmt.Errorf("invalid canonical binding type")
+	}
+	node, ok := types.Node(id)
+	if !ok {
+		return nullValue(), fmt.Errorf("unknown canonical binding type")
+	}
+	if node.Kind == TypeDynamic {
+		return value, nil
+	}
+	if allowDefaultInteger && node.Kind == TypePrimitive {
+		if converted, err := checkBindingType(node.Name, value, true); err == nil {
+			return converted, nil
+		}
+	}
+	if node.Kind == TypeNominal && value.kind == kindStruct {
+		// Nominal struct/newtype assertions were established by the checker;
+		// retain the concrete value without rebuilding a host wrapper.
+		return value, nil
+	}
+	if runtimeValueMatchesTypeID(types, id, value) {
+		return value, nil
+	}
+	return nullValue(), fmt.Errorf("binding type %s requires %s, got %s", types.Format(id, TypeFormatDiagnostic), types.Format(id, TypeFormatDiagnostic), staticTypeFromValue(value).String())
+}
+
+func runtimeValueMatchesTypeID(types *TypeContext, id TypeID, value Value) bool {
+	node, ok := types.Node(id)
+	if !ok || node.Kind == TypeInvalid {
+		return false
+	}
+	if node.Kind == TypeDynamic {
+		return true
+	}
+	if node.Kind == TypeLazy {
+		return value.kind == kindLazy
+	}
+	if len(node.Args) == 0 {
+		switch node.Kind {
+		case TypeList, TypeTuple, TypeMap, TypeSet, TypeOption, TypeResult, TypeTask:
+			return bindingTypeMatches(node.Name, value)
+		}
+	}
+	if node.Kind == TypePrimitive {
+		return bindingTypeMatches(node.Name, value)
+	}
+	actual := staticTypeFromValue(value)
+	return runtimeStaticTypeMatchesID(types, id, actual)
+}
+
+func runtimeStaticTypeMatchesID(types *TypeContext, id TypeID, actual staticType) bool {
+	node, ok := types.Node(id)
+	if !ok || node.Kind == TypeInvalid {
+		return false
+	}
+	if node.Kind == TypeDynamic {
+		return true
+	}
+	if node.Kind == TypeFunction {
+		if !actual.isFunction() || len(node.Args) != len(actual.params) || node.Result == 0 || actual.result == nil {
+			return false
+		}
+		for i, parameter := range node.Args {
+			if !runtimeStaticTypeMatchesID(types, parameter, actual.params[i]) {
+				return false
+			}
+		}
+		return runtimeStaticTypeMatchesID(types, node.Result, *actual.result)
+	}
+	if node.Name != actual.name || len(node.Args) != len(actual.params) {
+		return false
+	}
+	for i, child := range node.Args {
+		if !runtimeStaticTypeMatchesID(types, child, actual.params[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func runtimeStaticTypeMatches(expected, actual staticType) bool {
 	if expected.isDynamic() || actual.isDynamic() {
 		return true
 	}
 	if expected.isFunction() {
-		return actual.isFunction() && staticTypesEqual(expected, actual)
+		return actual.isFunction() && runtimeStaticTypesEqual(expected, actual)
 	}
 	if expected.name != actual.name || len(expected.params) != len(actual.params) {
 		return false

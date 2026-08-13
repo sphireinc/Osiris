@@ -1,0 +1,5 @@
+var calls = 0
+let delayed = lazy { calls = calls + 1; calls }
+emit force(delayed)
+emit force(delayed)
+emit calls

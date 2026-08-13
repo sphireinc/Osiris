@@ -42,13 +42,18 @@ func CompileGPU(ctx context.Context, prog *Program) (GPUArtifact, error) {
 	if prog == nil {
 		return GPUArtifact{}, fmt.Errorf("GPU compile: nil program")
 	}
-	if err := ValidateGPUProgram(prog); err != nil {
+	runtime := NewRuntime()
+	typed, err := runtime.frontendProgram(ctx, prog)
+	if err != nil {
 		return GPUArtifact{}, err
 	}
-	if _, err := NewRuntime().BuildIR(ctx, prog); err != nil {
+	if err := ValidateGPUProgram(typed.resolved.expanded.program); err != nil {
 		return GPUArtifact{}, err
 	}
-	plan := collectGPUPlan(prog)
+	if _, err := runtime.BuildIRFromTyped(ctx, typed); err != nil {
+		return GPUArtifact{}, err
+	}
+	plan := collectGPUPlan(typed.resolved.expanded.program)
 	artifact := GPUArtifact{
 		SchemaVersion: gpuArtifactSchemaVersion,
 		ABI:           defaultGPUABI(),

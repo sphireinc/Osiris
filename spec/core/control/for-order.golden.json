@@ -1,0 +1,8 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "12.2",
+  "category": "control_flow",
+  "output": "6u64\n",
+  "backends": {"interpreter": "required", "vm": "required", "native": "required", "wasm": "skip"},
+  "reason": "WASM backend is not available yet."
+}

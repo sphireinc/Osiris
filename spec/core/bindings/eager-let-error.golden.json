@@ -1,0 +1,9 @@
+{
+  "version": "Core Semantics 1",
+  "rule": "2.1",
+  "category": "bindings",
+  "error_contains": "division by zero",
+  "native_output_contains": "\"before\"\n",
+  "backends": {"interpreter": "required", "vm": "required", "native": "required", "wasm": "skip"},
+  "reason": "WASM backend is not available yet."
+}

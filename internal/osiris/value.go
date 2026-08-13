@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type valueKind uint8
@@ -53,6 +54,7 @@ const (
 	kindDateTime
 	kindTimeLocation
 	kindOSProcess
+	kindLazy
 )
 
 type callable = Builtin
@@ -61,31 +63,41 @@ type contextCallable func(context.Context, []Value) (Value, error)
 type moduleLookup func(ctx context.Context, name string) (Value, error)
 
 type functionValue struct {
-	name           string
-	signature      string
-	typeParams     []typeParam
-	paramTypes     []string
-	returnType     string
-	builtin        callable
-	contextBuiltin contextCallable
-	params         []string
-	body           Expr
-	closure        *scope
-	group          *scope
-	predeclared    bool
-	session        *Session
-	vmBody         *vmChunk
-	vmClosure      *vmFrame
-	receiver       string
-	receiverType   string
-	boundReceiver  *Value
+	name            string
+	signature       string
+	types           *TypeContext
+	signatureTypeID TypeID
+	typeParams      []typeParam
+	paramTypes      []string
+	paramTypeIDs    []TypeID
+	returnType      string
+	returnTypeID    TypeID
+	builtin         callable
+	contextBuiltin  contextCallable
+	params          []string
+	body            Expr
+	closure         *scope
+	group           *scope
+	predeclared     bool
+	session         *Session
+	vmBody          *vmChunk
+	vmClosure       *vmFrame
+	receiver        string
+	receiverType    string
+	boundReceiver   *Value
 }
 
 // FunctionType returns the canonical static signature retained by a user
 // function value. Unannotated positions are rendered as dynamic; builtins and
 // zero-parameter functions without a return annotation return "function".
 func (v Value) FunctionType() string {
-	if v.kind != kindFunction || v.fn == nil || v.fn.signature == "" {
+	if v.kind != kindFunction || v.fn == nil {
+		return "function"
+	}
+	if v.fn.types != nil && v.fn.signatureTypeID != 0 {
+		return v.fn.types.Format(v.fn.signatureTypeID, TypeFormatSource)
+	}
+	if v.fn.signature == "" {
 		return "function"
 	}
 	return v.fn.signature
@@ -146,6 +158,30 @@ type dualValue struct {
 	primal  float64
 	tangent float64
 }
+
+// lazyValue owns one explicitly deferred source computation. It deliberately
+// holds a runtime closure rather than participating in lexical binding lookup:
+// ordinary bindings remain plain evaluated Values.
+type lazyValue struct {
+	mu        sync.Mutex
+	body      Expr
+	scope     *scope
+	evaluator *evaluator
+	done      chan struct{}
+	value     Value
+	err       error
+	state     lazyState
+	owners    map[*evaluator]struct{}
+}
+
+type lazyState uint8
+
+const (
+	lazyUnforced lazyState = iota
+	lazyForcing
+	lazyValueReady
+	lazyErrorReady
+)
 
 type mapEntry struct {
 	key   Value
@@ -210,6 +246,11 @@ type Value struct {
 	datetime    *dateTimeValue
 	location    *timeLocationValue
 	process     *osProcess
+	lazy        *lazyValue
+}
+
+func lazyValueOf(body Expr, scope *scope, ev *evaluator) Value {
+	return Value{kind: kindLazy, lazy: &lazyValue{body: body, scope: scope, evaluator: ev, owners: make(map[*evaluator]struct{})}}
 }
 
 // nullValue handles the null value step in the surrounding package and returns
@@ -543,6 +584,10 @@ func typedUserFunctionValue(name string, params, paramTypes []string, returnType
 }
 
 func typedGenericUserFunctionValue(name string, typeParams []typeParam, params, paramTypes []string, returnType string, body Expr, closure *scope, sess *Session) Value {
+	return typedGenericUserFunctionValueWithTypes(name, typeParams, params, paramTypes, returnType, body, closure, sess, nil, 0, nil, 0)
+}
+
+func typedGenericUserFunctionValueWithTypes(name string, typeParams []typeParam, params, paramTypes []string, returnType string, body Expr, closure *scope, sess *Session, types *TypeContext, signatureTypeID TypeID, paramTypeIDs []TypeID, returnTypeID TypeID) Value {
 	signature := ""
 	if len(paramTypes) > 0 || returnType != "" {
 		parts := make([]staticType, len(params))
@@ -563,15 +608,19 @@ func typedGenericUserFunctionValue(name string, typeParams []typeParam, params, 
 		signature = staticType{name: "func", params: parts, result: &result}.String()
 	}
 	return Value{kind: kindFunction, fn: &functionValue{
-		name:       name,
-		signature:  signature,
-		typeParams: append([]typeParam(nil), typeParams...),
-		paramTypes: append([]string(nil), paramTypes...),
-		returnType: returnType,
-		params:     append([]string(nil), params...),
-		body:       body,
-		closure:    closure,
-		session:    sess,
+		name:            name,
+		signature:       signature,
+		types:           types,
+		signatureTypeID: signatureTypeID,
+		typeParams:      append([]typeParam(nil), typeParams...),
+		paramTypes:      append([]string(nil), paramTypes...),
+		paramTypeIDs:    append([]TypeID(nil), paramTypeIDs...),
+		returnType:      returnType,
+		returnTypeID:    returnTypeID,
+		params:          append([]string(nil), params...),
+		body:            body,
+		closure:         closure,
+		session:         sess,
 	}}
 }
 
@@ -582,6 +631,7 @@ func bindMethodReceiver(method, receiver Value) Value {
 	copyFn := *method.fn
 	copyFn.params = append([]string{copyFn.receiver}, copyFn.params...)
 	copyFn.paramTypes = append([]string{""}, copyFn.paramTypes...)
+	copyFn.paramTypeIDs = append([]TypeID{0}, copyFn.paramTypeIDs...)
 	copyFn.boundReceiver = &receiver
 	return Value{kind: kindFunction, fn: &copyFn}
 }
@@ -601,7 +651,13 @@ func checkFunctionArguments(fn *functionValue, args []Value) ([]Value, error) {
 		if fn.hasGenericType(typeName) {
 			continue
 		}
-		value, err := checkBindingType(typeName, checked[i], false)
+		var value Value
+		var err error
+		if fn.types != nil && i < len(fn.paramTypeIDs) && fn.paramTypeIDs[i] != 0 {
+			value, err = checkBindingTypeID(fn.types, fn.paramTypeIDs[i], checked[i], false)
+		} else {
+			value, err = checkBindingType(typeName, checked[i], false)
+		}
 		if err != nil {
 			actual := staticTypeFromValue(checked[i]).String()
 			return nil, fmt.Errorf("function %s argument %d requires %s, got %s", fn.name, i+1, typeName, actual)
@@ -618,7 +674,13 @@ func checkFunctionResult(fn *functionValue, value Value) (Value, error) {
 	if fn.hasGenericType(fn.returnType) {
 		return value, nil
 	}
-	checked, err := checkBindingType(fn.returnType, value, false)
+	var checked Value
+	var err error
+	if fn.types != nil && fn.returnTypeID != 0 {
+		checked, err = checkBindingTypeID(fn.types, fn.returnTypeID, value, false)
+	} else {
+		checked, err = checkBindingType(fn.returnType, value, false)
+	}
 	if err != nil {
 		return nullValue(), fmt.Errorf("function %s returns %s, requires %s", fn.name, staticTypeFromValue(value).String(), fn.returnType)
 	}
@@ -715,6 +777,9 @@ func (v Value) Kind() string {
 	}
 	if v.kind == kindFuture {
 		return futureTypeString(v.future)
+	}
+	if v.kind == kindLazy {
+		return "Lazy"
 	}
 	if v.kind == kindTCPListener {
 		return "tcp_listener"
@@ -836,6 +901,8 @@ func (k valueKind) String() string {
 		return "location"
 	case kindOSProcess:
 		return "os_process"
+	case kindLazy:
+		return "Lazy"
 	default:
 		return "<?>"
 	}
@@ -922,6 +989,8 @@ func (v Value) Truthy() bool {
 		return len(v.tuple) != 0
 	case kindFuture:
 		return v.future != nil && len(v.future.data) != 0
+	case kindLazy:
+		return v.lazy != nil
 	default:
 		return false
 	}
@@ -2101,6 +2170,22 @@ func (v Value) String() string {
 			items[i] = v.future.data[i].String()
 		}
 		return futureTypeString(v.future) + "(" + strings.Join(items, ", ") + ")"
+	case kindLazy:
+		if v.lazy == nil {
+			return "lazy<?>"
+		}
+		v.lazy.mu.Lock()
+		defer v.lazy.mu.Unlock()
+		switch v.lazy.state {
+		case lazyValueReady:
+			return "lazy<value>"
+		case lazyErrorReady:
+			return "lazy<error>"
+		case lazyForcing:
+			return "lazy<forcing>"
+		default:
+			return "lazy<unforced>"
+		}
 	case kindTCPListener:
 		if v.listener == nil {
 			return "<tcp-listener>"

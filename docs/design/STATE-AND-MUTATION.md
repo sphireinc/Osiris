@@ -1,5 +1,9 @@
 # Deterministic state and mutation
 
+> **Normative authority:** this document expands binding behavior defined by
+> [Core Semantics 1](SEMANTICS-CORE.md), Rules 2, 4, 6, 11, and 16. Where an
+> older implementation disagrees, Core Semantics 1 is the migration target.
+
 A deliberately small state model keeps the language value-oriented. It remains
 value-oriented: `const` and `let` bindings, function parameters, structs,
 tuples, and collections are immutable values. A program may opt into
@@ -22,6 +26,21 @@ emit total
   runtime call, task, I/O, or mutable binding.
 - `let` is an immutable runtime binding. Its initializer is evaluated once at
   declaration time and may depend on runtime values and function calls.
+
+When execution reaches a `let` declaration, Osiris evaluates the initializer
+exactly once before creating the immutable binding. If evaluation fails, the
+binding is not created and control follows normal error propagation.
+- `lazy { expression }` is the only deferred binding form. It produces a
+  type-visible `Lazy<T>` without evaluating its body. `force(value)` is the
+  only forcing operation; it evaluates once, shares its terminal value or
+  language failure, detects recursive force as `LazyCycle`, and resets safely
+  after cancellation. A `Lazy<T>` is not implicitly converted to `T`, is not
+  comparable/hashable/serializable. The interpreter, bytecode VM, and native C
+  backend all lower the body to a backend-native zero-argument thunk; forcing
+  never falls back to AST interpretation.
+
+`lazy { expression }` constructs a `Lazy<T>` without evaluating `expression`;
+`force` evaluates it at most once.
 - `var name = expression` creates a mutable local cell.
 - `name = expression` is the only assignment form in this release. The target
   must resolve to a mutable local; parameters, imports, `let` names, struct
@@ -47,7 +66,7 @@ emit total
 
 ## Backend and analysis requirements
 
-The parser represents `const`, `let`, `var`, and assignment explicitly. Type
+The parser represents `const`, `let`, `var`, `lazy`, and assignment explicitly. Type
 checking records constant/mutable status, validates constant initializers, and
 rejects writes to immutable bindings before execution. The interpreter eagerly
 installs both constant and `let` values, while mutable locals use cells. The VM
@@ -72,8 +91,8 @@ paths.
 ## Migration
 
 Existing programs continue to use immutable `let`. Code that previously relied
-on shadowing should use a uniquely named `var` and explicit assignments; this
-avoids changing the meaning of closures or loop bindings. Aggregate updates
+on implicit deferred bindings must use `lazy { ... }` and `force(...)`.
+Code that previously relied on shadowing should use a uniquely named `var` and explicit assignments; this avoids changing the meaning of closures or loop bindings. Aggregate updates
 continue to use `with`, `setat`, and other value-returning builders.
 `var` is contextual rather than a globally reserved expression token, so the
 existing statistical builtin `var(...)` remains callable. At declaration

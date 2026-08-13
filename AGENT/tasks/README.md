@@ -107,8 +107,9 @@ not relax implementation, evidence, ownership, or documentation requirements.
 - Task 106 depends on task 105. Its table of contents must reuse the canonical
   ordered entry arrays rather than creating an independent UI sort.
 - Task 107 is independent of tasks 105 and 106 and takes priority as a
-  confirmed runtime correctness defect. Do not make lazy bindings globally
-  eager to fix its benchmark symptom.
+  confirmed runtime correctness defect. Ordinary `let` bindings are eager;
+  preserve explicit `Lazy<T>` semantics rather than changing them to address
+  its benchmark symptom.
 - Task 108 depends on task 107 because both touch evaluator/block execution.
   It must use a separate small emission fixture and keep the arithmetic
   benchmarks checksum-only.

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const lazyLoopStackFixture = `
+const eagerLoopStackFixture = `
 let i = 0
 let total = 0
 while i < 6000 {
@@ -24,10 +24,10 @@ while i < 6000 {
 emit total
 `
 
-func TestLazyLoopBindingBoundedStackSubprocess(t *testing.T) {
-	if mode := os.Getenv("OSIRIS_LAZY_STACK_HELPER"); mode != "" {
+func TestEagerLoopBindingBoundedStackSubprocess(t *testing.T) {
+	if mode := os.Getenv("OSIRIS_EAGER_STACK_HELPER"); mode != "" {
 		debug.SetMaxStack(512 << 10)
-		prog, err := Parse("<lazy-stack-helper>", lazyLoopStackFixture)
+		prog, err := Parse("<eager-stack-helper>", eagerLoopStackFixture)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,8 +51,8 @@ func TestLazyLoopBindingBoundedStackSubprocess(t *testing.T) {
 
 	for _, mode := range []string{"interpreter", "vm"} {
 		t.Run(mode, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=^TestLazyLoopBindingBoundedStackSubprocess$")
-			cmd.Env = append(os.Environ(), "OSIRIS_LAZY_STACK_HELPER="+mode)
+			cmd := exec.Command(os.Args[0], "-test.run=^TestEagerLoopBindingBoundedStackSubprocess$")
+			cmd.Env = append(os.Environ(), "OSIRIS_EAGER_STACK_HELPER="+mode)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("bounded-stack helper failed: %v\n%s", err, output)
@@ -61,7 +61,7 @@ func TestLazyLoopBindingBoundedStackSubprocess(t *testing.T) {
 	}
 }
 
-func TestLazyLoopBindingParityAndScopeRetention(t *testing.T) {
+func TestEagerLoopBindingParityAndScopeRetention(t *testing.T) {
 	fixtures := []struct {
 		name   string
 		source string
@@ -145,7 +145,7 @@ emit total
 
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
-			prog, err := Parse("<lazy-loop-parity>", fixture.source)
+			prog, err := Parse("<eager-loop-parity>", fixture.source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,28 +170,23 @@ emit total
 	}
 }
 
-func TestLazyUnusedExpressionsRemainUnevaluated(t *testing.T) {
+func TestOrdinaryLetInitializersAreEager(t *testing.T) {
 	rt := NewRuntime()
 	rt.SetTaskTrace(true)
-	prog, err := Parse("<lazy-unused>", `
+	prog, err := Parse("<eager-let>", `
+emit "before"
 let unused_error = 1 / 0
-let unused_task = spawn(41)
-let unused_cycle = missing_cycle_name
-func unused_recursive_cycle() => unused_recursive_cycle()
-emit 7
+emit "after"
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
 	out, err := rt.Run(context.Background(), prog)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "division by zero") {
+		t.Fatalf("error = %v, want eager division failure", err)
 	}
-	if got := valuesOutput(out); got != "7u64\n" {
-		t.Fatalf("output = %q", got)
-	}
-	if trace := rt.TaskTrace(); len(trace) != 0 {
-		t.Fatalf("unused task became observable: %#v", trace)
+	if got := valuesOutput(out); got != "\"before\"\n" {
+		t.Fatalf("output = %q, want only pre-declaration output", got)
 	}
 }
 
@@ -210,7 +205,7 @@ func (ctx *cancelAfterChecksContext) Err() error {
 	return nil
 }
 
-func TestLazyDeepEvaluationCancellationIsBoundedAndDeterministic(t *testing.T) {
+func TestEagerDeepEvaluationCancellationIsBoundedAndDeterministic(t *testing.T) {
 	const source = `
 let i = 0
 let total = 0
@@ -219,7 +214,7 @@ while i < 5000 {
   let i = i + 1
 }
 `
-	prog, err := Parse("<lazy-cancellation>", source)
+	prog, err := Parse("<eager-cancellation>", source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +238,7 @@ while i < 5000 {
 	}
 }
 
-func TestLazyDeepMemoizationEvaluatesPureLeafOnce(t *testing.T) {
+func TestEvaluatorMemoizationEvaluatesPureLeafOnce(t *testing.T) {
 	var calls atomic.Int64
 	rt := NewRuntime()
 	rt.Builtins["seed"] = func(args []Value) (Value, error) {
@@ -253,7 +248,7 @@ func TestLazyDeepMemoizationEvaluatesPureLeafOnce(t *testing.T) {
 		calls.Add(1)
 		return uintValue(1, 64), nil
 	}
-	prog, err := Parse("<lazy-memoization>", `
+	prog, err := Parse("<eager-memoization>", `
 let i = 0
 let total = seed()
 while i < 1000 {
@@ -278,8 +273,8 @@ emit total
 	}
 }
 
-func TestLazyDeepConcurrentDemandSharesMemoizedValue(t *testing.T) {
-	prog, err := Parse("<lazy-concurrent>", `
+func TestEvaluatorMemoizationSharesConcurrentRead(t *testing.T) {
+	prog, err := Parse("<eager-concurrent>", `
 let i = 0
 let total = 0
 while i < 2000 {
@@ -327,29 +322,7 @@ while i < 2000 {
 	}
 }
 
-func TestLazyBindingCycleHasStableFingerprintAndDemandedError(t *testing.T) {
-	expression := &identExpr{name: "cycle"}
-	cycleScope := &scope{items: make(map[string]binding)}
-	cycleScope.items["cycle"] = binding{expr: expression, env: cycleScope}
-	evaluator := NewSession(NewRuntime(), context.Background(), "<lazy-cycle>").ev
-
-	first, err := evaluator.fingerprint(expression, cycleScope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := evaluator.fingerprint(expression, cycleScope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("cycle fingerprints differ: %q, %q", first, second)
-	}
-	if _, err := evaluator.eval(expression, cycleScope); err == nil || !strings.Contains(err.Error(), "cyclic lazy binding dependency") {
-		t.Fatalf("demanded cycle error = %v", err)
-	}
-}
-
-func TestLazyDeepDemandedErrorRetainsStructuredLocation(t *testing.T) {
+func TestEvaluatorDeepErrorRetainsStructuredLocation(t *testing.T) {
 	const source = `
 let i = 0
 let total = 0
@@ -376,9 +349,9 @@ emit fail_after(total)
 				if len(args) != 1 || args[0].String() != "499500u64" {
 					return nullValue(), fmt.Errorf("unexpected argument")
 				}
-				return nullValue(), newOsirisError(ErrorKindInvalidArgument, "demanded lazy failure")
+				return nullValue(), newOsirisError(ErrorKindInvalidArgument, "evaluator deep failure")
 			}
-			prog, err := Parse("<lazy-demanded-error>", source)
+			prog, err := Parse("<evaluator-deep-error>", source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -387,17 +360,17 @@ emit fail_after(total)
 			if !errors.As(err, &record) {
 				t.Fatalf("error is not structured: %T %v", err, err)
 			}
-			if record.kind != ErrorKindInvalidArgument || !strings.Contains(record.message, "demanded lazy failure") {
+			if record.kind != ErrorKindInvalidArgument || !strings.Contains(record.message, "evaluator deep failure") {
 				t.Fatalf("structured error = %#v", record)
 			}
-			if record.location == nil || record.location.Source != "<lazy-demanded-error>" || record.location.Span.start.line == 0 {
+			if record.location == nil || record.location.Source != "<evaluator-deep-error>" || record.location.Span.start.line == 0 {
 				t.Fatalf("structured location = %#v", record.location)
 			}
 		})
 	}
 }
 
-func TestLazyLoopNativeIRAndGeneratedCStayRuntimeDriven(t *testing.T) {
+func TestEagerLoopNativeIRAndGeneratedCStayRuntimeDriven(t *testing.T) {
 	fixtures := []struct {
 		name            string
 		source          string
@@ -434,7 +407,7 @@ emit total
 
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
-			prog, err := Parse("<lazy-native-"+fixture.name+">", fixture.source)
+			prog, err := Parse("<eager-native-"+fixture.name+">", fixture.source)
 			if err != nil {
 				t.Fatal(err)
 			}
